@@ -31,6 +31,11 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/r\//, /^\/approve\//],
         runtimeCaching: [
           {
+            urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+            handler: "NetworkOnly",
+            options: { cacheName: "frollie-no-cache" },
+          },
+          {
             urlPattern: ({ request }) => request.destination === "image",
             handler: "CacheFirst",
             options: { cacheName: "frollie-images", expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 } },
