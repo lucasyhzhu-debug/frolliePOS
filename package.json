@@ -33,8 +33,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "1.31.7",
-    "hash-wasm": "^4.12.0",
     "framer-motion": "^12.0.0",
+    "hash-wasm": "^4.12.0",
     "idb": "^8.0.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",
@@ -47,26 +47,27 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
-    "@vitest/ui": "^2.1.8",
-    "convex-test": "^0.0.34",
-    "jsdom": "^25.0.1",
-    "vitest": "^2.1.8",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react-swc": "^3.7.2",
+    "@vitest/ui": "^2.1.8",
+    "convex-test": "^0.0.34",
     "eslint": "^9.18.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.18",
+    "jsdom": "^25.0.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.20.0",
     "vite": "^6.0.7",
-    "vite-plugin-pwa": "^0.21.1"
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^2.1.8"
   }
 }

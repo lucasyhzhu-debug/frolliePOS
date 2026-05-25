@@ -12,8 +12,9 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}", "convex/**/*.test.ts"],
     environmentMatchGlobs: [
-      ["convex/**", "node"],
+      ["convex/**", "edge-runtime"],
       ["src/**", "jsdom"],
     ],
+    server: { deps: { inline: ["convex-test"] } },
   },
 });
