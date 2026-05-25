@@ -501,6 +501,7 @@ staff.shift_summary_shared
 device.activated
 device.deactivated
 device.setup_code_issued
+seed.reset
 transaction.created
 transaction.line_added
 transaction.line_removed
