@@ -498,6 +498,7 @@ staff.failed_pin
 staff.locked_out
 staff.pin_reset
 staff.shift_summary_shared
+staff.created
 device.activated
 device.deactivated
 device.setup_code_issued
