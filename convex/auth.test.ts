@@ -85,3 +85,97 @@ describe("getSession", () => {
     expect(s).toBeNull();
   });
 });
+
+describe("loginWithPin (action)", () => {
+  it("creates a session on correct PIN + logs staff.login", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Citra", "1234");
+
+    const { sessionId, role } = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
+    });
+
+    expect(role).toBe("staff");
+    const session = await t.run(async (ctx) => ctx.db.get(sessionId));
+    expect(session?.ended_at).toBeNull();
+
+    const audits = await t.query(api.audit.list, { action: "staff.login" });
+    expect(audits).toHaveLength(1);
+  });
+
+  it("idempotent — same key returns cached response + skips argon2", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Citra", "1234");
+    const key = crypto.randomUUID();
+
+    const first = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: key,
+    });
+    const second = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: key,
+    });
+    expect(second.sessionId).toBe(first.sessionId);
+
+    // Only one staff.login audit row (second call short-circuited on cache)
+    const audits = await t.query(api.audit.list, { action: "staff.login" });
+    expect(audits).toHaveLength(1);
+  });
+
+  it("rejects wrong PIN + logs staff.failed_pin + bumps fail_count", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Citra", "1234");
+
+    await expect(
+      t.action(api.authActions.loginWithPin, {
+        staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
+      })
+    ).rejects.toThrow(/INVALID_PIN/);
+
+    const attempt = await t.run(async (ctx) =>
+      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).unique()
+    );
+    expect(attempt?.fail_count).toBe(1);
+
+    const audits = await t.query(api.audit.list, { action: "staff.failed_pin" });
+    expect(audits).toHaveLength(1);
+  });
+
+  it("locks out after 3 fails for 60s", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Citra", "1234");
+
+    for (let i = 0; i < 3; i++) {
+      await t.action(api.authActions.loginWithPin, {
+        staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `wrong-${i}`,
+      }).catch(() => void 0);
+    }
+
+    // 4th attempt (even with correct PIN) should be locked out
+    await expect(
+      t.action(api.authActions.loginWithPin, {
+        staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "lockout-test",
+      })
+    ).rejects.toThrow(/LOCKED_OUT/);
+
+    const audits = await t.query(api.audit.list, { action: "staff.locked_out" });
+    expect(audits.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("logout (mutation)", () => {
+  it("sets ended_at + end_reason on the session", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Citra", "1234");
+    const { sessionId } = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "login-1",
+    });
+
+    await t.mutation(api.auth.logout, {
+      sessionId, idempotencyKey: "logout-1",
+    });
+
+    const session = await t.run(async (ctx) => ctx.db.get(sessionId));
+    expect(session?.ended_at).toBeTypeOf("number");
+    expect(session?.end_reason).toBe("manual_lock");
+  });
+});

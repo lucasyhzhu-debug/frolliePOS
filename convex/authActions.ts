@@ -59,23 +59,38 @@ export const loginWithPin = action({
     // Treat missing/deactivated staff as INVALID_PIN to avoid leaking which
     // staff records exist via timing or message variance.
     if (!staff || !staff.active) {
-      const err = new Error("INVALID_PIN") as Error & { code?: string };
-      err.code = "INVALID_PIN";
-      throw err;
+      throw new Error("INVALID_PIN");
+    }
+
+    // Pre-verify lockout check — reject cheaply before spending argon2 cycles
+    const lockState = await ctx.runQuery(internal.auth._getLockState_internal, {
+      staffId: args.staffId,
+    });
+    if (lockState.locked) {
+      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
     }
 
     const verifyOk = await argon2Verify({ password: args.pin, hash: staff.pin_hash });
 
-    try {
-      return await ctx.runMutation(internal.auth._loginCommit_internal, {
-        idempotencyKey: args.idempotencyKey,
+    if (!verifyOk) {
+      // Commit the failed attempt in its own mutation BEFORE throwing so the
+      // write survives. The action is the orchestrator that decides what to throw.
+      const result = await ctx.runMutation(internal.auth._recordFailedAttempt_internal, {
         staffId: args.staffId,
         deviceId: args.deviceId,
-        verifyOk,
       });
-    } catch (e) {
-      throw e;
+      if (result.newly_locked) {
+        throw new Error(`LOCKED_OUT:${result.seconds_remaining}`);
+      }
+      throw new Error("INVALID_PIN");
     }
+
+    // PIN verified — commit session
+    return await ctx.runMutation(internal.auth._loginCommit_internal, {
+      idempotencyKey: args.idempotencyKey,
+      staffId: args.staffId,
+      deviceId: args.deviceId,
+    });
   },
 });
 
