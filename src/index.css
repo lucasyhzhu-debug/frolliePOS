@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ────────────────────────────────────────────────────────────────
+   Frollie design tokens — mirrors product_master / Frollie Pro.
+   Source: frollie-pos design files/lucas-frollie-design-system.
+   POS is a Frollie Pro surface; Lucas portfolio tokens are excluded.
+   ──────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-frollie-50:  #F0FDFA;
+  --color-frollie-100: #CCFBF1;
+  --color-frollie-200: #99F6E4;
+  --color-frollie-300: #5EEAD4;
+  --color-frollie-400: #2DD4BF;
+  --color-frollie-500: #0D9488;
+  --color-frollie-600: #0F766E;
+  --color-frollie-700: #115E59;
+  --color-frollie-800: #134E4A;
+  --color-frollie-900: #134039;
+  --color-frollie-950: #042F2A;
+
+  --color-success:    #059669;
+  --color-success-bg: #ECFDF5;
+  --color-warning:    #D97706;
+  --color-warning-bg: #FFFBEB;
+  --color-error:      #DC2626;
+  --color-error-bg:   #FEF2F2;
+  --color-info:       #2563EB;
+  --color-info-bg:    #EFF6FF;
+
+  --color-role-admin:      #7C3AED;
+  --color-role-admin-bg:   #F5F3FF;
+  --color-role-manager:    #2563EB;
+  --color-role-manager-bg: #EFF6FF;
+  --color-role-staff:      #059669;
+  --color-role-staff-bg:   #ECFDF5;
+  --color-role-kitchen:    #EA580C;
+  --color-role-kitchen-bg: #FFF7ED;
+
+  --color-gofood:         #2D8A6E;
+  --color-gofood-light:   #EDF7F3;
+  --color-gofood-badge:   #15803D;
+  --color-grabfood:       #00B14F;
+  --color-grabfood-light: #E6F9EF;
+  --color-k3mart:         #B45309;
+  --color-k3mart-light:   #FEF3C7;
+  --color-k3mart-badge:   #D97706;
+
+  --color-station-production:        #5B7A5E;
+  --color-station-production-light:  #EEF2EE;
+  --color-station-production-medium: #D4DED5;
+  --color-station-production-accent: #3D5A3F;
+  --color-station-boxing:            #C4845C;
+  --color-station-boxing-light:      #FDF5EF;
+  --color-station-boxing-medium:     #F5E0CE;
+  --color-station-boxing-accent:     #8B5E3C;
+  --color-station-stickering:        #6B4C3B;
+  --color-station-stickering-light:  #F7F0EB;
+  --color-station-stickering-medium: #E8D8CC;
+  --color-station-stickering-accent: #4A3428;
+  --color-station-packing:           #E07856;
+  --color-station-packing-light:     #FEF2EE;
+  --color-station-packing-medium:    #F5D5C8;
+  --color-station-packing-accent:    #C55A3A;
+
+  --color-kitchen-bg:      #F8F6F3;
+  --color-kitchen-border:  #E8E2DB;
+  --color-kitchen-counter: #1A202C;
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasis: cubic-bezier(0.2, 0.9, 0.2, 1.15);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:   120ms;
+  --dur-base:   200ms;
+  --dur-slow:   320ms;
+  --dur-slower: 520ms;
+}
+
+/* shadcn/ui (new-york, stone base) — primary + ring tuned to Frollie teal */
+:root {
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.18 0.01 50);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 50);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 50);
+  --primary: oklch(0.605 0.118 184.7);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.96 0.01 80);
+  --secondary-foreground: oklch(0.22 0.02 50);
+  --muted: oklch(0.96 0.01 80);
+  --muted-foreground: oklch(0.55 0.02 50);
+  --accent: oklch(0.95 0.02 195);
+  --accent-foreground: oklch(0.22 0.02 50);
+  --destructive: oklch(0.55 0.18 25);
+  --destructive-foreground: oklch(0.98 0.01 90);
+  --border: oklch(0.92 0.01 80);
+  --input: oklch(0.92 0.01 80);
+  --ring: oklch(0.605 0.118 184.7);
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: oklch(0.14 0.01 50);
+  --foreground: oklch(0.98 0.01 90);
+  --card: oklch(0.18 0.01 50);
+  --card-foreground: oklch(0.98 0.01 90);
+  --popover: oklch(0.18 0.01 50);
+  --popover-foreground: oklch(0.98 0.01 90);
+  --primary: oklch(0.722 0.130 184.4);
+  --primary-foreground: oklch(0.14 0.01 50);
+  --secondary: oklch(0.22 0.02 50);
+  --secondary-foreground: oklch(0.98 0.01 90);
+  --muted: oklch(0.22 0.02 50);
+  --muted-foreground: oklch(0.65 0.02 50);
+  --accent: oklch(0.28 0.04 195);
+  --accent-foreground: oklch(0.98 0.01 90);
+  --destructive: oklch(0.6 0.2 25);
+  --destructive-foreground: oklch(0.98 0.01 90);
+  --border: oklch(0.28 0.02 50);
+  --input: oklch(0.28 0.02 50);
+  --ring: oklch(0.722 0.130 184.4);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
