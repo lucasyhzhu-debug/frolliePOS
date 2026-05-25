@@ -57,9 +57,11 @@ const Approve = lazy(() => import("@/routes/approve"));
 const ApprovePin = lazy(() => import("@/routes/approve/pin"));
 
 const Receipt = lazy(() => import("@/routes/receipt"));
+const Activate = lazy(() => import("@/routes/activate"));
 
 const routes: RouteObject[] = [
   // Public routes — no auth, no app shell
+  { path: "/activate", element: <Activate /> },
   { path: "/approve/:token", element: <Approve /> },
   { path: "/approve/:token/pin", element: <ApprovePin /> },
   { path: "/r/:receiptNumber", element: <Receipt /> },
