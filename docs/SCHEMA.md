@@ -408,7 +408,7 @@ Mutation dedupe table ([ADR-013](./ADR/013-idempotency-keys.md)).
 | `_id` | `Id<"pos_idempotency">` | |
 | `key` | `string` | Client-generated UUIDv4 |
 | `mutation_name` | `string` | For debugging |
-| `staff_id` | `Id<"staff">` | |
+| `staff_id` | `Id<"staff">?` | Optional — pre-auth mutations (e.g. activateDevice) leave it unset |
 | `response_blob` | `string` | JSON-serialised response |
 | `expires_at` | `number` | `created_at + 24h` |
 
@@ -500,6 +500,7 @@ staff.pin_reset
 staff.shift_summary_shared
 device.activated
 device.deactivated
+device.setup_code_issued
 transaction.created
 transaction.line_added
 transaction.line_removed

@@ -95,6 +95,39 @@ export const loginWithPin = action({
 });
 
 /**
+ * Create a new staff member. Manager session required. Hash is computed in the
+ * Node action runtime (argon2id), then committed via the internal V8 mutation.
+ * Manager check enforced inside the wrapped mutation per ADR-013 hazard note.
+ */
+export const createStaff = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    name: v.string(),
+    role: v.union(v.literal("staff"), v.literal("manager")),
+    pin: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ _id: Id<"staff">; name: string; role: "staff" | "manager" }> => {
+    if (!/^\d{4}$/.test(args.pin)) {
+      throw new Error("PIN must be exactly 4 digits");
+    }
+    const pin_hash: string = await ctx.runAction(internal.authActions._hashPin_internal, {
+      pin: args.pin,
+    });
+    return await ctx.runMutation(internal.staff._createStaffCommit_internal, {
+      idempotencyKey: args.idempotencyKey,
+      sessionId: args.sessionId,
+      name: args.name,
+      role: args.role,
+      pin_hash,
+    });
+  },
+});
+
+/**
  * Internal helper used ONLY by convex/auth.test.ts to seed staff rows with
  * real hashes. Not exposed publicly.
  */
