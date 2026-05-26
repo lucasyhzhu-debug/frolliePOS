@@ -11,7 +11,7 @@ async function seedManager(t: ReturnType<typeof convexTest>) {
 }
 
 async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: string) {
-  const { sessionId } = await t.action(api.authActions.loginWithPin, {
+  const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
     staffId, pin, deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
   });
   return sessionId;
@@ -223,7 +223,7 @@ describe("createStaff", () => {
     const mgrId = await seedManager(t);
     const mgrSession = await loginAs(t, mgrId, "9999");
 
-    const newStaff = await t.action(api.authActions.createStaff, {
+    const newStaff = await t.action(api.auth.actions.createStaff, {
       sessionId: mgrSession, name: "Citra", role: "staff", pin: "1234",
       idempotencyKey: "create-1",
     });
@@ -231,7 +231,7 @@ describe("createStaff", () => {
 
     const staffSession = await loginAs(t, newStaff._id, "1234");
     await expect(
-      t.action(api.authActions.createStaff, {
+      t.action(api.auth.actions.createStaff, {
         sessionId: staffSession, name: "Eka", role: "staff", pin: "1111",
         idempotencyKey: "create-2",
       })

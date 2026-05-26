@@ -12,7 +12,7 @@ export async function seedStaff(
   // Tests reuse the same hashing routine as production (no parallel
   // hashing impl). Route through the Node action so jsdom doesn't try
   // to evaluate it.
-  return await t.action(internal.authActions._seedHashedStaff_internal, {
+  return await t.action(internal.auth.actions._seedHashedStaff_internal, {
     name, pin, role,
   });
 }
@@ -89,7 +89,7 @@ describe("loginWithPin (action)", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
 
-    const { sessionId, role } = await t.action(api.authActions.loginWithPin, {
+    const { sessionId, role } = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
     });
 
@@ -106,10 +106,10 @@ describe("loginWithPin (action)", () => {
     const staffId = await seedStaff(t, "Citra", "1234");
     const key = crypto.randomUUID();
 
-    const first = await t.action(api.authActions.loginWithPin, {
+    const first = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: key,
     });
-    const second = await t.action(api.authActions.loginWithPin, {
+    const second = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: key,
     });
     expect(second.sessionId).toBe(first.sessionId);
@@ -124,7 +124,7 @@ describe("loginWithPin (action)", () => {
     const staffId = await seedStaff(t, "Citra", "1234");
 
     await expect(
-      t.action(api.authActions.loginWithPin, {
+      t.action(api.auth.actions.loginWithPin, {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
       })
     ).rejects.toThrow(/INVALID_PIN/);
@@ -143,14 +143,14 @@ describe("loginWithPin (action)", () => {
     const staffId = await seedStaff(t, "Citra", "1234");
 
     for (let i = 0; i < 3; i++) {
-      await t.action(api.authActions.loginWithPin, {
+      await t.action(api.auth.actions.loginWithPin, {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `wrong-${i}`,
       }).catch(() => void 0);
     }
 
     // 4th attempt (even with correct PIN) should be locked out
     await expect(
-      t.action(api.authActions.loginWithPin, {
+      t.action(api.auth.actions.loginWithPin, {
         staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "lockout-test",
       })
     ).rejects.toThrow(/LOCKED_OUT/);
@@ -164,7 +164,7 @@ describe("logout (mutation)", () => {
   it("sets ended_at + end_reason on the session", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
-    const { sessionId } = await t.action(api.authActions.loginWithPin, {
+    const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "login-1",
     });
 
@@ -188,7 +188,7 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
 
     // Trigger a lockout by failing 3 times
     for (let i = 0; i < 3; i++) {
-      await t.action(api.authActions.loginWithPin, {
+      await t.action(api.auth.actions.loginWithPin, {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix7-wrong-${i}`,
       }).catch(() => void 0);
     }
@@ -205,7 +205,7 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
     });
 
     // Now one wrong PIN — should increment from 1, NOT from 3
-    await t.action(api.authActions.loginWithPin, {
+    await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: "fix7-after-expire",
     }).catch(() => void 0);
 
@@ -259,7 +259,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
 
     // Trigger lockout
     for (let i = 0; i < 3; i++) {
-      await t.action(api.authActions.loginWithPin, {
+      await t.action(api.auth.actions.loginWithPin, {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix14-wrong-${i}`,
       }).catch(() => void 0);
     }
@@ -269,7 +269,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
     expect(auditsBefore.length).toBeGreaterThanOrEqual(1);
 
     // Probe while locked (correct PIN doesn't matter — lock blocks before verify)
-    await t.action(api.authActions.loginWithPin, {
+    await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "9999", deviceId: "dev-1", idempotencyKey: "fix14-probe-1",
     }).catch(() => void 0);
 
@@ -289,7 +289,7 @@ describe("Fix 5: cache hit with ended session triggers fresh login", () => {
     const key = "fix5-idem-key";
 
     // First login — caches the result
-    const first = await t.action(api.authActions.loginWithPin, {
+    const first = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
     });
 
@@ -299,7 +299,7 @@ describe("Fix 5: cache hit with ended session triggers fresh login", () => {
     });
 
     // Retry with the SAME key — cache is stale, should create a new session
-    const second = await t.action(api.authActions.loginWithPin, {
+    const second = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
     });
 

@@ -42,8 +42,8 @@ export const reset = internalAction({
       );
     }
 
-    const staffPinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, { pin: "0000" });
-    const mgrPinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, { pin: "9999" });
+    const staffPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, { pin: "0000" });
+    const mgrPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, { pin: "9999" });
 
     const result = await ctx.runMutation(internal.seed._reset_internal, {
       staffPinHash,

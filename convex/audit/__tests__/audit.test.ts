@@ -13,7 +13,7 @@ async function seedRegularStaff(t: ReturnType<typeof convexTest>) {
 }
 
 async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: string) {
-  const { sessionId } = await t.action(api.authActions.loginWithPin, {
+  const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
     staffId, pin, deviceId: "dev-audit", idempotencyKey: crypto.randomUUID(),
   });
   return sessionId;

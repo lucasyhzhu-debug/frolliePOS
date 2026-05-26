@@ -1,9 +1,9 @@
 "use node";
 
-import { action, internalAction } from "./_generated/server";
+import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import { internal, api } from "./_generated/api";
+import { Id } from "../_generated/dataModel";
+import { internal, api } from "../_generated/api";
 import { argon2id, argon2Verify } from "hash-wasm";
 
 const ARGON2_PARAMS = {
@@ -145,7 +145,7 @@ export const createStaff = action({
     if (!/^\d{4}$/.test(args.pin)) {
       throw new Error("PIN must be exactly 4 digits");
     }
-    const pin_hash: string = await ctx.runAction(internal.authActions._hashPin_internal, {
+    const pin_hash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });
     return await ctx.runMutation(internal.staff._createStaffCommit_internal, {
@@ -169,7 +169,7 @@ export const _seedHashedStaff_internal = internalAction({
     role: v.union(v.literal("staff"), v.literal("manager")),
   },
   handler: async (ctx, args): Promise<Id<"staff">> => {
-    const pinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, {
+    const pinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });
     const id: Id<"staff"> = await ctx.runMutation(internal.auth.internal._seedStaffCommit_internal, {
