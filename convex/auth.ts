@@ -1,7 +1,7 @@
 import { query, internalQuery, mutation, internalMutation, QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import { withIdempotency } from "./idempotency";
+import { withIdempotency } from "./idempotency/internal";
 import { logAudit } from "./audit";
 
 /**

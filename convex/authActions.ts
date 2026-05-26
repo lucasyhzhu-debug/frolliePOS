@@ -58,7 +58,7 @@ export const loginWithPin = action({
   },
   handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" }> => {
     // Short-circuit on cache hit BEFORE running argon2
-    const cached = await ctx.runQuery(internal.idempotency._lookup_internal, {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,
     });
 
