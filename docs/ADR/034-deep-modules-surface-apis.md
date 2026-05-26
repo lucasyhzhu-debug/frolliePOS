@@ -87,11 +87,15 @@ Three patterns recur across modules. They are non-negotiable.
 
 ### 1. Audit logging from any state-changing mutation
 
-Every state-changing mutation calls `audit/internal.logAudit(ctx, {...})`. This is the only sanctioned cross-module call inside a mutation. Mechanics:
+Every state-changing mutation calls `logAudit(ctx, {...})` from `convex/audit/internal.ts`. Mechanics:
 
-- `logAudit` is an `internalMutation` (NOT an `internalAction`). Convex `internalMutation` calls invoked from inside another `mutation` run **in the same transaction**. If the audit write fails for any reason, the entire mutation rolls back — the [ADR-007](./007-audit-log-append-only.md) append-only-and-always-present guarantee is preserved.
-- The existing `convex/audit.ts` file moves to `convex/audit/internal.ts` during the restructure. Call sites update import path; behaviour unchanged.
-- Direct `ctx.db.insert("audit_log", ...)` from outside the audit module is a lint block — same enforcement as cross-module table access.
+- **`logAudit` is a plain async TypeScript function**, NOT an `internalMutation`. Called inside a `mutation` or `internalMutation`, it runs in the caller's transaction trivially (Convex mutation semantics) — atomicity is preserved without the JSON-serialization overhead of `ctx.runMutation` boundary crossings.
+- The function is exported from `convex/audit/internal.ts` and imported by other modules. The import IS the API boundary; the foundational-module allow-list (`auth`, `idempotency`, `audit`) means cross-module imports of these helpers are sanctioned.
+- Direct `ctx.db.insert("audit_log", ...)` from outside `convex/audit/internal.ts` is a CI lint block (custom ESLint rule).
+- If a future need arises to invoke audit from an `internalAction` or cross-mutation orchestration, a thin `internalMutation` wrapper around `logAudit` can be added at that time. Don't pre-build it.
+- The append-only guarantee from [ADR-007](./007-audit-log-append-only.md) is preserved: a thrown error in the caller mutation rolls back the audit row alongside the state change.
+
+(Amended 2026-05-26 from v0.2.1 ground-truth walk per docs/v0.2.1-restructure-scope.md §3.5. The previous text prescribed `internalMutation`; in practice the plain-helper pattern is both atomic and cheaper.)
 
 ### 2. Cross-module state-changing mutations
 
