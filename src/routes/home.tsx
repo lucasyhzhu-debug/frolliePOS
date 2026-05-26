@@ -39,10 +39,10 @@ const GROUP_LABELS = { sell: "SELL", stock: "STOCK", you: "YOU", mgr: "MANAGER" 
 export default function HomeRoute() {
   const navigate = useNavigate();
   const session = useSession();
-  const liveCatalog = useQuery(api.products.catalog, {});
+  const liveCatalog = useQuery(api.catalog.public.catalog, {});
   const { snapshot } = useCatalogCache(liveCatalog);
   const catalog = snapshot ?? liveCatalog;
-  const logout = useMutation(api.auth.logout);
+  const logout = useMutation(api.auth.public.logout);
   const logoutKey = useIdempotency(`logout:${session.sessionId ?? "none"}`);
 
   if (session.status !== "active") return null; // RootLayout redirected
