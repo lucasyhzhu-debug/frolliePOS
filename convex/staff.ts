@@ -66,7 +66,7 @@ export const _createStaffCommit_internal = internalMutation({
   >(
     "staff.createStaff",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
       const newId = await ctx.db.insert("staff", {
         name: args.name, pin_hash: args.pin_hash, role: args.role,
         active: true, created_at: Date.now(),
@@ -77,6 +77,11 @@ export const _createStaffCommit_internal = internalMutation({
         source: "booth_inline", device_id: deviceId,
       });
       return { _id: newId, name: args.name, role: args.role };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
     },
   ),
 });
@@ -96,7 +101,7 @@ export const generateDeviceSetupCode = mutation({
   >(
     "staff.generateDeviceSetupCode",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
       const now = Date.now();
       const expiresAt = now + SETUP_CODE_TTL_MS;
 
@@ -125,7 +130,12 @@ export const generateDeviceSetupCode = mutation({
       });
       return { code, expiresAt };
     },
-    { staffIdFromArgs: (_a) => undefined },
+    {
+      staffIdFromArgs: (_a) => undefined,
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
   ),
 });
 

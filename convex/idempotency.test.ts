@@ -58,4 +58,36 @@ describe("withIdempotency", () => {
     const _check: ApiHasTestEcho = false;
     expect(_check).toBe(false);
   });
+
+  it("duplicate rows for same key do not throw — .first() returns oldest response", async () => {
+    const t = convexTest(schema, modules);
+    const key = "key-dup";
+
+    // Manually insert two rows with the same idempotency key, simulating a TOCTOU race.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_idempotency", {
+        key,
+        mutation_name: "__test_echo",
+        staff_id: undefined,
+        response_blob: JSON.stringify({ echoed: 1 }),
+        expires_at: Date.now() + 24 * 60 * 60 * 1000,
+      });
+      await ctx.db.insert("pos_idempotency", {
+        key,
+        mutation_name: "__test_echo",
+        staff_id: undefined,
+        response_blob: JSON.stringify({ echoed: 2 }),
+        expires_at: Date.now() + 24 * 60 * 60 * 1000,
+      });
+    });
+
+    // Calling with this key must NOT throw — .first() picks the oldest row.
+    const result = await t.mutation(internal.idempotency.__test_echo, {
+      idempotencyKey: key,
+      value: 999, // ignored — cache hit
+    });
+
+    // Should return one of the pre-inserted responses without throwing.
+    expect([1, 2]).toContain(result.echoed);
+  });
 });

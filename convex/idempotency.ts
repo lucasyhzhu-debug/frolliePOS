@@ -22,13 +22,18 @@ export function withIdempotency<Args extends { idempotencyKey: string }, R>(
   handler: (ctx: MutationCtx, args: Args) => Promise<R>,
   options: {
     staffIdFromArgs?: (args: Args) => Id<"staff"> | undefined;
+    authCheck?: (ctx: MutationCtx, args: Args) => Promise<void>; // runs BEFORE cache lookup
   } = {},
 ) {
   return async (ctx: MutationCtx, args: Args): Promise<R> => {
+    if (options.authCheck) {
+      await options.authCheck(ctx, args);
+    }
+
     const cached = await ctx.db
       .query("pos_idempotency")
       .withIndex("by_key", (q) => q.eq("key", args.idempotencyKey))
-      .unique();
+      .first(); // .first() tolerates duplicate rows; .unique() would throw
 
     if (cached) {
       return JSON.parse(cached.response_blob) as R;
@@ -58,7 +63,7 @@ export const _lookup_internal = internalQuery({
     const row = await ctx.db
       .query("pos_idempotency")
       .withIndex("by_key", (q) => q.eq("key", args.key))
-      .unique();
+      .first(); // .first() tolerates duplicate rows; .unique() would throw
     return row?.response_blob ?? null;
   },
 });
