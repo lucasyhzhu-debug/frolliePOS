@@ -123,35 +123,52 @@ Merged 2026-05-26.
 Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
 
 ### Backend (`convex/`)
-- 📋 **[v03-be-bootstrap]** Prod bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment
+- 📋 **[v03-be-bootstrap]** Bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment
   - **agent:** `convex-expert`
   - **deps:** `none`
   - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-034 §stable identifiers](./ADR/034-deep-modules-surface-apis.md)
-  - **why:** v0.2.1 ships dev seed (`seed/actions:reset`) that wipes + populates Lucas + 4 staff + 5 SKUs + 7 products as bootstrap test data. Prod must NOT carry that play data — prod starts empty except for the bootstrap manager, then Lucas creates real staff/products via in-app UI (manager portal lands in v0.5; v0.3 unblocks at minimum the device-activation + login flow).
+  - **why:** v0.2.1 ships dev seed (`seed/actions:reset`) that wipes + populates Lucas + 4 staff + 5 SKUs + 7 products as bootstrap test data. Code-wise the bootstrap action is needed early (v0.3) so the "fresh-deployment" code path is testable + exercised in dev. **Prod cutover is deferred to v1.0** — until then, all environments run on dev/staging deployments with the existing seed data; bootstrap is exercised against a wipe-and-bootstrap dev cycle, not against prod.
   - **subtasks:**
     - [ ] New `convex/seed/actions.ts` action: `bootstrap` — argon2id-hashes PIN 1111 + commits via internal mutation
     - [ ] Internal mutation: refuse if `staff` table has any row (idempotent — safe to re-run; errors clearly if already bootstrapped)
     - [ ] Insert single row: `{ name: "Lucas", code: "S-0001", role: "manager", active: true, pin_hash: argon2id("1111"), created_at: Date.now() }`
     - [ ] Audit log: `actor_id: "system"`, `action: "staff.bootstrapped"`, `source: "system"`, `entity_type: "staff"`, `entity_id: <new id>`
-    - [ ] Document deploy step in `docs/RUNBOOK.md` (or new `RUNBOOK-prod-bootstrap.md`): `npx convex run seed/actions:bootstrap` runs once against prod after first `npx convex deploy`
-    - [ ] Document PIN-change requirement: Lucas must change PIN 1111 immediately after first login (requires `auth/actions:changePin` mutation — gap to flag if not in v0.3 scope already)
+    - [ ] Document the bootstrap-then-change-pin sequence in `docs/RUNBOOK.md` (purely dev/staging instructions in v0.3 — prod section added at v1.0 cutover)
     - [ ] Tests: bootstrap on empty DB succeeds + creates exactly 1 row, bootstrap with any existing row throws, audit row written
-  - **notes:** _Default PIN 1111 is a known-weak placeholder for prod handoff to Lucas. Change-PIN flow is a hard prereq for prod cutover — if it lands later than v0.3, document the gap in `docs/CHANGELOG.md` and consider postponing prod cutover. Also: Lucas can't create products/SKUs from the UI until that admin surface ships (currently planned for v0.5 manager portal); v0.3 prod usefulness is limited to sale flow against products created via Convex dashboard manually._
+  - **notes:** _Prod cutover postponed to v1.0 per [decision 2026-05-27]. Bootstrap ships in v0.3 as the code path that the eventual v1.0 cutover will use — keeping it implemented + tested early prevents a rushed bootstrap landing right before launch._
 
-- 📋 **[v03-be-change-pin]** `auth/actions:changePin` — staff can change their own PIN; required for prod cutover (Lucas must change from bootstrap PIN 1111)
+- 📋 **[v03-be-change-pin]** `auth/actions:changePin` — staff can change their own PIN
   - **agent:** `convex-expert`
-  - **deps:** `none` _(but ships with [v03-be-bootstrap] for prod cutover)_
-  - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-013](./ADR/013-idempotency-keys.md)
-  - **why:** Bootstrap inserts Lucas with placeholder PIN 1111. Lucas MUST change to a real PIN before the system is genuinely secured. Also general feature — any staff member should be able to rotate their own PIN. Without this, prod cutover ships with a hardcoded known PIN (1111) which is unacceptable.
+  - **deps:** `none`
+  - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-002](./ADR/002-lockout-policy.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-013](./ADR/013-idempotency-keys.md)
+  - **why:** General staff capability — any staff member rotates their own PIN. Also the cleanup path for the bootstrap PIN 1111 once a fresh deployment is bootstrapped via [v03-be-bootstrap].
   - **subtasks:**
     - [ ] `action: changePin(sessionId, currentPin, newPin, idempotencyKey)` in `convex/auth/actions.ts` — argon2id verify currentPin against `staff.pin_hash`, then argon2id-hash newPin, commit via internal mutation
-    - [ ] Internal mutation: `_changePinCommit_internal` — atomic patch of `staff.pin_hash`, requires session resolves to same `staff_id` as PIN owner (no admin override; managers can't change others' PINs via this action — separate flow if needed)
+    - [ ] Internal mutation: `_changePinCommit_internal` — atomic patch of `staff.pin_hash`, requires session resolves to same `staff_id` as PIN owner (no admin override; managers can't change others' PINs via this action — see [v03-be-reset-staff-pin] for the manager-reset flow)
     - [ ] PIN validation: 4 digits, numeric only, reject if equal to currentPin (force actual change)
-    - [ ] Lockout interaction: a failed currentPin verify counts toward the lockout in `pos_auth_attempts` (consistent with login attempts) — OR document why it should NOT (decision needed)
+    - [ ] Lockout interaction: failed currentPin verify counts toward the lockout in `pos_auth_attempts` — same counter as login per ADR-002. 3 failed change-PIN attempts triggers the same 60s lockout. **Decided 2026-05-27.**
     - [ ] Audit log: `actor_id: <staffId>`, `action: "staff.pin_changed"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <staffId>`, no before/after pin (never log PINs)
     - [ ] Idempotency: wrap with `withIdempotency` — replay returns success without re-hashing (PIN already changed)
-    - [ ] Tests: happy path, wrong currentPin throws + lockout counter increments (or doesn't, per decision above), newPin == currentPin throws, replay via idempotencyKey returns same response, audit row written without PIN values
-  - **notes:** _Frontend UI for change-PIN is a separate gap — needs a route (`/staff/change-pin` or modal from Lock screen). Track separately as **[v03-fe-change-pin]** if/when planned. For v0.3 prod cutover, even a manager-dashboard-only change-PIN call (run via `npx convex run` against prod by Lucas, or by visiting Convex dashboard) is acceptable interim; UI follows in v0.5 manager portal. Bigger question: should managers be able to RESET other staff PINs (separate `auth/actions:resetStaffPin` with manager-PIN gate per ADR-005)? Likely yes, scope as **[v03-be-reset-staff-pin]** if needed for v0.3._
+    - [ ] Tests: happy path, wrong currentPin throws + lockout counter increments, newPin == currentPin throws, replay via idempotencyKey returns same response, audit row written without PIN values, 3 failed verifies trigger lockout
+  - **notes:** _Frontend UI deferred to v0.5 manager portal — interim staff-self-change-PIN UI not in v0.3 scope. Combined with prod-cutover deferral to v1.0, this is acceptable: bootstrap + changePin are exercised end-to-end via `npx convex run` against dev/staging in v0.3, real UI lands when manager portal does._
+
+- 📋 **[v03-be-reset-staff-pin]** `auth/actions:resetStaffPin` — manager resets another staff member's PIN (manager-PIN-gated per ADR-005)
+  - **agent:** `convex-expert`
+  - **deps:** `v03-be-change-pin` _(shared `_changePinCommit_internal` patching path)_
+  - **docs:** [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-013](./ADR/013-idempotency-keys.md), [ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md) _(WA approval path superseded by Telegram in v0.4)_
+  - **why:** Staff member forgets their PIN or is locked out → manager resets. Per ADR-005, "PIN resets" is on the manager-PIN-gated list. Without this, a locked-out or forgetful staff member is permanently locked out short of dashboard intervention. Manager-PIN gate is one-off (not a persistent mode).
+  - **subtasks:**
+    - [ ] `action: resetStaffPin(sessionId, targetStaffCode, newPin, managerPin, idempotencyKey)` in `convex/auth/actions.ts` — caller must have manager role on `sessionId`, re-verifies `managerPin` via argon2id (one-off gate per ADR-005), then argon2id-hashes `newPin` and commits via shared internal mutation
+    - [ ] Use `staffCode` (S-NNNN) as target identifier — not `staff_id` — per ADR-034 stable IDs
+    - [ ] Internal mutation: reuse `_changePinCommit_internal` from [v03-be-change-pin] with an arg shape that supports target-id + manager-approver-id (refactor needed when both tasks land)
+    - [ ] Auth: `requireManagerSession` for caller, then explicit `managerPin` re-verify (defense-in-depth; manager-mode-not-persistent)
+    - [ ] Reject if `targetStaffCode` is the manager themselves (use changePin instead)
+    - [ ] Clear `pos_auth_attempts` row for the target staff on successful reset (unblocks them from any active lockout)
+    - [ ] Audit log: `actor_id: <managerStaffId>`, `mgr_approver_id: <managerStaffId>` (same — booth_inline), `action: "staff.pin_reset"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <targetStaffId>`, no PIN values logged
+    - [ ] Idempotency: wrap with `withIdempotency` — replay returns success
+    - [ ] Tests: happy path manager-resets-staff, non-manager session rejected, wrong managerPin rejected + counts toward lockout, target=self rejected, lockout row cleared for target, audit row has correct `mgr_approver_id`, replay deduped
+    - [ ] Document v0.4 augmentation: when Telegram approval lands, this action gains an off-booth path via approval-request flow (manager not at booth approves via Telegram callback). v0.3 only supports the in-person manager-PIN path.
+  - **notes:** _The shared `_changePinCommit_internal` mutation needs an arg shape that handles both self-change (no `mgr_approver_id`) and manager-reset (with `mgr_approver_id`). Whichever of [v03-be-change-pin] or [v03-be-reset-staff-pin] lands first defines the initial signature; second one refactors as needed. v0.4 graduation: per the recent Telegram pivot ([decision 2026-05-26]), this is the canonical action that the Telegram approval flow will gate at v0.4 — keep the action shape stable._
 
 - 📋 **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
   - **agent:** `convex-expert`
