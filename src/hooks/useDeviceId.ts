@@ -19,46 +19,66 @@ function getDb() {
 
 /**
  * Stable per-installation device UUID. Strategic foundations §6 specifies
- * localStorage + IndexedDB. v0.2 honors both: localStorage is the fast path,
- * IDB is the backup that survives "Clear browsing data" clearing only
- * localStorage.
+ * localStorage + IndexedDB. v0.2 honors both: IDB is authoritative; localStorage
+ * is the fast path that survives most clears.
+ *
+ * Returns `null` while the IDB reconcile is in flight — callers must handle null
+ * (show loading / skip queries) rather than consuming a transient UUID that may
+ * get swapped once IDB resolves.
  */
-export function useDeviceId(): string {
-  // Synchronous: read localStorage immediately so the first render has a value.
-  // The async IDB read backfills in case localStorage was empty.
-  const [id, setId] = useState<string>(() => {
-    const ls = typeof localStorage !== "undefined" ? localStorage.getItem(LS_KEY) : null;
-    if (ls) return ls;
-    const fresh = crypto.randomUUID();
-    try { localStorage.setItem(LS_KEY, fresh); } catch { /* private mode */ }
-    return fresh;
-  });
+export function useDeviceId(): string | null {
+  // Start null — no synchronous UUID generation. The effect resolves the
+  // authoritative id from IDB (and localStorage) before calling setId.
+  const [id, setId] = useState<string | null>(null);
 
-  // On mount: check IDB. If IDB has a previous id and localStorage was empty
-  // (so we just generated a fresh one in useState), swap to the IDB id.
-  // Also write the current id back to IDB if missing.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const db = await getDb();
         const idbId = (await db.get(STORE, IDB_KEY)) as string | undefined;
-        const ls = localStorage.getItem(LS_KEY);
+        const lsId = typeof localStorage !== "undefined"
+          ? localStorage.getItem(LS_KEY)
+          : null;
 
-        if (idbId && idbId !== id) {
-          // IDB has the authoritative id; the value generated in useState
-          // was a transient guess. Restore the IDB id and rewrite localStorage.
-          setId(idbId);
-          try { localStorage.setItem(LS_KEY, idbId); } catch { /* */ }
-        } else if (!idbId) {
-          // First mount ever — write to IDB.
-          await db.put(STORE, ls ?? id, IDB_KEY);
+        let finalId: string;
+
+        if (idbId) {
+          // IDB is authoritative.
+          finalId = idbId;
+          if (lsId !== idbId) {
+            try { localStorage.setItem(LS_KEY, finalId); } catch { /* private mode */ }
+          }
+        } else if (lsId) {
+          // localStorage has a value but IDB doesn't — backfill IDB.
+          finalId = lsId;
+          await db.put(STORE, finalId, IDB_KEY);
+        } else {
+          // First ever install — generate, write both.
+          finalId = crypto.randomUUID();
+          try { localStorage.setItem(LS_KEY, finalId); } catch { /* private mode */ }
+          await db.put(STORE, finalId, IDB_KEY);
         }
+
+        if (!cancelled) setId(finalId);
       } catch (e) {
         console.warn("[useDeviceId] IDB unavailable", e);
+        // Graceful fallback: use localStorage or generate ephemeral id.
+        if (!cancelled) {
+          const lsId = typeof localStorage !== "undefined"
+            ? localStorage.getItem(LS_KEY)
+            : null;
+          if (lsId) {
+            setId(lsId);
+          } else {
+            const fresh = crypto.randomUUID();
+            try { localStorage.setItem(LS_KEY, fresh); } catch { /* */ }
+            setId(fresh);
+          }
+        }
       }
     })();
-    // Run once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
   }, []);
 
   return id;

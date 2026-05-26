@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openDB, type IDBPDatabase } from "idb";
 
 const DB_NAME = "frollie-cache";
@@ -43,6 +43,10 @@ export function __resetForTests() {
  * This is the v0.2 implementation of ADR-025 "catalog — stale-while-revalidate"
  * for the Convex WebSocket model: workbox can't cache WS frames, so the cache
  * lives in IDB instead.
+ *
+ * Race guard (Fix 12): Effect 1 (IDB read) must NOT overwrite Effect 2's fresh
+ * live snapshot if Effect 2 fired first. liveSeenRef tracks whether a live value
+ * has been written; Effect 1 skips setSnapshot when the ref is already true.
  */
 export function useCatalogCache(live: CatalogPayload | undefined): {
   hydrated: boolean;
@@ -51,6 +55,10 @@ export function useCatalogCache(live: CatalogPayload | undefined): {
   const [hydrated, setHydrated] = useState(false);
   const [snapshot, setSnapshot] = useState<CatalogPayload | null>(null);
 
+  // Tracks whether Effect 2 has set a fresh live value, so Effect 1's async
+  // IDB read doesn't stomp it if IDB resolves after Effect 2.
+  const liveSeenRef = useRef(false);
+
   // Effect 1: hydrate from IDB on mount (runs once).
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +66,8 @@ export function useCatalogCache(live: CatalogPayload | undefined): {
       try {
         const db = await getDb();
         const val = (await db.get(STORE, KEY)) as CatalogPayload | undefined;
-        if (!cancelled && val) setSnapshot(val);
+        // Only set if Effect 2 hasn't already provided a fresher live value.
+        if (!cancelled && val && !liveSeenRef.current) setSnapshot(val);
       } catch (e) {
         // IDB failures are non-fatal — fall back to live-only.
         console.warn("[useCatalogCache] IDB read failed", e);
@@ -72,6 +81,7 @@ export function useCatalogCache(live: CatalogPayload | undefined): {
   // Effect 2: write fresh payload to IDB + swap snapshot whenever live updates.
   useEffect(() => {
     if (!live) return;
+    liveSeenRef.current = true;
     setSnapshot(live);
     (async () => {
       try {

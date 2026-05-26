@@ -20,11 +20,17 @@ export function RootLayout() {
   const session = useSession();
 
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
-  const deviceRegistered = useQuery(api.staff.isDeviceRegistered, { deviceId });
+  // Skip query while deviceId is still resolving (null = IDB not yet read).
+  const deviceRegistered = useQuery(
+    api.staff.isDeviceRegistered,
+    deviceId ? { deviceId } : "skip",
+  );
 
   const isLogin = location.pathname === "/login";
 
-  if (deviceRegistered === undefined || session.status === "loading") {
+  // Show loading while: deviceId hasn't resolved, device-registration query is
+  // in-flight, or session is still validating against Convex.
+  if (deviceId === null || deviceRegistered === undefined || session.status === "loading") {
     return <RouteFallback />;
   }
 

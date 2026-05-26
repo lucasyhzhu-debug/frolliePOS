@@ -13,7 +13,9 @@ import { toast } from "sonner";
 export function DeviceActivation() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
-  const idempotencyKey = useIdempotency(`activate:${deviceId}`);
+  // Use a stable fallback string while deviceId is still resolving so the
+  // useIdempotency hook doesn't receive a changing key mid-render.
+  const idempotencyKey = useIdempotency(`activate:${deviceId ?? "pending"}`);
   const activate = useMutation(api.staff.activateDevice);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
@@ -21,6 +23,7 @@ export function DeviceActivation() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!deviceId) return toast.error("Device not ready — please wait a moment");
     if (!/^\d{6}$/.test(code)) return toast.error("Code must be 6 digits");
     if (!label.trim()) return toast.error("Enter a device label");
     setBusy(true);
@@ -61,7 +64,7 @@ export function DeviceActivation() {
                 value={label} onChange={(e) => setLabel(e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={busy} className="w-full">
+            <Button type="submit" disabled={busy || !deviceId} className="w-full">
               {busy ? "Activating…" : "Activate"}
             </Button>
           </form>

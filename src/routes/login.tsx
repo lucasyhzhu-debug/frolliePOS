@@ -23,11 +23,15 @@ export default function LoginRoute() {
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
 
-  const intentKey = stage.kind === "pin" ? `login:${stage.staff._id}:${deviceId}` : "login:none";
+  // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
+  const intentKey = stage.kind === "pin"
+    ? `login:${stage.staff._id}:${deviceId ?? "pending"}`
+    : "login:none";
   const idempotencyKey = useIdempotency(intentKey);
 
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
+    if (!deviceId) { toast.error("Device not ready — please wait"); return; }
     try {
       const { sessionId } = await login({
         staffId: stage.staff._id, pin, deviceId, idempotencyKey,
@@ -36,14 +40,24 @@ export default function LoginRoute() {
       navigate("/", { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
+      const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
       const friendly =
-        msg.includes("LOCKED_OUT") ? "Too many tries. Wait 60 seconds." :
+        lockedMatch ? `Too many tries. Wait ${lockedMatch[1]} seconds.` :
         msg.includes("INVALID_PIN") ? "Wrong PIN." :
         msg;
       toast.error(friendly);
       setPinReset((n) => n + 1);
     }
   };
+
+  // Show a minimal loading state while the device id is being resolved from IDB.
+  if (deviceId === null) {
+    return (
+      <main className="flex flex-1 flex-col p-6">
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-1 flex-col p-6">
