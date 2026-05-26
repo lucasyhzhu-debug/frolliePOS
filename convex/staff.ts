@@ -153,13 +153,22 @@ export const activateDevice = mutation({
     "staff.activateDevice",
     async (ctx, args) => {
       if (!/^\d{6}$/.test(args.code)) throw new Error("INVALID_CODE");
+
+      // Server-side label validation (defense-in-depth — client form also validates)
+      const trimmedLabel = args.deviceLabel.trim();
+      if (trimmedLabel.length === 0) throw new Error("INVALID_LABEL: deviceLabel must not be empty");
+      if (args.deviceLabel.length > 64) throw new Error("INVALID_LABEL: deviceLabel must be 64 characters or fewer");
+
       const now = Date.now();
 
-      const existing = await ctx.db
+      // Use .collect() to defensively handle multiple rows (past-bug recovery)
+      const existingRows = await ctx.db
         .query("registered_devices")
         .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
-        .unique();
-      if (existing && existing.active) {
+        .collect();
+
+      const activeRow = existingRows.find((r) => r.active);
+      if (activeRow) {
         throw new Error("Device already registered");
       }
 
@@ -175,21 +184,46 @@ export const activateDevice = mutation({
         throw new Error("INVALID_CODE");
       }
 
-      const deviceRowId = await ctx.db.insert("registered_devices", {
-        device_id: args.deviceId,
-        label: args.deviceLabel,
-        activated_by: pending.issued_by,
-        activated_at: now,
-        last_seen_at: now,
-        active: true,
-      });
       await ctx.db.patch(pending._id, { consumed_at: now });
+
+      let deviceRowId: Id<"registered_devices">;
+      let reactivated = false;
+
+      if (existingRows.length > 0) {
+        // Reactivate the most recently activated inactive row; delete the rest
+        const sorted = [...existingRows].sort(
+          (a, b) => (b.activated_at ?? 0) - (a.activated_at ?? 0),
+        );
+        const primary = sorted[0];
+        deviceRowId = primary._id;
+        await ctx.db.patch(primary._id, {
+          active: true,
+          label: args.deviceLabel,
+          activated_by: pending.issued_by,
+          activated_at: now,
+          last_seen_at: now,
+        });
+        // Delete any extra duplicate rows
+        for (const dup of sorted.slice(1)) {
+          await ctx.db.delete(dup._id);
+        }
+        reactivated = true;
+      } else {
+        deviceRowId = await ctx.db.insert("registered_devices", {
+          device_id: args.deviceId,
+          label: args.deviceLabel,
+          activated_by: pending.issued_by,
+          activated_at: now,
+          last_seen_at: now,
+          active: true,
+        });
+      }
 
       await logAudit(ctx, {
         actor_id: pending.issued_by, action: "device.activated",
         entity_type: "device", entity_id: deviceRowId,
         source: "booth_inline", device_id: args.deviceId,
-        metadata: { activated_via_pending_id: pending._id, label: args.deviceLabel },
+        metadata: { activated_via_pending_id: pending._id, label: args.deviceLabel, reactivated },
       });
       return {
         _id: deviceRowId,

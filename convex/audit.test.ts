@@ -2,11 +2,27 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import { seedStaff } from "./auth.test";
 
 const modules = import.meta.glob("./**/*.*s");
 
+async function seedManager(t: ReturnType<typeof convexTest>) {
+  return seedStaff(t, "AuditMgr", "9999", "manager");
+}
+
+async function seedRegularStaff(t: ReturnType<typeof convexTest>) {
+  return seedStaff(t, "AuditStaff", "1111", "staff");
+}
+
+async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: string) {
+  const { sessionId } = await t.action(api.authActions.loginWithPin, {
+    staffId, pin, deviceId: "dev-audit", idempotencyKey: crypto.randomUUID(),
+  });
+  return sessionId;
+}
+
 describe("logAudit", () => {
-  it("appends an audit row visible via list", async () => {
+  it("appends an audit row visible via _list_internal", async () => {
     const t = convexTest(schema, modules);
 
     const staffId = await t.run(async (ctx) =>
@@ -27,12 +43,44 @@ describe("logAudit", () => {
       source: "booth_inline",
     });
 
-    const rows = await t.query(api.audit.list, { limit: 10 });
+    const rows = await t.query(internal.audit._list_internal, { limit: 10 });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       action: "staff.login",
       entity_type: "staff",
       source: "booth_inline",
     });
+  });
+});
+
+describe("audit.list — manager-only gate (Fix 4)", () => {
+  it("manager session can read audit log", async () => {
+    const t = convexTest(schema, modules);
+    const mgrId = await seedManager(t);
+    const mgrSession = await loginAs(t, mgrId, "9999");
+
+    // Seed one audit row via internal
+    await t.mutation(internal.audit.__test_log, {
+      actor_id: mgrId,
+      action: "test.action",
+      entity_type: "staff",
+      source: "booth_inline",
+    });
+
+    const rows = await t.query(api.audit.list, {
+      sessionId: mgrSession,
+      limit: 10,
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("non-manager session is rejected", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedRegularStaff(t);
+    const staffSession = await loginAs(t, staffId, "1111");
+
+    await expect(
+      t.query(api.audit.list, { sessionId: staffSession, limit: 10 })
+    ).rejects.toThrow(/manager/i);
   });
 });

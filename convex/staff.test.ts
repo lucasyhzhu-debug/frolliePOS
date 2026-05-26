@@ -138,6 +138,85 @@ describe("isDeviceRegistered", () => {
   });
 });
 
+// Fix 2 — inactive device reactivation + label validation
+describe("activateDevice — Fix 2", () => {
+  it("reactivates an inactive device row (same _id returned, no duplicate)", async () => {
+    const t = convexTest(schema, modules);
+    const mgrId = await seedManager(t);
+    const session = await loginAs(t, mgrId, "9999");
+
+    // First activation
+    const { code: code1 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+      sessionId: session, idempotencyKey: "fix2-gen-1",
+    });
+    const first = await t.mutation(api.staff.activateDevice, {
+      code: code1, deviceLabel: "Booth Phone", deviceId: "dev-reactivate",
+      idempotencyKey: "fix2-act-1",
+    });
+
+    // Deactivate the device directly
+    await t.run(async (ctx) => {
+      await ctx.db.patch(first._id, { active: false });
+    });
+
+    // Re-activate with a fresh code + same device_id
+    const { code: code2 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+      sessionId: session, idempotencyKey: "fix2-gen-2",
+    });
+    const second = await t.mutation(api.staff.activateDevice, {
+      code: code2, deviceLabel: "Booth Phone v2", deviceId: "dev-reactivate",
+      idempotencyKey: "fix2-act-2",
+    });
+
+    // Same _id — not a new row
+    expect(second._id).toBe(first._id);
+    expect(second.active).toBe(true);
+    expect(second.label).toBe("Booth Phone v2");
+
+    // Only ONE row for this device_id
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("registered_devices")
+        .withIndex("by_device_id", (q) => q.eq("device_id", "dev-reactivate"))
+        .collect()
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].active).toBe(true);
+  });
+
+  it("rejects empty deviceLabel", async () => {
+    const t = convexTest(schema, modules);
+    const mgrId = await seedManager(t);
+    const session = await loginAs(t, mgrId, "9999");
+    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+      sessionId: session, idempotencyKey: "fix2-empty-gen",
+    });
+
+    await expect(
+      t.mutation(api.staff.activateDevice, {
+        code, deviceLabel: "   ", deviceId: "dev-empty-label",
+        idempotencyKey: "fix2-empty-act",
+      })
+    ).rejects.toThrow(/label/i);
+  });
+
+  it("rejects oversized deviceLabel (> 64 chars)", async () => {
+    const t = convexTest(schema, modules);
+    const mgrId = await seedManager(t);
+    const session = await loginAs(t, mgrId, "9999");
+    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+      sessionId: session, idempotencyKey: "fix2-long-gen",
+    });
+
+    await expect(
+      t.mutation(api.staff.activateDevice, {
+        code, deviceLabel: "X".repeat(100), deviceId: "dev-long-label",
+        idempotencyKey: "fix2-long-act",
+      })
+    ).rejects.toThrow(/label/i);
+  });
+});
+
 describe("createStaff", () => {
   it("manager-only", async () => {
     const t = convexTest(schema, modules);

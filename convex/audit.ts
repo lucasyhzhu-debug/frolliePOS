@@ -1,7 +1,8 @@
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { requireManagerSession } from "./staff";
 
 const sourceValidator = v.union(
   v.literal("booth_inline"),
@@ -47,21 +48,46 @@ export async function logAudit(
   });
 }
 
+/** Shared query logic — used by both the public and internal variants. */
+async function auditListHandler(
+  ctx: QueryCtx,
+  args: { limit?: number; action?: string },
+) {
+  const limit = Math.min(args.limit ?? 100, 500);
+  if (args.action) {
+    return await ctx.db
+      .query("audit_log")
+      .withIndex("by_action_date", (q) => q.eq("action", args.action!))
+      .order("desc")
+      .take(limit);
+  }
+  return await ctx.db.query("audit_log").order("desc").take(limit);
+}
+
+/** Public audit log — manager session required. */
 export const list = query({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    limit: v.optional(v.number()),
+    action: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireManagerSession(ctx, args.sessionId);
+    return auditListHandler(ctx, args);
+  },
+});
+
+/**
+ * Internal-only audit list — no auth gate. Safe to use from server-side
+ * contexts and tests; unreachable from public clients.
+ */
+export const _list_internal = internalQuery({
   args: {
     limit: v.optional(v.number()),
     action: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? 100, 500);
-    if (args.action) {
-      return await ctx.db
-        .query("audit_log")
-        .withIndex("by_action_date", (q) => q.eq("action", args.action!))
-        .order("desc")
-        .take(limit);
-    }
-    return await ctx.db.query("audit_log").order("desc").take(limit);
+    return auditListHandler(ctx, args);
   },
 });
 

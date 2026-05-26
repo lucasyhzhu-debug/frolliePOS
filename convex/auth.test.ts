@@ -99,7 +99,7 @@ describe("loginWithPin (action)", () => {
     const session = await t.run(async (ctx) => ctx.db.get(sessionId));
     expect(session?.ended_at).toBeNull();
 
-    const audits = await t.query(api.audit.list, { action: "staff.login" });
+    const audits = await t.query(internal.audit._list_internal, { action: "staff.login" });
     expect(audits).toHaveLength(1);
   });
 
@@ -117,7 +117,7 @@ describe("loginWithPin (action)", () => {
     expect(second.sessionId).toBe(first.sessionId);
 
     // Only one staff.login audit row (second call short-circuited on cache)
-    const audits = await t.query(api.audit.list, { action: "staff.login" });
+    const audits = await t.query(internal.audit._list_internal, { action: "staff.login" });
     expect(audits).toHaveLength(1);
   });
 
@@ -136,7 +136,7 @@ describe("loginWithPin (action)", () => {
     );
     expect(attempt?.fail_count).toBe(1);
 
-    const audits = await t.query(api.audit.list, { action: "staff.failed_pin" });
+    const audits = await t.query(internal.audit._list_internal, { action: "staff.failed_pin" });
     expect(audits).toHaveLength(1);
   });
 
@@ -157,7 +157,7 @@ describe("loginWithPin (action)", () => {
       })
     ).rejects.toThrow(/LOCKED_OUT/);
 
-    const audits = await t.query(api.audit.list, { action: "staff.locked_out" });
+    const audits = await t.query(internal.audit._list_internal, { action: "staff.locked_out" });
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
 });
@@ -266,7 +266,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
       }).catch(() => void 0);
     }
 
-    const auditsBefore = await t.query(api.audit.list, { action: "staff.locked_out" });
+    const auditsBefore = await t.query(internal.audit._list_internal, { action: "staff.locked_out" });
     // Lockout was set — at least 1 audit row from the 3rd failure
     expect(auditsBefore.length).toBeGreaterThanOrEqual(1);
 
@@ -275,7 +275,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
       staffId, pin: "9999", deviceId: "dev-1", idempotencyKey: "fix14-probe-1",
     }).catch(() => void 0);
 
-    const auditsAfter = await t.query(api.audit.list, { action: "staff.locked_out" });
+    const auditsAfter = await t.query(internal.audit._list_internal, { action: "staff.locked_out" });
     // Probe should have added another audit row
     expect(auditsAfter.length).toBeGreaterThan(auditsBefore.length);
   });

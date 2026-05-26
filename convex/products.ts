@@ -11,7 +11,7 @@ import { query } from "./_generated/server";
 export const catalog = query({
   args: {},
   handler: async (ctx) => {
-    const [products, skus, components, stockLevels] = await Promise.all([
+    const [products, skus, allComponents, allStockLevels] = await Promise.all([
       ctx.db
         .query("pos_products")
         .withIndex("by_active_sort", (q) => q.eq("active", true))
@@ -23,6 +23,13 @@ export const catalog = query({
       ctx.db.query("pos_product_components").collect(),
       ctx.db.query("pos_stock_levels").collect(),
     ]);
+
+    const activeProductIds = new Set(products.map((p) => p._id));
+    const activeSkuIds = new Set(skus.map((s) => s._id));
+
+    const components = allComponents.filter((c) => activeProductIds.has(c.product_id));
+    const stockLevels = allStockLevels.filter((s) => activeSkuIds.has(s.inventory_sku_id));
+
     return { products, skus, components, stockLevels };
   },
 });
