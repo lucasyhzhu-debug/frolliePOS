@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export const authTables = {
   staff: defineTable({
     name: v.string(),
+    code: v.optional(v.string()), // NEW v0.2.1 — populated in Task F3, required in Task F6 (DEFERRED)
     pin_hash: v.string(),
     role: v.union(v.literal("staff"), v.literal("manager")),
     active: v.boolean(),
@@ -12,10 +13,10 @@ export const authTables = {
     })),
     created_at: v.number(),
     last_login_at: v.optional(v.number()),
-    // Task E4 will add: code: v.optional(v.string()) — flipped to required in Task F6 (DEFERRED per plan)
   })
     .index("by_active", ["active"])
-    .index("by_role", ["role"]),
+    .index("by_role", ["role"])
+    .index("by_code", ["code"]),
 
   staff_sessions: defineTable({
     staff_id: v.id("staff"),
