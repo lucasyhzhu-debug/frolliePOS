@@ -18,8 +18,8 @@ type Stage =
 export default function LoginRoute() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
-  const staff = useQuery(api.auth.getActiveStaff, {});
-  const login = useAction(api.authActions.loginWithPin);
+  const staff = useQuery(api.auth.public.getActiveStaff, {});
+  const login = useAction(api.auth.actions.loginWithPin);
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
 
