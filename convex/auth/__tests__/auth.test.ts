@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "./schema";
-import { api, internal } from "./_generated/api";
-
-const modules = import.meta.glob("./**/*.*s");
+import schema from "../../schema";
+import { api, internal } from "../../_generated/api";
 
 export async function seedStaff(
   t: ReturnType<typeof convexTest>,
@@ -21,7 +19,7 @@ export async function seedStaff(
 
 describe("getActiveStaff", () => {
   it("returns active staff only, name+role+_id (no pin_hash)", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     await seedStaff(t, "Citra", "1234");
     await seedStaff(t, "Bayu", "5678");
     await t.run(async (ctx) =>
@@ -30,7 +28,7 @@ describe("getActiveStaff", () => {
       })
     );
 
-    const rows = await t.query(api.auth.getActiveStaff, {});
+    const rows = await t.query(api.auth.public.getActiveStaff, {});
     expect(rows).toHaveLength(2);
     expect(rows[0]).not.toHaveProperty("pin_hash");
     expect(rows.map((s: { name: string }) => s.name).sort()).toEqual(["Bayu", "Citra"]);
@@ -39,7 +37,7 @@ describe("getActiveStaff", () => {
 
 describe("getSession", () => {
   it("returns the active session shape", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) =>
       ctx.db.insert("staff_sessions", {
@@ -50,13 +48,13 @@ describe("getSession", () => {
         end_reason: null,
       })
     );
-    const s = await t.query(api.auth.getSession, { sessionId });
+    const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).not.toBeNull();
     expect(s!.staff.name).toBe("Citra");
   });
 
   it("returns null for ended sessions", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) =>
       ctx.db.insert("staff_sessions", {
@@ -67,12 +65,12 @@ describe("getSession", () => {
         end_reason: "manual_lock",
       })
     );
-    const s = await t.query(api.auth.getSession, { sessionId });
+    const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).toBeNull();
   });
 
   it("returns null when staff has been deactivated", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) =>
       ctx.db.insert("staff_sessions", {
@@ -81,14 +79,14 @@ describe("getSession", () => {
       })
     );
     await t.run(async (ctx) => ctx.db.patch(staffId, { active: false }));
-    const s = await t.query(api.auth.getSession, { sessionId });
+    const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).toBeNull();
   });
 });
 
 describe("loginWithPin (action)", () => {
   it("creates a session on correct PIN + logs staff.login", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
 
     const { sessionId, role } = await t.action(api.authActions.loginWithPin, {
@@ -104,7 +102,7 @@ describe("loginWithPin (action)", () => {
   });
 
   it("idempotent — same key returns cached response + skips argon2", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const key = crypto.randomUUID();
 
@@ -122,7 +120,7 @@ describe("loginWithPin (action)", () => {
   });
 
   it("rejects wrong PIN + logs staff.failed_pin + bumps fail_count", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
 
     await expect(
@@ -141,7 +139,7 @@ describe("loginWithPin (action)", () => {
   });
 
   it("locks out after 3 fails for 60s", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
 
     for (let i = 0; i < 3; i++) {
@@ -164,13 +162,13 @@ describe("loginWithPin (action)", () => {
 
 describe("logout (mutation)", () => {
   it("sets ended_at + end_reason on the session", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const { sessionId } = await t.action(api.authActions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "login-1",
     });
 
-    await t.mutation(api.auth.logout, {
+    await t.mutation(api.auth.public.logout, {
       sessionId, idempotencyKey: "logout-1",
     });
 
@@ -185,7 +183,7 @@ describe("logout (mutation)", () => {
 // ---------------------------------------------------------------------------
 describe("Fix 7: fail_count resets after lockout expires", () => {
   it("single wrong PIN after expired lockout sets fail_count=1, not re-locked", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Dini", "1234");
 
     // Trigger a lockout by failing 3 times
@@ -226,18 +224,18 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
 // ---------------------------------------------------------------------------
 describe("Fix 10: _recordFailedAttempt_internal is idempotent", () => {
   it("same derived key does not double-increment fail_count", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Eko", "5678");
 
     const derivedKey = "fix10-base-key:failed";
 
     // Call twice with the same derived idempotencyKey
-    await t.mutation(internal.auth._recordFailedAttempt_internal, {
+    await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
       idempotencyKey: derivedKey,
       staffId,
       deviceId: "dev-1",
     });
-    await t.mutation(internal.auth._recordFailedAttempt_internal, {
+    await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
       idempotencyKey: derivedKey,
       staffId,
       deviceId: "dev-1",
@@ -256,7 +254,7 @@ describe("Fix 10: _recordFailedAttempt_internal is idempotent", () => {
 // ---------------------------------------------------------------------------
 describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => {
   it("each probe while locked emits an additional staff.locked_out audit row", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Fahri", "9999");
 
     // Trigger lockout
@@ -286,7 +284,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
 // ---------------------------------------------------------------------------
 describe("Fix 5: cache hit with ended session triggers fresh login", () => {
   it("force-ended session causes retry with same key to return a new sessionId", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const staffId = await seedStaff(t, "Gita", "4321");
     const key = "fix5-idem-key";
 

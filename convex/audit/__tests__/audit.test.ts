@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
-import { seedStaff } from "../../auth.test";
+import { seedStaff } from "../../auth/__tests__/auth.test";
 
 async function seedManager(t: ReturnType<typeof convexTest>) {
   return seedStaff(t, "AuditMgr", "9999", "manager");
