@@ -10,7 +10,11 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "convex/**/*.test.ts"],
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "convex/**/*.test.ts",
+      "tools/**/*.test.{ts,mjs,js}",
+    ],
     environmentMatchGlobs: [
       ["convex/**", "edge-runtime"],
       ["src/**", "jsdom"],
