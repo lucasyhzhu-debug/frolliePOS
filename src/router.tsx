@@ -67,6 +67,7 @@ const routes: RouteObject[] = [
   { path: "/approve/:token", element: <Approve /> },
   { path: "/approve/:token/pin", element: <ApprovePin /> },
   { path: "/r/:receiptNumber", element: <Receipt /> },
+  { path: "/dev/telegram", element: <DevTelegram /> },
 
   // App shell — RootLayout handles session gate + redirects unauthenticated traffic to /login
   {
@@ -91,7 +92,6 @@ const routes: RouteObject[] = [
       { path: "mgr/dashboard", element: <MgrDashboard /> },
       { path: "mgr/products", element: <MgrProducts /> },
       { path: "mgr/receipt", element: <MgrReceipt /> },
-      { path: "dev/telegram", element: <DevTelegram /> },
     ],
   },
 
