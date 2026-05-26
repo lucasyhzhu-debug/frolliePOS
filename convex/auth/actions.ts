@@ -148,7 +148,7 @@ export const createStaff = action({
     const pin_hash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });
-    return await ctx.runMutation(internal.staff._createStaffCommit_internal, {
+    return await ctx.runMutation(internal.staff.internal._createStaffCommit_internal, {
       idempotencyKey: args.idempotencyKey,
       sessionId: args.sessionId,
       name: args.name,

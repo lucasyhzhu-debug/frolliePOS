@@ -1,6 +1,6 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
-import { requireManagerSession } from "../staff"; // TEMPORARY — moves to "../auth/sessions" in Task D2
+import { requireManagerSession } from "../auth/sessions";
 import { auditListHandler } from "./internal";
 
 /** Public audit log — manager session required. */
