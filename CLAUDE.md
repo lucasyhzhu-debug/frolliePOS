@@ -90,24 +90,18 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 
 ## File locations
 
-- `convex/` — all backend functions, schema, Xendit integration
-- `convex/schema.ts` — defines all POS tables; mirrors `product_master` schema patterns where applicable, but lives in the POS deployment only
-- `convex/auth.ts` — PIN auth (`argon2id`), sessions, lockout
-- `convex/staff.ts` — staff CRUD + device registration
-- `convex/transactions.ts` — cart, draft, void
-- `convex/payments.ts` — Xendit invoice lifecycle
-- `convex/refunds.ts` — refund flow
-- `convex/stock.ts` — movements, levels, reconciliation
-- `convex/products.ts` — products + inventory SKUs + components
-- `convex/vouchers.ts` / `discounts.ts` — voucher + discount CRUD + redemption
-- `convex/approvals.ts` — WA approval requests + tokens + approve/deny
-- `convex/audit.ts` — `logAudit` helper, audit-log query
-- `convex/dashboard.ts` — manager dashboard queries
-- `convex/settlements.ts` — Xendit settlement webhook + polling
-- `convex/settings.ts` — `pos_settings` singleton CRUD
-- `convex/idempotency.ts` — mutation harness, dedupe helpers
-- `convex/xendit/` — invoice creation, webhook (HTTP action), polling, refund API
-- `convex/seed.ts` — dev seeding
+- `convex/` — Convex backend, organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-surface-apis.md)
+- `convex/schema.ts` — root schema, composed from per-module fragments
+- `convex/auth/` — staff, sessions, devices, PIN auth (public.ts, internal.ts, actions.ts, sessions.ts, schema.ts)
+- `convex/staff/` — staff CRUD + device registration (public.ts, internal.ts)
+- `convex/catalog/` — products + inventory SKUs + components + stock levels (public.ts, schema.ts)
+- `convex/audit/` — append-only audit log (public.ts, internal.ts, schema.ts). `logAudit` is a plain helper called from every state-changing mutation
+- `convex/idempotency/` — mutation harness, dedupe helpers (internal.ts, schema.ts)
+- `convex/seed/` — dev seeding (internal.ts, actions.ts)
+- `convex/api/v1/` — external API surface (httpActions for Frollie Pro consumption). v0.2.1: scaffold only — endpoints ship from v0.3
+- `convex/telegram/` — Telegram bot POC (queries.ts, send.ts, webhook.ts, schema.ts). Graduates to `convex/approvals/telegram/` in v0.4
+- `convex/http.ts` — registers httpAction routes
+- `convex/lib/` — cross-cutting utilities (currently only `telegramHtml.ts`)
 - `src/routes/` — page-level routes (login, sale, drafts, stock, refund, history, settlements, lock, mgr/*, approve/*)
 - `src/components/ui/` — shadcn primitives (new-york style, stone base): `button`, `badge`, `card`, `input`, `label`, `separator`, `dialog`, `dropdown-menu`, `popover`, `select`, `switch`, `tabs`, `tooltip`, `progress`, `scroll-area`, `sonner` toast
 - `src/components/layout/` — `RootLayout` (app shell, session gate), `Stub` (route placeholder)
