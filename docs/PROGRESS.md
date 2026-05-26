@@ -138,6 +138,21 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
     - [ ] Tests: bootstrap on empty DB succeeds + creates exactly 1 row, bootstrap with any existing row throws, audit row written
   - **notes:** _Default PIN 1111 is a known-weak placeholder for prod handoff to Lucas. Change-PIN flow is a hard prereq for prod cutover — if it lands later than v0.3, document the gap in `docs/CHANGELOG.md` and consider postponing prod cutover. Also: Lucas can't create products/SKUs from the UI until that admin surface ships (currently planned for v0.5 manager portal); v0.3 prod usefulness is limited to sale flow against products created via Convex dashboard manually._
 
+- 📋 **[v03-be-change-pin]** `auth/actions:changePin` — staff can change their own PIN; required for prod cutover (Lucas must change from bootstrap PIN 1111)
+  - **agent:** `convex-expert`
+  - **deps:** `none` _(but ships with [v03-be-bootstrap] for prod cutover)_
+  - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-013](./ADR/013-idempotency-keys.md)
+  - **why:** Bootstrap inserts Lucas with placeholder PIN 1111. Lucas MUST change to a real PIN before the system is genuinely secured. Also general feature — any staff member should be able to rotate their own PIN. Without this, prod cutover ships with a hardcoded known PIN (1111) which is unacceptable.
+  - **subtasks:**
+    - [ ] `action: changePin(sessionId, currentPin, newPin, idempotencyKey)` in `convex/auth/actions.ts` — argon2id verify currentPin against `staff.pin_hash`, then argon2id-hash newPin, commit via internal mutation
+    - [ ] Internal mutation: `_changePinCommit_internal` — atomic patch of `staff.pin_hash`, requires session resolves to same `staff_id` as PIN owner (no admin override; managers can't change others' PINs via this action — separate flow if needed)
+    - [ ] PIN validation: 4 digits, numeric only, reject if equal to currentPin (force actual change)
+    - [ ] Lockout interaction: a failed currentPin verify counts toward the lockout in `pos_auth_attempts` (consistent with login attempts) — OR document why it should NOT (decision needed)
+    - [ ] Audit log: `actor_id: <staffId>`, `action: "staff.pin_changed"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <staffId>`, no before/after pin (never log PINs)
+    - [ ] Idempotency: wrap with `withIdempotency` — replay returns success without re-hashing (PIN already changed)
+    - [ ] Tests: happy path, wrong currentPin throws + lockout counter increments (or doesn't, per decision above), newPin == currentPin throws, replay via idempotencyKey returns same response, audit row written without PIN values
+  - **notes:** _Frontend UI for change-PIN is a separate gap — needs a route (`/staff/change-pin` or modal from Lock screen). Track separately as **[v03-fe-change-pin]** if/when planned. For v0.3 prod cutover, even a manager-dashboard-only change-PIN call (run via `npx convex run` against prod by Lucas, or by visiting Convex dashboard) is acceptable interim; UI follows in v0.5 manager portal. Bigger question: should managers be able to RESET other staff PINs (separate `auth/actions:resetStaffPin` with manager-PIN gate per ADR-005)? Likely yes, scope as **[v03-be-reset-staff-pin]** if needed for v0.3._
+
 - 📋 **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
   - **agent:** `convex-expert`
   - **deps:** `none`
