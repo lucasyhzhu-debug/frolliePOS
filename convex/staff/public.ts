@@ -1,30 +1,18 @@
-import { mutation, query, internalMutation, MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import { withIdempotency } from "./idempotency";
-import { logAudit } from "./audit";
+import { Id } from "../_generated/dataModel";
+import { withIdempotency } from "../idempotency/internal";
+import { logAudit } from "../audit/internal";
+import { requireManagerSession } from "../auth/sessions";
 
 const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
 const MAX_CODE_COLLISION_RETRIES = 5;
 
-export async function requireSession(
-  ctx: QueryCtx | MutationCtx,
-  sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" }> {
-  const s = await ctx.db.get(sessionId);
-  if (!s || s.ended_at != null) throw new Error("NO_SESSION");
-  const staff = await ctx.db.get(s.staff_id);
-  if (!staff || !staff.active) throw new Error("NO_SESSION");
-  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role };
-}
-
-export async function requireManagerSession(
-  ctx: QueryCtx | MutationCtx,
-  sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string }> {
-  const { staffId, deviceId, role } = await requireSession(ctx, sessionId);
-  if (role !== "manager") throw new Error("MANAGER_ONLY");
-  return { staffId, deviceId };
+function generateSecureSetupCode(): string {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  // Map to [100_000, 999_999]. Modulo bias is negligible at this range.
+  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
 }
 
 export const isDeviceRegistered = query({
@@ -45,53 +33,6 @@ export const listStaff = query({
     return ctx.db.query("staff").collect();
   },
 });
-
-export const _createStaffCommit_internal = internalMutation({
-  args: {
-    idempotencyKey: v.string(),
-    sessionId: v.id("staff_sessions"),
-    name: v.string(),
-    role: v.union(v.literal("staff"), v.literal("manager")),
-    pin_hash: v.string(),
-  },
-  handler: withIdempotency<
-    {
-      idempotencyKey: string;
-      sessionId: Id<"staff_sessions">;
-      name: string;
-      role: "staff" | "manager";
-      pin_hash: string;
-    },
-    { _id: Id<"staff">; name: string; role: "staff" | "manager" }
-  >(
-    "staff.createStaff",
-    async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
-      const newId = await ctx.db.insert("staff", {
-        name: args.name, pin_hash: args.pin_hash, role: args.role,
-        active: true, created_at: Date.now(),
-      });
-      await logAudit(ctx, {
-        actor_id: mgrId, action: "staff.created",
-        entity_type: "staff", entity_id: newId,
-        source: "booth_inline", device_id: deviceId,
-      });
-      return { _id: newId, name: args.name, role: args.role };
-    },
-    {
-      authCheck: async (ctx, args) => {
-        await requireManagerSession(ctx, args.sessionId);
-      },
-    },
-  ),
-});
-
-function generateSecureSetupCode(): string {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  // Map to [100_000, 999_999]. Modulo bias is negligible at this range.
-  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
-}
 
 export const generateDeviceSetupCode = mutation({
   args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },

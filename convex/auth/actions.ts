@@ -1,9 +1,9 @@
 "use node";
 
-import { action, internalAction } from "./_generated/server";
+import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import { internal, api } from "./_generated/api";
+import { Id } from "../_generated/dataModel";
+import { internal, api } from "../_generated/api";
 import { argon2id, argon2Verify } from "hash-wasm";
 
 const ARGON2_PARAMS = {
@@ -58,7 +58,7 @@ export const loginWithPin = action({
   },
   handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" }> => {
     // Short-circuit on cache hit BEFORE running argon2
-    const cached = await ctx.runQuery(internal.idempotency._lookup_internal, {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,
     });
 
@@ -69,14 +69,14 @@ export const loginWithPin = action({
     let commitKey = args.idempotencyKey;
     if (cached) {
       const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" };
-      const live = await ctx.runQuery(api.auth.getSession, { sessionId: parsed.sessionId });
+      const live = await ctx.runQuery(api.auth.public.getSession, { sessionId: parsed.sessionId });
       if (live) return parsed; // session still valid — replay cache
       // Session is dead. Use a derived commit key so the stale commit-level
       // cache is bypassed when we issue a fresh session below.
       commitKey = `${args.idempotencyKey}:refresh`;
     }
 
-    const staff = await ctx.runQuery(internal.auth._getStaffPinHash_internal, {
+    const staff = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
       staffId: args.staffId,
     });
     // Treat missing/deactivated staff as INVALID_PIN to avoid leaking which
@@ -86,12 +86,12 @@ export const loginWithPin = action({
     }
 
     // Pre-verify lockout check — reject cheaply before spending argon2 cycles
-    const lockState = await ctx.runQuery(internal.auth._getLockState_internal, {
+    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
       staffId: args.staffId,
     });
     if (lockState.locked) {
       // Fix 14: emit audit row for each probe during an active lockout
-      await ctx.runMutation(internal.auth._auditLockProbe_internal, {
+      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
         staffId: args.staffId,
         deviceId: args.deviceId,
         seconds_remaining: lockState.seconds_remaining,
@@ -104,7 +104,7 @@ export const loginWithPin = action({
     if (!verifyOk) {
       // Commit the failed attempt in its own mutation BEFORE throwing so the
       // write survives. Fix 10: pass derived key so retries are idempotent.
-      const result = await ctx.runMutation(internal.auth._recordFailedAttempt_internal, {
+      const result = await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: args.staffId,
         deviceId: args.deviceId,
@@ -117,7 +117,7 @@ export const loginWithPin = action({
 
     // PIN verified — commit session (use commitKey which may differ from
     // args.idempotencyKey if a stale-session refresh forced a cache bypass)
-    return await ctx.runMutation(internal.auth._loginCommit_internal, {
+    return await ctx.runMutation(internal.auth.internal._loginCommit_internal, {
       idempotencyKey: commitKey,
       staffId: args.staffId,
       deviceId: args.deviceId,
@@ -145,10 +145,10 @@ export const createStaff = action({
     if (!/^\d{4}$/.test(args.pin)) {
       throw new Error("PIN must be exactly 4 digits");
     }
-    const pin_hash: string = await ctx.runAction(internal.authActions._hashPin_internal, {
+    const pin_hash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });
-    return await ctx.runMutation(internal.staff._createStaffCommit_internal, {
+    return await ctx.runMutation(internal.staff.internal._createStaffCommit_internal, {
       idempotencyKey: args.idempotencyKey,
       sessionId: args.sessionId,
       name: args.name,
@@ -159,7 +159,7 @@ export const createStaff = action({
 });
 
 /**
- * Internal helper used ONLY by convex/auth.test.ts to seed staff rows with
+ * Internal helper used ONLY by convex/auth/__tests__/auth.test.ts to seed staff rows with
  * real hashes. Not exposed publicly.
  */
 export const _seedHashedStaff_internal = internalAction({
@@ -169,10 +169,10 @@ export const _seedHashedStaff_internal = internalAction({
     role: v.union(v.literal("staff"), v.literal("manager")),
   },
   handler: async (ctx, args): Promise<Id<"staff">> => {
-    const pinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, {
+    const pinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });
-    const id: Id<"staff"> = await ctx.runMutation(internal.auth._seedStaffCommit_internal, {
+    const id: Id<"staff"> = await ctx.runMutation(internal.auth.internal._seedStaffCommit_internal, {
       name: args.name,
       pin_hash: pinHash,
       role: args.role,

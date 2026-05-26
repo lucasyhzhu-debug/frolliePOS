@@ -32,7 +32,7 @@ export function __resetForTests() {
 }
 
 /**
- * IDB-backed snapshot of the live `api.products.catalog` query.
+ * IDB-backed snapshot of the live `api.catalog.public.catalog` query.
  *
  * - On mount, hydrates `snapshot` from IDB (cold-start works offline).
  * - When `live` changes to a non-undefined value (the Convex query resolves),

@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { query } from "../_generated/server";
 
 /**
  * Single payload for the catalog screen + offline cache. Persisted to IDB

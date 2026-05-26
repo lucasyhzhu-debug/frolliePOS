@@ -1,17 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "./schema";
-import { api } from "./_generated/api";
-import { seedStaff } from "./auth.test";
-
-const modules = import.meta.glob("./**/*.*s");
+import schema from "../../schema";
+import { api } from "../../_generated/api";
+import { seedStaff } from "../../auth/__tests__/auth.test";
 
 async function seedManager(t: ReturnType<typeof convexTest>) {
   return seedStaff(t, "Lucas", "9999", "manager");
 }
 
 async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: string) {
-  const { sessionId } = await t.action(api.authActions.loginWithPin, {
+  const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
     staffId, pin, deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
   });
   return sessionId;
@@ -19,11 +17,11 @@ async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: stri
 
 describe("device registration", () => {
   it("generateDeviceSetupCode returns 6-digit code with 1h TTL (manager-only)", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
 
-    const { code, expiresAt } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code, expiresAt } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-1",
     });
     expect(code).toMatch(/^\d{6}$/);
@@ -38,14 +36,14 @@ describe("device registration", () => {
   });
 
   it("activateDevice consumes a valid code + creates an active device", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-2",
     });
 
-    const device = await t.mutation(api.staff.activateDevice, {
+    const device = await t.mutation(api.staff.public.activateDevice, {
       code, deviceLabel: "Booth Phone 1", deviceId: "dev-new", idempotencyKey: "act-1",
     });
     expect(device.active).toBe(true);
@@ -60,39 +58,39 @@ describe("device registration", () => {
   });
 
   it("activateDevice rejects an expired or already-consumed code", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-3",
     });
 
-    await t.mutation(api.staff.activateDevice, {
+    await t.mutation(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-x", idempotencyKey: "act-2",
     });
 
     await expect(
-      t.mutation(api.staff.activateDevice, {
+      t.mutation(api.staff.public.activateDevice, {
         code, deviceLabel: "Y", deviceId: "dev-y", idempotencyKey: "act-3",
       })
     ).rejects.toThrow(/invalid|expired|used|consumed/i);
   });
 
   it("activateDevice rejects when the same device_id is already registered", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code: code1 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code: code1 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-4",
     });
-    await t.mutation(api.staff.activateDevice, {
+    await t.mutation(api.staff.public.activateDevice, {
       code: code1, deviceLabel: "A", deviceId: "dev-dupe", idempotencyKey: "act-4",
     });
-    const { code: code2 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code: code2 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-5",
     });
     await expect(
-      t.mutation(api.staff.activateDevice, {
+      t.mutation(api.staff.public.activateDevice, {
         code: code2, deviceLabel: "B", deviceId: "dev-dupe", idempotencyKey: "act-5",
       })
     ).rejects.toThrow(/already registered/i);
@@ -101,32 +99,32 @@ describe("device registration", () => {
 
 describe("isDeviceRegistered", () => {
   it("false for unknown device", async () => {
-    const t = convexTest(schema, modules);
-    const result = await t.query(api.staff.isDeviceRegistered, { deviceId: "unknown" });
+    const t = convexTest(schema);
+    const result = await t.query(api.staff.public.isDeviceRegistered, { deviceId: "unknown" });
     expect(result).toBe(false);
   });
 
   it("true after activation", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-iso-1",
     });
-    await t.mutation(api.staff.activateDevice, {
+    await t.mutation(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-iso", idempotencyKey: "act-iso-1",
     });
-    expect(await t.query(api.staff.isDeviceRegistered, { deviceId: "dev-iso" })).toBe(true);
+    expect(await t.query(api.staff.public.isDeviceRegistered, { deviceId: "dev-iso" })).toBe(true);
   });
 
   it("false for deactivated device", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-iso-2",
     });
-    await t.mutation(api.staff.activateDevice, {
+    await t.mutation(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-deact", idempotencyKey: "act-iso-2",
     });
     await t.run(async (ctx) => {
@@ -134,22 +132,22 @@ describe("isDeviceRegistered", () => {
         .withIndex("by_device_id", (q) => q.eq("device_id", "dev-deact")).unique();
       await ctx.db.patch(d!._id, { active: false });
     });
-    expect(await t.query(api.staff.isDeviceRegistered, { deviceId: "dev-deact" })).toBe(false);
+    expect(await t.query(api.staff.public.isDeviceRegistered, { deviceId: "dev-deact" })).toBe(false);
   });
 });
 
 // Fix 2 — inactive device reactivation + label validation
 describe("activateDevice — Fix 2", () => {
   it("reactivates an inactive device row (same _id returned, no duplicate)", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
 
     // First activation
-    const { code: code1 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code: code1 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-gen-1",
     });
-    const first = await t.mutation(api.staff.activateDevice, {
+    const first = await t.mutation(api.staff.public.activateDevice, {
       code: code1, deviceLabel: "Booth Phone", deviceId: "dev-reactivate",
       idempotencyKey: "fix2-act-1",
     });
@@ -160,10 +158,10 @@ describe("activateDevice — Fix 2", () => {
     });
 
     // Re-activate with a fresh code + same device_id
-    const { code: code2 } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code: code2 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-gen-2",
     });
-    const second = await t.mutation(api.staff.activateDevice, {
+    const second = await t.mutation(api.staff.public.activateDevice, {
       code: code2, deviceLabel: "Booth Phone v2", deviceId: "dev-reactivate",
       idempotencyKey: "fix2-act-2",
     });
@@ -185,15 +183,15 @@ describe("activateDevice — Fix 2", () => {
   });
 
   it("rejects empty deviceLabel", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-empty-gen",
     });
 
     await expect(
-      t.mutation(api.staff.activateDevice, {
+      t.mutation(api.staff.public.activateDevice, {
         code, deviceLabel: "   ", deviceId: "dev-empty-label",
         idempotencyKey: "fix2-empty-act",
       })
@@ -201,15 +199,15 @@ describe("activateDevice — Fix 2", () => {
   });
 
   it("rejects oversized deviceLabel (> 64 chars)", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
-    const { code } = await t.mutation(api.staff.generateDeviceSetupCode, {
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-long-gen",
     });
 
     await expect(
-      t.mutation(api.staff.activateDevice, {
+      t.mutation(api.staff.public.activateDevice, {
         code, deviceLabel: "X".repeat(100), deviceId: "dev-long-label",
         idempotencyKey: "fix2-long-act",
       })
@@ -219,11 +217,11 @@ describe("activateDevice — Fix 2", () => {
 
 describe("createStaff", () => {
   it("manager-only", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const mgrSession = await loginAs(t, mgrId, "9999");
 
-    const newStaff = await t.action(api.authActions.createStaff, {
+    const newStaff = await t.action(api.auth.actions.createStaff, {
       sessionId: mgrSession, name: "Citra", role: "staff", pin: "1234",
       idempotencyKey: "create-1",
     });
@@ -231,7 +229,7 @@ describe("createStaff", () => {
 
     const staffSession = await loginAs(t, newStaff._id, "1234");
     await expect(
-      t.action(api.authActions.createStaff, {
+      t.action(api.auth.actions.createStaff, {
         sessionId: staffSession, name: "Eka", role: "staff", pin: "1111",
         idempotencyKey: "create-2",
       })

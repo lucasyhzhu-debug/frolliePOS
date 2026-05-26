@@ -22,7 +22,7 @@ export function RootLayout() {
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
   // Skip query while deviceId is still resolving (null = IDB not yet read).
   const deviceRegistered = useQuery(
-    api.staff.isDeviceRegistered,
+    api.staff.public.isDeviceRegistered,
     deviceId ? { deviceId } : "skip",
   );
 

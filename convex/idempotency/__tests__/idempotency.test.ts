@@ -1,21 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "./schema";
-import { api, internal } from "./_generated/api";
-
-const modules = import.meta.glob("./**/*.*s");
+import schema from "../../schema";
+import { api, internal } from "../../_generated/api";
 
 describe("withIdempotency", () => {
   it("replays return identical response without re-executing", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
 
-    const first = await t.mutation(internal.idempotency.__test_echo, {
+    const first = await t.mutation(internal.idempotency.internal.__test_echo, {
       idempotencyKey: "key-1",
       value: 42,
     });
     expect(first.echoed).toBe(42);
 
-    const second = await t.mutation(internal.idempotency.__test_echo, {
+    const second = await t.mutation(internal.idempotency.internal.__test_echo, {
       idempotencyKey: "key-1",
       value: 999, // different input — should be ignored, cached response returned
     });
@@ -23,11 +21,11 @@ describe("withIdempotency", () => {
   });
 
   it("distinct keys execute independently", async () => {
-    const t = convexTest(schema, modules);
-    const a = await t.mutation(internal.idempotency.__test_echo, {
+    const t = convexTest(schema);
+    const a = await t.mutation(internal.idempotency.internal.__test_echo, {
       idempotencyKey: "key-a", value: 1,
     });
-    const b = await t.mutation(internal.idempotency.__test_echo, {
+    const b = await t.mutation(internal.idempotency.internal.__test_echo, {
       idempotencyKey: "key-b", value: 2,
     });
     expect(a.echoed).toBe(1);
@@ -35,13 +33,13 @@ describe("withIdempotency", () => {
   });
 
   it("handler errors are NOT cached — retry re-executes (v0.2 design choice)", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     await expect(
-      t.mutation(internal.idempotency.__test_throw, { idempotencyKey: "key-err" }),
+      t.mutation(internal.idempotency.internal.__test_throw, { idempotencyKey: "key-err" }),
     ).rejects.toThrow(/boom/);
 
     await expect(
-      t.mutation(internal.idempotency.__test_throw, { idempotencyKey: "key-err" }),
+      t.mutation(internal.idempotency.internal.__test_throw, { idempotencyKey: "key-err" }),
     ).rejects.toThrow(/boom/);
 
     const rows = await t.run(async (ctx) =>
@@ -53,14 +51,16 @@ describe("withIdempotency", () => {
   });
 
   it("public API is NOT exposed — __test_echo is internal", () => {
-    // TypeScript-level assertion: api.idempotency.__test_echo must not exist.
-    type ApiHasTestEcho = "__test_echo" extends keyof typeof api.idempotency ? true : false;
-    const _check: ApiHasTestEcho = false;
+    // TypeScript-level assertion: api.idempotency.internal must not exist
+    // (all idempotency exports are internal-only; the namespace itself shouldn't
+    // appear under `api`).
+    type ApiHasIdempotency = "idempotency" extends keyof typeof api ? true : false;
+    const _check: ApiHasIdempotency = false;
     expect(_check).toBe(false);
   });
 
   it("duplicate rows for same key do not throw — .first() returns oldest response", async () => {
-    const t = convexTest(schema, modules);
+    const t = convexTest(schema);
     const key = "key-dup";
 
     // Manually insert two rows with the same idempotency key, simulating a TOCTOU race.
@@ -82,7 +82,7 @@ describe("withIdempotency", () => {
     });
 
     // Calling with this key must NOT throw — .first() picks the oldest row.
-    const result = await t.mutation(internal.idempotency.__test_echo, {
+    const result = await t.mutation(internal.idempotency.internal.__test_echo, {
       idempotencyKey: key,
       value: 999, // ignored — cache hit
     });

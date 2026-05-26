@@ -1,7 +1,7 @@
 "use node";
 
-import { internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internalAction } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
 
@@ -34,7 +34,7 @@ export const reset = internalAction({
       );
     }
 
-    const existingStaff = await ctx.runQuery(internal.seed._countStaff_internal, {});
+    const existingStaff = await ctx.runQuery(internal.seed.internal._countStaff_internal, {});
     if (existingStaff > 0) {
       console.warn(
         `[seedActions.reset] Wiping ${existingStaff} existing staff rows on deployment ${url}. ` +
@@ -42,10 +42,10 @@ export const reset = internalAction({
       );
     }
 
-    const staffPinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, { pin: "0000" });
-    const mgrPinHash: string = await ctx.runAction(internal.authActions._hashPin_internal, { pin: "9999" });
+    const staffPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, { pin: "0000" });
+    const mgrPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, { pin: "9999" });
 
-    const result = await ctx.runMutation(internal.seed._reset_internal, {
+    const result = await ctx.runMutation(internal.seed.internal._reset_internal, {
       staffPinHash,
       mgrPinHash,
       staffNames: STAFF_NAMES as unknown as string[],

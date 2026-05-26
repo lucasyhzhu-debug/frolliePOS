@@ -1,6 +1,6 @@
-import { internalMutation, internalQuery, MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
+import { Id } from "../_generated/dataModel";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24h per ADR-013
 

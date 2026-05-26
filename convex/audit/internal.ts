@@ -1,8 +1,7 @@
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { requireManagerSession } from "./staff";
+import { Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 const sourceValidator = v.union(
   v.literal("booth_inline"),
@@ -15,6 +14,11 @@ const sourceValidator = v.union(
  * Append a row to audit_log. Call from inside any state-changing mutation.
  * ADR-007: append-only — this is the ONLY function that writes to audit_log.
  * Server-time only (ADR-031) — created_at is set inside, never accepted as arg.
+ *
+ * Stays a plain async TypeScript function (NOT an internalMutation) per ADR-034:
+ * runs in the caller's transaction, no JSON serialization overhead at a runtime
+ * boundary. Direct ctx.db.insert("audit_log", ...) from outside this module is
+ * the prohibited pattern.
  */
 export async function logAudit(
   ctx: MutationCtx,
@@ -49,7 +53,7 @@ export async function logAudit(
 }
 
 /** Shared query logic — used by both the public and internal variants. */
-async function auditListHandler(
+export async function auditListHandler(
   ctx: QueryCtx,
   args: { limit?: number; action?: string },
 ) {
@@ -63,19 +67,6 @@ async function auditListHandler(
   }
   return await ctx.db.query("audit_log").order("desc").take(limit);
 }
-
-/** Public audit log — manager session required. */
-export const list = query({
-  args: {
-    sessionId: v.id("staff_sessions"),
-    limit: v.optional(v.number()),
-    action: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await requireManagerSession(ctx, args.sessionId);
-    return auditListHandler(ctx, args);
-  },
-});
 
 /**
  * Internal-only audit list — no auth gate. Safe to use from server-side

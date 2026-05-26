@@ -1,8 +1,20 @@
 # SCHEMA.md
 
-POS-specific tables and their relationship to the Frollie Pro schema. Read alongside `product_master/docs/SCHEMA.md`.
+**POS-internal schema.** Table shapes, field names, and `Id<>` types are internal implementation detail per [ADR-034](./ADR/034-deep-modules-surface-apis.md). They can evolve freely; external integration with Frollie Pro or future consumers happens via the contract in [`PUBLIC_API.md`](./PUBLIC_API.md), not by mirroring this schema.
 
-This schema reflects the v0.5 wireframe handoff registry — most notably the **Product ↔ Inventory separation** ([ADR-016](./ADR/016-product-inventory-separation.md)) and the new **approvals / idempotency / drafts** tables.
+This doc is the developer-facing reference for the POS Convex schema. Field naming uses `snake_case` per POS convention. For external API field naming (`camelCase`) and stable string identifiers, see `PUBLIC_API.md`.
+
+## Module ownership (per ADR-034)
+
+| Module | Tables owned |
+|---|---|
+| `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
+| `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components`, `pos_stock_levels` |
+| `idempotency/` | `pos_idempotency` |
+| `audit/` | `audit_log` |
+| `telegram/` (POC) | `telegram_log` |
+
+Cross-module direct `ctx.db` access is a CI lint block (see `tools/eslint-rules/no-cross-module-db-access.js`).
 
 ## Conventions
 
@@ -14,15 +26,7 @@ This schema reflects the v0.5 wireframe handoff registry — most notably the **
 - Enums use string literal unions in TypeScript, validated in Convex schema with `v.union(v.literal(...), ...)`.
 - Timestamps are UTC ms (`Date.now()` server-side per [ADR-031](./ADR/031-convex-server-time-wins.md)). Display layer handles timezone.
 
-## Tables read from Frollie Pro (existing, do not redefine)
-
-### `products` (Frollie Pro)
-POS does **not** use this directly any more — the POS-specific Product/Inventory split ([ADR-016](./ADR/016-product-inventory-separation.md)) lives in `pos_products` + `pos_inventory_skus`. The legacy `products` table remains in Frollie Pro for B2B/wholesale flows; future v1.1 may join from `pos_inventory_skus.sku_family` if Frollie Pro's catalog gains a stronger SKU model.
-
-### `recipes`
-Not used by POS in v1. Used in v1.1 for kitchen inventory decrement when the POS sales feed graduates.
-
-## New tables added by POS
+(Existing per-table sections continue below — unchanged.)
 
 ### `staff`
 Booth employees and managers.

@@ -16,7 +16,7 @@ export function DeviceActivation() {
   // Use a stable fallback string while deviceId is still resolving so the
   // useIdempotency hook doesn't receive a changing key mid-render.
   const idempotencyKey = useIdempotency(`activate:${deviceId ?? "pending"}`);
-  const activate = useMutation(api.staff.activateDevice);
+  const activate = useMutation(api.staff.public.activateDevice);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
