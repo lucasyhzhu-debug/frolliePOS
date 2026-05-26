@@ -52,6 +52,17 @@ When status changes to `🔄 in-progress`, the agent claiming it adds an `**owne
 **Outcome:** Staff sign in with a PIN on a registered device and see the menu.
 Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 
+**You'll be able to:**
+- Open the POS on a registered Android, tap your name, enter your 4-digit PIN, and land on the home screen
+- Browse the menu (Dubai chocolate cookies, all pack sizes) — works offline, catalog is cached
+- Get protected by a 3-strike, 60-second PIN lockout per staff member
+- Activate a new device only via a one-time 6-digit code issued by a manager
+
+**Still not yet:**
+- Take a sale or accept payment
+- See transaction history, issue refunds, or manage stock
+- Anything beyond sign-in + browsing the menu
+
 ### Backend (`convex/`)
 - ✅ `schema.ts` — 11 tables (staff, sessions, auth_attempts, devices, pending_setups, inventory_skus, products, components, stock_levels, idempotency, audit_log)
 - ✅ `auth.ts` + `authActions.ts` — argon2id PIN hashing in Node action, V8/Node split per ADR-004; 3-strike 60s lockout (ADR-002); idempotent fail-record; repeat-lock audit
@@ -92,6 +103,12 @@ Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 **Outcome:** `convex/` refactored into module layout per [ADR-034](./ADR/034-deep-modules-surface-apis.md). Module-boundary lint as hard CI gate. Stable string identifiers (staffCode, productCode, componentCode) added as optional fields + seed allocation + format conformance tests. External API surface scaffolded under `convex/api/v1/` (endpoints deferred to v0.3).
 Merged 2026-05-26.
 
+**You'll be able to:**
+- _(nothing user-visible — purely engineering scaffolding to keep future phases shipping fast)_
+
+**Still not yet:**
+- Same as v0.2 — this phase changed nothing for end users
+
 ### Backend (`convex/`)
 - ✅ Module-boundary ESLint rule + CI gate (`tools/eslint-rules/no-cross-module-db-access.js`, `eslint.config.js`)
 - ✅ Schema composed from per-module fragments (`auth/`, `catalog/`, `idempotency/`, `audit/`, `telegram/`)
@@ -120,7 +137,22 @@ Merged 2026-05-26.
 
 ## v0.3 — sale flow + Xendit 📋 PLANNED (next up)
 **Outcome:** Staff take a sale and accept QRIS or BCA VA payment, with retries that don't double-charge.
+**Target:** 29 May 2026
 Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
+
+**You'll be able to:**
+- Build a cart with items + quantities, see live totals
+- Charge customers via QRIS scan **or** BCA Virtual Account (Xendit)
+- Auto-confirm via webhook **or** polling fallback — staff never wait wondering if it worked
+- Save sales as drafts (offline too) and resume them later
+- Sell even at zero stock — the sale never blocks; it's flagged for later manager review
+- Bootstrap a fresh prod database with just Lucas (PIN 1111), then rotate that PIN immediately via in-app change-PIN
+
+**Still not yet:**
+- Issue refunds (lands in v0.5)
+- Approve manager actions remotely — overrides still need a manager physically at the booth (v0.4)
+- Add/edit staff or products in-app — both still managed via the Convex dashboard until the manager portal (v0.5)
+- See receipts, transaction history, the dashboard, or stock management (v0.5)
 
 ### Backend (`convex/`)
 - 📋 **[v03-be-bootstrap]** Bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment
@@ -377,7 +409,19 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
 
 ## v0.4 — Telegram approval + manager mobile + founders share 🗂️ BACKLOG
 **Outcome:** Managers approve refunds and overrides from anywhere via a Telegram bot; no booth presence required. Founders get an automatic end-of-shift summary in their Telegram group.
+**Target:** TBD
 Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit log + Telegram approval pattern + manager home (mobile) + founders share. **Built on the v0.2 Telegram POC** — bot `@FrolliePOS_Bot` already deployed, dev group already wired (`-5247663806`), end-to-end round-trip validated. Reuse the pattern in `docs/PATTERNS/telegram-bot-integration.md`. ADR-027 (wa.me manager approval) and ADR-033 (founders wa.me share) are superseded by this phase.
+
+**You'll be able to:**
+- Approve refunds + overrides from your phone via Telegram — no booth presence required
+- Receive auto-posted end-of-shift summaries in the Frollie · Founders Telegram group
+- Use a mobile manager home screen with live sales tape + approvals queue
+- Trust that approval links are single-use, 60-minute expiry, PIN-gated
+
+**Still not yet:**
+- Issue refunds end-to-end (approval path lands here; refund logic ships v0.5)
+- Manage staff/products in-app (v0.5)
+- View receipts, history, dashboard, or stock (v0.5)
 
 ### Backend (`convex/`)
 - 🗂️ `approvals.ts` — `create_internal`, `approve`, `deny`; manager-PIN gates send an inline-button card to **Frollie · Managers** Telegram group via `convex/telegram/send.ts` (new template kind: `manager_approval`)
@@ -411,7 +455,24 @@ Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit l
 
 ## v0.5 — refunds + receipts + history + dashboard + stock 🗂️ BACKLOG
 **Outcome:** Staff issue refunds, share receipts, and reconcile stock; managers see the daily dashboard.
+**Target:** TBD
 Plan not yet written. Largest phase. Scope per WORKFLOW.md.
+
+**You'll be able to:**
+- Issue refunds end-to-end — staff initiate, manager approves via Telegram, refund logged as a new row (the original sale is never mutated)
+- Share signed-URL receipts — customer scans/clicks, gets an itemized receipt
+- View transaction history (staff: own + today; manager: everything)
+- Log stock-in by SKU through the app, every change tracked as a logged movement with a reason
+- Reconcile Xendit settlements (what they owe vs what they've paid out)
+- Use the manager dashboard (laptop-first) for daily sales, top SKUs, flagged transactions, staff activity
+- Manage staff + products fully in-app — the Convex dashboard is no longer required for day-to-day ops
+- End-of-shift handoff via the Lock screen
+
+**Still not yet:**
+- Use vouchers / promo codes (v0.6)
+- Track spoilage / wasted stock (v0.6)
+- Rely on nightly auto-reconciliation of stock counts (v0.6)
+- Launch in production with full operational polish (v1.0)
 
 ### Backend (`convex/`)
 - 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status
@@ -446,7 +507,19 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 
 ## v0.6 — vouchers + reconciliation + spoilage + e2e 🗂️ BACKLOG
 **Outcome:** Vouchers redeem, spoilage is tracked, end-to-end browser tests pass on a real Android device.
+**Target:** TBD
 Plan not yet written.
+
+**You'll be able to:**
+- Create promo codes from the manager portal; staff apply at sale (one per transaction, cached offline)
+- Log spoilage with manager gating — real margin numbers stop drifting from reported margins
+- Watch nightly auto-reconciliation keep stock counts honest without manual intervention
+- Trust that E2E browser tests have proven the full sale → payment → refund loop on real Android Chrome
+
+**Still not yet:**
+- Run in production (v1.0)
+- See polished PWA install + empty/error states (v1.0)
+- Lean on an operational runbook for incidents (v1.0)
 
 ### Backend (`convex/`)
 - 🗂️ `vouchers.ts` / `discounts.ts` — CRUD + redemption (ADR-009 cache offline, ADR-010 no stacking)
@@ -467,7 +540,23 @@ Plan not yet written.
 
 ## v1.0 — launch polish 🗂️ BACKLOG
 **Outcome:** The POS replaces the manual paper system at the booth, in production, with an operational runbook.
+**Target:** TBD
 Plan not yet written.
+
+**You'll be able to:**
+- Run the POS in production on `savory-zebra-800` Convex (separate from dev)
+- Have staff cleanly install the PWA via Android Chrome "Add to Home Screen"
+- See proper empty + error states across every screen — no blank screens, no cryptic failures
+- Lean on an operational runbook (oncall rotation, dashboards, alert thresholds) when things break
+- **Retire the paper system at the booth — Frollie POS is live**
+
+**Still not yet (deliberately out of scope for v1):**
+- Multi-stall expansion — schema is single-tenant in v1
+- Cash handling — digital payments only, by design (ADR-006)
+- Customer-facing screens — staff + manager only
+- Recipe / kitchen inventory — finished goods only
+- Receipt printer hardware — decision pending; could land here or v1.1
+- Cross-deployment integration with Frollie Pro `product_master` — decision pending; v1.1+
 
 ### Backend (`convex/`)
 - 🗂️ Negative-stock reconciliation manager tools
