@@ -18,9 +18,9 @@ Not a revenue product. Internal operational tool. The real prize is validating t
 
 ## Relationship to Frollie Pro
 
-Same Convex project as [`product_master`](https://github.com/lucasyhzhu-debug/product_master). POS-specific tables (`pos_*`, `staff`, `staff_sessions`, `registered_devices`, `audit_log`) live alongside Frollie Pro tables. POS reads `products` from Frollie Pro in v1.1+ when the sales feed graduates to decrement kitchen inventory via recipe lookup. In v1 POS uses its own `pos_products` + `pos_inventory_skus` tables ([ADR-016](./docs/ADR/016-product-inventory-separation.md)).
+POS runs in its **own Convex project** — separate from [`product_master`](https://github.com/lucasyhzhu-debug/product_master). The architectural relationship is logical, not infrastructural: POS mirrors Frollie Pro schema patterns where it makes sense, but POS tables (`pos_*`, `staff`, `staff_sessions`, `registered_devices`, `audit_log`) live in the POS deployment only. In v1 POS uses its own `pos_products` + `pos_inventory_skus` tables ([ADR-016](./docs/ADR/016-product-inventory-separation.md)). v1.1+ integration with Frollie Pro `products`/recipe data will need a cross-deployment integration pattern (sync, API call, or shared package) — not in v1 scope.
 
-Treat POS as a new revenue channel inside Frollie Pro's data model, not a sibling system.
+Treat POS as a new revenue channel inside Frollie Pro's data model, not a sibling system — but at the infrastructure layer it is genuinely a sibling.
 
 ## Stack
 
@@ -65,7 +65,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 ## File locations
 
 - `convex/` — all backend functions, schema, Xendit integration
-- `convex/schema.ts` — extends product_master schema, defines all `pos_*` tables
+- `convex/schema.ts` — defines all POS tables; mirrors `product_master` schema patterns where applicable, but lives in the POS deployment only
 - `convex/auth.ts` — PIN auth (`argon2id`), sessions, lockout
 - `convex/staff.ts` — staff CRUD + device registration
 - `convex/transactions.ts` — cart, draft, void
@@ -106,7 +106,7 @@ npm install
 
 # dev (two terminals)
 npm run dev               # vite dev server on :5173
-npx convex dev            # convex local dev (shared deployment)
+npx convex dev            # convex local dev (deployment: helpful-grasshopper-46)
 
 # build
 npm run build             # tsc -b && vite build
@@ -115,14 +115,17 @@ npm run lint
 
 # deploy
 npm run deploy            # frontend to vercel
-npx convex deploy         # backend to convex prod (shared with product_master — be careful)
+npx convex deploy         # backend to convex prod (POS prod deployment — own project)
 ```
 
 ## Convex deployment
 
-Shared with `product_master`. The deployment URL lives in `.env.local` as `VITE_CONVEX_URL`. Don't create a new Convex project. POS tables coexist with Frollie Pro tables in the same dashboard.
+POS has its **own Convex project**, separate from `product_master`. Two deployments:
 
-If you need to add a table, update `convex/schema.ts` in this repo. The `product_master` repo's schema is the source of truth for shared tables (`products`, `recipes`, etc.). Don't redefine those here; import from a shared types package if extracted, otherwise mirror the type definitions carefully and document the mirror.
+- **dev:** `helpful-grasshopper-46` — `https://helpful-grasshopper-46.convex.cloud` (client / WS) and `https://helpful-grasshopper-46.convex.site` (httpAction webhooks). Currently set in `.env.local` as `VITE_CONVEX_URL`. This is what `npx convex dev` targets.
+- **prod:** `savory-zebra-800` — `https://savory-zebra-800.convex.cloud` (client / WS) and `https://savory-zebra-800.convex.site` (httpAction webhooks). Populated via `npx convex deploy`. The Vercel build must inject this URL as `VITE_CONVEX_URL`, not the dev one.
+
+If you need to add a table, update `convex/schema.ts` in this repo — POS tables live here independently of `product_master`. Where POS mirrors a Frollie Pro concept (e.g., a `products` analogue), pattern your schema after `product_master`'s, but the tables themselves are POS-owned. v1.1+ may sync `products` data from `product_master` via a cross-deployment integration; that integration is not in v1.
 
 ## Xendit integration notes
 
