@@ -123,6 +123,21 @@ Merged 2026-05-26.
 Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
 
 ### Backend (`convex/`)
+- 📋 **[v03-be-bootstrap]** Prod bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-034 §stable identifiers](./ADR/034-deep-modules-surface-apis.md)
+  - **why:** v0.2.1 ships dev seed (`seed/actions:reset`) that wipes + populates Lucas + 4 staff + 5 SKUs + 7 products as bootstrap test data. Prod must NOT carry that play data — prod starts empty except for the bootstrap manager, then Lucas creates real staff/products via in-app UI (manager portal lands in v0.5; v0.3 unblocks at minimum the device-activation + login flow).
+  - **subtasks:**
+    - [ ] New `convex/seed/actions.ts` action: `bootstrap` — argon2id-hashes PIN 1111 + commits via internal mutation
+    - [ ] Internal mutation: refuse if `staff` table has any row (idempotent — safe to re-run; errors clearly if already bootstrapped)
+    - [ ] Insert single row: `{ name: "Lucas", code: "S-0001", role: "manager", active: true, pin_hash: argon2id("1111"), created_at: Date.now() }`
+    - [ ] Audit log: `actor_id: "system"`, `action: "staff.bootstrapped"`, `source: "system"`, `entity_type: "staff"`, `entity_id: <new id>`
+    - [ ] Document deploy step in `docs/RUNBOOK.md` (or new `RUNBOOK-prod-bootstrap.md`): `npx convex run seed/actions:bootstrap` runs once against prod after first `npx convex deploy`
+    - [ ] Document PIN-change requirement: Lucas must change PIN 1111 immediately after first login (requires `auth/actions:changePin` mutation — gap to flag if not in v0.3 scope already)
+    - [ ] Tests: bootstrap on empty DB succeeds + creates exactly 1 row, bootstrap with any existing row throws, audit row written
+  - **notes:** _Default PIN 1111 is a known-weak placeholder for prod handoff to Lucas. Change-PIN flow is a hard prereq for prod cutover — if it lands later than v0.3, document the gap in `docs/CHANGELOG.md` and consider postponing prod cutover. Also: Lucas can't create products/SKUs from the UI until that admin surface ships (currently planned for v0.5 manager portal); v0.3 prod usefulness is limited to sale flow against products created via Convex dashboard manually._
+
 - 📋 **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
   - **agent:** `convex-expert`
   - **deps:** `none`
