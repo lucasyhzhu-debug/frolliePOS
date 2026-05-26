@@ -1,0 +1,289 @@
+import { query, internalQuery, mutation, internalMutation, QueryCtx, MutationCtx } from "./_generated/server";
+import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
+import { withIdempotency } from "./idempotency";
+import { logAudit } from "./audit";
+
+/**
+ * List active staff for the login screen.
+ * Public: pre-auth (login screen calls this before any session exists).
+ * Returns name + role + _id only; pin_hash never leaves the server.
+ */
+export const getActiveStaff = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("staff")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return rows.map((s) => ({ _id: s._id, name: s.name, role: s.role }));
+  },
+});
+
+export const getSession = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, args) => {
+    const s = await ctx.db.get(args.sessionId);
+    if (!s || s.ended_at != null) return null;
+    const staff = await ctx.db.get(s.staff_id);
+    if (!staff || !staff.active) return null;
+    return {
+      sessionId: s._id,
+      staff: { _id: staff._id, name: staff.name, role: staff.role },
+      deviceId: s.device_id,
+      startedAt: s.started_at,
+    };
+  },
+});
+
+/**
+ * Read the pin_hash for verify. Internal-only — only the Node action that
+ * runs argon2Verify is allowed to call this.
+ */
+export const _getStaffPinHash_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, args) => {
+    const s = await ctx.db.get(args.staffId);
+    if (!s) return null;
+    return { _id: s._id, pin_hash: s.pin_hash, active: s.active, role: s.role };
+  },
+});
+
+const LOCKOUT_MS = 60_000;
+const MAX_FAILS = 3;
+
+// ---------------------------------------------------------------------------
+// Fix 3: duplicate-tolerant pos_auth_attempts helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Query-path: collect all attempt rows for staff, return the one with the
+ * maximum locked_until (worst-case fail-safe — if any row says locked, treat
+ * as locked). Cannot delete duplicates from a query.
+ */
+async function getAttemptForQuery(
+  ctx: QueryCtx,
+  staffId: Id<"staff">,
+) {
+  const rows = await ctx.db
+    .query("pos_auth_attempts")
+    .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+    .collect();
+  if (rows.length === 0) return null;
+  // Pick row with highest locked_until (most restrictive), fallback to most
+  // recent last_attempt_at for non-locked rows.
+  return rows.reduce((best, row) => {
+    const bestLock = best.locked_until ?? 0;
+    const rowLock = row.locked_until ?? 0;
+    if (rowLock > bestLock) return row;
+    if (rowLock === bestLock && row.last_attempt_at > best.last_attempt_at) return row;
+    return best;
+  });
+}
+
+/**
+ * Mutation-path: collect all attempt rows for staff, keep the most recent one
+ * (highest last_attempt_at), delete any older duplicates in the same tx.
+ * Returns the surviving row, or null if none existed.
+ */
+async function cleanupAndGetAttempt(
+  ctx: MutationCtx,
+  staffId: Id<"staff">,
+) {
+  const rows = await ctx.db
+    .query("pos_auth_attempts")
+    .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+    .collect();
+  if (rows.length === 0) return null;
+  // Sort descending by last_attempt_at; keep index 0, delete the rest.
+  const sorted = rows.slice().sort((a, b) => b.last_attempt_at - a.last_attempt_at);
+  for (let i = 1; i < sorted.length; i++) {
+    await ctx.db.delete(sorted[i]._id);
+  }
+  return sorted[0];
+}
+
+/**
+ * Read the current lock state for a staff member. Called by the loginWithPin
+ * action BEFORE argon2Verify so locked users get rejected cheaply.
+ */
+export const _getLockState_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, args): Promise<{ locked: boolean; seconds_remaining: number; fail_count: number }> => {
+    // Fix 3: use collect-based helper, pick worst-case row (max locked_until)
+    const attempt = await getAttemptForQuery(ctx, args.staffId);
+    const now = Date.now();
+    if (attempt?.locked_until && attempt.locked_until > now) {
+      return {
+        locked: true,
+        seconds_remaining: Math.ceil((attempt.locked_until - now) / 1000),
+        fail_count: attempt.fail_count,
+      };
+    }
+    return { locked: false, seconds_remaining: 0, fail_count: attempt?.fail_count ?? 0 };
+  },
+});
+
+/**
+ * Record a failed PIN attempt. MUST commit before the action throws so lockout
+ * state survives.
+ *
+ * Fix 7: if lockout has expired (locked_until != null && <= now), reset the
+ * fail_count to 1 (fresh cycle) instead of incrementing from the stale value.
+ *
+ * Fix 10: wrapped in withIdempotency using a derived key (${key}:failed) so
+ * action retries after a crash don't double-increment.
+ */
+export const _recordFailedAttempt_internal = internalMutation({
+  args: { idempotencyKey: v.string(), staffId: v.id("staff"), deviceId: v.string() },
+  handler: withIdempotency<
+    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    { newly_locked: boolean; seconds_remaining: number }
+  >(
+    "auth._recordFailedAttempt",
+    async (ctx, args) => {
+      const now = Date.now();
+      // Fix 3: use mutation-path helper that dedupes concurrent duplicate rows
+      const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
+
+      // Fix 7: if the lockout period has already expired, start a fresh cycle
+      const lockExpired =
+        attempt?.locked_until != null && attempt.locked_until <= now;
+      const next = lockExpired ? 1 : (attempt?.fail_count ?? 0) + 1;
+
+      const lock = next >= MAX_FAILS ? now + LOCKOUT_MS : null;
+      if (attempt) {
+        await ctx.db.patch(attempt._id, { fail_count: next, locked_until: lock, last_attempt_at: now });
+      } else {
+        await ctx.db.insert("pos_auth_attempts", {
+          staff_id: args.staffId, fail_count: next, locked_until: lock, last_attempt_at: now,
+        });
+      }
+      await logAudit(ctx, {
+        actor_id: args.staffId, action: "staff.failed_pin",
+        entity_type: "staff", entity_id: args.staffId,
+        source: "booth_inline", device_id: args.deviceId,
+      });
+      if (lock) {
+        await logAudit(ctx, {
+          actor_id: args.staffId, action: "staff.locked_out",
+          entity_type: "staff", entity_id: args.staffId,
+          source: "booth_inline", device_id: args.deviceId,
+          reason: `${MAX_FAILS} consecutive failures`,
+        });
+      }
+      return {
+        newly_locked: lock != null,
+        seconds_remaining: lock ? Math.ceil((lock - now) / 1000) : 0,
+      };
+    },
+  ),
+});
+
+/**
+ * Commit a successful login: clears the fail counter, writes the session row,
+ * emits the audit log. INTERNAL — only called by loginWithPin AFTER argon2Verify
+ * has confirmed the PIN is correct. Wrapped in withIdempotency so retries replay
+ * the cached { sessionId, role } without re-running any DB writes.
+ */
+export const _loginCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    staffId: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    { sessionId: Id<"staff_sessions">; role: "staff" | "manager" }
+  >(
+    "auth.loginWithPin",
+    async (ctx, args) => {
+      const now = Date.now();
+      const staff = await ctx.db.get(args.staffId);
+      if (!staff || !staff.active) {
+        // Shouldn't happen — action checked already. Defensive only.
+        throw new Error("INVALID_PIN");
+      }
+
+      // Fix 3: use mutation-path helper to clear and dedupe attempt rows
+      const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
+      if (attempt) {
+        await ctx.db.patch(attempt._id, { fail_count: 0, locked_until: null, last_attempt_at: now });
+      }
+
+      const sessionId = await ctx.db.insert("staff_sessions", {
+        staff_id: args.staffId,
+        device_id: args.deviceId,
+        started_at: now,
+        ended_at: null,
+        end_reason: null,
+      });
+      await ctx.db.patch(args.staffId, { last_login_at: now });
+      await logAudit(ctx, {
+        actor_id: args.staffId, action: "staff.login",
+        entity_type: "staff_session", entity_id: sessionId,
+        source: "booth_inline", device_id: args.deviceId,
+      });
+
+      return { sessionId, role: staff.role };
+    },
+    { staffIdFromArgs: (a) => a.staffId },
+  ),
+});
+
+/**
+ * Fix 14: Emit a staff.locked_out audit row when a locked user probes the
+ * login endpoint. Called from loginWithPin (action) after lock-state check.
+ * Separate from the lockout audit emitted when the lock was first set, so
+ * repeated probes are always visible in the audit log.
+ */
+export const _auditLockProbe_internal = internalMutation({
+  args: { staffId: v.id("staff"), deviceId: v.string(), seconds_remaining: v.number() },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: args.staffId, action: "staff.locked_out",
+      entity_type: "staff", entity_id: args.staffId,
+      source: "booth_inline", device_id: args.deviceId,
+      reason: `probe during lockout (${args.seconds_remaining}s remaining)`,
+    });
+  },
+});
+
+export const logout = mutation({
+  args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
+  handler: withIdempotency<{ idempotencyKey: string; sessionId: Id<"staff_sessions"> }, null>(
+    "auth.logout",
+    async (ctx, args) => {
+      const session = await ctx.db.get(args.sessionId);
+      if (!session || session.ended_at != null) return null;
+      await ctx.db.patch(args.sessionId, {
+        ended_at: Date.now(),
+        end_reason: "manual_lock",
+      });
+      await logAudit(ctx, {
+        actor_id: session.staff_id, action: "staff.logout",
+        entity_type: "staff_session", entity_id: args.sessionId,
+        source: "booth_inline", device_id: session.device_id,
+      });
+      return null;
+    },
+  ),
+});
+
+/** Test-only commit used by _seedHashedStaff_internal. */
+export const _seedStaffCommit_internal = internalMutation({
+  args: {
+    name: v.string(),
+    pin_hash: v.string(),
+    role: v.union(v.literal("staff"), v.literal("manager")),
+  },
+  handler: async (ctx, args): Promise<Id<"staff">> => {
+    return await ctx.db.insert("staff", {
+      name: args.name,
+      pin_hash: args.pin_hash,
+      role: args.role,
+      active: true,
+      created_at: Date.now(),
+    });
+  },
+});
