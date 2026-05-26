@@ -20,6 +20,7 @@ export const catalogTables = {
 
   pos_products: defineTable({
     sku_family: v.string(),
+    code: v.optional(v.string()), // NEW v0.2.1 — populated in Task F3, required in Task F6 (DEFERRED)
     name: v.string(),
     pack_label: v.string(),
     price_idr: v.number(),
@@ -31,10 +32,10 @@ export const catalogTables = {
     tax_rate: v.number(),
     created_at: v.number(),
     updated_at: v.number(),
-    // Task E3 adds: code: v.optional(v.string()), then v.string() in Task F6 (DEFERRED per plan)
   })
     .index("by_active_sort", ["active", "sort_order"])
-    .index("by_family", ["sku_family"]),
+    .index("by_family", ["sku_family"])
+    .index("by_code", ["code"]),
 
   pos_product_components: defineTable({
     product_id: v.id("pos_products"),
