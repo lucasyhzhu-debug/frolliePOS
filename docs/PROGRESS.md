@@ -1,5 +1,7 @@
 # Progress
 
+**Mission.** Build the nervous system of the Frollie booth — sign-in, sale, payment, refund, stock — on a single Android device, in production, replacing the manual paper system before v1.0 ships.
+
 Living kanban for Frollie POS. Update as work lands. AI agents read this before starting a task and update it after.
 
 **Legend:** ✅ done · 🔄 in progress · 📋 planned (next up) · 🗂️ backlog (not yet planned)
@@ -10,7 +12,44 @@ Living kanban for Frollie POS. Update as work lands. AI agents read this before 
 
 ---
 
+## Task ID format (for agent-addressable tasks)
+
+From v0.3 onward, every task is addressable by a stable **Task ID** so agents can claim, update, and reference it atomically. v0.2 tasks (shipped) are unaddressed — historical record only.
+
+**ID shape:** `<phase>-<lane>-<slug>`
+- `phase` — `v02`, `v03`, `v04`, `v05`, `v06`, `v10` (dots stripped from `v0.X`)
+- `lane` — `be` (backend, `convex/`), `fe` (frontend, `src/`), `xc` (cross-cutting)
+- `slug` — short kebab-case noun, unique within the phase+lane
+
+**Per-task metadata block** (indented bullets under the task line):
+
+```markdown
+- 📋 **[vXX-be-example]** `someFile.ts` — short description
+  - **agent:** `convex-expert`
+  - **deps:** `vXX-be-other`, `vXX-xc-schema`        (use other Task IDs, or `none`)
+  - **docs:** [ADR-NNN](./ADR/...), [CLAUDE.md §section](../CLAUDE.md), [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [ ] First concrete step
+    - [ ] Second concrete step
+    - [ ] Tests: the cases that prove it works
+  - **notes:** _(empty)_
+```
+
+(The `vXX-be-example` placeholder is not a real Task ID — it's chosen to never collide with the regex parsers used by `/progress` and `/progress-update`.)
+
+**Agent values** (from the available roster):
+`convex-expert` · `frontend-integrator` · `ui-component-builder` · `code-reviewer` · `feature-dev:code-architect` · `general-purpose` · `—` (no specific agent — usually cross-cutting ADR/schema work)
+
+**Slash-commands operating on this file:**
+- `/progress` — read-only query: filter by phase, lane, agent, status, ID, or `--ready` (deps satisfied). Default shows in-progress + planned for the active phase.
+- `/progress-update <task-id>` — atomic write: status, subtask checkbox, commit SHA, owner, note. Required when transitioning planned → in-progress → done.
+
+When status changes to `🔄 in-progress`, the agent claiming it adds an `**owner:**` line. When status changes to `✅ done`, the title line gets `(commit-sha)` appended and the owner line is stripped.
+
+---
+
 ## v0.2 — auth + catalog ✅ SHIPPED
+**Outcome:** Staff sign in with a PIN on a registered device and see the menu.
 Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 
 ### Backend (`convex/`)
@@ -37,6 +76,7 @@ Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 - ✅ vitest + jsdom (frontend) + edge-runtime (backend) env split, convex-test, fake-indexeddb
 - ✅ TDD per task, atomic commits, every public mutation accepts `idempotencyKey`
 - ✅ ADRs honored: 001-005 (auth), 007 (audit), 013 (idempotency), 015 (IDR), 016+017 (product/inventory split), 025 (offline catalog), 031 (server time), strategic-§1 + §6
+- ✅ Telegram POC playground at `/dev/telegram` — proves round-trip Convex ↔ Telegram (bot `@FrolliePOS_Bot`, dev chat `-5247663806`). Three templates (approval / shift summary / custom), HTML-escape helper, webhook with secret verification + idempotency, convex-test coverage. Spec `docs/superpowers/specs/2026-05-25-telegram-poc-design.md`, plan `docs/superpowers/plans/2026-05-25-telegram-poc.md`, runbook `docs/RUNBOOK-telegram.md`, portable pattern `docs/PATTERNS/telegram-bot-integration.md`. ADR-027 + ADR-033 graduation deferred to v0.4.
 
 ### v0.2 follow-ups deferred to later phases
 - 🗂️ `useIdempotency` IDB persistence → v0.3 (when payments expose the cost of reload-mid-payment)
@@ -44,41 +84,222 @@ Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 - 🗂️ `listStaff` pin_hash strip → v0.5 (when manager portal lands)
 - 🗂️ `rp()` negative-amount handling → v0.5 (refunds)
 - 🗂️ Playwright E2E for offline catalog + device activation → v0.6
+- 🗂️ Telegram POC graduation → v0.4: replace ADR-027 (WA manager approval) + ADR-033 (founders shift summary) with the validated Telegram bot pattern. Also: error toasting (Sonner) in playground forms, replace `payload: v.any()` with per-kind discriminated union, integrate `pos_approval_requests` instead of sandbox `telegram_log` table.
 
 ---
 
 ## v0.3 — sale flow + Xendit 📋 PLANNED (next up)
+**Outcome:** Staff take a sale and accept QRIS or BCA VA payment, with retries that don't double-charge.
 Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
 
 ### Backend (`convex/`)
-- 📋 `transactions.ts` — cart, draft, void; snapshot prices + names on lines (CLAUDE.md rule 1)
-- 📋 `payments.ts` — Xendit Invoice API lifecycle, single active invoice per txn (ADR-014)
-- 📋 `xendit/invoice.ts` — invoice creation with `payment_methods: ["QRIS", "BCA"]` (ADR-011)
-- 📋 `xendit/webhook.ts` — Convex `httpAction`, **signature verification mandatory** via `XENDIT_CALLBACK_TOKEN`
-- 📋 `xendit/polling.ts` — fallback after 2s, every 2s, 60s ceiling (strategic-§8)
-- 📋 `transactions.ts` updates — drafts queue, `pos_drafts` table
+- 📋 **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [SCHEMA.md](./SCHEMA.md), [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), [ADR-018](./ADR/018-negative-stock-allowed-flagged.md), [CLAUDE.md §business-rules-1](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] `pos_transactions` table (with `flags` bitfield for NEG_STOCK)
+    - [ ] `pos_transaction_lines` table with `unit_price` + `product_name_snapshot`
+    - [ ] `pos_drafts` table
+    - [ ] `pos_xendit_invoices` table (audit log for invoice ids)
+    - [ ] Update [SCHEMA.md](./SCHEMA.md) with the new tables before code
+  - **notes:** _(empty)_
+
+- 📋 **[v03-be-transactions]** `transactions.ts` — cart, draft, void; snapshot prices + names on lines
+  - **agent:** `convex-expert`
+  - **deps:** `v03-xc-schema`
+  - **docs:** [CLAUDE.md §business-rules-1](../CLAUDE.md), [ADR-013](./ADR/013-idempotency-keys.md), [ADR-031](./ADR/031-convex-server-time-wins.md)
+  - **subtasks:**
+    - [ ] Mutation: `createDraft(args, idempotencyKey)`
+    - [ ] Mutation: `addLine(txnId, productId, qty)` — snapshot `unit_price` + `product_name`
+    - [ ] Mutation: `removeLine(txnId, lineId)`
+    - [ ] Mutation: `voidTransaction(txnId, reason)` + audit log
+    - [ ] Mutation: `saveAsDraft(txnId)` / `resumeDraft(draftId)`
+    - [ ] Tests: snapshot pricing immutability, idempotency dedup, void path, draft round-trip
+  - **notes:** _(empty)_
+
+- 📋 **[v03-be-xendit-invoice]** `xendit/invoice.ts` — invoice creation with `payment_methods: ["QRIS", "BCA"]`
+  - **agent:** `convex-expert`
+  - **deps:** `v03-xc-schema`
+  - **docs:** [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md), [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)
+  - **subtasks:**
+    - [ ] `createInvoice(txnId)` — POST to Xendit Invoice API
+    - [ ] `cancelInvoice(invoiceId)` — called before retry on cart-edit
+    - [ ] Persist `xendit_invoice_id` + prior-invoice audit row
+    - [ ] Tests: invoice creation, cancel-before-retry, single-active enforcement
+  - **notes:** _(empty)_
+
+- 📋 **[v03-be-payments]** `payments.ts` — Xendit Invoice API lifecycle, single active invoice per txn
+  - **agent:** `convex-expert`
+  - **deps:** `v03-be-transactions`, `v03-be-xendit-invoice`
+  - **docs:** [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), [CLAUDE.md §business-rules-5](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] `requestPayment(txnId)` — orchestrates createInvoice + state transition
+    - [ ] `confirmPayment(txnId, source)` — idempotent, source ∈ {webhook, polling, manual}
+    - [ ] State machine: draft → awaiting_payment → paid | cancelled
+    - [ ] Tests: three confirmation paths, idempotent re-fire, state-transition guard
+  - **notes:** _(empty)_
+
+- 📋 **[v03-be-xendit-webhook]** `xendit/webhook.ts` — Convex `httpAction`, signature verification mandatory
+  - **agent:** `convex-expert`
+  - **deps:** `v03-be-payments`
+  - **docs:** [CLAUDE.md §Xendit-integration-notes](../CLAUDE.md#xendit-integration-notes), [ADR-013](./ADR/013-idempotency-keys.md)
+  - **subtasks:**
+    - [ ] Convex `httpAction` exposing webhook endpoint
+    - [ ] HMAC signature verification via `XENDIT_CALLBACK_TOKEN` (reject on mismatch)
+    - [ ] Dedupe by `xendit_invoice_id` (Xendit retries)
+    - [ ] Call `confirmPayment(txnId, "webhook")`
+    - [ ] Tests: valid sig accepted, invalid sig rejected, retry-dedup
+  - **notes:** _(empty)_
+
+- 📋 **[v03-be-xendit-polling]** `xendit/polling.ts` — fallback after 2s, every 2s, 60s ceiling
+  - **agent:** `convex-expert`
+  - **deps:** `v03-be-payments`
+  - **docs:** [CLAUDE.md §strategic-foundations-§8](../CLAUDE.md), [ADR-000 §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)
+  - **subtasks:**
+    - [ ] `pollInvoice(invoiceId)` — GET `/v2/invoices/{id}`
+    - [ ] Scheduler: kick off after 2s wait, repeat every 2s until 60s
+    - [ ] On paid: call `confirmPayment(txnId, "polling")` — idempotent against webhook winning
+    - [ ] Tests: polling stops once confirmed, ceiling honored, idempotency vs webhook
+  - **notes:** _(empty)_
 
 ### Frontend (`src/`)
-- 📋 `routes/sale.tsx` — CartA wireframe (`sale.jsx` artboard)
-- 📋 `routes/sale/drafts.tsx` — saved drafts list
-- 📋 `routes/sale/voucher.tsx` — voucher apply (cached, ADR-009)
-- 📋 `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
-- 📋 `routes/sale/charge-success.tsx` — paid confirmation
-- 📋 `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough)
-- 📋 `hooks/useXenditPayment.ts` — payment lifecycle hook
-- 📋 `hooks/useOfflineQueue.ts` — IDB-backed drafts queue
-- 📋 `hooks/useIdempotency.ts` — UPDATE: IDB persistence so reload-mid-payment doesn't double-execute
+- 📋 **[v03-fe-use-cart]** `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough)
+  - **agent:** `frontend-integrator`
+  - **deps:** `none`
+  - **docs:** [CLAUDE.md §stack](../CLAUDE.md#stack)
+  - **subtasks:**
+    - [ ] Zustand store: lines, totals, voucher slot
+    - [ ] Actions: `addItem`, `removeItem`, `setQty`, `clear`, `applyVoucher`
+    - [ ] Persist to sessionStorage so accidental reload mid-build doesn't nuke it
+    - [ ] Tests: state transitions, voucher reset on clear
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-use-xendit-payment]** `hooks/useXenditPayment.ts` — payment lifecycle hook
+  - **agent:** `frontend-integrator`
+  - **deps:** `v03-be-payments`
+  - **docs:** [CLAUDE.md §business-rules-5](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] Subscribe to txn state (Convex query)
+    - [ ] Surface QR string + BCA VA details
+    - [ ] Expose `retry()` (with cancel-prior-invoice on backend)
+    - [ ] Polling-fallback awareness (UI shows "checking…")
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-use-offline-queue]** `hooks/useOfflineQueue.ts` — IDB-backed drafts queue
+  - **agent:** `frontend-integrator`
+  - **deps:** `v03-be-transactions`
+  - **docs:** [ADR-025](./ADR/025-service-worker-cache.md), [CLAUDE.md §business-rules-17](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] IDB schema for queued drafts
+    - [ ] Enqueue on offline, flush on reconnect
+    - [ ] Tests: round-trip with fake-indexeddb
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-use-idempotency-idb]** `hooks/useIdempotency.ts` — UPDATE: IDB persistence (v0.2 follow-up)
+  - **agent:** `frontend-integrator`
+  - **deps:** `none`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md), [CLAUDE.md §business-rules-15](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] Persist intent UUIDs to IDB so reload-mid-payment doesn't re-issue
+    - [ ] TTL-based cleanup (24h, matching server dedupe window)
+    - [ ] Tests: reload simulation, expiry
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-sale-route]** `routes/sale.tsx` — CartA wireframe (`sale.jsx` artboard)
+  - **agent:** `ui-component-builder`
+  - **deps:** `v03-fe-use-cart`
+  - **docs:** `frollie-pos design files/project/wireframes/sale.jsx` (local-only), [CLAUDE.md §wireframe-bundle](../CLAUDE.md#wireframe-bundle-reference)
+  - **subtasks:**
+    - [ ] Page shell + RootLayout wiring
+    - [ ] Product grid bound to `catalog` query
+    - [ ] Cart panel bound to `useCart`
+    - [ ] Charge button + Save-as-draft button
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-sale-drafts]** `routes/sale/drafts.tsx` — saved drafts list
+  - **agent:** `ui-component-builder`
+  - **deps:** `v03-be-transactions`, `v03-fe-use-offline-queue`
+  - **docs:** `frollie-pos design files/project/wireframes/sale-drafts.jsx`
+  - **subtasks:**
+    - [ ] List queued + server drafts
+    - [ ] Resume + delete actions
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-sale-voucher]** `routes/sale/voucher.tsx` — voucher apply (cached, ADR-009)
+  - **agent:** `ui-component-builder`
+  - **deps:** `v03-fe-use-cart`
+  - **docs:** [ADR-009](./ADR/009-voucher-cache-offline.md), [ADR-010](./ADR/010-no-voucher-stacking.md)
+  - **subtasks:**
+    - [ ] Voucher input + validation against cached list
+    - [ ] One-voucher-at-a-time enforcement (ADR-010)
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
+  - **agent:** `ui-component-builder`
+  - **deps:** `v03-fe-use-xendit-payment`
+  - **docs:** `frollie-pos design files/project/wireframes/charge.jsx`, [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md)
+  - **subtasks:**
+    - [ ] QRIS view with QR canvas render
+    - [ ] BCA VA view with copy-to-clipboard + bank logo
+    - [ ] Method toggle + retry affordance
+    - [ ] Polling indicator
+  - **notes:** _(empty)_
+
+- 📋 **[v03-fe-sale-charge-success]** `routes/sale/charge-success.tsx` — paid confirmation
+  - **agent:** `ui-component-builder`
+  - **deps:** `v03-fe-sale-charge`
+  - **docs:** `frollie-pos design files/project/wireframes/charge-success.jsx`
+  - **subtasks:**
+    - [ ] Success screen with receipt number + totals
+    - [ ] "New sale" CTA returning to `/sale`
+  - **notes:** _(empty)_
 
 ### Cross-cutting
-- 📋 Three-path payment confirmation: webhook primary, polling fallback, manual override (strategic-§8)
-- 📋 Negative-stock allowed at sale, flagged via `pos_transactions.flags |= NEG_STOCK` (ADR-018)
-- 📋 Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
-- 📋 Xendit test mode setup (test keys in `.env.local`, webhook URL configured in Xendit dashboard)
-- 📋 SCHEMA.md audit enum: `transaction.created`, `transaction.line_*`, `transaction.discount_applied`, `transaction.voucher_redeemed`, `transaction.saved_as_draft`, `transaction.draft_resumed`, `payment.invoice_created`, `payment.confirmed`
+- 📋 **[v03-xc-three-path-payment]** Three-path payment confirmation (webhook + polling + manual override)
+  - **agent:** `—`
+  - **deps:** `v03-be-xendit-webhook`, `v03-be-xendit-polling`
+  - **docs:** [strategic-foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern), [CLAUDE.md §business-rules-5](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] Document the manual-override flow (deferred to v0.4 WA approval; v0.3 stubs it behind a feature flag)
+    - [ ] Sequence diagram in ADR or PROGRESS notes
+  - **notes:** _(empty)_
+
+- 📋 **[v03-xc-neg-stock-flag]** Negative-stock allowed at sale, flagged via `pos_transactions.flags |= NEG_STOCK`
+  - **agent:** `convex-expert`
+  - **deps:** `v03-be-transactions`
+  - **docs:** [ADR-018](./ADR/018-negative-stock-allowed-flagged.md)
+  - **subtasks:**
+    - [ ] Bitfield constant in shared module
+    - [ ] Set on cart-confirm when any line crosses zero
+    - [ ] Tests: flag set, flag not set, partial cart
+  - **notes:** _(empty)_
+
+- 📋 **[v03-xc-xendit-test-mode]** Xendit test mode setup (test keys in `.env.local`, webhook URL in Xendit dashboard)
+  - **agent:** `—`
+  - **deps:** `none`
+  - **docs:** [CLAUDE.md §Xendit-integration-notes](../CLAUDE.md#xendit-integration-notes)
+  - **subtasks:**
+    - [ ] Add test keys to `.env.local` (gitignored)
+    - [ ] Configure webhook URL pointing at `helpful-grasshopper-46.convex.site/xendit/webhook`
+    - [ ] Verify with curl + signed payload
+  - **notes:** _(empty)_
+
+- 📋 **[v03-xc-schema-audit-enum]** Audit enum additions in [SCHEMA.md](./SCHEMA.md)
+  - **agent:** `—`
+  - **deps:** `v03-xc-schema`
+  - **docs:** [SCHEMA.md](./SCHEMA.md), [ADR-007](./ADR/007-audit-log-append-only.md)
+  - **subtasks:**
+    - [ ] `transaction.created`, `transaction.line_added`, `transaction.line_removed`
+    - [ ] `transaction.discount_applied`, `transaction.voucher_redeemed`
+    - [ ] `transaction.saved_as_draft`, `transaction.draft_resumed`
+    - [ ] `payment.invoice_created`, `payment.confirmed`
+  - **notes:** _(empty)_
 
 ---
 
 ## v0.4 — WA approval + manager mobile + founders share 🗂️ BACKLOG
+**Outcome:** Managers approve refunds and overrides from anywhere via WhatsApp; no booth presence required.
 Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit log + WA approval pattern + manager home (mobile) + founders share.
 
 ### Backend (`convex/`)
@@ -107,6 +328,7 @@ Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit l
 ---
 
 ## v0.5 — refunds + receipts + history + dashboard + stock 🗂️ BACKLOG
+**Outcome:** Staff issue refunds, share receipts, and reconcile stock; managers see the daily dashboard.
 Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 
 ### Backend (`convex/`)
@@ -141,6 +363,7 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 ---
 
 ## v0.6 — vouchers + reconciliation + spoilage + e2e 🗂️ BACKLOG
+**Outcome:** Vouchers redeem, spoilage is tracked, end-to-end browser tests pass on a real Android device.
 Plan not yet written.
 
 ### Backend (`convex/`)
@@ -161,6 +384,7 @@ Plan not yet written.
 ---
 
 ## v1.0 — launch polish 🗂️ BACKLOG
+**Outcome:** The POS replaces the manual paper system at the booth, in production, with an operational runbook.
 Plan not yet written.
 
 ### Backend (`convex/`)
@@ -175,6 +399,22 @@ Plan not yet written.
 - 🗂️ Full e2e pass on real Android device
 - 🗂️ Production deployment to `savory-zebra-800`
 - 🗂️ Operational runbook (oncall, dashboards, alert thresholds)
+
+---
+
+## Risks under watch
+
+- **Xendit settlement timing** — payout latency vs cashflow visibility. v0.5 settlements module is the canary; if it ships clean, settlement risk is closed.
+- **Single device, single point of failure** — the booth Android dies mid-shift = no sales. Offline draft queue (v0.3) helps but doesn't replace; spare-device protocol needed by v1.0.
+- **WhatsApp share-intent dependability** — relies on staff's own WA being logged in on the device. No business bot to fall back on in v1. Watch closely once v0.4 lands.
+- **PWA install conversion** — staff must add the app to their home screen for offline + reliable launch. Drives the launch playbook in v1.0.
+- **Negative-stock discipline** — sales are allowed at zero stock with a flag (ADR-018). Requires manager actually reconciling, or counts drift. Reconciliation UI is v0.5.
+
+## Decisions awaiting CTO
+
+- **Cross-deployment integration with Frollie Pro `product_master`** — sync, API call, or shared package? Affects v1.1+ when POS starts reading Pro's `products` table.
+- **Receipt printer hardware** — in scope for v1.0 or punt to v1.1? Currently not on the roadmap; booth may want thermal receipts at launch.
+- **WhatsApp Cloud API vs share-intent** — v1.1+ consideration to replace wa.me share-intent with a proper bot for higher reliability and audit-cleanliness.
 
 ---
 
