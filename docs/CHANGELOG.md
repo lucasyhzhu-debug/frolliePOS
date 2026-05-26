@@ -2,6 +2,10 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## Unreleased
+
+- POC: Telegram bot integration playground at `/dev/telegram`. Sends approval / shift summary / custom messages via Convex action `telegram:send:sendTemplate`; receives button-press callbacks via `httpAction` at `/telegram-webhook`. Sandbox table `telegram_log`. Vitest + convex-test coverage for HTML escape, template renderers, and webhook (security + dedupe). Spec: `docs/superpowers/specs/2026-05-25-telegram-poc-design.md`. Does NOT replace ADR-027 / ADR-033 yet.
+
 ## [0.2.0] — 2026-05-26
 
 ### Added
