@@ -88,6 +88,36 @@ Merged 2026-05-26 via PR #1 (commit `c051211`). 110 tests passing.
 
 ---
 
+## v0.2.1 — Architecture restructure ✅ SHIPPED
+**Outcome:** `convex/` refactored into module layout per [ADR-034](./ADR/034-deep-modules-surface-apis.md). Module-boundary lint as hard CI gate. Stable string identifiers (staffCode, productCode, componentCode) added as optional fields + seed allocation + format conformance tests. External API surface scaffolded under `convex/api/v1/` (endpoints deferred to v0.3).
+Merged 2026-05-26.
+
+### Backend (`convex/`)
+- ✅ Module-boundary ESLint rule + CI gate (`tools/eslint-rules/no-cross-module-db-access.js`, `eslint.config.js`)
+- ✅ Schema composed from per-module fragments (`auth/`, `catalog/`, `idempotency/`, `audit/`, `telegram/`)
+- ✅ All modules migrated: `auth/{public,internal,actions,sessions,schema}.ts`, `staff/{public,internal}.ts`, `catalog/{public,schema}.ts`, `audit/{public,internal,schema}.ts`, `idempotency/{internal,schema}.ts`, `seed/{internal,actions}.ts`
+- ✅ Session helpers extracted to `auth/sessions.ts` (breaks audit→staff backwards dep)
+- ✅ `logAudit` confirmed as plain helper (ADR-034 amended)
+- ✅ Stable codes (`staffCode` `S-NNNN`, `productCode` `<PREFIX>_<N>PC`, `componentCode` UPPERCASE) added as optional fields + seed allocates them + format conformance tests in `convex/_codes/__tests__/`
+
+### Frontend (`src/`)
+- ✅ All `api.<module>.<fn>` → `api.<module>.public.<fn>` (or `.actions.<fn>` for Node actions) — 5 files: `useSession`, `RootLayout`, `DeviceActivation`, `login`, `home` (+ `useCatalogCache` doc comment)
+
+### Cross-cutting
+- ✅ `convex/api/v1/{_auth.ts,README.md}` scaffold (no endpoints yet)
+- ✅ `docs/PUBLIC_API.md` stubbed
+- ✅ `docs/SCHEMA.md` reframed as POS-internal
+- ✅ `CLAUDE.md` file-locations updated for module layout
+- ✅ ADR-034 amended (§"Cross-module patterns — Audit logging")
+- ✅ CHANGELOG entry
+
+### v0.2.1 follow-ups deferred
+- 🗂️ Flip `code` fields to required → v0.3 (needs `createStaff` allocation logic for race-safe S-NNNN; cascades through `_seedStaffCommit_internal`, `_createStaffCommit_internal`, and raw test inserts)
+- 🗂️ External API endpoints + bearer-token impl + PUBLIC_API.md endpoint specs + contract snapshot tests + `audit_log.source` `"api_consumer"` enum + PII scope tests → v0.3
+- 🗂️ Telegram POC graduation → v0.4
+
+---
+
 ## v0.3 — sale flow + Xendit 📋 PLANNED (next up)
 **Outcome:** Staff take a sale and accept QRIS or BCA VA payment, with retries that don't double-charge.
 Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
