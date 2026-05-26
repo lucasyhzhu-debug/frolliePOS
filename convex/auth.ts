@@ -2,7 +2,7 @@ import { query, internalQuery, mutation, internalMutation, QueryCtx, MutationCtx
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { withIdempotency } from "./idempotency/internal";
-import { logAudit } from "./audit";
+import { logAudit } from "./audit/internal";
 
 /**
  * List active staff for the login screen.

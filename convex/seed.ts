@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { logAudit } from "./audit";
+import { logAudit } from "./audit/internal";
 
 export const _countStaff_internal = internalQuery({
   args: {},

@@ -2,7 +2,7 @@ import { mutation, query, internalMutation, MutationCtx, QueryCtx } from "./_gen
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { withIdempotency } from "./idempotency/internal";
-import { logAudit } from "./audit";
+import { logAudit } from "./audit/internal";
 
 const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
 const MAX_CODE_COLLISION_RETRIES = 5;
