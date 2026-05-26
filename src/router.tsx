@@ -59,6 +59,8 @@ const ApprovePin = lazy(() => import("@/routes/approve/pin"));
 const Receipt = lazy(() => import("@/routes/receipt"));
 const Activate = lazy(() => import("@/routes/activate"));
 
+const DevTelegram = lazy(() => import("@/routes/dev/telegram"));
+
 const routes: RouteObject[] = [
   // Public routes — no auth, no app shell
   { path: "/activate", element: <Activate /> },
@@ -89,6 +91,7 @@ const routes: RouteObject[] = [
       { path: "mgr/dashboard", element: <MgrDashboard /> },
       { path: "mgr/products", element: <MgrProducts /> },
       { path: "mgr/receipt", element: <MgrReceipt /> },
+      { path: "dev/telegram", element: <DevTelegram /> },
     ],
   },
 
