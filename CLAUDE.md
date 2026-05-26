@@ -2,6 +2,32 @@
 
 AI agent context for the Frollie POS repo. Read this first before touching code.
 
+## Progress tracker — read FIRST, update LAST
+
+The living roadmap lives in [`docs/PROGRESS.md`](./docs/PROGRESS.md). Every task is addressable by a stable **Task ID** (`<phase>-<lane>-<slug>`, e.g., `v03-be-transactions`) with metadata (agent, deps, docs, subtasks, notes).
+
+A rendered HTML view sits beside it at [`docs/progress.html`](./docs/progress.html) — open it in a browser tab for the bird's-eye view, filtering, and drill-down. The HTML is generated from the markdown; the markdown is the source of truth.
+
+**Mandatory workflow for every coding session and every dispatched agent:**
+
+1. **Before starting work**: run `/progress --ready` to see which tasks have all deps satisfied. Pick one whose `agent:` matches you (or whose lane matches the work). Read the task's metadata block: `agent`, `deps`, `docs`, `subtasks`.
+2. **When you start**: `/progress-update <task-id> --status in-progress --owner <your-name>`. This claims the task so two agents don't double-work it.
+3. **As you tick subtasks**: `/progress-update <task-id> --subtask "<substring>"` — keeps the bird's-eye view honest.
+4. **When the work commits**: `/progress-update <task-id> --status done --commit <sha>`.
+5. **If you discover a new task mid-phase**: `/progress-update <new-id> --new-task "<title>" --phase vX.Y --lane be|fe|xc --agent <name> [--deps ...]`.
+6. **After any `/progress-update`**: run `node scripts/build-progress-html.mjs` to regenerate the HTML view. (Cheap — ~50ms. Skipping it leaves the rendered board stale.)
+
+**Refusal conditions** (the skill enforces these — don't try to bypass):
+- `--status in-progress` requires `--owner` (in same call or already present).
+- `--status done` requires `--commit <sha>` (in same call or already present on title line).
+- `--subtask` substring must match exactly one subtask under the task.
+
+**Do NOT** edit `docs/PROGRESS.md` directly with Edit/Write for status, subtask, owner, or commit fields — always go through `/progress-update`. Direct edits are reserved for: adding a brand-new phase header, fixing typos in titles/descriptions, restructuring lane layouts. If you're unsure, ask.
+
+**Do NOT** edit `docs/progress.html` by hand — it's regenerated from the markdown. Edit the markdown (via `/progress-update`) then run the build script.
+
+For phases v0.4–v1.0 (currently `🗂️ BACKLOG`), tasks don't yet have IDs. They get retrofitted when a phase enters planning — not before. Don't preemptively retrofit.
+
 ## What this is
 
 Internal point-of-sale system for the Frollie booth (Pakuwon Mall / wherever the booth is currently sited). Single device (Android), mobile web app installed as a PWA, 2-3 staff with overlapping shifts. Digital payments only via Xendit (QRIS primary + BCA Virtual Account secondary). Sells Dubai chocolate cookies and related SKUs in multiple pack sizes (1pc, 3pcs, 8pcs, Mixed Box 4pcs).
@@ -24,7 +50,7 @@ Treat POS as a new revenue channel inside Frollie Pro's data model, not a siblin
 
 ## Stack
 
-Mirror Frollie Pro. No deviation without an ADR.
+Mirror Frollie Pro for **stack choices** (framework, language, libraries). POS **data shape is independent** of Frollie Pro per [ADR-034](./docs/ADR/034-deep-modules-surface-apis.md) — integration happens via a versioned HTTP API surface (`convex/api/v1/`), not schema mirroring. Stack deviations still require an ADR.
 
 - **Convex 1.31.7** (serverless backend, real-time sync)
 - **React 19 + TypeScript + Vite**

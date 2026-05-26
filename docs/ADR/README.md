@@ -47,6 +47,7 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 | [031](./031-convex-server-time-wins.md) | Time | Convex server time wins | 2026-05-21 | Accepted |
 | [032](./032-saved-drafts-purge-24h.md) | Time | Saved drafts purge after 24h | 2026-05-21 | Accepted |
 | [033](./033-founders-shift-summary-share.md) | Time | Founders shift-summary share: opt-in, default ON | 2026-05-21 | Accepted |
+| [034](./034-deep-modules-surface-apis.md) | Arch | Deep modules with surface APIs as architectural blueprint | 2026-05-26 | Accepted |
 
 ## Groups
 
@@ -58,6 +59,7 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 - **Sync** — offline, service worker, reconciliation (ADR-025, ADR-026)
 - **WA** — WhatsApp manager approval (ADR-027 through ADR-030)
 - **Time** — timestamps, retention, scheduled (ADR-031 through ADR-033)
+- **Arch** — foundational architecture (ADR-034)
 
 ## Template
 
