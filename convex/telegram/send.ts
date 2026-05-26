@@ -11,6 +11,10 @@ import {
 
 // Convex actions run in a Node-like runtime and can make external HTTP calls
 // via the standard fetch API. Mutations cannot — that's why this is an action.
+//
+// POC: idempotency-key wrapping intentionally omitted per spec §Out of scope
+// (docs/superpowers/specs/2026-05-25-telegram-poc-design.md). Will be added
+// when the POC graduates and replaces ADR-027.
 
 export const sendTemplate = action({
   args: {

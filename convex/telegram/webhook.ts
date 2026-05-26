@@ -51,7 +51,11 @@ export const telegramWebhook = httpAction(async (ctx, request) => {
   // 5. Always acknowledge the callback so Telegram stops the spinner on the
   //    user's button. Failure to call answerCallbackQuery leaves the spinner
   //    running indefinitely (visible UX bug).
-  const token = process.env.TELEGRAM_BOT_TOKEN!;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN env var missing — secret was set but token wasn't");
+    return new Response("server misconfiguration", { status: 500 });
+  }
   await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -66,7 +70,7 @@ export const telegramWebhook = httpAction(async (ctx, request) => {
     const verb = isApprove ? "✅ Approved" : isDeny ? "❌ Denied" : "👉 Selected";
     const userLabel = cq.from.username ? `@${cq.from.username}` : cq.from.first_name ?? "unknown";
 
-    await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+    const editRes = await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -76,6 +80,13 @@ export const telegramWebhook = httpAction(async (ctx, request) => {
         reply_markup: { inline_keyboard: [] },
       }),
     });
+    if (!editRes.ok) {
+      console.warn(
+        "editMessageText failed (message may have been deleted before button press):",
+        editRes.status,
+        await editRes.text(),
+      );
+    }
   }
 
   return new Response("ok", { status: 200 });
