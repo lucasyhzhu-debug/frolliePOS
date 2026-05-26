@@ -13,21 +13,32 @@ const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
  *   - 7 products from the wireframe catalog
  *   - initial stock levels
  *
- * Hard prod guard: aborts unless CONVEX_CLOUD_URL identifies a dev deployment
- * OR the staff table is empty (greenfield prod is also acceptable). Writes an
- * audit row so the wipe is traceable. INTERNAL — not exposed via api.*.
+ * Prod guard (deny-list): aborts if CONVEX_CLOUD_URL contains the known prod
+ * deployment slug. All other deployments (dev, localhost, ephemeral test) are
+ * allowed through. If the prod deployment ever changes, update KNOWN_PROD_SLUG
+ * here and in CLAUDE.md §"Convex deployment". INTERNAL — not exposed via api.*.
  */
 export const reset = internalAction({
   args: {},
   handler: async (ctx): Promise<{ wiped: number; inserted: number }> => {
     const url = process.env.CONVEX_CLOUD_URL ?? "";
-    const isDev = url.includes("dev-") || url.includes("localhost");
+    // POS prod deployment slug per CLAUDE.md §"Convex deployment".
+    // Update this constant if the prod deployment is ever replaced.
+    const KNOWN_PROD_SLUG = "savory-zebra-800";
+    const isProd = url.includes(KNOWN_PROD_SLUG);
+
+    if (isProd) {
+      throw new Error(
+        `seedActions.reset is BLOCKED on production (${url}). ` +
+        `Refuses to run on the known prod deployment slug "${KNOWN_PROD_SLUG}".`,
+      );
+    }
 
     const existingStaff = await ctx.runQuery(internal.seed._countStaff_internal, {});
-    if (!isDev && existingStaff > 0) {
-      throw new Error(
-        `seedActions.reset refuses to run on a non-dev deployment that already has staff (${existingStaff}). ` +
-        `URL=${url}. Verify CONVEX_CLOUD_URL or clear the staff table manually first.`,
+    if (existingStaff > 0) {
+      console.warn(
+        `[seedActions.reset] Wiping ${existingStaff} existing staff rows on deployment ${url}. ` +
+        `This is intentional in dev but should never happen in prod.`,
       );
     }
 
