@@ -34,18 +34,25 @@ export const _reset_internal = internalMutation({
     let inserted = 0;
 
     // Staff: 4 crew (PIN 0000) + 1 manager (PIN 9999)
+    // staffCode allocated sequentially as "S-NNNN" per ADR-034 stable IDs.
+    let staffCounter = 1;
     for (const name of args.staffNames) {
+      const code = `S-${String(staffCounter).padStart(4, "0")}`;
       await ctx.db.insert("staff", {
-        name, pin_hash: args.staffPinHash, role: "staff", active: true, created_at: now,
+        name, code, pin_hash: args.staffPinHash, role: "staff", active: true, created_at: now,
       });
+      staffCounter++;
       inserted++;
     }
+    const mgrCode = `S-${String(staffCounter).padStart(4, "0")}`;
     await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: args.mgrPinHash, role: "manager", active: true, created_at: now,
+      name: "Lucas", code: mgrCode, pin_hash: args.mgrPinHash, role: "manager",
+      active: true, created_at: now,
     });
     inserted++;
 
     // Inventory SKUs + initial stock levels
+    // componentCode = UPPERCASE_SNAKE of the sku key per ADR-034 stable IDs.
     const skus: Record<string, any> = {};
     for (const [sku, name, hue, threshold, onHand] of [
       ["dubai",   "Dubai cookie",   30,  4, 18],
@@ -54,8 +61,9 @@ export const _reset_internal = internalMutation({
       ["lotus",   "Lotus cookie",    50, 4,  5],
       ["brownie", "Brownie mini",    15, 4, 24],
     ] as const) {
+      const code = sku.toUpperCase();
       const id = await ctx.db.insert("pos_inventory_skus", {
-        sku, name, unit: "piece", low_threshold: threshold,
+        sku, code, name, unit: "piece", low_threshold: threshold,
         initials: name.slice(0, 2), hue, active: true, created_at: now,
       });
       await ctx.db.insert("pos_stock_levels", {
@@ -80,8 +88,14 @@ export const _reset_internal = internalMutation({
     for (const [name, pack, price, comps, order] of products) {
       const family = comps[0][0];
       const hue = family === "dubai" ? 30 : family === "choco" ? 20 : family === "matcha" ? 110 : family === "lotus" ? 50 : 15;
+      // productCode = <FAMILY>_<PACKDIGITS>PC per ADR-034 stable IDs.
+      // Mixed Box uses MIXED prefix; otherwise uppercase the product name (snake-cased).
+      const packDigits = pack.match(/\d+/)?.[0] ?? "1";
+      const codePrefix = name === "Mixed Box" ? "MIXED" : name.toUpperCase().replace(/\s+/g, "_");
+      const code = `${codePrefix}_${packDigits}PC`;
       const productId = await ctx.db.insert("pos_products", {
         sku_family: family,
+        code,
         name,
         pack_label: pack,
         price_idr: price,
