@@ -261,7 +261,7 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
   - **deps:** `v03-be-xendit-webhook`, `v03-be-xendit-polling`
   - **docs:** [strategic-foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern), [CLAUDE.md §business-rules-5](../CLAUDE.md)
   - **subtasks:**
-    - [ ] Document the manual-override flow (deferred to v0.4 WA approval; v0.3 stubs it behind a feature flag)
+    - [ ] Document the manual-override flow (deferred to v0.4 Telegram approval; v0.3 stubs it behind a feature flag)
     - [ ] Sequence diagram in ADR or PROGRESS notes
   - **notes:** _(empty)_
 
@@ -298,32 +298,37 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
 
 ---
 
-## v0.4 — WA approval + manager mobile + founders share 🗂️ BACKLOG
-**Outcome:** Managers approve refunds and overrides from anywhere via WhatsApp; no booth presence required.
-Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit log + WA approval pattern + manager home (mobile) + founders share.
+## v0.4 — Telegram approval + manager mobile + founders share 🗂️ BACKLOG
+**Outcome:** Managers approve refunds and overrides from anywhere via a Telegram bot; no booth presence required. Founders get an automatic end-of-shift summary in their Telegram group.
+Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit log + Telegram approval pattern + manager home (mobile) + founders share. **Built on the v0.2 Telegram POC** — bot `@FrolliePOS_Bot` already deployed, dev group already wired (`-5247663806`), end-to-end round-trip validated. Reuse the pattern in `docs/PATTERNS/telegram-bot-integration.md`. ADR-027 (wa.me manager approval) and ADR-033 (founders wa.me share) are superseded by this phase.
 
 ### Backend (`convex/`)
-- 🗂️ `approvals.ts` — `create_internal`, `approve`, `deny`; manager-PIN gates routed via WA share-intent
-- 🗂️ Approval tokens: 32-byte URL-safe random, single-use, 60-min TTL (ADR-029 — token authorizes VIEW, PIN authorizes ACT)
-- 🗂️ Manual payment override path (manager PIN OR WA approval, audit-logged with reason)
+- 🗂️ `approvals.ts` — `create_internal`, `approve`, `deny`; manager-PIN gates send an inline-button card to **Frollie · Managers** Telegram group via `convex/telegram/send.ts` (new template kind: `manager_approval`)
+- 🗂️ Approval tokens: 32-byte URL-safe random, single-use, 60-min TTL (ADR-029 still applies — token authorizes VIEW, PIN authorizes ACT). Link is the `url` field of a Telegram inline button.
+- 🗂️ Manual payment override path (manager PIN OR Telegram approval, audit-logged with reason)
 - 🗂️ `dashboard.ts` (partial — mobile manager view only)
-- 🗂️ `audit.ts` updates — `mgr_approver_id` populated when source is `wa_approval`
+- 🗂️ `audit.ts` updates — `mgr_approver_id` populated when source is `telegram_approval`
 - 🗂️ Convex scheduler for token reaping
+- 🗂️ Replace POC's sandbox `telegram_log` with real integration: link Telegram messages to `pos_approval_requests` rows via `request_id` foreign key; keep `telegram_log` only as a debug/audit trail (or retire it).
+- 🗂️ Webhook hardening (graduated from POC): wrap `sendTemplate` in `withIdempotency` (ADR-013), validate payload shape per `kind` (drop `v.any()`), surface `editMessageText` failures as audit-log entries, not just `console.warn`.
 
 ### Frontend (`src/`)
-- 🗂️ `routes/wait/[requestId].tsx` — StaffWaitingApproval screen (the requester's view)
-- 🗂️ `routes/approve/[token].tsx` — PUBLIC landing, opens from WA link (no auth gate)
+- 🗂️ `routes/wait/[requestId].tsx` — StaffWaitingApproval screen (the requester's view; status driven by reactive query on `pos_approval_requests`)
+- 🗂️ `routes/approve/[token].tsx` — PUBLIC landing, opens when a manager taps the Telegram inline button (no auth gate; URL is the button's `url` field)
 - 🗂️ `routes/approve/[token]/pin.tsx` — PIN sheet continuation
 - 🗂️ `routes/mgr/home.tsx` — MgrHomeMobile wireframe (live tape + approvals queue)
-- 🗂️ `routes/lock.tsx` — partial: founders shift-summary share toggle (ADR-033)
-- 🗂️ `lib/wa-link.ts` — wa.me share-intent template builder
-- 🗂️ `hooks/useApproval.ts`
+- 🗂️ `routes/lock.tsx` — partial: founders shift-summary auto-post to Telegram (replaces ADR-033 wa.me toggle; either auto-on-lock or behind a manager-configurable setting)
+- 🗂️ ~~`lib/wa-link.ts`~~ — **REMOVED from plan**: superseded by `convex/telegram/send.ts` (manager_approval template). The POS UI now triggers approvals via a Convex mutation, not a wa.me share-intent.
+- 🗂️ `hooks/useApproval.ts` — subscribes to `pos_approval_requests`, dispatches approval-request mutation, surfaces "waiting" / "approved" / "denied" states + error toasting (Sonner) on Telegram delivery failure
+- 🗂️ Optional: tiny error-toast UX layer in `/dev/telegram` playground forms — same Sonner pattern, makes the page production-grade enough to leave in
 
 ### Cross-cutting
-- 🗂️ ADR-005 (manager-PIN gates) wired to WA flow (ADR-027) as the v0.4+ default when no manager at booth
-- 🗂️ ADR-033 (founders shift-summary share to Frollie · Founders group via wa.me)
-- 🗂️ Schema additions: `pos_approval_requests`, `pos_approval_tokens`
-- 🗂️ SCHEMA.md audit enum: `approval.requested`, `approval.viewed`, `approval.approved`, `approval.denied`, `payment.manual_override`
+- 🗂️ **Write the new ADR superseding ADR-027 + ADR-033** — title TBD (e.g., `ADR-034-telegram-as-internal-comms-channel.md`). Should reference the POC + pattern doc and explicitly mark ADR-027 / ADR-033 with `Status: superseded by ADR-034`. Decision date: 2026-05-26.
+- 🗂️ ADR-005 (manager-PIN gates) wired to Telegram bot flow as the v0.4+ default when no manager at booth (the link in the inline button leads to `/approve/:token`; PIN entered on landing).
+- 🗂️ Founders shift-summary auto-post to `Frollie · Founders` Telegram group (reuses POC's `shift_summary` template kind).
+- 🗂️ Production Telegram setup: separate prod bot via BotFather, prod group(s), prod env vars on `savory-zebra-800`, prod `setWebhook` call (see `docs/RUNBOOK-telegram.md` § "Promoting Telegram from dev to prod — checklist").
+- 🗂️ Schema additions: `pos_approval_requests`, `pos_approval_tokens` (plus consider retiring or repurposing `telegram_log` once `pos_approval_requests` carries the inbound state).
+- 🗂️ SCHEMA.md audit enum: `approval.requested`, `approval.viewed`, `approval.approved`, `approval.denied`, `payment.manual_override`, `telegram.send_failed`
 
 ---
 
@@ -341,7 +346,7 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 - 🗂️ `settlements.ts` — full reconciliation (Xendit settlement webhook + nightly recon)
 
 ### Frontend (`src/`)
-- 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via WA from v0.4)
+- 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
 - 🗂️ `routes/receipt/[receiptNumber].tsx` — public receipt page `/r/:n` (signed URL)
 - 🗂️ `routes/history.tsx` — staff sees own + today
 - 🗂️ `routes/settlements.tsx` — payout reconciliation
@@ -374,7 +379,7 @@ Plan not yet written.
 ### Frontend (`src/`)
 - 🗂️ Voucher management UI in `routes/mgr/`
 - 🗂️ Spoilage entry UI
-- 🗂️ Playwright e2e suite covering: offline catalog hydration, device activation, full sale flow, refund via WA approval
+- 🗂️ Playwright e2e suite covering: offline catalog hydration, device activation, full sale flow, refund via Telegram approval
 
 ### Cross-cutting
 - 🗂️ ADR-009 (voucher cache offline + server re-validates on sync)
@@ -406,7 +411,7 @@ Plan not yet written.
 
 - **Xendit settlement timing** — payout latency vs cashflow visibility. v0.5 settlements module is the canary; if it ships clean, settlement risk is closed.
 - **Single device, single point of failure** — the booth Android dies mid-shift = no sales. Offline draft queue (v0.3) helps but doesn't replace; spare-device protocol needed by v1.0.
-- **WhatsApp share-intent dependability** — relies on staff's own WA being logged in on the device. No business bot to fall back on in v1. Watch closely once v0.4 lands.
+- **Telegram bot single point of failure** — all internal staff/manager/founders comms now route through one bot identity (`@FrolliePOS_Bot` for dev, separate prod bot for prod). Failure modes: BotFather token revoked, bot removed from a group, Telegram service outage, or a group silently migrates basic→supergroup (chat_id format changes). Mitigations: secret-token + idempotency at the webhook (already shipped); add telegram delivery-failure alerts (e.g. nightly query on `telegram_log` for OUT rows with non-`ok` responses); document the token-rotation runbook in [`docs/RUNBOOK-telegram.md`](./RUNBOOK-telegram.md) (already covered).
 - **PWA install conversion** — staff must add the app to their home screen for offline + reliable launch. Drives the launch playbook in v1.0.
 - **Negative-stock discipline** — sales are allowed at zero stock with a flag (ADR-018). Requires manager actually reconciling, or counts drift. Reconciliation UI is v0.5.
 
@@ -414,7 +419,7 @@ Plan not yet written.
 
 - **Cross-deployment integration with Frollie Pro `product_master`** — sync, API call, or shared package? Affects v1.1+ when POS starts reading Pro's `products` table.
 - **Receipt printer hardware** — in scope for v1.0 or punt to v1.1? Currently not on the roadmap; booth may want thermal receipts at launch.
-- **WhatsApp Cloud API vs share-intent** — v1.1+ consideration to replace wa.me share-intent with a proper bot for higher reliability and audit-cleanliness.
+- ~~**WhatsApp Cloud API vs share-intent**~~ — **RESOLVED 2026-05-26**: chose Telegram bot over WhatsApp for internal staff/manager/founders comms. POC validated round-trip + buttons + idempotency. ADR-027 + ADR-033 superseded by v0.4 work. Customer-facing receipts remain on wa.me share-intent (Telegram requires opt-in, doesn't fit customer flow).
 
 ---
 
