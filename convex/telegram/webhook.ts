@@ -67,7 +67,15 @@ export const telegramWebhook = httpAction(async (ctx, request) => {
   if (cq.message && cq.data) {
     const isApprove = cq.data.startsWith("approve:");
     const isDeny = cq.data.startsWith("deny:");
-    const verb = isApprove ? "✅ Approved" : isDeny ? "❌ Denied" : "👉 Selected";
+    // For non-approve/deny callbacks (e.g., test_a / test_b from the Custom
+    // template), echo the button prefix so the operator can see which one was
+    // tapped instead of a generic "Selected".
+    const buttonPrefix = cq.data.split(":")[0];
+    const verb = isApprove
+      ? "✅ Approved"
+      : isDeny
+        ? "❌ Denied"
+        : `👉 Selected (${buttonPrefix})`;
     const userLabel = cq.from.username ? `@${cq.from.username}` : cq.from.first_name ?? "unknown";
 
     const editRes = await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
