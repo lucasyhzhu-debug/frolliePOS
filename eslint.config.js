@@ -42,7 +42,10 @@ const OWNERSHIP = {
 // touch multiple tables. `staff` is exempt because device CRUD and staff CRUD
 // span the auth-owned tables (`staff`, `registered_devices`, `pending_device_setups`)
 // per the ADR-034 ownership map — the staff module is a thin facade over those.
-const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff"];
+// `_codes` is exempt because its conformance tests deliberately read every
+// table that owns a stable `code` identifier (staff, pos_inventory_skus,
+// pos_products) to assert format invariants per ADR-034.
+const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes"];
 
 export default [
   {
