@@ -1,31 +1,18 @@
-import { mutation, query, internalMutation, MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { withIdempotency } from "./idempotency/internal";
 import { logAudit } from "./audit/internal";
+import { requireSession, requireManagerSession } from "./auth/sessions";
+
+// Re-export for backwards compatibility — moved to auth/sessions.ts in v0.2.1
+// to break the audit→staff backwards dependency (ADR-034 §"Layer 1"). Existing
+// consumers (e.g. convex/audit/public.ts) keep importing from "../staff" until
+// Task D2 migrates them to import directly from "../auth/sessions".
+export { requireSession, requireManagerSession };
 
 const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
 const MAX_CODE_COLLISION_RETRIES = 5;
-
-export async function requireSession(
-  ctx: QueryCtx | MutationCtx,
-  sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" }> {
-  const s = await ctx.db.get(sessionId);
-  if (!s || s.ended_at != null) throw new Error("NO_SESSION");
-  const staff = await ctx.db.get(s.staff_id);
-  if (!staff || !staff.active) throw new Error("NO_SESSION");
-  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role };
-}
-
-export async function requireManagerSession(
-  ctx: QueryCtx | MutationCtx,
-  sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string }> {
-  const { staffId, deviceId, role } = await requireSession(ctx, sessionId);
-  if (role !== "manager") throw new Error("MANAGER_ONLY");
-  return { staffId, deviceId };
-}
 
 export const isDeviceRegistered = query({
   args: { deviceId: v.string() },
