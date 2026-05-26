@@ -3,7 +3,7 @@
 import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { argon2id, argon2Verify } from "hash-wasm";
 
 const ARGON2_PARAMS = {
@@ -38,6 +38,16 @@ export const _hashPin_internal = internalAction({
  * Idempotency: the inner mutation's withIdempotency wrap caches the response.
  * The action checks the cache FIRST via _lookup_internal so a retry skips
  * argon2 verify entirely.
+ *
+ * Fix 5: after a cache hit, verify the session is still live. If the session
+ * was force-ended between the original login and this retry, treat as a cache
+ * miss and run a fresh login.
+ *
+ * Fix 10: pass a derived idempotencyKey (${key}:failed) to
+ * _recordFailedAttempt_internal so crash-retries don't double-increment.
+ *
+ * Fix 14: emit a staff.locked_out audit row before throwing LOCKED_OUT so
+ * repeated probes are visible in the audit log.
  */
 export const loginWithPin = action({
   args: {
@@ -51,7 +61,20 @@ export const loginWithPin = action({
     const cached = await ctx.runQuery(internal.idempotency._lookup_internal, {
       key: args.idempotencyKey,
     });
-    if (cached) return JSON.parse(cached);
+
+    // Fix 5: after a cache hit, verify the cached session is still live.
+    // If the session was force-ended (manager logout, deactivated staff),
+    // fall through to run a fresh login with a derived commit key so the
+    // _loginCommit_internal idempotency cache is also bypassed.
+    let commitKey = args.idempotencyKey;
+    if (cached) {
+      const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" };
+      const live = await ctx.runQuery(api.auth.getSession, { sessionId: parsed.sessionId });
+      if (live) return parsed; // session still valid — replay cache
+      // Session is dead. Use a derived commit key so the stale commit-level
+      // cache is bypassed when we issue a fresh session below.
+      commitKey = `${args.idempotencyKey}:refresh`;
+    }
 
     const staff = await ctx.runQuery(internal.auth._getStaffPinHash_internal, {
       staffId: args.staffId,
@@ -67,6 +90,12 @@ export const loginWithPin = action({
       staffId: args.staffId,
     });
     if (lockState.locked) {
+      // Fix 14: emit audit row for each probe during an active lockout
+      await ctx.runMutation(internal.auth._auditLockProbe_internal, {
+        staffId: args.staffId,
+        deviceId: args.deviceId,
+        seconds_remaining: lockState.seconds_remaining,
+      });
       throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
     }
 
@@ -74,8 +103,9 @@ export const loginWithPin = action({
 
     if (!verifyOk) {
       // Commit the failed attempt in its own mutation BEFORE throwing so the
-      // write survives. The action is the orchestrator that decides what to throw.
+      // write survives. Fix 10: pass derived key so retries are idempotent.
       const result = await ctx.runMutation(internal.auth._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: args.staffId,
         deviceId: args.deviceId,
       });
@@ -85,9 +115,10 @@ export const loginWithPin = action({
       throw new Error("INVALID_PIN");
     }
 
-    // PIN verified — commit session
+    // PIN verified — commit session (use commitKey which may differ from
+    // args.idempotencyKey if a stale-session refresh forced a cache bypass)
     return await ctx.runMutation(internal.auth._loginCommit_internal, {
-      idempotencyKey: args.idempotencyKey,
+      idempotencyKey: commitKey,
       staffId: args.staffId,
       deviceId: args.deviceId,
     });

@@ -1,4 +1,4 @@
-import { query, internalQuery, mutation, internalMutation } from "./_generated/server";
+import { query, internalQuery, mutation, internalMutation, QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { withIdempotency } from "./idempotency";
@@ -52,6 +52,57 @@ export const _getStaffPinHash_internal = internalQuery({
 const LOCKOUT_MS = 60_000;
 const MAX_FAILS = 3;
 
+// ---------------------------------------------------------------------------
+// Fix 3: duplicate-tolerant pos_auth_attempts helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Query-path: collect all attempt rows for staff, return the one with the
+ * maximum locked_until (worst-case fail-safe — if any row says locked, treat
+ * as locked). Cannot delete duplicates from a query.
+ */
+async function getAttemptForQuery(
+  ctx: QueryCtx,
+  staffId: Id<"staff">,
+) {
+  const rows = await ctx.db
+    .query("pos_auth_attempts")
+    .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+    .collect();
+  if (rows.length === 0) return null;
+  // Pick row with highest locked_until (most restrictive), fallback to most
+  // recent last_attempt_at for non-locked rows.
+  return rows.reduce((best, row) => {
+    const bestLock = best.locked_until ?? 0;
+    const rowLock = row.locked_until ?? 0;
+    if (rowLock > bestLock) return row;
+    if (rowLock === bestLock && row.last_attempt_at > best.last_attempt_at) return row;
+    return best;
+  });
+}
+
+/**
+ * Mutation-path: collect all attempt rows for staff, keep the most recent one
+ * (highest last_attempt_at), delete any older duplicates in the same tx.
+ * Returns the surviving row, or null if none existed.
+ */
+async function cleanupAndGetAttempt(
+  ctx: MutationCtx,
+  staffId: Id<"staff">,
+) {
+  const rows = await ctx.db
+    .query("pos_auth_attempts")
+    .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+    .collect();
+  if (rows.length === 0) return null;
+  // Sort descending by last_attempt_at; keep index 0, delete the rest.
+  const sorted = rows.slice().sort((a, b) => b.last_attempt_at - a.last_attempt_at);
+  for (let i = 1; i < sorted.length; i++) {
+    await ctx.db.delete(sorted[i]._id);
+  }
+  return sorted[0];
+}
+
 /**
  * Read the current lock state for a staff member. Called by the loginWithPin
  * action BEFORE argon2Verify so locked users get rejected cheaply.
@@ -59,10 +110,8 @@ const MAX_FAILS = 3;
 export const _getLockState_internal = internalQuery({
   args: { staffId: v.id("staff") },
   handler: async (ctx, args): Promise<{ locked: boolean; seconds_remaining: number; fail_count: number }> => {
-    const attempt = await ctx.db
-      .query("pos_auth_attempts")
-      .withIndex("by_staff", (q) => q.eq("staff_id", args.staffId))
-      .unique();
+    // Fix 3: use collect-based helper, pick worst-case row (max locked_until)
+    const attempt = await getAttemptForQuery(ctx, args.staffId);
     const now = Date.now();
     if (attempt?.locked_until && attempt.locked_until > now) {
       return {
@@ -77,44 +126,58 @@ export const _getLockState_internal = internalQuery({
 
 /**
  * Record a failed PIN attempt. MUST commit before the action throws so lockout
- * state survives. NOT wrapped in withIdempotency — failed attempts must always
- * execute (user may retry with a correct PIN on the next attempt).
+ * state survives.
+ *
+ * Fix 7: if lockout has expired (locked_until != null && <= now), reset the
+ * fail_count to 1 (fresh cycle) instead of incrementing from the stale value.
+ *
+ * Fix 10: wrapped in withIdempotency using a derived key (${key}:failed) so
+ * action retries after a crash don't double-increment.
  */
 export const _recordFailedAttempt_internal = internalMutation({
-  args: { staffId: v.id("staff"), deviceId: v.string() },
-  handler: async (ctx, args): Promise<{ newly_locked: boolean; seconds_remaining: number }> => {
-    const now = Date.now();
-    const attempt = await ctx.db
-      .query("pos_auth_attempts")
-      .withIndex("by_staff", (q) => q.eq("staff_id", args.staffId))
-      .unique();
-    const next = (attempt?.fail_count ?? 0) + 1;
-    const lock = next >= MAX_FAILS ? now + LOCKOUT_MS : null;
-    if (attempt) {
-      await ctx.db.patch(attempt._id, { fail_count: next, locked_until: lock, last_attempt_at: now });
-    } else {
-      await ctx.db.insert("pos_auth_attempts", {
-        staff_id: args.staffId, fail_count: next, locked_until: lock, last_attempt_at: now,
-      });
-    }
-    await logAudit(ctx, {
-      actor_id: args.staffId, action: "staff.failed_pin",
-      entity_type: "staff", entity_id: args.staffId,
-      source: "booth_inline", device_id: args.deviceId,
-    });
-    if (lock) {
+  args: { idempotencyKey: v.string(), staffId: v.id("staff"), deviceId: v.string() },
+  handler: withIdempotency<
+    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    { newly_locked: boolean; seconds_remaining: number }
+  >(
+    "auth._recordFailedAttempt",
+    async (ctx, args) => {
+      const now = Date.now();
+      // Fix 3: use mutation-path helper that dedupes concurrent duplicate rows
+      const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
+
+      // Fix 7: if the lockout period has already expired, start a fresh cycle
+      const lockExpired =
+        attempt?.locked_until != null && attempt.locked_until <= now;
+      const next = lockExpired ? 1 : (attempt?.fail_count ?? 0) + 1;
+
+      const lock = next >= MAX_FAILS ? now + LOCKOUT_MS : null;
+      if (attempt) {
+        await ctx.db.patch(attempt._id, { fail_count: next, locked_until: lock, last_attempt_at: now });
+      } else {
+        await ctx.db.insert("pos_auth_attempts", {
+          staff_id: args.staffId, fail_count: next, locked_until: lock, last_attempt_at: now,
+        });
+      }
       await logAudit(ctx, {
-        actor_id: args.staffId, action: "staff.locked_out",
+        actor_id: args.staffId, action: "staff.failed_pin",
         entity_type: "staff", entity_id: args.staffId,
         source: "booth_inline", device_id: args.deviceId,
-        reason: `${MAX_FAILS} consecutive failures`,
       });
-    }
-    return {
-      newly_locked: lock != null,
-      seconds_remaining: lock ? Math.ceil((lock - now) / 1000) : 0,
-    };
-  },
+      if (lock) {
+        await logAudit(ctx, {
+          actor_id: args.staffId, action: "staff.locked_out",
+          entity_type: "staff", entity_id: args.staffId,
+          source: "booth_inline", device_id: args.deviceId,
+          reason: `${MAX_FAILS} consecutive failures`,
+        });
+      }
+      return {
+        newly_locked: lock != null,
+        seconds_remaining: lock ? Math.ceil((lock - now) / 1000) : 0,
+      };
+    },
+  ),
 });
 
 /**
@@ -142,11 +205,8 @@ export const _loginCommit_internal = internalMutation({
         throw new Error("INVALID_PIN");
       }
 
-      // Clear failed-attempt counter on success
-      const attempt = await ctx.db
-        .query("pos_auth_attempts")
-        .withIndex("by_staff", (q) => q.eq("staff_id", args.staffId))
-        .unique();
+      // Fix 3: use mutation-path helper to clear and dedupe attempt rows
+      const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
       if (attempt) {
         await ctx.db.patch(attempt._id, { fail_count: 0, locked_until: null, last_attempt_at: now });
       }
@@ -169,6 +229,24 @@ export const _loginCommit_internal = internalMutation({
     },
     { staffIdFromArgs: (a) => a.staffId },
   ),
+});
+
+/**
+ * Fix 14: Emit a staff.locked_out audit row when a locked user probes the
+ * login endpoint. Called from loginWithPin (action) after lock-state check.
+ * Separate from the lockout audit emitted when the lock was first set, so
+ * repeated probes are always visible in the audit log.
+ */
+export const _auditLockProbe_internal = internalMutation({
+  args: { staffId: v.id("staff"), deviceId: v.string(), seconds_remaining: v.number() },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: args.staffId, action: "staff.locked_out",
+      entity_type: "staff", entity_id: args.staffId,
+      source: "booth_inline", device_id: args.deviceId,
+      reason: `probe during lockout (${args.seconds_remaining}s remaining)`,
+    });
+  },
 });
 
 export const logout = mutation({

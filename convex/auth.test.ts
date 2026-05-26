@@ -179,3 +179,138 @@ describe("logout (mutation)", () => {
     expect(session?.end_reason).toBe("manual_lock");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix 7 — fail_count resets after lockout expires
+// ---------------------------------------------------------------------------
+describe("Fix 7: fail_count resets after lockout expires", () => {
+  it("single wrong PIN after expired lockout sets fail_count=1, not re-locked", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Dini", "1234");
+
+    // Trigger a lockout by failing 3 times
+    for (let i = 0; i < 3; i++) {
+      await t.action(api.authActions.loginWithPin, {
+        staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix7-wrong-${i}`,
+      }).catch(() => void 0);
+    }
+
+    // Fast-forward: set locked_until to the past to simulate expiry
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db
+        .query("pos_auth_attempts")
+        .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+        .first();
+      if (attempt) {
+        await ctx.db.patch(attempt._id, { locked_until: Date.now() - 1 });
+      }
+    });
+
+    // Now one wrong PIN — should increment from 1, NOT from 3
+    await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: "fix7-after-expire",
+    }).catch(() => void 0);
+
+    const attempt = await t.run(async (ctx) =>
+      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).first()
+    );
+    // fail_count should be 1 (reset to fresh cycle), NOT 4 (stale + 1)
+    expect(attempt?.fail_count).toBe(1);
+    // Should NOT be locked
+    expect(attempt?.locked_until).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 10 — _recordFailedAttempt_internal is idempotent with derived key
+// ---------------------------------------------------------------------------
+describe("Fix 10: _recordFailedAttempt_internal is idempotent", () => {
+  it("same derived key does not double-increment fail_count", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Eko", "5678");
+
+    const derivedKey = "fix10-base-key:failed";
+
+    // Call twice with the same derived idempotencyKey
+    await t.mutation(internal.auth._recordFailedAttempt_internal, {
+      idempotencyKey: derivedKey,
+      staffId,
+      deviceId: "dev-1",
+    });
+    await t.mutation(internal.auth._recordFailedAttempt_internal, {
+      idempotencyKey: derivedKey,
+      staffId,
+      deviceId: "dev-1",
+    });
+
+    const attempt = await t.run(async (ctx) =>
+      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).first()
+    );
+    // Idempotent: fail_count is 1, not 2
+    expect(attempt?.fail_count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 14 — probe attempts during lockout are audit-logged
+// ---------------------------------------------------------------------------
+describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => {
+  it("each probe while locked emits an additional staff.locked_out audit row", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Fahri", "9999");
+
+    // Trigger lockout
+    for (let i = 0; i < 3; i++) {
+      await t.action(api.authActions.loginWithPin, {
+        staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix14-wrong-${i}`,
+      }).catch(() => void 0);
+    }
+
+    const auditsBefore = await t.query(api.audit.list, { action: "staff.locked_out" });
+    // Lockout was set — at least 1 audit row from the 3rd failure
+    expect(auditsBefore.length).toBeGreaterThanOrEqual(1);
+
+    // Probe while locked (correct PIN doesn't matter — lock blocks before verify)
+    await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "9999", deviceId: "dev-1", idempotencyKey: "fix14-probe-1",
+    }).catch(() => void 0);
+
+    const auditsAfter = await t.query(api.audit.list, { action: "staff.locked_out" });
+    // Probe should have added another audit row
+    expect(auditsAfter.length).toBeGreaterThan(auditsBefore.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 5 — stale cached session triggers fresh login
+// ---------------------------------------------------------------------------
+describe("Fix 5: cache hit with ended session triggers fresh login", () => {
+  it("force-ended session causes retry with same key to return a new sessionId", async () => {
+    const t = convexTest(schema, modules);
+    const staffId = await seedStaff(t, "Gita", "4321");
+    const key = "fix5-idem-key";
+
+    // First login — caches the result
+    const first = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+
+    // Simulate force-logout: end the session
+    await t.run(async (ctx) => {
+      await ctx.db.patch(first.sessionId, { ended_at: Date.now(), end_reason: "force_logout" as const });
+    });
+
+    // Retry with the SAME key — cache is stale, should create a new session
+    const second = await t.action(api.authActions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+
+    // Must be a DIFFERENT session
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.role).toBe("staff");
+
+    // New session must be active
+    const newSession = await t.run(async (ctx) => ctx.db.get(second.sessionId));
+    expect(newSession?.ended_at).toBeNull();
+  });
+});
