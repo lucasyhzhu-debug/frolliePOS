@@ -41,7 +41,7 @@ export function useSession(): SessionState {
   }, []);
 
   const validation = useQuery(
-    api.auth.getSession,
+    api.auth.public.getSession,
     stored ? { sessionId: stored as Id<"staff_sessions"> } : "skip",
   );
 
