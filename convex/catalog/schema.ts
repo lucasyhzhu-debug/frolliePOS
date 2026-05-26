@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export const catalogTables = {
   pos_inventory_skus: defineTable({
     sku: v.string(),
+    code: v.optional(v.string()), // NEW v0.2.1 — populated in Task F3, required in Task F6 (DEFERRED)
     name: v.string(),
     unit: v.literal("piece"),
     low_threshold: v.number(),
@@ -12,9 +13,9 @@ export const catalogTables = {
     photo_storage_id: v.optional(v.id("_storage")),
     active: v.boolean(),
     created_at: v.number(),
-    // Task E2 adds: code: v.optional(v.string()), then v.string() in Task F6 (DEFERRED per plan)
   })
     .index("by_sku", ["sku"])
+    .index("by_code", ["code"])
     .index("by_active", ["active"]),
 
   pos_products: defineTable({
