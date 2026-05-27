@@ -186,7 +186,7 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
 
 - 📋 **[v03-be-reset-staff-pin]** `auth/actions:resetStaffPin` — manager resets another staff member's PIN (manager-PIN-gated per ADR-005)
   - **agent:** `convex-expert`
-  - **deps:** `v03-be-change-pin` _(shared `_changePinCommit_internal` patching path)_
+  - **deps:** `v03-be-change-pin`
   - **docs:** [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-013](./ADR/013-idempotency-keys.md), [ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md) _(WA approval path superseded by Telegram in v0.4)_
   - **why:** Staff member forgets their PIN or is locked out → manager resets. Per ADR-005, "PIN resets" is on the manager-PIN-gated list. Without this, a locked-out or forgetful staff member is permanently locked out short of dashboard intervention. Manager-PIN gate is one-off (not a persistent mode).
   - **subtasks:**
