@@ -117,7 +117,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 - `docs/API_REFERENCE.md` — Convex function reference
 - `frollie-pos design files/` — wireframe handoff bundle (NOT committed; in `.gitignore`). Source of truth for screen layouts and the 33-ADR registry
 - `archive/files.zip` — original delivery bundle (NOT committed)
-- `packages/ceo-progress-report/` — extracted PROGRESS.md → progress.html renderer + Claude Code plugin (publishable as standalone npm package). The Frollie POS build log uses `scripts/build-progress-html.mjs` directly until v0.3 ships, then migrates to this package.
+- `packages/ceo-progress-report/` — extracted PROGRESS.md → progress.html renderer + Claude Code plugin. **Published as [`ceo-progress-report`](https://www.npmjs.com/package/ceo-progress-report) on npm and as a standalone repo at [lucasyhzhu-debug/ceo-progress-report](https://github.com/lucasyhzhu-debug/ceo-progress-report).** The package in this directory is a frozen snapshot at v0.1.0; future development happens in the standalone repo, not here. **Hard commitment: immediately after Frollie POS v0.3 ships to prod, retire `scripts/build-progress-html.mjs` and replace all callers with `npx ceo-report build`.** See [the original extraction plan](./docs/superpowers/plans/2026-05-27-ceo-progress-report-extraction.md) §"Open follow-ups #5".
 
 ## Commands
 
@@ -195,3 +195,25 @@ Ask. Don't ship an assumption that locks the Frollie Pro graft. The cost of clar
 ## Wireframe bundle reference
 
 The screen designs live at `frollie-pos design files/project/Frollie POS Wireframes.html`. That file is the canonical IA + flow source for v0.5 — when implementing a screen, open the corresponding artboard's source (`wireframes/<name>.jsx`) for layout intent. The hand-drawn aesthetic in the wireframes is a *wireframe convention* — implement in production-polish using the shadcn/Tailwind tokens in `src/index.css`, not the sketch fonts.
+
+## Post-v0.3 tracking note: retire `scripts/build-progress-html.mjs`
+
+**For the agent picking this up after Frollie POS v0.3 ships to prod.**
+
+The 2343-line in-tree script at `scripts/build-progress-html.mjs` was extracted into a published npm package + Claude Code plugin (`ceo-progress-report`) on 2026-05-27. The in-tree script and the package's `src/render.mjs` are byte-equivalent renderers at extraction time (golden-diff verified). Maintaining two copies is a known drift risk explicitly called out in the extraction plan.
+
+**Hard commitment from the extraction plan:** retire `scripts/build-progress-html.mjs` IMMEDIATELY after Frollie POS v0.3 ships to prod.
+
+**Concrete steps when the time comes:**
+
+1. Add the package to Frollie's npm devDependencies: `npm install --save-dev ceo-progress-report`.
+2. Create a `buildlog.config.mjs` at the project root with Frollie's values (title "Frollie POS", monogram "F", location "Jakarta", v1Label "v1.0"). The temp config at `.cpr-tmp/frollie.config.mjs` (gitignored) is the template.
+3. Replace `node scripts/build-progress-html.mjs` everywhere it's referenced with `npx ceo-report build`. Known call sites:
+   - The `/progress-update` skill workflow in this CLAUDE.md (search for "build-progress-html")
+   - Any GH Action or pre-commit hook (currently none, but check)
+   - Manual invocations documented in `docs/PROGRESS.md` (search for the same string)
+4. Delete `scripts/build-progress-html.mjs`.
+5. Verify: run `npx ceo-report build` and confirm `docs/progress.html` regenerates with the expected output (compare against a previous commit's progress.html via timestamp-stripped diff).
+6. Update this CLAUDE.md: remove this whole section, change the `packages/ceo-progress-report/` bullet in "File locations" to say "snapshot retired, see npm package" (or delete the snapshot dir entirely if you're feeling tidy).
+
+The plan reference: [`docs/superpowers/plans/2026-05-27-ceo-progress-report-extraction.md`](./docs/superpowers/plans/2026-05-27-ceo-progress-report-extraction.md) — search for "Open follow-ups #5" for the original commitment.
