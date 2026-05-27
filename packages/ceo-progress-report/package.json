@@ -1,0 +1,47 @@
+{
+  "name": "ceo-progress-report",
+  "version": "0.1.0",
+  "description": "Turn PROGRESS.md into an editorial build-log dashboard your CEO will actually read.",
+  "keywords": [
+    "roadmap",
+    "progress",
+    "dashboard",
+    "markdown",
+    "static-site",
+    "ceo",
+    "project-management",
+    "claude-code-plugin"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "ceo-report": "./bin/cli.mjs"
+  },
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./parse": "./src/parse.mjs",
+    "./render": "./src/render.mjs",
+    "./compute": "./src/compute.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "skills/",
+    "plugin/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test:smoke": "node bin/cli.mjs build --src examples/PROGRESS.md --out /tmp/cpr-smoke.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucasyhzhu-debug/ceo-progress-report.git"
+  }
+}

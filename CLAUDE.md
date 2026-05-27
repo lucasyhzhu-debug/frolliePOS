@@ -117,6 +117,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 - `docs/API_REFERENCE.md` — Convex function reference
 - `frollie-pos design files/` — wireframe handoff bundle (NOT committed; in `.gitignore`). Source of truth for screen layouts and the 33-ADR registry
 - `archive/files.zip` — original delivery bundle (NOT committed)
+- `packages/ceo-progress-report/` — extracted PROGRESS.md → progress.html renderer + Claude Code plugin (publishable as standalone npm package). The Frollie POS build log uses `scripts/build-progress-html.mjs` directly until v0.3 ships, then migrates to this package.
 
 ## Commands
 

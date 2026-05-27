@@ -32,3 +32,6 @@ archive/
 
 # design source (kept out of repo, used as reference)
 frollie-pos design files/
+
+# ceo-progress-report build test output
+.cpr-tmp/
