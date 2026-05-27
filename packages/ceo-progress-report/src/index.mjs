@@ -7,7 +7,7 @@ export { parseProgressMarkdown, computeStats, renderPage };
 
 export async function buildHtml(md, config = {}) {
   const parsed = parseProgressMarkdown(md, { lanes: config.lanes });
-  const doc = computeStats(parsed);
+  const doc = computeStats(parsed, config);
   const generatedAt = new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "Z");
   return await renderPage(doc, generatedAt, config);
 }

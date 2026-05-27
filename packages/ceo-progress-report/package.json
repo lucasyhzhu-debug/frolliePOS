@@ -38,6 +38,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
     "test:smoke": "node bin/cli.mjs build --src examples/PROGRESS.md --out /tmp/cpr-smoke.html"
   },
   "repository": {

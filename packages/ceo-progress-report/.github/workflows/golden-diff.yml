@@ -1,0 +1,50 @@
+name: Golden diff (renderer smoke test)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Render the example PROGRESS.md
+        run: node bin/cli.mjs build --src examples/frollie-pos-PROGRESS.md --out /tmp/ci-test.html
+
+      - name: Verify HTML structure
+        run: |
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('/tmp/ci-test.html', 'utf8');
+            const checks = {
+              size: html.length > 100000,
+              has_status_strip: html.includes('status-strip'),
+              has_coming_next: html.includes('coming-next'),
+              has_milestone_section: html.includes('milestone-section'),
+              has_desk_card: html.includes('desk-card'),
+              has_seal: html.includes('seal-delivered'),
+            };
+            const failed = Object.entries(checks).filter(([_, v]) => !v);
+            if (failed.length) {
+              console.error('✗ Failed checks:', failed.map(([k]) => k).join(', '));
+              console.error('  HTML size:', html.length);
+              process.exit(1);
+            }
+            console.log('✓ All structural checks passed. HTML size:', html.length, 'chars');
+          "
+
+      - name: Render the template PROGRESS.md (init flow smoke)
+        run: |
+          mkdir -p /tmp/init-test
+          cd /tmp/init-test
+          node $GITHUB_WORKSPACE/bin/cli.mjs init
+          node $GITHUB_WORKSPACE/bin/cli.mjs build
+          test -f progress.html
+          test $(wc -c < progress.html) -gt 30000
+          echo "✓ Init + build flow works"

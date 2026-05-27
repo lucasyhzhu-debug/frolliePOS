@@ -1,6 +1,6 @@
 // Pure computation functions: computeStats and extractShippedDate.
 
-export function computeStats(doc) {
+export function computeStats(doc, config = {}) {
   const allTasks = doc.phases.flatMap((p) => Object.values(p.lanes).flat());
   const addressable = allTasks.filter((t) => t.addressable);
   const taskIndex = new Map(addressable.map((t) => [t.id, t]));
@@ -98,7 +98,17 @@ export function computeStats(doc) {
     activeDecisions: activeDecisions.length,
     resolvedDecisions: resolvedDecisions.length,
     lastShipDate: lastShipDate ? lastShipDate.toISOString().slice(0, 10) : null,
-    roadmapPct: doc.phases.length ? Math.round((doc.phases.filter((p) => p.status === "done").length / doc.phases.length) * 100) : 0,
+    roadmapPct: (() => {
+      const mode = config.roadmapPercent || "phases";
+      if (mode === "tasks") {
+        const addrAll = doc.phases.flatMap((p) => Object.values(p.lanes).flat()).filter((t) => t.addressable);
+        const totalTasks = addrAll.length;
+        const shippedTasks = addrAll.filter((t) => t.status === "done").length;
+        return totalTasks > 0 ? Math.round((shippedTasks / totalTasks) * 100) : 0;
+      }
+      // "phases" (default): shipped phases / total phases
+      return doc.phases.length ? Math.round((doc.phases.filter((p) => p.status === "done").length / doc.phases.length) * 100) : 0;
+    })(),
     criticalPath,
   };
 

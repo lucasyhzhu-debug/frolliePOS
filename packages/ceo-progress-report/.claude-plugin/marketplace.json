@@ -1,0 +1,17 @@
+{
+  "name": "ceo-progress-report",
+  "version": "0.1.0",
+  "description": "CEO Progress Report — turn PROGRESS.md into an editorial build-log dashboard your CEO will actually read.",
+  "repository": "https://github.com/lucasyhzhu-debug/ceo-progress-report",
+  "owner": {
+    "name": "Lucas Zhu",
+    "email": "lucas@malostudio.id"
+  },
+  "plugins": [
+    {
+      "name": "ceo-progress-report",
+      "source": "./",
+      "description": "Editorial build-log dashboard for PROGRESS.md, with writing-discipline skills."
+    }
+  ]
+}

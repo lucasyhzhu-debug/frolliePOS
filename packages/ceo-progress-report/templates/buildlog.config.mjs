@@ -30,4 +30,11 @@ export default {
     Frontend: "fe",
     "Cross-cutting": "xc",
   },
+
+  // Roadmap % calculation mode:
+  // - "phases" (default): % = shipped phases / total phases (unweighted, simple)
+  // - "tasks":            % = shipped addressable tasks / total addressable tasks (weighted by scope)
+  // The phases mode treats a 1-task phase the same as a 50-task phase. tasks mode
+  // adjusts for size but requires every phase to use addressable task IDs consistently.
+  // roadmapPercent: "phases",
 };
