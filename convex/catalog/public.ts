@@ -21,6 +21,9 @@ export const catalog = query({
         .withIndex("by_active", (q) => q.eq("active", true))
         .collect(),
       ctx.db.query("pos_product_components").collect(),
+      // pos_stock_levels is owned by the inventory module; this is the legacy
+      // catalog stock read, suppressed until it routes through inventory's public API.
+      // eslint-disable-next-line frollie-internal/no-cross-module-db-access
       ctx.db.query("pos_stock_levels").collect(),
     ]);
 
