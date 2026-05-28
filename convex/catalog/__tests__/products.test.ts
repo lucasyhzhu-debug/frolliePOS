@@ -4,7 +4,7 @@ import schema from "../../schema";
 import { api } from "../../_generated/api";
 
 describe("catalog", () => {
-  it("returns products, skus, components, stock levels", async () => {
+  it("returns products, skus, components, stock levels, and active vouchers", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
       const dubaiSku = await ctx.db.insert("pos_inventory_skus", {
@@ -22,6 +22,16 @@ describe("catalog", () => {
       await ctx.db.insert("pos_stock_levels", {
         inventory_sku_id: dubaiSku, on_hand: 18, updated_at: Date.now(),
       });
+      // Active voucher — should appear in catalog snapshot (ADR-009)
+      await ctx.db.insert("pos_vouchers", {
+        code: "WELCOME10", type: "percentage", value: 10,
+        active: true, used_count: 0, created_at: Date.now(),
+      });
+      // Inactive voucher — should be excluded
+      await ctx.db.insert("pos_vouchers", {
+        code: "DEAD20", type: "amount", value: 20000,
+        active: false, used_count: 0, created_at: Date.now(),
+      });
     });
 
     const c = await t.query(api.catalog.public.catalog, {});
@@ -30,6 +40,9 @@ describe("catalog", () => {
     expect(c.components).toHaveLength(1);
     expect(c.stockLevels).toHaveLength(1);
     expect(c.stockLevels[0].on_hand).toBe(18);
+    // Vouchers: only the active one
+    expect(c.vouchers).toHaveLength(1);
+    expect(c.vouchers[0].code).toBe("WELCOME10");
   });
 
   it("excludes inactive products + skus", async () => {

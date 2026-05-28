@@ -11,6 +11,7 @@ type CatalogPayload = {
   skus: unknown[];
   components: unknown[];
   stockLevels: unknown[];
+  vouchers: unknown[];
 };
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
