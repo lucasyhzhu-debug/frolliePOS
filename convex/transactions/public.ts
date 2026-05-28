@@ -266,6 +266,41 @@ export const resumeDraft = mutation({
   ),
 });
 
+/**
+ * ADR-026 startup reconciliation query.
+ *
+ * Returns pos_transactions rows in `awaiting_payment` status that were created
+ * within the last 5 minutes. Used by `useStartupReconciliation` (frontend hook)
+ * to re-check Xendit invoice status on app load — covers the race window where
+ * a webhook arrived while the app was closed.
+ *
+ * Session boundary: resolves session via _resolveSession_internal (auth-owned
+ * staff_sessions must not be read directly from transactions — ADR-034). Returns
+ * [] if the session is invalid so the hook degrades gracefully.
+ *
+ * Index used: by_status_created ["status","created_at"] — supports
+ * .eq("status","awaiting_payment").gte("created_at", fiveMinAgo) efficiently.
+ */
+export const listRecentAwaitingPayment = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, args) => {
+    // Cross-module boundary: resolve session via auth internal surface (ADR-034).
+    const resolved = await ctx.runQuery(
+      internal.auth.internal._resolveSession_internal,
+      { sessionId: args.sessionId },
+    );
+    if (!resolved) return [];
+
+    const fiveMinAgo = Date.now() - 5 * 60_000;
+    return await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_created", (q) =>
+        q.eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
+      )
+      .collect();
+  },
+});
+
 export const deleteDraft = mutation({
   args: draftArgs,
   handler: withIdempotency<
