@@ -24,6 +24,7 @@ export function DeviceActivation() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deviceId) return toast.error("Device not ready — please wait a moment");
+    if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
     if (!/^\d{6}$/.test(code)) return toast.error("Code must be 6 digits");
     if (!label.trim()) return toast.error("Enter a device label");
     setBusy(true);

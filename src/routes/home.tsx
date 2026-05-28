@@ -51,6 +51,7 @@ export default function HomeRoute() {
 
   const handleLock = async () => {
     if (!session.sessionId) return;
+    if (!logoutKey) return; // IDB not yet resolved — guard ADR-013
     await logout({ sessionId: session.sessionId, idempotencyKey: logoutKey });
     clearSession();
     navigate("/login", { replace: true });
