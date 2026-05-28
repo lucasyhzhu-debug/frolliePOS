@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useSession } from "@/hooks/useSession";
 import { useDeviceId } from "@/hooks/useDeviceId";
+import { useStartupReconciliation } from "@/hooks/useStartupReconciliation";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 
@@ -25,6 +26,11 @@ export function RootLayout() {
     api.staff.public.isDeviceRegistered,
     deviceId ? { deviceId } : "skip",
   );
+
+  // ADR-026: re-check any awaiting_payment txns from the last 5 min on startup.
+  // Passes sessionId when active; hook is a no-op when undefined (session still
+  // resolving or no active session).
+  useStartupReconciliation(session.status === "active" ? session.sessionId : undefined);
 
   const isLogin = location.pathname === "/login";
 
