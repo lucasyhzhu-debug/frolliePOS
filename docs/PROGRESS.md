@@ -344,9 +344,8 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
     - [ ] One-voucher-at-a-time enforcement (ADR-010)
   - **notes:** _(empty)_
 
-- 🔄 **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
+- ✅ **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle) (3870448)
   - **agent:** `ui-component-builder`
-  - **owner:** `claude-task34`
   - **deps:** `v03-fe-use-xendit-payment`
   - **docs:** `frollie-pos design files/project/wireframes/charge.jsx`, [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md)
   - **subtasks:**
