@@ -185,6 +185,33 @@ export const _replaceInvoiceCommit_internal = internalMutation({
 });
 
 /**
+ * Audit the best-effort Xendit invoice cancel outcome from
+ * transactions.actions.cancelTransaction (staffreview T3). The action attempts a
+ * best-effort Xendit expire! before committing the local cancel; a failed attempt
+ * does NOT block the cancel, but the outcome is recorded here for reconciliation.
+ *
+ * Owned by payments because it concerns a pos_xendit_invoices lifecycle event,
+ * mirroring the payment.invoice_cancelled row written in _replaceInvoiceCommit.
+ * The action can't logAudit directly (no ctx.db), so it routes here via runMutation.
+ */
+export const _auditInvoiceCancelOutcome_internal = internalMutation({
+  args: {
+    txnId: v.id("pos_transactions"),
+    outcome: v.object({ success: v.boolean(), error: v.optional(v.string()) }),
+  },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "payment.invoice_cancelled",
+      entity_type: "pos_transactions",
+      entity_id: args.txnId,
+      source: "system",
+      metadata: { reason: "transaction.cancelled", ...args.outcome },
+    });
+  },
+});
+
+/**
  * Resolve a Xendit invoice id → txn id, then delegate to the funnel.
  * Webhook path. Idempotent because _confirmPaid status-guards.
  */
