@@ -250,19 +250,46 @@ export const _onPaidPolling_internal = internalMutation({
 /**
  * Manual-override path (manager PIN or WA approval). Carries the approver id
  * and reason into the funnel for audit; source=manual.
+ *
+ * withIdempotency-wrapped: the confirm, the receipt allocation, and the
+ * idempotency cache row all commit in ONE Convex transaction (I6 — no
+ * commit-then-cache window). Returns the full action response so the action's
+ * _lookup_internal pre-check replays it on retry.
  */
 export const _onPaidManual_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     txnId: v.id("pos_transactions"),
     reason: v.string(),
     mgr_approver_id: v.id("staff"),
   },
-  handler: async (ctx, args) => {
-    await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
-      txnId: args.txnId,
-      source: "manual",
-      mgr_approver_id: args.mgr_approver_id,
-      manual_reason: args.reason,
-    });
-  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      txnId: Id<"pos_transactions">;
+      reason: string;
+      mgr_approver_id: Id<"staff">;
+    },
+    { confirmed: true; receiptNumber: string }
+  >(
+    "payments.manuallyConfirmPayment",
+    async (ctx, args) => {
+      await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
+        txnId: args.txnId,
+        source: "manual",
+        mgr_approver_id: args.mgr_approver_id,
+        manual_reason: args.reason,
+      });
+      // Read back inside the same transaction. _confirmPaid status-guards: a txn
+      // that was already cancelled/expired (not awaiting_payment) no-ops and never
+      // allocates a receipt — a missing receipt means "not actually confirmed", so
+      // throw rather than return a false success (C4). An already-paid txn (webhook
+      // arrived first) keeps its receipt and returns it normally.
+      const txn = await ctx.db.get(args.txnId);
+      if (!txn || txn.status !== "paid" || !txn.receipt_number) {
+        throw new Error("RECEIPT_UNCONFIRMED");
+      }
+      return { confirmed: true as const, receiptNumber: txn.receipt_number };
+    },
+  ),
 });

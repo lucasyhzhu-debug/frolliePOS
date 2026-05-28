@@ -4,7 +4,7 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useCart } from "@/hooks/useCart";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
-import { useIdempotency } from "@/hooks/useIdempotency";
+import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { rp } from "@/lib/format";
 import { hasFlag, NEG_STOCK } from "../../../convex/transactions/flags";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,10 @@ export default function Sale() {
         lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
         voucherCode,
       });
+      // Close out this sale's idempotency intent so the NEXT cart gets a fresh
+      // key. Without this, the session-scoped key replays this draft's cached
+      // result on every subsequent sale in the shift (server dedupe, ADR-013).
+      await clearIntent(`draft:${session.sessionId}`);
       clear();
       toast.success("Draft saved");
       navigate("/sale/drafts");
@@ -78,6 +82,9 @@ export default function Sale() {
       if (hasFlag(result.flags, NEG_STOCK)) {
         toast.warning("Low stock — sale flagged for manager review");
       }
+      // Close out this sale's idempotency intent (see handleSaveDraft) so the
+      // next charge mints a fresh key instead of replaying this transaction.
+      await clearIntent(`charge:${session.sessionId}`);
       clear();
       navigate(`/sale/charge/${result.transactionId}`);
     } catch (err) {

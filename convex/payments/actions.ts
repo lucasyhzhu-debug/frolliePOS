@@ -73,6 +73,10 @@ export const requestPayment = action({
     });
     if (cached) return JSON.parse(cached);
 
+    // Auth: a valid (non-ended) session is required to initiate a Xendit invoice.
+    const session = await ctx.runQuery(api.auth.public.getSession, { sessionId: args.sessionId });
+    if (!session) throw new Error("SESSION_INVALID");
+
     // 2. Resolve txn for amount + description
     const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
@@ -130,6 +134,10 @@ export const retryWithFreshInvoice = action({
     });
     if (cached) return JSON.parse(cached);
 
+    // Auth: a valid (non-ended) session is required to mint a fresh invoice.
+    const session = await ctx.runQuery(api.auth.public.getSession, { sessionId: args.sessionId });
+    if (!session) throw new Error("SESSION_INVALID");
+
     const prev = await ctx.runQuery(api.payments.public.getCurrentInvoice, { txnId: args.txnId });
     if (!prev) throw new Error("PREV_INVOICE_MISSING");
     let cancel_outcome: { success: boolean; error?: string } = { success: true };
@@ -143,7 +151,9 @@ export const retryWithFreshInvoice = action({
     const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
     const { ok, data } = await xenditPost<XenditInvoiceResponse>("/v2/invoices", {
-      external_id: `pos-${args.txnId}-retry-${Date.now()}`,
+      // Unique per retry — randomUUID avoids the Date.now() collision two
+      // concurrent retries in the same millisecond would hit (I3).
+      external_id: `pos-${args.txnId}-retry-${crypto.randomUUID()}`,
       amount: txn.total,
       payment_methods: args.method === "QRIS" ? ["QRIS"] : ["BCA"],
       description: `Frollie POS sale ${args.txnId} (retry)`,
@@ -181,6 +191,7 @@ export const checkInvoiceStatus = action({
   handler: async (ctx, args): Promise<{
     status: "PENDING" | "PAID" | "EXPIRED" | "UNKNOWN";
   }> => {
+    if (!args.invoiceId) return { status: "UNKNOWN" };
     const { ok, data } = await xenditGet<XenditInvoiceResponse>(`/v2/invoices/${args.invoiceId}`);
     if (!ok) return { status: "UNKNOWN" };
     if (data.status === "PAID") {
@@ -225,6 +236,20 @@ export const manuallyConfirmPayment = action({
     });
     if (!actor || actor.role !== "manager") throw new Error("NOT_MANAGER");
 
+    // Pre-verify lockout check — reject a locked manager cheaply before spending
+    // argon2 cycles, mirroring the other PIN-verify paths' lockout discipline (I1).
+    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
+      staffId: session.staff._id,
+    });
+    if (lockState.locked) {
+      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
+        staffId: session.staff._id,
+        deviceId: session.deviceId,
+        seconds_remaining: lockState.seconds_remaining,
+      });
+      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
+    }
+
     const ok = await argon2Verify({ password: args.managerPin, hash: actor.pin_hash });
     if (!ok) {
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
@@ -235,24 +260,13 @@ export const manuallyConfirmPayment = action({
       throw new Error("INVALID_PIN");
     }
 
-    // Commit funnel
-    await ctx.runMutation(internal.payments.internal._onPaidManual_internal, {
-      txnId: args.txnId, reason: args.reason, mgr_approver_id: session.staff._id,
+    // Commit funnel + cache atomically (I6) and guard against a false success on a
+    // non-awaiting txn (C4) — both live inside the withIdempotency-wrapped mutation.
+    return await ctx.runMutation(internal.payments.internal._onPaidManual_internal, {
+      idempotencyKey: args.idempotencyKey,
+      txnId: args.txnId,
+      reason: args.reason,
+      mgr_approver_id: session.staff._id,
     });
-
-    // Read back receipt_number to return
-    const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
-
-    // Persist the action-level idempotency cache row via the idempotency module's
-    // own internal mutation (ADR-034: payments must not write pos_idempotency
-    // directly). The paid funnel already committed all transaction/audit state in
-    // _onPaidManual_internal, so this is a stand-alone cache write.
-    const response = { confirmed: true as const, receiptNumber: txn!.receipt_number! };
-    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
-      key: args.idempotencyKey,
-      mutationName: "payments.manuallyConfirmPayment",
-      response: JSON.stringify(response),
-    });
-    return response;
   },
 });

@@ -256,6 +256,9 @@ export const resumeDraft = mutation({
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
       const draft = await ctx.db.get(args.draftId);
       if (!draft) throw new Error("DRAFT_ALREADY_RESUMED");
+      // Ownership: a draft is private to the staff who saved it. Shared device,
+      // overlapping shifts — block resuming another staff member's draft by id.
+      if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
 
       const lines = await ctx.db
@@ -273,7 +276,9 @@ export const resumeDraft = mutation({
 
       await logAudit(ctx, {
         actor_id: staffId,
-        action: "transaction.cancelled",
+        // Distinct from transaction.cancelled: the draft was pulled back into an
+        // active cart, not abandoned. An observer shouldn't read this as a void (m-4).
+        action: "transaction.resumed",
         entity_type: "pos_transactions", entity_id: args.draftId,
         source: "booth_inline",
         device_id: deviceId,
@@ -331,6 +336,8 @@ export const deleteDraft = mutation({
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
       const draft = await ctx.db.get(args.draftId);
       if (!draft) return { deleted: true as const };
+      // Ownership: only the staff who saved the draft may delete it (see resumeDraft).
+      if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
       const lines = await ctx.db
         .query("pos_transaction_lines")

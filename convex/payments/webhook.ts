@@ -24,12 +24,14 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
   if (!expected) return new Response("misconfigured", { status: 500 });
 
   const received = request.headers.get("x-callback-token") ?? "";
-  if (received.length !== expected.length)
-    return new Response("unauthorized", { status: 401 });
-
-  let diff = 0;
-  for (let i = 0; i < received.length; i++)
-    diff |= received.charCodeAt(i) ^ expected.charCodeAt(i);
+  // Constant-time compare: fold any length difference into the diff and walk the
+  // longer of the two, rather than returning early on length mismatch — a
+  // wrong-length token must not be distinguishable from a wrong-byte one by
+  // timing (I2). charCodeAt past the end is NaN → coerced to 0.
+  let diff = received.length ^ expected.length;
+  const max = Math.max(received.length, expected.length);
+  for (let i = 0; i < max; i++)
+    diff |= (received.charCodeAt(i) || 0) ^ (expected.charCodeAt(i) || 0);
   if (diff !== 0) return new Response("unauthorized", { status: 401 });
 
   let body: unknown;
