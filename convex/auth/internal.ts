@@ -1,6 +1,7 @@
 import { internalQuery, internalMutation, QueryCtx, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 
@@ -16,6 +17,25 @@ export const _getStaffNameCode_internal = internalQuery({
     const s = await ctx.db.get(args.staffId);
     if (!s) return null;
     return { name: s.name, code: s.code };
+  },
+});
+
+/**
+ * Resolve a staff row by its `code`. Used by approvals/actions.approveStaffPinReset
+ * to identify which manager is approving (the form supplies managerStaffCode).
+ * Returns the fields the action needs to argon2-verify and authorise the reset.
+ * The `staff` table is owned by the auth module (ADR-034), so this lookup lives
+ * here — other modules reach it via ctx.runQuery. Returns null if no match.
+ */
+export const _getByCode_internal = internalQuery({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    const s = await ctx.db
+      .query("staff")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first();
+    if (!s) return null;
+    return { _id: s._id, pin_hash: s.pin_hash, active: s.active, role: s.role };
   },
 });
 
@@ -154,6 +174,13 @@ export const _recordFailedAttempt_internal = internalMutation({
           source: "booth_inline", device_id: args.deviceId,
           reason: `${MAX_FAILS} consecutive failures`,
         });
+        // Task 18: on the newly-locked transition only (lock != null this call),
+        // fire the off-booth PIN-reset notification. `next` is computed fresh each
+        // call (Fix 7 resets on expired lockout), so this branch is reached exactly
+        // when the account first locks in the current cycle — not on every probe.
+        await ctx.scheduler.runAfter(0, internal.approvals.actions.notifyStaffLockout, {
+          staffId: args.staffId,
+        });
       }
       return {
         newly_locked: lock != null,
@@ -255,6 +282,16 @@ const changePinActorValidator = v.union(
   v.object({ kind: v.literal("manager_reset"), mgr_approver_id: v.id("staff") }),
 );
 
+// Audit `source` union (mirrors audit/internal.ts sourceValidator). Off-booth
+// callers (e.g. approvals.approveStaffPinReset via Telegram) override this so the
+// staff.pin_reset row records where the action actually originated.
+const changePinSourceValidator = v.union(
+  v.literal("booth_inline"),
+  v.literal("wa_approval"),
+  v.literal("system"),
+  v.literal("reaper"),
+);
+
 /**
  * Single funnel for PIN updates from all three v0.3 paths:
  *   1. auth.actions.changePin (self)
@@ -266,6 +303,11 @@ const changePinActorValidator = v.union(
  *   - "manager_reset": logs staff.pin_reset, actor_id = mgr_approver_id, AND
  *     clears pos_auth_attempts (lockout unwind).
  *
+ * `source` (optional) sets the audit origin on the manager_reset row. Defaults to
+ * "booth_inline" (manager at the booth). The off-booth Telegram path passes
+ * "wa_approval" so the audit trail is factually correct. The self branch is always
+ * at-booth in v0.3, so it stays "booth_inline".
+ *
  * Never logs PIN values — payload has no PIN fields. Not withIdempotency-wrapped:
  * callers wrap their own public mutation/action with their idempotency key.
  */
@@ -274,6 +316,7 @@ export const _changePinCommit_internal = internalMutation({
     staffId: v.id("staff"),
     newPinHash: v.string(),
     actor: changePinActorValidator,
+    source: v.optional(changePinSourceValidator),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.staffId, { pin_hash: args.newPinHash });
@@ -291,7 +334,7 @@ export const _changePinCommit_internal = internalMutation({
         mgr_approver_id: args.actor.mgr_approver_id,
         action: "staff.pin_reset",
         entity_type: "staff", entity_id: args.staffId,
-        source: "booth_inline",
+        source: args.source ?? "booth_inline",
       });
     } else {
       await logAudit(ctx, {

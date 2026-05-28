@@ -1,4 +1,4 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { logAudit } from "../audit/internal";
 
@@ -44,8 +44,27 @@ export const _createRequest_internal = internalMutation({
 });
 
 /**
- * Record that the WA notification was sent for an approval request.
- * ADR-027: staff sends the WA message from their own device; this stamps when it happened.
+ * Delete an approval request row. Used by notifyStaffLockout's recovery path: if
+ * the Telegram send fails after the row was created (but before notified_at is
+ * stamped), the stuck pending row would block the dedup guard for the full token
+ * TTL — leaving managers blind. Deleting it lets the next lockout cycle create a
+ * fresh request cleanly. approvals owns pos_approval_requests (ADR-034), so the
+ * delete lives here. The "approval.created" audit row stays as a forensic trace
+ * (append-only log).
+ */
+export const _deleteRequest_internal = internalMutation({
+  args: {
+    requestId: v.id("pos_approval_requests"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.requestId);
+  },
+});
+
+/**
+ * Record that the notification was sent for an approval request.
+ * ADR-035 (supersedes ADR-027): the off-booth PIN-reset link is delivered via the
+ * managers' Telegram group; this stamps when that notification went out.
  */
 export const _markNotified_internal = internalMutation({
   args: {
@@ -91,5 +110,42 @@ export const _markResolved_internal = internalMutation({
       source: "wa_approval",
       mgr_approver_id: args.resolved_by_manager_id,
     });
+  },
+});
+
+/**
+ * List pending, unexpired staff_pin_reset requests for a staff member.
+ * Used by notifyStaffLockout's dedup guard (staffreview Improvement #5): if any
+ * row is already pending and live, the second lockout notification is skipped.
+ */
+export const _listPendingForStaff_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
+      .collect();
+    const now = Date.now();
+    return rows.filter(
+      (r) =>
+        r.kind === "staff_pin_reset" &&
+        r.status === "pending" &&
+        r.token_expires_at > now,
+    );
+  },
+});
+
+/**
+ * Resolve an approval request by its token hash (sha256 hex). Returns the full
+ * row (including token_hash) so the action layer can do a constant-time compare
+ * and check status / expiry. INTERNAL — never exposed to a public client.
+ */
+export const _getByTokenHash_internal = internalQuery({
+  args: { tokenHash: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_token_hash", (q) => q.eq("token_hash", args.tokenHash))
+      .first();
   },
 });
