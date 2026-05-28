@@ -235,6 +235,60 @@ export const _resolveSession_internal = internalQuery({
   },
 });
 
+const changePinActorValidator = v.union(
+  v.object({ kind: v.literal("self") }),
+  v.object({ kind: v.literal("manager_reset"), mgr_approver_id: v.id("staff") }),
+);
+
+/**
+ * Single funnel for PIN updates from all three v0.3 paths:
+ *   1. auth.actions.changePin (self)
+ *   2. auth.actions.resetStaffPin (manager at booth)
+ *   3. approvals.actions.approveStaffPinReset (manager off-booth via Telegram)
+ *
+ * Branches on actor.kind:
+ *   - "self": logs staff.pin_changed, actor_id = staffId
+ *   - "manager_reset": logs staff.pin_reset, actor_id = mgr_approver_id, AND
+ *     clears pos_auth_attempts (lockout unwind).
+ *
+ * Never logs PIN values — payload has no PIN fields. Not withIdempotency-wrapped:
+ * callers wrap their own public mutation/action with their idempotency key.
+ */
+export const _changePinCommit_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    newPinHash: v.string(),
+    actor: changePinActorValidator,
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.staffId, { pin_hash: args.newPinHash });
+
+    if (args.actor.kind === "manager_reset") {
+      const attempts = await ctx.db
+        .query("pos_auth_attempts")
+        .withIndex("by_staff", (q) => q.eq("staff_id", args.staffId))
+        .collect();
+      for (const a of attempts) {
+        await ctx.db.patch(a._id, { fail_count: 0, locked_until: null, last_attempt_at: Date.now() });
+      }
+      await logAudit(ctx, {
+        actor_id: args.actor.mgr_approver_id,
+        mgr_approver_id: args.actor.mgr_approver_id,
+        action: "staff.pin_reset",
+        entity_type: "staff", entity_id: args.staffId,
+        source: "booth_inline",
+      });
+    } else {
+      await logAudit(ctx, {
+        actor_id: args.staffId,
+        action: "staff.pin_changed",
+        entity_type: "staff", entity_id: args.staffId,
+        source: "booth_inline",
+      });
+    }
+  },
+});
+
 /** Test-only commit used by _seedHashedStaff_internal. */
 export const _seedStaffCommit_internal = internalMutation({
   args: {
