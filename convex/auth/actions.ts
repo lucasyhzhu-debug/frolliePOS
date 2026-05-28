@@ -4,7 +4,8 @@ import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
-import { argon2id, argon2Verify } from "hash-wasm";
+import { argon2id } from "hash-wasm";
+import { verifyPinOrThrow } from "./verifyPin";
 
 const ARGON2_PARAMS = {
   parallelism: 1,
@@ -85,35 +86,19 @@ export const loginWithPin = action({
       throw new Error("INVALID_PIN");
     }
 
-    // Pre-verify lockout check — reject cheaply before spending argon2 cycles
-    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
-      staffId: args.staffId,
-    });
-    if (lockState.locked) {
-      // Fix 14: emit audit row for each probe during an active lockout
-      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
+    // Lockout pre-check + argon2 verify + failed-attempt recording (shared funnel).
+    // lockOnFail: a wrong PIN that trips the 3rd-strike lock surfaces as LOCKED_OUT.
+    await verifyPinOrThrow(
+      ctx,
+      {
         staffId: args.staffId,
         deviceId: args.deviceId,
-        seconds_remaining: lockState.seconds_remaining,
-      });
-      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
-    }
-
-    const verifyOk = await argon2Verify({ password: args.pin, hash: staff.pin_hash });
-
-    if (!verifyOk) {
-      // Commit the failed attempt in its own mutation BEFORE throwing so the
-      // write survives. Fix 10: pass derived key so retries are idempotent.
-      const result = await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
-        staffId: args.staffId,
-        deviceId: args.deviceId,
-      });
-      if (result.newly_locked) {
-        throw new Error(`LOCKED_OUT:${result.seconds_remaining}`);
-      }
-      throw new Error("INVALID_PIN");
-    }
+        pinHash: staff.pin_hash,
+        pin: args.pin,
+        idempotencyKey: args.idempotencyKey,
+      },
+      { lockOnFail: true },
+    );
 
     // PIN verified — commit session (use commitKey which may differ from
     // args.idempotencyKey if a stale-session refresh forced a cache bypass)
@@ -200,29 +185,15 @@ export const changePin = action({
     });
     if (!staff || !staff.active) throw new Error("INVALID_PIN");
 
-    // Pre-verify lockout check — reject the caller cheaply before spending
-    // argon2 cycles, mirroring loginWithPin's lockout discipline.
-    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
+    // Lockout pre-check + argon2 verify (of the CURRENT pin) + failed-attempt
+    // recording (shared funnel, mirrors loginWithPin's lockout discipline).
+    await verifyPinOrThrow(ctx, {
       staffId: session.staff._id,
+      deviceId: session.deviceId,
+      pinHash: staff.pin_hash,
+      pin: args.currentPin,
+      idempotencyKey: args.idempotencyKey,
     });
-    if (lockState.locked) {
-      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-        seconds_remaining: lockState.seconds_remaining,
-      });
-      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
-    }
-
-    const ok = await argon2Verify({ password: args.currentPin, hash: staff.pin_hash });
-    if (!ok) {
-      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-      });
-      throw new Error("INVALID_PIN");
-    }
 
     const newPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.newPin,
@@ -298,31 +269,16 @@ export const resetStaffPin = action({
     });
     if (!target || !target.active) throw new Error("TARGET_NOT_FOUND");
 
-    // Pre-verify lockout check — the managerPin (the caller's PIN) is what gets
-    // verified, so reject a locked manager cheaply before spending argon2 cycles.
-    // Mirrors loginWithPin's lockout discipline.
-    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
+    // Lockout pre-check + argon2 verify + failed-attempt recording (shared funnel).
+    // SECURITY: verify against the MANAGER's hash (the caller), never the target's —
+    // a wrong manager PIN cannot reset. Lockout/fail are recorded against the manager.
+    await verifyPinOrThrow(ctx, {
       staffId: session.staff._id,
+      deviceId: session.deviceId,
+      pinHash: manager.pin_hash,
+      pin: args.managerPin,
+      idempotencyKey: args.idempotencyKey,
     });
-    if (lockState.locked) {
-      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-        seconds_remaining: lockState.seconds_remaining,
-      });
-      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
-    }
-
-    // SECURITY: verify against the MANAGER's hash (the caller), never the target's.
-    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
-    if (!ok) {
-      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-      });
-      throw new Error("INVALID_PIN");
-    }
 
     const newPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.newPin,

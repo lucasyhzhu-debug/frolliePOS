@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
-import { argon2Verify } from "hash-wasm";
+import { verifyPinOrThrow } from "../auth/verifyPin";
 
 const XENDIT_BASE = "https://api.xendit.co";
 
@@ -252,29 +252,15 @@ export const manuallyConfirmPayment = action({
     });
     if (!actor || actor.role !== "manager") throw new Error("NOT_MANAGER");
 
-    // Pre-verify lockout check — reject a locked manager cheaply before spending
-    // argon2 cycles, mirroring the other PIN-verify paths' lockout discipline (I1).
-    const lockState = await ctx.runQuery(internal.auth.internal._getLockState_internal, {
+    // Lockout pre-check + argon2 verify (manager's own PIN) + failed-attempt
+    // recording (shared funnel — same lockout discipline as the auth PIN paths).
+    await verifyPinOrThrow(ctx, {
       staffId: session.staff._id,
+      deviceId: session.deviceId,
+      pinHash: actor.pin_hash,
+      pin: args.managerPin,
+      idempotencyKey: args.idempotencyKey,
     });
-    if (lockState.locked) {
-      await ctx.runMutation(internal.auth.internal._auditLockProbe_internal, {
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-        seconds_remaining: lockState.seconds_remaining,
-      });
-      throw new Error(`LOCKED_OUT:${lockState.seconds_remaining}`);
-    }
-
-    const ok = await argon2Verify({ password: args.managerPin, hash: actor.pin_hash });
-    if (!ok) {
-      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
-        staffId: session.staff._id,
-        deviceId: session.deviceId,
-      });
-      throw new Error("INVALID_PIN");
-    }
 
     // Commit funnel + cache atomically (I6) and guard against a false success on a
     // non-awaiting txn (C4) — both live inside the withIdempotency-wrapped mutation.
