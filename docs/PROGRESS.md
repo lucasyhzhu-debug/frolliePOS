@@ -344,16 +344,18 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
     - [ ] One-voucher-at-a-time enforcement (ADR-010)
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
+- 🔄 **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
   - **agent:** `ui-component-builder`
+  - **owner:** `claude-task34`
   - **deps:** `v03-fe-use-xendit-payment`
   - **docs:** `frollie-pos design files/project/wireframes/charge.jsx`, [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md)
   - **subtasks:**
     - [ ] QRIS view with QR canvas render
     - [ ] BCA VA view with copy-to-clipboard + bank logo
-    - [ ] Method toggle + retry affordance
-    - [ ] Polling indicator
-  - **notes:** _(empty)_
+    - [x] Method toggle + retry affordance
+    - [x] Polling indicator
+  - **notes:**
+    - 2026-05-28: Full charge-screen state machine shipped — QRIS/BCA-VA tabs, useXenditPayment polling, 60s wall-clock ceiling → Retry / Manager-override (PinSheet + required reason) / Cancel CTAs, paid→success nav. QRIS rendered as raw qr_string in a `<code>` block (no qrcode lib bundled — avoided new dep); BCA VA uses `select-all` text (no copy-to-clipboard/bank-logo yet). Router edited: charge route now `/sale/charge/:txnId`, success `/sale/charge/:txnId/success` (the prior param-less paths were unreachable from index.tsx's nav). QR-canvas + clipboard subtasks left open for a polish pass.
 
 - 📋 **[v03-fe-sale-charge-success]** `routes/sale/charge-success.tsx` — paid confirmation
   - **agent:** `ui-component-builder`
