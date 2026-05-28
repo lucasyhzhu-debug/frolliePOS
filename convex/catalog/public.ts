@@ -1,5 +1,6 @@
 import { query } from "../_generated/server";
 import { api } from "../_generated/api";
+import { Doc } from "../_generated/dataModel";
 
 /**
  * Single payload for the catalog screen + offline cache. Persisted to IDB
@@ -18,7 +19,18 @@ import { api } from "../_generated/api";
  */
 export const catalog = query({
   args: {},
-  handler: async (ctx) => {
+  // Explicit return type breaks the cross-module circular inference (this handler
+  // calls ctx.runQuery on inventory + vouchers public APIs). Without it tsc -b
+  // collapses the inferred element types and downstream consumers see `any`.
+  handler: async (
+    ctx,
+  ): Promise<{
+    products: Doc<"pos_products">[];
+    skus: Doc<"pos_inventory_skus">[];
+    components: Doc<"pos_product_components">[];
+    stockLevels: Array<{ inventory_sku_id: string; on_hand: number }>;
+    vouchers: Doc<"pos_vouchers">[];
+  }> => {
     const [products, skus, allComponents, stockLevelMap, vouchers] = await Promise.all([
       ctx.db
         .query("pos_products")

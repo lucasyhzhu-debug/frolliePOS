@@ -1,6 +1,6 @@
 import { mutation, query, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
@@ -25,7 +25,10 @@ async function resolveSessionStaff(
 
 export const getById = query({
   args: { txnId: v.id("pos_transactions") },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<(Doc<"pos_transactions"> & { lines: Doc<"pos_transaction_lines">[] }) | null> => {
     const txn = await ctx.db.get(args.txnId);
     if (!txn) return null;
     const lines = await ctx.db
@@ -38,7 +41,10 @@ export const getById = query({
 
 export const listDrafts = query({
   args: { sessionId: v.id("staff_sessions") },
-  handler: async (ctx, args) => {
+  // Explicit return type breaks the cross-module circular inference (this handler
+  // calls ctx.runQuery on the auth internal surface, which transitively references
+  // the generated `internal` object). Without it tsc -b collapses to `any`.
+  handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
     // Cross-module: resolve session via auth internal surface (ADR-034).
     const resolved = await ctx.runQuery(
       internal.auth.internal._resolveSession_internal,
@@ -93,7 +99,14 @@ export const commitCart = mutation({
     { transactionId: Id<"pos_transactions">; totals: { subtotal: number; discount: number; total: number }; flags: number }
   >(
     "transactions.commitCart",
-    async (ctx, args) => {
+    async (
+      ctx,
+      args,
+    ): Promise<{
+      transactionId: Id<"pos_transactions">;
+      totals: { subtotal: number; discount: number; total: number };
+      flags: number;
+    }> => {
       // Boundary guard (public mutation): reject empty carts before any work,
       // so a malformed/replayed request can't create a junk zero-total txn.
       if (args.lines.length === 0) throw new Error("EMPTY_CART");
@@ -233,7 +246,13 @@ export const resumeDraft = mutation({
     }
   >(
     "transactions.resumeDraft",
-    async (ctx, args) => {
+    async (
+      ctx,
+      args,
+    ): Promise<{
+      lines: Array<{ productId: Id<"pos_products">; qty: number }>;
+      voucherCode?: string;
+    }> => {
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
       const draft = await ctx.db.get(args.draftId);
       if (!draft) throw new Error("DRAFT_ALREADY_RESUMED");
@@ -283,7 +302,7 @@ export const resumeDraft = mutation({
  */
 export const listRecentAwaitingPayment = query({
   args: { sessionId: v.id("staff_sessions") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
     // Cross-module boundary: resolve session via auth internal surface (ADR-034).
     const resolved = await ctx.runQuery(
       internal.auth.internal._resolveSession_internal,
@@ -308,7 +327,7 @@ export const deleteDraft = mutation({
     { deleted: true }
   >(
     "transactions.deleteDraft",
-    async (ctx, args) => {
+    async (ctx, args): Promise<{ deleted: true }> => {
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
       const draft = await ctx.db.get(args.draftId);
       if (!draft) return { deleted: true as const };

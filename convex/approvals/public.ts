@@ -1,6 +1,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import { Doc } from "../_generated/dataModel";
 
 /**
  * Derive a SHA-256 hex digest from a string using Web Crypto (V8-compatible).
@@ -30,7 +31,21 @@ async function sha256Hex(s: string): Promise<string> {
  */
 export const getByToken = query({
   args: { rawToken: v.string() },
-  handler: async (ctx, args) => {
+  // Explicit return type breaks the cross-module circular inference (this handler
+  // calls ctx.runQuery on the auth internal surface). Without it tsc -b collapses
+  // the inferred type to `any`.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    kind: Doc<"pos_approval_requests">["kind"];
+    subject_staff_name: string;
+    subject_staff_code?: string;
+    status: "pending" | "resolved" | "expired";
+    triggered_at: number;
+    token_expires_at: number;
+    resolved_at?: number;
+  } | null> => {
     const hash = await sha256Hex(args.rawToken);
 
     const req = await ctx.db

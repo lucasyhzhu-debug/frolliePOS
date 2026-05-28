@@ -6,14 +6,6 @@ const DB_VERSION = 1;
 const STORE = "catalog";
 const KEY = "snapshot";
 
-type CatalogPayload = {
-  products: unknown[];
-  skus: unknown[];
-  components: unknown[];
-  stockLevels: unknown[];
-  vouchers: unknown[];
-};
-
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function getDb() {
@@ -49,12 +41,12 @@ export function __resetForTests() {
  * live snapshot if Effect 2 fired first. liveSeenRef tracks whether a live value
  * has been written; Effect 1 skips setSnapshot when the ref is already true.
  */
-export function useCatalogCache(live: CatalogPayload | undefined): {
+export function useCatalogCache<T>(live: T | undefined): {
   hydrated: boolean;
-  snapshot: CatalogPayload | null;
+  snapshot: T | null;
 } {
   const [hydrated, setHydrated] = useState(false);
-  const [snapshot, setSnapshot] = useState<CatalogPayload | null>(null);
+  const [snapshot, setSnapshot] = useState<T | null>(null);
 
   // Tracks whether Effect 2 has set a fresh live value, so Effect 1's async
   // IDB read doesn't stomp it if IDB resolves after Effect 2.
@@ -66,7 +58,7 @@ export function useCatalogCache(live: CatalogPayload | undefined): {
     (async () => {
       try {
         const db = await getDb();
-        const val = (await db.get(STORE, KEY)) as CatalogPayload | undefined;
+        const val = (await db.get(STORE, KEY)) as T | undefined;
         // Only set if Effect 2 hasn't already provided a fresher live value.
         if (!cancelled && val && !liveSeenRef.current) setSnapshot(val);
       } catch (e) {

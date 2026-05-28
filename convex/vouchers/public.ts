@@ -1,14 +1,18 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
+import { Doc } from "../_generated/dataModel";
 
 /**
  * Active, unexpired vouchers. Bundled into the offline catalog cache snapshot
  * by useCatalogCache so cart-build can apply vouchers offline. Server
  * re-validates at commitCart per ADR-009.
+ *
+ * Explicit return type: consumed cross-module via ctx.runQuery (catalog query),
+ * so the annotation prevents tsc -b from collapsing the inferred element type.
  */
 export const getActiveVouchers = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<Doc<"pos_vouchers">[]> => {
     const now = Date.now();
     const rows = await ctx.db
       .query("pos_vouchers")

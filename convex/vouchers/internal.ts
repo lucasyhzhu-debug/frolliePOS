@@ -1,14 +1,19 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { Doc } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 /**
  * Look up a voucher by code (uppercased). Exposed so the transactions funnel
  * can find a voucher without reading vouchers-owned tables directly (ADR-034).
+ *
+ * Explicit return type: this query is consumed cross-module via ctx.runQuery
+ * (transactions funnel). Without the annotation, tsc -b collapses the inferred
+ * type to `any`/`{}` at the call site (Convex cross-module circular inference).
  */
 export const _getVoucherByCode_internal = internalQuery({
   args: { code: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Doc<"pos_vouchers"> | null> => {
     return await ctx.db
       .query("pos_vouchers")
       .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))

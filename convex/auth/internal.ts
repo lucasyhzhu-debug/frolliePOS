@@ -29,7 +29,15 @@ export const _getStaffNameCode_internal = internalQuery({
  */
 export const _getByCode_internal = internalQuery({
   args: { code: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    _id: Id<"staff">;
+    pin_hash: string;
+    active: boolean;
+    role: "staff" | "manager";
+  } | null> => {
     const s = await ctx.db
       .query("staff")
       .withIndex("by_code", (q) => q.eq("code", args.code))
@@ -45,7 +53,15 @@ export const _getByCode_internal = internalQuery({
  */
 export const _getStaffPinHash_internal = internalQuery({
   args: { staffId: v.id("staff") },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    _id: Id<"staff">;
+    pin_hash: string;
+    active: boolean;
+    role: "staff" | "manager";
+  } | null> => {
     const s = await ctx.db.get(args.staffId);
     if (!s) return null;
     return { _id: s._id, pin_hash: s.pin_hash, active: s.active, role: s.role };
