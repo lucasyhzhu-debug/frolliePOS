@@ -87,6 +87,32 @@ export const _projectedOnHand_internal = internalQuery({
 });
 
 /**
+ * Read current on_hand for a set of SKU IDs. Used by transactions/internal
+ * to check post-decrement stock levels without touching inventory-owned tables
+ * directly (ADR-034 module boundary).
+ *
+ * Returns a record keyed by skuId string. Missing SKUs (no level row) are
+ * reported as 0 — consistent with the "no row = nothing received yet" convention
+ * used by _recordSaleMovement_internal.
+ */
+export const _getOnHandBySkus_internal = internalQuery({
+  args: {
+    skuIds: v.array(v.id("pos_inventory_skus")),
+  },
+  handler: async (ctx, args): Promise<Record<string, number>> => {
+    const result: Record<string, number> = {};
+    for (const skuId of args.skuIds) {
+      const level = await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+        .first();
+      result[skuId as unknown as string] = level?.on_hand ?? 0;
+    }
+    return result;
+  },
+});
+
+/**
  * Decrement on_hand directly without writing a movement row. Used by v0.5
  * stock-adjustment flows where the movement was already written separately.
  * Intentionally unexported for public use in v0.3 — kept for v0.5 callers.

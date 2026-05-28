@@ -31,6 +31,17 @@ const OWNERSHIP = {
   // inventory module — pos_stock_levels moved from catalog to inventory in v0.3 (ADR-034)
   pos_stock_levels: "inventory",
   pos_stock_movements: "inventory",
+  // transactions module
+  pos_transactions: "transactions",
+  pos_transaction_lines: "transactions",
+  pos_receipt_counters: "transactions",
+  // payments module
+  pos_xendit_invoices: "payments",
+  // vouchers module
+  pos_vouchers: "vouchers",
+  pos_voucher_redemptions: "vouchers",
+  // approvals module
+  pos_approval_requests: "approvals",
   // idempotency module
   pos_idempotency: "idempotency",
   // audit module

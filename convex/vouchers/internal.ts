@@ -1,6 +1,20 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { logAudit } from "../audit/internal";
+
+/**
+ * Look up a voucher by code (uppercased). Exposed so the transactions funnel
+ * can find a voucher without reading vouchers-owned tables directly (ADR-034).
+ */
+export const _getVoucherByCode_internal = internalQuery({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("pos_vouchers")
+      .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))
+      .first();
+  },
+});
 
 /**
  * Atomically redeem a voucher against a transaction.
