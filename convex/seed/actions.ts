@@ -53,3 +53,27 @@ export const reset = internalAction({
     return result;
   },
 });
+
+/**
+ * Bootstrap a fresh deployment with the initial manager account.
+ * Creates Lucas (S-0001, manager, PIN 1111) when the staff table is empty.
+ * Idempotent guard: aborts with "already_bootstrapped" if staff already exist.
+ *
+ * Safe on prod — it refuses to write if any staff row exists, so running it
+ * a second time is a no-op error rather than destructive. The prod guard from
+ * `reset` is intentionally absent here: bootstrapping prod is the intended use.
+ *
+ * INTERNAL — not exposed via api.*.
+ */
+export const bootstrap = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ staffId: string; staffCode: string }> => {
+    const pinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
+      pin: "1111",
+    });
+    const result = await ctx.runMutation(internal.seed.internal._bootstrapCommit_internal, {
+      pinHash,
+    });
+    return result;
+  },
+});
