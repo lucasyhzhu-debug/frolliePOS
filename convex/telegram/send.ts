@@ -5,6 +5,7 @@ import {
   renderApproval,
   renderShiftSummary,
   renderCustom,
+  renderStaffPinReset,
   makeNonce,
   type RenderedMessage,
 } from "../lib/telegramHtml";
@@ -22,6 +23,7 @@ export const sendTemplate = action({
       v.literal("approval"),
       v.literal("shift_summary"),
       v.literal("custom"),
+      v.literal("staff_pin_reset"),
     ),
     payload: v.any(),
   },
@@ -45,6 +47,9 @@ export const sendTemplate = action({
         break;
       case "custom":
         rendered = renderCustom(args.payload, nonce);
+        break;
+      case "staff_pin_reset":
+        rendered = renderStaffPinReset(args.payload);
         break;
     }
 
