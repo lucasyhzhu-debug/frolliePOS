@@ -86,7 +86,7 @@ describe("transactions/public.listRecentAwaitingPayment", () => {
         device_id: "dev",
         started_at: Date.now(),
         ended_at: Date.now(), // ended → _resolveSession_internal returns null
-        end_reason: "locked",
+        end_reason: "manual_lock",
       });
     });
 

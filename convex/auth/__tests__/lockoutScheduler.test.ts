@@ -41,12 +41,9 @@ async function countApprovalRows(
   staffId: Id<"staff">,
 ): Promise<number> {
   const rows = await t.run((ctx) =>
-    ctx.db
-      .query("pos_approval_requests")
-      .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", staffId))
-      .collect(),
+    ctx.db.query("pos_approval_requests").collect(),
   );
-  return rows.length;
+  return rows.filter((r) => r.subject_staff_id === staffId).length;
 }
 
 describe("auth lockout → scheduler trigger (Task 18)", () => {
