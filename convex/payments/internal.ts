@@ -44,7 +44,12 @@ export const _persistInvoiceCommit_internal = internalMutation({
       va_number?: string;
       status_at_create: string;
     },
-    { invoiceId: Id<"pos_xendit_invoices"> }
+    {
+      invoiceId: Id<"pos_xendit_invoices">;
+      method: "QRIS" | "BCA_VA";
+      qrString?: string;
+      vaNumber?: string;
+    }
   >(
     "payments._persistInvoiceCommit",
     async (ctx, args) => {
@@ -70,7 +75,17 @@ export const _persistInvoiceCommit_internal = internalMutation({
         source: "system",
         metadata: { txnId: args.txnId, method: args.method },
       });
-      return { invoiceId };
+      // Return the FULL action response shape so the withIdempotency cache row
+      // holds the complete { invoiceId, method, qrString?, vaNumber? } blob.
+      // staffreview Critical #1: an action retry short-circuits on the action's
+      // _lookup_internal pre-check and replays this exact blob — so qrString /
+      // vaNumber survive the replay, not just invoiceId.
+      return {
+        invoiceId,
+        method: args.method,
+        qrString: args.qr_string,
+        vaNumber: args.va_number,
+      };
     },
   ),
 });
@@ -109,7 +124,12 @@ export const _replaceInvoiceCommit_internal = internalMutation({
       status_at_create: string;
       cancel_outcome: { success: boolean; error?: string };
     },
-    { invoiceId: Id<"pos_xendit_invoices"> }
+    {
+      invoiceId: Id<"pos_xendit_invoices">;
+      method: "QRIS" | "BCA_VA";
+      qrString?: string;
+      vaNumber?: string;
+    }
   >(
     "payments._replaceInvoiceCommit",
     async (ctx, args) => {
@@ -152,7 +172,14 @@ export const _replaceInvoiceCommit_internal = internalMutation({
         source: "system",
         metadata: { txnId: args.txnId, method: args.method, replaced: args.prev_invoice_id },
       });
-      return { invoiceId: newId };
+      // Full action response shape — see _persistInvoiceCommit_internal for the
+      // staffreview Critical #1 rationale (cached blob must carry qrString/vaNumber).
+      return {
+        invoiceId: newId,
+        method: args.method,
+        qrString: args.qr_string,
+        vaNumber: args.va_number,
+      };
     },
   ),
 });

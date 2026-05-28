@@ -100,6 +100,33 @@ export const _lookup_internal = internalQuery({
   },
 });
 
+/**
+ * Write a response into the idempotency cache from an action that has no other
+ * Convex state to commit (e.g. payments.manuallyConfirmPayment — the paid
+ * funnel already wrote the transaction/audit rows in its own mutation, so this
+ * is a stand-alone cache write). Owned by the idempotency module so callers in
+ * other modules don't write pos_idempotency directly (ADR-034 boundary).
+ *
+ * No-op if a row for `key` already exists (mirrors withIdempotency's guard);
+ * the second writer simply observes the first writer's row.
+ */
+export const _writeCache_internal = internalMutation({
+  args: { key: v.string(), mutationName: v.string(), response: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("pos_idempotency")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    if (existing) return;
+    await ctx.db.insert("pos_idempotency", {
+      key: args.key,
+      mutation_name: args.mutationName,
+      response_blob: args.response,
+      expires_at: Date.now() + TTL_MS,
+    });
+  },
+});
+
 // Test-only mutations. Both INTERNAL — never reachable from a public client.
 export const __test_echo = internalMutation({
   args: { idempotencyKey: v.string(), value: v.number() },
