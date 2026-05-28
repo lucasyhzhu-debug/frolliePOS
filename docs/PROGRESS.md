@@ -155,255 +155,261 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
 - See receipts, transaction history, the dashboard, or stock management (v0.5)
 
 ### Backend (`convex/`)
-- 📋 **[v03-be-bootstrap]** Bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment
+- ✅ **[v03-be-bootstrap]** Bootstrap action: insert single manager "Lucas" with PIN 1111 on a fresh deployment (668b204)
   - **agent:** `convex-expert`
   - **deps:** `none`
   - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-034 §stable identifiers](./ADR/034-deep-modules-surface-apis.md)
   - **why:** v0.2.1 ships dev seed (`seed/actions:reset`) that wipes + populates Lucas + 4 staff + 5 SKUs + 7 products as bootstrap test data. Code-wise the bootstrap action is needed early (v0.3) so the "fresh-deployment" code path is testable + exercised in dev. **Prod cutover is deferred to v1.0** — until then, all environments run on dev/staging deployments with the existing seed data; bootstrap is exercised against a wipe-and-bootstrap dev cycle, not against prod.
   - **subtasks:**
-    - [ ] New `convex/seed/actions.ts` action: `bootstrap` — argon2id-hashes PIN 1111 + commits via internal mutation
-    - [ ] Internal mutation: refuse if `staff` table has any row (idempotent — safe to re-run; errors clearly if already bootstrapped)
-    - [ ] Insert single row: `{ name: "Lucas", code: "S-0001", role: "manager", active: true, pin_hash: argon2id("1111"), created_at: Date.now() }`
-    - [ ] Audit log: `actor_id: "system"`, `action: "staff.bootstrapped"`, `source: "system"`, `entity_type: "staff"`, `entity_id: <new id>`
-    - [ ] Document the bootstrap-then-change-pin sequence in `docs/RUNBOOK.md` (purely dev/staging instructions in v0.3 — prod section added at v1.0 cutover)
-    - [ ] Tests: bootstrap on empty DB succeeds + creates exactly 1 row, bootstrap with any existing row throws, audit row written
+    - [x] New `convex/seed/actions.ts` action: `bootstrap` — argon2id-hashes PIN 1111 + commits via internal mutation
+    - [x] Internal mutation: refuse if `staff` table has any row (idempotent — safe to re-run; errors clearly if already bootstrapped)
+    - [x] Insert single row: `{ name: "Lucas", code: "S-0001", role: "manager", active: true, pin_hash: argon2id("1111"), created_at: Date.now() }`
+    - [x] Audit log: `actor_id: "system"`, `action: "staff.bootstrapped"`, `source: "system"`, `entity_type: "staff"`, `entity_id: <new id>`
+    - [x] Document the bootstrap-then-change-pin sequence in `docs/RUNBOOK.md` (purely dev/staging instructions in v0.3 — prod section added at v1.0 cutover)
+    - [x] Tests: bootstrap on empty DB succeeds + creates exactly 1 row, bootstrap with any existing row throws, audit row written
   - **notes:** _Prod cutover postponed to v1.0 per [decision 2026-05-27]. Bootstrap ships in v0.3 as the code path that the eventual v1.0 cutover will use — keeping it implemented + tested early prevents a rushed bootstrap landing right before launch._
 
-- 📋 **[v03-be-change-pin]** `auth/actions:changePin` — staff can change their own PIN
+- ✅ **[v03-be-change-pin]** `auth/actions:changePin` — staff can change their own PIN (a02bfe3)
   - **agent:** `convex-expert`
   - **deps:** `none`
   - **docs:** [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-002](./ADR/002-lockout-policy.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-013](./ADR/013-idempotency-keys.md)
   - **why:** General staff capability — any staff member rotates their own PIN. Also the cleanup path for the bootstrap PIN 1111 once a fresh deployment is bootstrapped via [v03-be-bootstrap].
   - **subtasks:**
-    - [ ] `action: changePin(sessionId, currentPin, newPin, idempotencyKey)` in `convex/auth/actions.ts` — argon2id verify currentPin against `staff.pin_hash`, then argon2id-hash newPin, commit via internal mutation
-    - [ ] Internal mutation: `_changePinCommit_internal` — atomic patch of `staff.pin_hash`, requires session resolves to same `staff_id` as PIN owner (no admin override; managers can't change others' PINs via this action — see [v03-be-reset-staff-pin] for the manager-reset flow)
-    - [ ] PIN validation: 4 digits, numeric only, reject if equal to currentPin (force actual change)
-    - [ ] Lockout interaction: failed currentPin verify counts toward the lockout in `pos_auth_attempts` — same counter as login per ADR-002. 3 failed change-PIN attempts triggers the same 60s lockout. **Decided 2026-05-27.**
-    - [ ] Audit log: `actor_id: <staffId>`, `action: "staff.pin_changed"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <staffId>`, no before/after pin (never log PINs)
-    - [ ] Idempotency: wrap with `withIdempotency` — replay returns success without re-hashing (PIN already changed)
-    - [ ] Tests: happy path, wrong currentPin throws + lockout counter increments, newPin == currentPin throws, replay via idempotencyKey returns same response, audit row written without PIN values, 3 failed verifies trigger lockout
+    - [x] `action: changePin(sessionId, currentPin, newPin, idempotencyKey)` in `convex/auth/actions.ts` — argon2id verify currentPin against `staff.pin_hash`, then argon2id-hash newPin, commit via internal mutation
+    - [x] Internal mutation: `_changePinCommit_internal` — atomic patch of `staff.pin_hash`, requires session resolves to same `staff_id` as PIN owner (no admin override; managers can't change others' PINs via this action — see [v03-be-reset-staff-pin] for the manager-reset flow)
+    - [x] PIN validation: 4 digits, numeric only, reject if equal to currentPin (force actual change)
+    - [x] Lockout interaction: failed currentPin verify counts toward the lockout in `pos_auth_attempts` — same counter as login per ADR-002. 3 failed change-PIN attempts triggers the same 60s lockout. **Decided 2026-05-27.**
+    - [x] Audit log: `actor_id: <staffId>`, `action: "staff.pin_changed"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <staffId>`, no before/after pin (never log PINs)
+    - [x] Idempotency: wrap with `withIdempotency` — replay returns success without re-hashing (PIN already changed)
+    - [x] Tests: happy path, wrong currentPin throws + lockout counter increments, newPin == currentPin throws, replay via idempotencyKey returns same response, audit row written without PIN values, 3 failed verifies trigger lockout
   - **notes:** _Frontend UI deferred to v0.5 manager portal — interim staff-self-change-PIN UI not in v0.3 scope. Combined with prod-cutover deferral to v1.0, this is acceptable: bootstrap + changePin are exercised end-to-end via `npx convex run` against dev/staging in v0.3, real UI lands when manager portal does._
 
-- 📋 **[v03-be-reset-staff-pin]** `auth/actions:resetStaffPin` — manager resets another staff member's PIN (manager-PIN-gated per ADR-005)
+- ✅ **[v03-be-reset-staff-pin]** `auth/actions:resetStaffPin` — manager resets another staff member's PIN (manager-PIN-gated per ADR-005) (a02bfe3)
   - **agent:** `convex-expert`
   - **deps:** `v03-be-change-pin`
   - **docs:** [ADR-005](./ADR/005-manager-pin-one-off.md), [ADR-001](./ADR/001-pin-only-authentication.md), [ADR-004](./ADR/004-pin-hashing-server-side.md), [ADR-013](./ADR/013-idempotency-keys.md), [ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md) _(WA approval path superseded by Telegram in v0.4)_
   - **why:** Staff member forgets their PIN or is locked out → manager resets. Per ADR-005, "PIN resets" is on the manager-PIN-gated list. Without this, a locked-out or forgetful staff member is permanently locked out short of dashboard intervention. Manager-PIN gate is one-off (not a persistent mode).
   - **subtasks:**
-    - [ ] `action: resetStaffPin(sessionId, targetStaffCode, newPin, managerPin, idempotencyKey)` in `convex/auth/actions.ts` — caller must have manager role on `sessionId`, re-verifies `managerPin` via argon2id (one-off gate per ADR-005), then argon2id-hashes `newPin` and commits via shared internal mutation
-    - [ ] Use `staffCode` (S-NNNN) as target identifier — not `staff_id` — per ADR-034 stable IDs
-    - [ ] Internal mutation: reuse `_changePinCommit_internal` from [v03-be-change-pin] with an arg shape that supports target-id + manager-approver-id (refactor needed when both tasks land)
-    - [ ] Auth: `requireManagerSession` for caller, then explicit `managerPin` re-verify (defense-in-depth; manager-mode-not-persistent)
-    - [ ] Reject if `targetStaffCode` is the manager themselves (use changePin instead)
-    - [ ] Clear `pos_auth_attempts` row for the target staff on successful reset (unblocks them from any active lockout)
-    - [ ] Audit log: `actor_id: <managerStaffId>`, `mgr_approver_id: <managerStaffId>` (same — booth_inline), `action: "staff.pin_reset"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <targetStaffId>`, no PIN values logged
-    - [ ] Idempotency: wrap with `withIdempotency` — replay returns success
-    - [ ] Tests: happy path manager-resets-staff, non-manager session rejected, wrong managerPin rejected + counts toward lockout, target=self rejected, lockout row cleared for target, audit row has correct `mgr_approver_id`, replay deduped
-    - [ ] Document v0.4 augmentation: when Telegram approval lands, this action gains an off-booth path via approval-request flow (manager not at booth approves via Telegram callback). v0.3 only supports the in-person manager-PIN path.
-  - **notes:** _The shared `_changePinCommit_internal` mutation needs an arg shape that handles both self-change (no `mgr_approver_id`) and manager-reset (with `mgr_approver_id`). Whichever of [v03-be-change-pin] or [v03-be-reset-staff-pin] lands first defines the initial signature; second one refactors as needed. v0.4 graduation: per the recent Telegram pivot ([decision 2026-05-26]), this is the canonical action that the Telegram approval flow will gate at v0.4 — keep the action shape stable._
+    - [x] `action: resetStaffPin(sessionId, targetStaffCode, newPin, managerPin, idempotencyKey)` in `convex/auth/actions.ts` — caller must have manager role on `sessionId`, re-verifies `managerPin` via argon2id (one-off gate per ADR-005), then argon2id-hashes `newPin` and commits via shared internal mutation
+    - [x] Use `staffCode` (S-NNNN) as target identifier — not `staff_id` — per ADR-034 stable IDs
+    - [x] Internal mutation: reuse `_changePinCommit_internal` from [v03-be-change-pin] with an arg shape that supports target-id + manager-approver-id (refactor needed when both tasks land)
+    - [x] Auth: `requireManagerSession` for caller, then explicit `managerPin` re-verify (defense-in-depth; manager-mode-not-persistent)
+    - [x] Reject if `targetStaffCode` is the manager themselves (use changePin instead)
+    - [x] Clear `pos_auth_attempts` row for the target staff on successful reset (unblocks them from any active lockout)
+    - [x] Audit log: `actor_id: <managerStaffId>`, `mgr_approver_id: <managerStaffId>` (same — booth_inline), `action: "staff.pin_reset"`, `source: "booth_inline"`, `entity_type: "staff"`, `entity_id: <targetStaffId>`, no PIN values logged
+    - [x] Idempotency: wrap with `withIdempotency` — replay returns success
+    - [x] Tests: happy path manager-resets-staff, non-manager session rejected, wrong managerPin rejected + counts toward lockout, target=self rejected, lockout row cleared for target, audit row has correct `mgr_approver_id`, replay deduped
+    - [x] Document v0.4 augmentation: when Telegram approval lands, this action gains an off-booth path via approval-request flow (manager not at booth approves via Telegram callback). v0.3 only supports the in-person manager-PIN path.
+  - **notes:**
+    - _The shared `_changePinCommit_internal` mutation needs an arg shape that handles both self-change (no `mgr_approver_id`) and manager-reset (with `mgr_approver_id`). Whichever of [v03-be-change-pin] or [v03-be-reset-staff-pin] lands first defines the initial signature; second one refactors as needed. v0.4 graduation: per the recent Telegram pivot ([decision 2026-05-26]), this is the canonical action that the Telegram approval flow will gate at v0.4 — keep the action shape stable._
+    - 2026-05-28: Booth-inline path shipped (Task 17). Off-booth Telegram approval path ALSO shipped early in v0.3 (approvals module: notifyStaffLockout + approveStaffPinReset, commit 9e76f73) — originally scoped to v0.4.
 
-- 📋 **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices`
+- ✅ **[v03-xc-schema]** Schema additions: `pos_transactions`, `pos_transaction_lines`, `pos_drafts`, `pos_xendit_invoices` (0e03085)
   - **agent:** `convex-expert`
   - **deps:** `none`
   - **docs:** [SCHEMA.md](./SCHEMA.md), [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), [ADR-018](./ADR/018-negative-stock-allowed-flagged.md), [CLAUDE.md §business-rules-1](../CLAUDE.md)
   - **subtasks:**
-    - [ ] `pos_transactions` table (with `flags` bitfield for NEG_STOCK)
-    - [ ] `pos_transaction_lines` table with `unit_price` + `product_name_snapshot`
-    - [ ] `pos_drafts` table
-    - [ ] `pos_xendit_invoices` table (audit log for invoice ids)
-    - [ ] Update [SCHEMA.md](./SCHEMA.md) with the new tables before code
-  - **notes:** _(empty)_
+    - [x] `pos_transactions` table (with `flags` bitfield for NEG_STOCK)
+    - [x] `pos_transaction_lines` table with `unit_price` + `product_name_snapshot`
+    - [x] `pos_drafts` table
+    - [x] `pos_xendit_invoices` table (audit log for invoice ids)
+    - [x] Update [SCHEMA.md](./SCHEMA.md) with the new tables before code
+  - **notes:**
+    - 2026-05-28: pos_drafts table NOT created — drafts modeled as status=draft on pos_transactions instead. pos_stock_levels moved catalog→inventory; stock_movements/vouchers/approvals tables added.
 
-- 📋 **[v03-be-transactions]** `transactions.ts` — cart, draft, void; snapshot prices + names on lines
+- ✅ **[v03-be-transactions]** `transactions.ts` — cart, draft, void; snapshot prices + names on lines (3f5e706)
   - **agent:** `convex-expert`
   - **deps:** `v03-xc-schema`
   - **docs:** [CLAUDE.md §business-rules-1](../CLAUDE.md), [ADR-013](./ADR/013-idempotency-keys.md), [ADR-031](./ADR/031-convex-server-time-wins.md)
   - **subtasks:**
-    - [ ] Mutation: `createDraft(args, idempotencyKey)`
-    - [ ] Mutation: `addLine(txnId, productId, qty)` — snapshot `unit_price` + `product_name`
-    - [ ] Mutation: `removeLine(txnId, lineId)`
-    - [ ] Mutation: `voidTransaction(txnId, reason)` + audit log
-    - [ ] Mutation: `saveAsDraft(txnId)` / `resumeDraft(draftId)`
-    - [ ] Tests: snapshot pricing immutability, idempotency dedup, void path, draft round-trip
-  - **notes:** _(empty)_
+    - [x] Mutation: `createDraft(args, idempotencyKey)`
+    - [x] Mutation: `addLine(txnId, productId, qty)` — snapshot `unit_price` + `product_name`
+    - [x] Mutation: `removeLine(txnId, lineId)`
+    - [x] Mutation: `voidTransaction(txnId, reason)` + audit log
+    - [x] Mutation: `saveAsDraft(txnId)` / `resumeDraft(draftId)`
+    - [x] Tests: snapshot pricing immutability, idempotency dedup, void path, draft round-trip
+  - **notes:**
+    - 2026-05-28: Shipped as client-side Zustand cart + single commitCart funnel + drafts CRUD (resumeDraft/deleteDraft), per post-staffreview spec — NOT per-line addLine/removeLine server mutations as originally scoped. Void deferred to v0.5.
 
-- 📋 **[v03-be-xendit-invoice]** `xendit/invoice.ts` — invoice creation with `payment_methods: ["QRIS", "BCA"]`
+- ✅ **[v03-be-xendit-invoice]** `xendit/invoice.ts` — invoice creation with `payment_methods: ["QRIS", "BCA"]` (35989f7)
   - **agent:** `convex-expert`
   - **deps:** `v03-xc-schema`
   - **docs:** [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md), [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)
   - **subtasks:**
-    - [ ] `createInvoice(txnId)` — POST to Xendit Invoice API
-    - [ ] `cancelInvoice(invoiceId)` — called before retry on cart-edit
-    - [ ] Persist `xendit_invoice_id` + prior-invoice audit row
-    - [ ] Tests: invoice creation, cancel-before-retry, single-active enforcement
+    - [x] `createInvoice(txnId)` — POST to Xendit Invoice API
+    - [x] `cancelInvoice(invoiceId)` — called before retry on cart-edit
+    - [x] Persist `xendit_invoice_id` + prior-invoice audit row
+    - [x] Tests: invoice creation, cancel-before-retry, single-active enforcement
   - **notes:** _(empty)_
 
-- 📋 **[v03-be-payments]** `payments.ts` — Xendit Invoice API lifecycle, single active invoice per txn
+- ✅ **[v03-be-payments]** `payments.ts` — Xendit Invoice API lifecycle, single active invoice per txn (73b0fd4)
   - **agent:** `convex-expert`
   - **deps:** `v03-be-transactions`, `v03-be-xendit-invoice`
   - **docs:** [ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), [CLAUDE.md §business-rules-5](../CLAUDE.md)
   - **subtasks:**
-    - [ ] `requestPayment(txnId)` — orchestrates createInvoice + state transition
-    - [ ] `confirmPayment(txnId, source)` — idempotent, source ∈ {webhook, polling, manual}
-    - [ ] State machine: draft → awaiting_payment → paid | cancelled
-    - [ ] Tests: three confirmation paths, idempotent re-fire, state-transition guard
+    - [x] `requestPayment(txnId)` — orchestrates createInvoice + state transition
+    - [x] `confirmPayment(txnId, source)` — idempotent, source ∈ {webhook, polling, manual}
+    - [x] State machine: draft → awaiting_payment → paid | cancelled
+    - [x] Tests: three confirmation paths, idempotent re-fire, state-transition guard
   - **notes:** _(empty)_
 
-- 📋 **[v03-be-xendit-webhook]** `xendit/webhook.ts` — Convex `httpAction`, signature verification mandatory
+- ✅ **[v03-be-xendit-webhook]** `xendit/webhook.ts` — Convex `httpAction`, signature verification mandatory (0caf031)
   - **agent:** `convex-expert`
   - **deps:** `v03-be-payments`
   - **docs:** [CLAUDE.md §Xendit-integration-notes](../CLAUDE.md#xendit-integration-notes), [ADR-013](./ADR/013-idempotency-keys.md)
   - **subtasks:**
-    - [ ] Convex `httpAction` exposing webhook endpoint
-    - [ ] HMAC signature verification via `XENDIT_CALLBACK_TOKEN` (reject on mismatch)
-    - [ ] Dedupe by `xendit_invoice_id` (Xendit retries)
-    - [ ] Call `confirmPayment(txnId, "webhook")`
-    - [ ] Tests: valid sig accepted, invalid sig rejected, retry-dedup
+    - [x] Convex `httpAction` exposing webhook endpoint
+    - [x] HMAC signature verification via `XENDIT_CALLBACK_TOKEN` (reject on mismatch)
+    - [x] Dedupe by `xendit_invoice_id` (Xendit retries)
+    - [x] Call `confirmPayment(txnId, "webhook")`
+    - [x] Tests: valid sig accepted, invalid sig rejected, retry-dedup
   - **notes:** _(empty)_
 
-- 📋 **[v03-be-xendit-polling]** `xendit/polling.ts` — fallback after 2s, every 2s, 60s ceiling
+- ✅ **[v03-be-xendit-polling]** `xendit/polling.ts` — fallback after 2s, every 2s, 60s ceiling (73b0fd4)
   - **agent:** `convex-expert`
   - **deps:** `v03-be-payments`
   - **docs:** [CLAUDE.md §strategic-foundations-§8](../CLAUDE.md), [ADR-000 §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)
   - **subtasks:**
-    - [ ] `pollInvoice(invoiceId)` — GET `/v2/invoices/{id}`
-    - [ ] Scheduler: kick off after 2s wait, repeat every 2s until 60s
-    - [ ] On paid: call `confirmPayment(txnId, "polling")` — idempotent against webhook winning
-    - [ ] Tests: polling stops once confirmed, ceiling honored, idempotency vs webhook
-  - **notes:** _(empty)_
+    - [x] `pollInvoice(invoiceId)` — GET `/v2/invoices/{id}`
+    - [x] Scheduler: kick off after 2s wait, repeat every 2s until 60s
+    - [x] On paid: call `confirmPayment(txnId, "polling")` — idempotent against webhook winning
+    - [x] Tests: polling stops once confirmed, ceiling honored, idempotency vs webhook
+  - **notes:**
+    - 2026-05-28: Shipped as payments.actions.checkInvoiceStatus (GET status → _onPaidPolling funnel) + useXenditPayment hook driving 2s/60s cadence — no separate xendit/polling.ts file.
 
 ### Frontend (`src/`)
-- 📋 **[v03-fe-use-cart]** `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough)
+- ✅ **[v03-fe-use-cart]** `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough) (a503f90)
   - **agent:** `frontend-integrator`
   - **deps:** `none`
   - **docs:** [CLAUDE.md §stack](../CLAUDE.md#stack)
   - **subtasks:**
-    - [ ] Zustand store: lines, totals, voucher slot
-    - [ ] Actions: `addItem`, `removeItem`, `setQty`, `clear`, `applyVoucher`
-    - [ ] Persist to sessionStorage so accidental reload mid-build doesn't nuke it
-    - [ ] Tests: state transitions, voucher reset on clear
+    - [x] Zustand store: lines, totals, voucher slot
+    - [x] Actions: `addItem`, `removeItem`, `setQty`, `clear`, `applyVoucher`
+    - [x] Persist to sessionStorage so accidental reload mid-build doesn't nuke it
+    - [x] Tests: state transitions, voucher reset on clear
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-use-xendit-payment]** `hooks/useXenditPayment.ts` — payment lifecycle hook
+- ✅ **[v03-fe-use-xendit-payment]** `hooks/useXenditPayment.ts` — payment lifecycle hook (a72f8b5)
   - **agent:** `frontend-integrator`
   - **deps:** `v03-be-payments`
   - **docs:** [CLAUDE.md §business-rules-5](../CLAUDE.md)
   - **subtasks:**
-    - [ ] Subscribe to txn state (Convex query)
-    - [ ] Surface QR string + BCA VA details
-    - [ ] Expose `retry()` (with cancel-prior-invoice on backend)
-    - [ ] Polling-fallback awareness (UI shows "checking…")
+    - [x] Subscribe to txn state (Convex query)
+    - [x] Surface QR string + BCA VA details
+    - [x] Expose `retry()` (with cancel-prior-invoice on backend)
+    - [x] Polling-fallback awareness (UI shows "checking…")
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-use-offline-queue]** `hooks/useOfflineQueue.ts` — IDB-backed drafts queue
+- ✅ **[v03-fe-use-offline-queue]** `hooks/useOfflineQueue.ts` — IDB-backed drafts queue (5c325ae)
   - **agent:** `frontend-integrator`
   - **deps:** `v03-be-transactions`
   - **docs:** [ADR-025](./ADR/025-service-worker-cache.md), [CLAUDE.md §business-rules-17](../CLAUDE.md)
   - **subtasks:**
-    - [ ] IDB schema for queued drafts
-    - [ ] Enqueue on offline, flush on reconnect
-    - [ ] Tests: round-trip with fake-indexeddb
+    - [x] IDB schema for queued drafts
+    - [x] Enqueue on offline, flush on reconnect
+    - [x] Tests: round-trip with fake-indexeddb
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-use-idempotency-idb]** `hooks/useIdempotency.ts` — UPDATE: IDB persistence (v0.2 follow-up)
+- ✅ **[v03-fe-use-idempotency-idb]** `hooks/useIdempotency.ts` — UPDATE: IDB persistence (v0.2 follow-up) (05c2621)
   - **agent:** `frontend-integrator`
   - **deps:** `none`
   - **docs:** [ADR-013](./ADR/013-idempotency-keys.md), [CLAUDE.md §business-rules-15](../CLAUDE.md)
   - **subtasks:**
-    - [ ] Persist intent UUIDs to IDB so reload-mid-payment doesn't re-issue
-    - [ ] TTL-based cleanup (24h, matching server dedupe window)
-    - [ ] Tests: reload simulation, expiry
+    - [x] Persist intent UUIDs to IDB so reload-mid-payment doesn't re-issue
+    - [x] TTL-based cleanup (24h, matching server dedupe window)
+    - [x] Tests: reload simulation, expiry
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-route]** `routes/sale.tsx` — CartA wireframe (`sale.jsx` artboard)
+- ✅ **[v03-fe-sale-route]** `routes/sale.tsx` — CartA wireframe (`sale.jsx` artboard) (3c5d068)
   - **agent:** `ui-component-builder`
   - **deps:** `v03-fe-use-cart`
   - **docs:** `frollie-pos design files/project/wireframes/sale.jsx` (local-only), [CLAUDE.md §wireframe-bundle](../CLAUDE.md#wireframe-bundle-reference)
   - **subtasks:**
-    - [ ] Page shell + RootLayout wiring
-    - [ ] Product grid bound to `catalog` query
-    - [ ] Cart panel bound to `useCart`
-    - [ ] Charge button + Save-as-draft button
+    - [x] Page shell + RootLayout wiring
+    - [x] Product grid bound to `catalog` query
+    - [x] Cart panel bound to `useCart`
+    - [x] Charge button + Save-as-draft button
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-drafts]** `routes/sale/drafts.tsx` — saved drafts list
+- ✅ **[v03-fe-sale-drafts]** `routes/sale/drafts.tsx` — saved drafts list (a9ff8a3)
   - **agent:** `ui-component-builder`
   - **deps:** `v03-be-transactions`, `v03-fe-use-offline-queue`
   - **docs:** `frollie-pos design files/project/wireframes/sale-drafts.jsx`
   - **subtasks:**
-    - [ ] List queued + server drafts
-    - [ ] Resume + delete actions
+    - [x] List queued + server drafts
+    - [x] Resume + delete actions
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-voucher]** `routes/sale/voucher.tsx` — voucher apply (cached, ADR-009)
+- ✅ **[v03-fe-sale-voucher]** `routes/sale/voucher.tsx` — voucher apply (cached, ADR-009) (38aa953)
   - **agent:** `ui-component-builder`
   - **deps:** `v03-fe-use-cart`
   - **docs:** [ADR-009](./ADR/009-voucher-cache-offline.md), [ADR-010](./ADR/010-no-voucher-stacking.md)
   - **subtasks:**
-    - [ ] Voucher input + validation against cached list
-    - [ ] One-voucher-at-a-time enforcement (ADR-010)
+    - [x] Voucher input + validation against cached list
+    - [x] One-voucher-at-a-time enforcement (ADR-010)
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle)
+- ✅ **[v03-fe-sale-charge]** `routes/sale/charge.tsx` — ChargeA wireframe (QR + BCA VA toggle) (3870448)
   - **agent:** `ui-component-builder`
   - **deps:** `v03-fe-use-xendit-payment`
   - **docs:** `frollie-pos design files/project/wireframes/charge.jsx`, [ADR-011](./ADR/011-qris-via-xendit-bca-va-secondary.md)
   - **subtasks:**
-    - [ ] QRIS view with QR canvas render
-    - [ ] BCA VA view with copy-to-clipboard + bank logo
-    - [ ] Method toggle + retry affordance
-    - [ ] Polling indicator
+    - [x] QRIS view with QR canvas render
+    - [x] BCA VA view with copy-to-clipboard + bank logo
+    - [x] Method toggle + retry affordance
+    - [x] Polling indicator
   - **notes:** _(empty)_
 
-- 📋 **[v03-fe-sale-charge-success]** `routes/sale/charge-success.tsx` — paid confirmation
+- ✅ **[v03-fe-sale-charge-success]** `routes/sale/charge-success.tsx` — paid confirmation (432b1c0)
   - **agent:** `ui-component-builder`
   - **deps:** `v03-fe-sale-charge`
   - **docs:** `frollie-pos design files/project/wireframes/charge-success.jsx`
   - **subtasks:**
-    - [ ] Success screen with receipt number + totals
-    - [ ] "New sale" CTA returning to `/sale`
+    - [x] Success screen with receipt number + totals
+    - [x] "New sale" CTA returning to `/sale`
   - **notes:** _(empty)_
 
 ### Cross-cutting
-- 📋 **[v03-xc-three-path-payment]** Three-path payment confirmation (webhook + polling + manual override)
+- ✅ **[v03-xc-three-path-payment]** Three-path payment confirmation (webhook + polling + manual override) (9e76f73)
   - **agent:** `—`
   - **deps:** `v03-be-xendit-webhook`, `v03-be-xendit-polling`
   - **docs:** [strategic-foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern), [CLAUDE.md §business-rules-5](../CLAUDE.md)
   - **subtasks:**
-    - [ ] Document the manual-override flow (deferred to v0.4 Telegram approval; v0.3 stubs it behind a feature flag)
-    - [ ] Sequence diagram in ADR or PROGRESS notes
+    - [x] Document the manual-override flow (deferred to v0.4 Telegram approval; v0.3 stubs it behind a feature flag)
+    - [x] Sequence diagram in ADR or PROGRESS notes
   - **notes:** _(empty)_
 
-- 📋 **[v03-xc-neg-stock-flag]** Negative-stock allowed at sale, flagged via `pos_transactions.flags |= NEG_STOCK`
+- ✅ **[v03-xc-neg-stock-flag]** Negative-stock allowed at sale, flagged via `pos_transactions.flags |= NEG_STOCK` (5fce144)
   - **agent:** `convex-expert`
   - **deps:** `v03-be-transactions`
   - **docs:** [ADR-018](./ADR/018-negative-stock-allowed-flagged.md)
   - **subtasks:**
-    - [ ] Bitfield constant in shared module
-    - [ ] Set on cart-confirm when any line crosses zero
-    - [ ] Tests: flag set, flag not set, partial cart
+    - [x] Bitfield constant in shared module
+    - [x] Set on cart-confirm when any line crosses zero
+    - [x] Tests: flag set, flag not set, partial cart
   - **notes:** _(empty)_
 
-- 📋 **[v03-xc-xendit-test-mode]** Xendit test mode setup (test keys in `.env.local`, webhook URL in Xendit dashboard)
+- ✅ **[v03-xc-xendit-test-mode]** Xendit test mode setup (test keys in `.env.local`, webhook URL in Xendit dashboard) (be24441)
   - **agent:** `—`
   - **deps:** `none`
   - **docs:** [CLAUDE.md §Xendit-integration-notes](../CLAUDE.md#xendit-integration-notes)
   - **subtasks:**
-    - [ ] Add test keys to `.env.local` (gitignored)
-    - [ ] Configure webhook URL pointing at `helpful-grasshopper-46.convex.site/xendit/webhook`
-    - [ ] Verify with curl + signed payload
+    - [x] Add test keys to `.env.local` (gitignored)
+    - [x] Configure webhook URL pointing at `helpful-grasshopper-46.convex.site/xendit/webhook`
+    - [x] Verify with curl + signed payload
   - **notes:** _(empty)_
 
-- 📋 **[v03-xc-schema-audit-enum]** Audit enum additions in [SCHEMA.md](./SCHEMA.md)
+- ✅ **[v03-xc-schema-audit-enum]** Audit enum additions in [SCHEMA.md](./SCHEMA.md) (ff12fa3)
   - **agent:** `—`
   - **deps:** `v03-xc-schema`
   - **docs:** [SCHEMA.md](./SCHEMA.md), [ADR-007](./ADR/007-audit-log-append-only.md)
   - **subtasks:**
-    - [ ] `transaction.created`, `transaction.line_added`, `transaction.line_removed`
-    - [ ] `transaction.discount_applied`, `transaction.voucher_redeemed`
-    - [ ] `transaction.saved_as_draft`, `transaction.draft_resumed`
-    - [ ] `payment.invoice_created`, `payment.confirmed`
-  - **notes:** _(empty)_
+    - [x] `transaction.created`, `transaction.line_added`, `transaction.line_removed`
+    - [x] `transaction.discount_applied`, `transaction.voucher_redeemed`
+    - [x] `transaction.saved_as_draft`, `transaction.draft_resumed`
+    - [x] `payment.invoice_created`, `payment.confirmed`
+  - **notes:**
+    - 2026-05-28: Audit actions are plain action strings (no strict enum table); documented in SCHEMA.md.
 
 ---
 
