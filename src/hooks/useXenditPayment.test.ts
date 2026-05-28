@@ -77,10 +77,9 @@ describe("computePhase", () => {
     expect(computePhase(makeTxn("cancelled"), makeInvoice())).toEqual({ kind: "cancelled" });
   });
 
-  it("returns {kind:'showing', subPhase:'fresh'} for awaiting_payment", () => {
+  it("returns {kind:'showing'} for awaiting_payment", () => {
     expect(computePhase(makeTxn("awaiting_payment"), makeInvoice())).toEqual({
       kind: "showing",
-      subPhase: "fresh",
     });
   });
 });
@@ -162,7 +161,7 @@ describe("useXenditPayment (hook)", () => {
 
     const { result } = renderHook(() => useXenditPayment(fakeTxnId));
 
-    expect(result.current.phase).toEqual({ kind: "showing", subPhase: "fresh" });
+    expect(result.current.phase).toEqual({ kind: "showing" });
 
     // Advance past the first poll (2s timeout fires first poll).
     await act(async () => {

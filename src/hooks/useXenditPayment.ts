@@ -9,7 +9,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 export type Phase =
   | { kind: "loading" }
-  | { kind: "showing"; subPhase: "fresh" | "polling" | "ceiling_reached" }
+  | { kind: "showing" }
   | { kind: "paid" }
   | { kind: "expired" }
   | { kind: "cancelled" };
@@ -36,12 +36,11 @@ export function computePhase(
   if (!txn || !invoice) return { kind: "loading" };
   if (txn.status === "paid") return { kind: "paid" };
   if (txn.status === "cancelled") return { kind: "cancelled" };
-  // awaiting_payment (or any unrecognised status): show the payment screen.
-  // subPhase is driven purely by time elapsed, which the route component (Task 34)
-  // tracks separately — this hook always emits "fresh" and lets the route layer
-  // decide when to show the "ceiling_reached" CTA. Keeps the hook focused on
-  // starting/stopping polling only.
-  return { kind: "showing", subPhase: "fresh" };
+  // awaiting_payment (or any unrecognised status): show the payment screen. The
+  // ceiling-reached CTA is driven by wall-clock elapsed time in the route layer,
+  // not by this hook — so "showing" carries no sub-state. Keeps the hook focused
+  // on starting/stopping polling only.
+  return { kind: "showing" };
 }
 
 // ---------------------------------------------------------------------------

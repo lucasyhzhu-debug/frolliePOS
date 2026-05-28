@@ -20,9 +20,10 @@ import type { Id } from "../../convex/_generated/dataModel";
  * - Errors from individual checkInvoiceStatus calls are swallowed; a single
  *   failed check does not abort the loop. Network errors during reconciliation
  *   are transient — the webhook / next manual poll will still catch them.
- * - The movement dedup index (unique on ref_type+ref_id+sku_id) protects
- *   against double-decrement if the webhook also arrives concurrently with the
- *   reconciliation re-check (ADR-026 §"double-movement prevention").
+ * - The movement dedup index (by_line_and_sku, on source_transaction_line_id +
+ *   inventory_sku_id) protects against double-decrement if the webhook also
+ *   arrives concurrently with the reconciliation re-check (ADR-026 §"double-
+ *   movement prevention").
  * - Mounted in RootLayout so it fires once per login session, immediately after
  *   the session is resolved and the Convex subscription becomes active.
  *

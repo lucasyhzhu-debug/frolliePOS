@@ -74,14 +74,19 @@ export const _projectedOnHand_internal = internalQuery({
     skuQtys: v.array(v.object({ skuId: v.id("pos_inventory_skus"), qty: v.number() })),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
+    // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
+    const levels = await Promise.all(
+      args.skuQtys.map(({ skuId }) =>
+        ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .first(),
+      ),
+    );
     const result: Record<string, number> = {};
-    for (const { skuId, qty } of args.skuQtys) {
-      const level = await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-        .first();
-      result[skuId] = (level?.on_hand ?? 0) - qty;
-    }
+    args.skuQtys.forEach(({ skuId, qty }, i) => {
+      result[skuId] = (levels[i]?.on_hand ?? 0) - qty;
+    });
     return result;
   },
 });
@@ -100,14 +105,19 @@ export const _getOnHandBySkus_internal = internalQuery({
     skuIds: v.array(v.id("pos_inventory_skus")),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
+    // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
+    const levels = await Promise.all(
+      args.skuIds.map((skuId) =>
+        ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .first(),
+      ),
+    );
     const result: Record<string, number> = {};
-    for (const skuId of args.skuIds) {
-      const level = await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-        .first();
-      result[skuId as unknown as string] = level?.on_hand ?? 0;
-    }
+    args.skuIds.forEach((skuId, i) => {
+      result[skuId as unknown as string] = levels[i]?.on_hand ?? 0;
+    });
     return result;
   },
 });

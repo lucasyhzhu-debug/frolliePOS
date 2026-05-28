@@ -94,10 +94,12 @@ describe("_markResolved_internal", () => {
       token_expires_at: now + 60 * 60 * 1000,
     });
 
-    await t.mutation(internal.approvals.internal._markResolved_internal, {
+    const r = await t.mutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: "k-markresolved",
       requestId,
       resolved_by_manager_id: mgrId,
     });
+    expect(r.resolved).toBe(true);
 
     const row = await t.run((ctx) => ctx.db.get(requestId));
     expect(row!.status).toBe("resolved");

@@ -535,7 +535,8 @@ settings.updated
 ```
 # transactions/
 transaction.committed       # draft → awaiting_payment (cart committed)
-transaction.cancelled       # awaiting_payment/draft → cancelled
+transaction.cancelled       # awaiting_payment/draft → cancelled (also draft delete)
+transaction.resumed         # draft pulled back into an active cart (row deleted, not a void)
 payment.confirmed           # _confirmPaid (path recorded in confirmed_via: webhook|polling|manual)
 # payments/
 payment.invoice_created     # Xendit invoice created (QRIS or BCA VA)
@@ -553,6 +554,7 @@ staff.bootstrapped          # seed-created staff
 # approvals/
 approval.created            # pos_approval_requests row inserted (system actor)
 approval.notified           # Telegram lockout link sent (system actor)
+approval.notification_failed # Telegram send failed; pending row deleted, trail kept (system actor)
 approval.resolved           # manager approved off-booth PIN reset (wa_approval source)
 ```
 
@@ -577,7 +579,7 @@ approval.resolved           # manager approved off-booth PIN reset (wa_approval 
 ## Data integrity rules enforced in mutations
 
 1. `pos_transaction_lines.unit_price` MUST equal the product's price at the time of insertion. Never recompute.
-2. `pos_transactions.total = subtotal - line_discounts_total - voucher_discount + tax_amount`. Validated on every write.
+2. `pos_transactions.total = subtotal - line_discounts_total - voucher_discount + tax_amount` (ADR-024). **v0.3 simplification:** with PPN=0 and no line-level discounts yet, only `subtotal`, `voucher_discount`, and `total` are stored, and the implemented invariant is `total = subtotal - voucher_discount`. The `line_discounts_total` / `tax_amount` columns land when line discounts and PPN activate (see Future migrations).
 3. `pos_refunds.amount` ≤ `pos_transactions.total - sum(prior_succeeded_refunds.amount)`.
 4. `pos_payments.status` transitions: `pending → paid | expired | failed | cancelled`. No backwards.
 5. `pos_transactions.status` transitions:
@@ -587,6 +589,6 @@ approval.resolved           # manager approved off-booth PIN reset (wa_approval 
 6. `audit_log` rows are never updated or deleted.
 7. `staff_sessions.started_at` is server-set only.
 8. `pos_vouchers.used_count` updates atomically with `pos_voucher_redemptions` inserts (single mutation).
-9. `pos_stock_movements` unique constraint on `(ref_type, ref_id, inventory_sku_id)` prevents reconciliation double-decrements.
+9. `pos_stock_movements` reconciliation double-decrements are prevented by the `by_line_and_sku` index on `(source_transaction_line_id, inventory_sku_id)` — `_recordSaleMovement_internal` checks it before inserting a `sale` movement (ADR-026). *(v0.3 shipped this index-guard rather than the originally-planned `(ref_type, ref_id, inventory_sku_id)` unique constraint.)*
 10. `pos_approval_tokens.consumed_at` MUST be set before any state mutation triggered by the approval — gates token re-use.
 11. `pos_idempotency` keyed mutation responses MUST be byte-identical on replay (return stored `response_blob` verbatim).

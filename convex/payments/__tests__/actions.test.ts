@@ -130,6 +130,21 @@ describe("payments/actions.requestPayment", () => {
     });
     expect(r.vaNumber).toBe("1234567890");
   });
+
+  it("throws SESSION_INVALID when the session has ended (C3 — no invoice for a terminated session)", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.session, { ended_at: Date.now(), end_reason: "manual_lock" });
+    });
+    await expect(
+      t.action(api.payments.actions.requestPayment, {
+        sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "k-sess-ended",
+      }),
+    ).rejects.toThrow("SESSION_INVALID");
+    // And it never reached Xendit.
+    expect(_xenditMockCalls().length).toBe(0);
+  });
 });
 
 describe("payments/actions.retryWithFreshInvoice", () => {
@@ -141,6 +156,19 @@ describe("payments/actions.retryWithFreshInvoice", () => {
         sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "k-noprev",
       }),
     ).rejects.toThrow("PREV_INVOICE_MISSING");
+  });
+
+  it("throws SESSION_INVALID when the session has ended (C3)", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.session, { ended_at: Date.now(), end_reason: "manual_lock" });
+    });
+    await expect(
+      t.action(api.payments.actions.retryWithFreshInvoice, {
+        sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "k-retry-ended",
+      }),
+    ).rejects.toThrow("SESSION_INVALID");
   });
 });
 

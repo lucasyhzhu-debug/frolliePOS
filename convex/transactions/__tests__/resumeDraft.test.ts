@@ -135,4 +135,65 @@ describe("transactions/public — drafts", () => {
     const after = await t.run((ctx) => ctx.db.get(setup.draft));
     expect(after).toBeNull();
   });
+
+  it("C2: another staff member cannot resume a draft they don't own", async () => {
+    const t = convexTest(schema);
+    const setup = await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("staff", {
+        name: "Owner", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      });
+      const intruder = await ctx.db.insert("staff", {
+        name: "Intruder", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      });
+      const intruderSession = await ctx.db.insert("staff_sessions", {
+        staff_id: intruder, device_id: "d", started_at: Date.now(),
+        ended_at: null, end_reason: null,
+      });
+      const draft = await ctx.db.insert("pos_transactions", {
+        status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
+        flags: 0, staff_id: owner, created_at: Date.now(),
+      });
+      return { intruderSession, draft };
+    });
+
+    await expect(
+      t.mutation(api.transactions.public.resumeDraft, {
+        sessionId: setup.intruderSession, draftId: setup.draft, idempotencyKey: "k-intrude-resume",
+      }),
+    ).rejects.toThrow("NOT_OWNER");
+
+    // Owner's draft survives untouched.
+    const after = await t.run((ctx) => ctx.db.get(setup.draft));
+    expect(after).not.toBeNull();
+  });
+
+  it("C2: another staff member cannot delete a draft they don't own", async () => {
+    const t = convexTest(schema);
+    const setup = await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("staff", {
+        name: "Owner", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      });
+      const intruder = await ctx.db.insert("staff", {
+        name: "Intruder", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      });
+      const intruderSession = await ctx.db.insert("staff_sessions", {
+        staff_id: intruder, device_id: "d", started_at: Date.now(),
+        ended_at: null, end_reason: null,
+      });
+      const draft = await ctx.db.insert("pos_transactions", {
+        status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
+        flags: 0, staff_id: owner, created_at: Date.now(),
+      });
+      return { intruderSession, draft };
+    });
+
+    await expect(
+      t.mutation(api.transactions.public.deleteDraft, {
+        sessionId: setup.intruderSession, draftId: setup.draft, idempotencyKey: "k-intrude-delete",
+      }),
+    ).rejects.toThrow("NOT_OWNER");
+
+    const after = await t.run((ctx) => ctx.db.get(setup.draft));
+    expect(after).not.toBeNull();
+  });
 });

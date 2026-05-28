@@ -81,9 +81,12 @@ describe("payments/internal", () => {
   it("_onPaidManual_internal records mgr_approver_id + reason and source=manual", async () => {
     const t = convexTest(schema);
     const s = await seedAwaiting(t);
-    await t.mutation(internal.payments.internal._onPaidManual_internal, {
+    const r = await t.mutation(internal.payments.internal._onPaidManual_internal, {
+      idempotencyKey: "k-manual-onpaid",
       txnId: s.txn, reason: "BCA cleared manually", mgr_approver_id: s.staff,
     });
+    expect(r.confirmed).toBe(true);
+    expect(r.receiptNumber).toMatch(/^R-\d{4}-\d{4}$/);
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(s.staff);

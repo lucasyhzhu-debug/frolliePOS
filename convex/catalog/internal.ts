@@ -36,17 +36,18 @@ export const _getComponentsForProducts_internal = internalQuery({
     skuId: Id<"pos_inventory_skus">;
     qty: number;
   }>> => {
-    const result: Array<{ productId: Id<"pos_products">; skuId: Id<"pos_inventory_skus">; qty: number }> = [];
-    for (const productId of args.productIds) {
-      const components = await ctx.db
-        .query("pos_product_components")
-        .withIndex("by_product", (q) => q.eq("product_id", productId))
-        .collect();
-      for (const c of components) {
-        result.push({ productId, skuId: c.inventory_sku_id, qty: c.qty });
-      }
-    }
-    return result;
+    // Fan the per-product component reads out in parallel (I8 — was a sequential
+    // N+1 await loop). Read-only, so order doesn't matter; flatten at the end.
+    const perProduct = await Promise.all(
+      args.productIds.map(async (productId) => {
+        const components = await ctx.db
+          .query("pos_product_components")
+          .withIndex("by_product", (q) => q.eq("product_id", productId))
+          .collect();
+        return components.map((c) => ({ productId, skuId: c.inventory_sku_id, qty: c.qty }));
+      }),
+    );
+    return perProduct.flat();
   },
 });
 
@@ -70,29 +71,20 @@ export const _getProductsByIds_internal = internalQuery({
     sku_family: string;
     code?: string;
   }>> => {
-    const out: Array<{
-      _id: Id<"pos_products">;
-      name: string;
-      price_idr: number;
-      tax_rate: number;
-      active: boolean;
-      sku_family: string;
-      code?: string;
-    }> = [];
-    for (const id of args.productIds) {
-      const p = await ctx.db.get(id);
-      if (p) {
-        out.push({
-          _id: p._id,
-          name: p.name,
-          price_idr: p.price_idr,
-          tax_rate: p.tax_rate,
-          active: p.active,
-          sku_family: p.sku_family,
-          code: p.code,
-        });
-      }
-    }
-    return out;
+    // Parallel point lookups (I8 — was a sequential get loop). Missing ids drop out.
+    const rows = await Promise.all(args.productIds.map((id) => ctx.db.get(id)));
+    return rows.flatMap((p) =>
+      p
+        ? [{
+            _id: p._id,
+            name: p.name,
+            price_idr: p.price_idr,
+            tax_rate: p.tax_rate,
+            active: p.active,
+            sku_family: p.sku_family,
+            code: p.code,
+          }]
+        : [],
+    );
   },
 });
