@@ -86,7 +86,8 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 15. **Every public mutation accepts `idempotencyKey`.** Server dedupes for 24h via `pos_idempotency` ([ADR-013](./docs/ADR/013-idempotency-keys.md)). Mutation harness wraps every public mutation so individual functions don't have to think about it.
 16. **Server time wins.** Every `_at` field is set via `Date.now()` inside the Convex function — never client-supplied ([ADR-031](./docs/ADR/031-convex-server-time-wins.md)).
 17. **PWA partial offline:** catalog cached, cart builds, drafts queue, stock-in queues. Payments / auth / refunds block offline with clear UI ([ADR-025](./docs/ADR/025-service-worker-cache.md)).
-18. **Reconciliation on reload:** on startup, any `awaiting_payment` txn within 5 minutes triggers a Xendit re-check; unique constraint on `(ref_type, ref_id, sku_id)` of `pos_stock_movements` prevents double-decrement ([ADR-026](./docs/ADR/026-reconciliation-on-reload.md)).
+18. **Reconciliation on reload:** on startup, any recent `awaiting_payment` txn triggers a Xendit re-check (`useStartupReconciliation`). Double-decrement is prevented by the `pos_stock_movements.by_line_and_sku` index — one `sale` movement per `(source_transaction_line_id, inventory_sku_id)` ([ADR-026](./docs/ADR/026-reconciliation-on-reload.md)). *(v0.3 shipped this index rather than a unique `(ref_type, ref_id, sku_id)` constraint.)*
+19. **PIN changes funnel through one mutation.** `auth.changePin` (self), `auth.resetStaffPin` (manager at booth), and `approvals.approveStaffPinReset` (off-booth) all commit via the shared internal `_changePinCommit_internal`. Branch on `actor.kind`: `"self"` → logs `staff.pin_changed`; `"manager_reset"` → logs `staff.pin_reset`, clears `pos_auth_attempts` (lockout unwind), and stamps `source` (`booth_inline` at booth, `wa_approval` off-booth). Never log PIN values — the payload has no PIN fields. Don't add a fourth reset path that bypasses this funnel.
 
 ## File locations
 
@@ -98,15 +99,20 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 - `convex/audit/` — append-only audit log (public.ts, internal.ts, schema.ts). `logAudit` is a plain helper called from every state-changing mutation
 - `convex/idempotency/` — mutation harness, dedupe helpers (internal.ts, schema.ts)
 - `convex/seed/` — dev seeding (internal.ts, actions.ts)
+- `convex/transactions/` *(v0.3)* — sale records: `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` (public.ts, internal.ts, actions.ts, flags.ts, schema.ts). `flags.ts` holds the `NEG_STOCK` bitset. Cart commit + `_confirmPaid` live here
+- `convex/payments/` *(v0.3)* — Xendit charge: `pos_xendit_invoices` audit table (public.ts, internal.ts, actions.ts, webhook.ts, schema.ts). `webhook.ts` is the signature-verified Convex httpAction
+- `convex/inventory/` *(v0.3)* — `pos_stock_movements` + `pos_stock_levels` (public.ts, internal.ts, schema.ts). **Moved out of `catalog/` in v0.3** (ADR-034). Sale decrement writes a signed-negative movement
+- `convex/vouchers/` *(v0.3)* — `pos_vouchers` + `pos_voucher_redemptions` (public.ts, internal.ts, schema.ts). Discount carried inline (`type`+`value`); one voucher per txn
+- `convex/approvals/` *(v0.3)* — off-booth approval flow: `pos_approval_requests` (public.ts, internal.ts, actions.ts, schema.ts). v0.3 kind = `staff_pin_reset` only; token collapsed onto the request row
 - `convex/api/v1/` — external API surface (httpActions for Frollie Pro consumption). v0.2.1: scaffold only — endpoints ship from v0.3
-- `convex/telegram/` — Telegram bot POC (queries.ts, send.ts, webhook.ts, schema.ts). Graduates to `convex/approvals/telegram/` in v0.4
+- `convex/telegram/` — Telegram bot POC (queries.ts, send.ts, webhook.ts, schema.ts). v0.3 uses `telegram:send:sendTemplate` (kind `staff_pin_reset`) for the off-booth lockout link (ADR-035). Graduates to `convex/approvals/telegram/` in v0.4
 - `convex/http.ts` — registers httpAction routes
-- `convex/lib/` — cross-cutting utilities (currently only `telegramHtml.ts`)
-- `src/routes/` — page-level routes (login, sale, drafts, stock, refund, history, settlements, lock, mgr/*, approve/*)
+- `convex/lib/` — cross-cutting utilities (`telegramHtml.ts` message renderers, `time.ts` WIB-calendar helpers)
+- `src/routes/` — page-level routes. Implemented in v0.3: `sale/index` (cart), `sale/drafts`, `sale/voucher`, `sale/charge`, `sale/charge-success`, `approve/index` (`/approve/:token` landing) + `approve/pin`. Still stubbed: refund, history, settlements, mgr/*
 - `src/components/ui/` — shadcn primitives (new-york style, stone base): `button`, `badge`, `card`, `input`, `label`, `separator`, `dialog`, `dropdown-menu`, `popover`, `select`, `switch`, `tabs`, `tooltip`, `progress`, `scroll-area`, `sonner` toast
 - `src/components/layout/` — `RootLayout` (app shell, session gate), `Stub` (route placeholder)
-- `src/components/pos/` — POS-specific shared components. `NumericKeypad` is the canonical PIN + qty input (3-col grid, keyboard-friendly, two sizes via `size: "compact" | "comfortable"`)
-- `src/hooks/` — `useSession`, `useCart`, `useOfflineQueue`, `useXenditPayment`, `useIdempotency`, `useApproval`, `useCatalogCache` (planned per phase)
+- `src/components/pos/` — POS-specific shared components. `NumericKeypad` is the canonical PIN + qty input (3-col grid, keyboard-friendly, two sizes via `size: "compact" | "comfortable"`). `PinSheet` *(v0.3)* is the reusable PIN-entry sheet (built on `NumericKeypad`) used by change-PIN, manager reset, and the `/approve/:token` landing
+- `src/hooks/` — `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (v0.3: IDB-backed so a reload mid-payment doesn't double-execute). Added in v0.3: `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (ADR-026 re-check on startup)
 - `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge). Other utilities (`format.ts`, `wa-link.ts`, `receipt-template.ts`) land per phase
 - `src/pwa/` — service worker bootstrap (vite-plugin-pwa handles registration)
 - `docs/SCHEMA.md` — POS tables plus relationship to Frollie Pro schema
@@ -165,6 +171,12 @@ Devices must be registered ([strategic foundations §6](./docs/ADR/000-strategic
 
 Manager actions ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)) are **one-off PIN entries**, not persistent modes. From v0.4 they route through the **WhatsApp approval flow** ([ADR-027](./docs/ADR/027-wa-approval-via-staff-own-wa.md)) when no manager is at the booth.
 
+**PIN management (v0.3):** three flows, one commit funnel (`_changePinCommit_internal` — see business rule #19).
+
+- **`auth.changePin` (self):** staff change their own PIN. Verifies the current PIN with argon2, rejects same-PIN, respects lockout. Logs `staff.pin_changed`.
+- **`auth.resetStaffPin` (manager at booth):** a manager resets a target staff PIN by proving the **manager's own** PIN (never the target's). Rejects self-reset (use `changePin`), rejects non-managers. On commit it clears the target's lockout and logs `staff.pin_reset` (`source: booth_inline`).
+- **Off-booth lockout → reset (Telegram, [ADR-035](./docs/ADR/035-telegram-as-internal-comms.md) + [ADR-029](./docs/ADR/029-token-authorizes-view-pin-authorizes-act.md)):** a 3-strike lockout schedules `approvals.notifyStaffLockout`, which mints a 32-byte URL-safe token (only the SHA-256 hash is persisted on the `pos_approval_requests` row), posts a single-use 60-minute `/approve/:token` link to the managers' **Telegram** group, and stamps `notified_at`. A dedup guard skips a second notification while a live pending request exists; if the Telegram send fails the pending row is deleted so the next cycle retries cleanly. A manager opens the link (**token authorises VIEW**), enters their own manager PIN (**PIN authorises ACT**), and `approvals.approveStaffPinReset` verifies the PIN, commits the reset via the same funnel (`source: wa_approval`, logs `staff.pin_reset`), and marks the request `resolved`. A locked-out manager can still approve their own reset link — the token + correct PIN are sufficient authority.
+
 ## How to add a feature
 
 1. Read the relevant ADR(s) in `docs/ADR/`. For strategic context, read [`000-strategic-foundations.md`](./docs/ADR/000-strategic-foundations.md).
@@ -174,7 +186,8 @@ Manager actions ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)) are **one-off
 5. If the feature is a public mutation, accept `idempotencyKey` in args and wrap with the idempotency helper.
 6. If the feature is a manager-PIN gate, decide: inline (manager at booth) or WA-approval (the v0.4+ default). Both update the same `pos_approval_requests` row for audit coherence.
 7. If the feature affects payment, refund, or stock, write tests. Other features, tests are optional but encouraged.
-8. Update `docs/CHANGELOG.md` in the same PR.
+8. If the feature adds a new **approval KIND** (the v0.4+ pattern — refund, manual-payment override, etc.), wire all four touch-points so the off-booth flow stays coherent: (a) add the literal to the `pos_approval_requests.kind` union in `convex/approvals/schema.ts` (and the matching arg validators in `approvals/internal.ts` + `approvals/actions.ts`); (b) add a Telegram template kind — a new literal in `sendTemplate`'s `kind` union in `convex/telegram/send.ts` plus a `renderXxx` payload type + renderer in `convex/lib/telegramHtml.ts`; (c) add the UI variant to the `/approve/:token` landing in `src/routes/approve/index.tsx` (token authorises VIEW) and its PIN continuation `approve/pin.tsx` (PIN authorises ACT); (d) commit the state change through an internal funnel so the audit + idempotency story matches the PIN-reset path. Reuse `_createRequest_internal` / `_markNotified_internal` / `_markResolved_internal` rather than hand-rolling lifecycle writes.
+9. Update `docs/CHANGELOG.md` in the same PR.
 
 ## When to push back on the request
 
