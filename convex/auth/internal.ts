@@ -217,6 +217,24 @@ export const _auditLockProbe_internal = internalMutation({
   },
 });
 
+/**
+ * Resolve an active session to its staff + device. Exposed so other modules
+ * (e.g. transactions) can authorise a sessionId without reading the auth-owned
+ * staff_sessions table directly (ADR-034 module boundary). Returns null if the
+ * session does not exist or has been ended (Locked).
+ */
+export const _resolveSession_internal = internalQuery({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ staffId: Id<"staff">; deviceId: string } | null> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.ended_at != null) return null;
+    return { staffId: session.staff_id, deviceId: session.device_id };
+  },
+});
+
 /** Test-only commit used by _seedHashedStaff_internal. */
 export const _seedStaffCommit_internal = internalMutation({
   args: {

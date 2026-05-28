@@ -49,3 +49,50 @@ export const _getComponentsForProducts_internal = internalQuery({
     return result;
   },
 });
+
+/**
+ * Fetch product rows by id (for snapshotting price/name/code at sale time).
+ * Exposed so the transactions funnel can build immutable line snapshots
+ * (ADR-001) without reading catalog-owned tables directly (ADR-034).
+ *
+ * Returns a projected subset — only the fields commitCart needs to snapshot.
+ * Missing ids are simply skipped; the caller treats absence as
+ * PRODUCT_NOT_FOUND_OR_INACTIVE.
+ */
+export const _getProductsByIds_internal = internalQuery({
+  args: { productIds: v.array(v.id("pos_products")) },
+  handler: async (ctx, args): Promise<Array<{
+    _id: Id<"pos_products">;
+    name: string;
+    price_idr: number;
+    tax_rate: number;
+    active: boolean;
+    sku_family: string;
+    code?: string;
+  }>> => {
+    const out: Array<{
+      _id: Id<"pos_products">;
+      name: string;
+      price_idr: number;
+      tax_rate: number;
+      active: boolean;
+      sku_family: string;
+      code?: string;
+    }> = [];
+    for (const id of args.productIds) {
+      const p = await ctx.db.get(id);
+      if (p) {
+        out.push({
+          _id: p._id,
+          name: p.name,
+          price_idr: p.price_idr,
+          tax_rate: p.tax_rate,
+          active: p.active,
+          sku_family: p.sku_family,
+          code: p.code,
+        });
+      }
+    }
+    return out;
+  },
+});
