@@ -1,6 +1,8 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
@@ -57,6 +59,17 @@ export const _deleteRequest_internal = internalMutation({
     requestId: v.id("pos_approval_requests"),
   },
   handler: async (ctx, args) => {
+    // Emit a compensating audit row BEFORE deleting so the trail self-documents:
+    // approval.created → approval.notification_failed (no notified, no resolved),
+    // rather than an orphaned approval.created with no follow-up (m-6).
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "approval.notification_failed",
+      entity_type: "pos_approval_requests",
+      entity_id: args.requestId,
+      source: "system",
+      reason: "telegram_send_failed",
+    });
     await ctx.db.delete(args.requestId);
   },
 });
@@ -89,28 +102,46 @@ export const _markNotified_internal = internalMutation({
  * Mark an approval request as resolved by a manager.
  * ADR-029: PIN authorises ACT — the caller must have already verified the manager PIN
  * before calling this mutation.
+ *
+ * withIdempotency-wrapped: the resolve patch + audit + cache row commit in ONE
+ * Convex transaction (I6). As the final commit step of approveStaffPinReset, this
+ * closes the commit-then-cache window — a same-key retry replays the cached
+ * { resolved: true } instead of throwing REQUEST_RESOLVED on the already-resolved row.
  */
 export const _markResolved_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     requestId: v.id("pos_approval_requests"),
     resolved_by_manager_id: v.id("staff"),
   },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.requestId, {
-      status: "resolved",
-      resolved_at: Date.now(),
-      resolved_by_manager_id: args.resolved_by_manager_id,
-    });
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      requestId: Id<"pos_approval_requests">;
+      resolved_by_manager_id: Id<"staff">;
+    },
+    { resolved: true }
+  >(
+    "approvals.approveStaffPinReset",
+    async (ctx, args) => {
+      await ctx.db.patch(args.requestId, {
+        status: "resolved",
+        resolved_at: Date.now(),
+        resolved_by_manager_id: args.resolved_by_manager_id,
+      });
 
-    await logAudit(ctx, {
-      actor_id: args.resolved_by_manager_id,
-      action: "approval.resolved",
-      entity_type: "pos_approval_requests",
-      entity_id: args.requestId,
-      source: "wa_approval",
-      mgr_approver_id: args.resolved_by_manager_id,
-    });
-  },
+      await logAudit(ctx, {
+        actor_id: args.resolved_by_manager_id,
+        action: "approval.resolved",
+        entity_type: "pos_approval_requests",
+        entity_id: args.requestId,
+        source: "wa_approval",
+        mgr_approver_id: args.resolved_by_manager_id,
+      });
+
+      return { resolved: true as const };
+    },
+  ),
 });
 
 /**

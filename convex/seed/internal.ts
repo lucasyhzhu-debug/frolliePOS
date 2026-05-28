@@ -25,6 +25,12 @@ export const _reset_internal = internalMutation({
     for (const table of [
       "audit_log", "pos_idempotency", "pos_auth_attempts",
       "staff_sessions", "registered_devices", "pending_device_setups",
+      // v0.3 sale / payment / voucher / approval tables (children before parents).
+      // Without these, a dev reset left orphaned txns + an ever-climbing receipt
+      // counter, breaking the "wipe + bootstrap" smoke-flow premise (I5).
+      "pos_voucher_redemptions", "pos_stock_movements", "pos_xendit_invoices",
+      "pos_transaction_lines", "pos_transactions", "pos_receipt_counters",
+      "pos_vouchers", "pos_approval_requests",
       "pos_stock_levels", "pos_product_components", "pos_products", "pos_inventory_skus",
       "staff",
     ] as const) {

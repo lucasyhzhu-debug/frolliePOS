@@ -85,15 +85,11 @@ export const cancelTransaction = action({
       }
     }
 
-    // 5. Commit the cancel (flips status + audit transaction.cancelled)
-    await ctx.runMutation(internal.transactions.internal._cancelCommit_internal, {
-      txnId: args.txnId,
-      reason: args.reason,
-      actor_staff_id: session.staff._id,
-      device_id: session.deviceId,
-    });
-
-    // 6. Audit the best-effort Xendit cancel outcome (only when we attempted it)
+    // 5. Audit the best-effort Xendit cancel outcome FIRST (only when attempted).
+    //    _cancelCommit folds the idempotency cache write into its own transaction,
+    //    so on a same-key retry the cache short-circuits before we re-reach this
+    //    point — emitting the outcome here (not after the commit) is what keeps it
+    //    from being lost if the action dies between commit and a trailing audit (I6).
     if (cancel_outcome !== undefined) {
       await ctx.runMutation(internal.payments.internal._auditInvoiceCancelOutcome_internal, {
         txnId: args.txnId,
@@ -101,14 +97,14 @@ export const cancelTransaction = action({
       });
     }
 
-    // 7. Cache the response (ADR-034: routed through the idempotency module)
-    const response = { cancelled: true as const };
-    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
-      key: args.idempotencyKey,
-      mutationName: "transactions.cancelTransaction",
-      response: JSON.stringify(response),
+    // 6. Commit the cancel (status flip + audit transaction.cancelled) AND the
+    //    idempotency cache row in the same Convex transaction (I6 atomicity).
+    return await ctx.runMutation(internal.transactions.internal._cancelCommit_internal, {
+      idempotencyKey: args.idempotencyKey,
+      txnId: args.txnId,
+      reason: args.reason,
+      actor_staff_id: session.staff._id,
+      device_id: session.deviceId,
     });
-
-    return response;
   },
 });

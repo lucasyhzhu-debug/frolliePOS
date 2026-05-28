@@ -9,6 +9,13 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
 
 /**
+ * Sentinel device id for off-booth actions taken via the /approve/:token link,
+ * which have no registered-device context. Recorded on failed-attempt rows so an
+ * audit query can tell a booth PIN probe from an off-booth one (m-3).
+ */
+const OFF_BOOTH_DEVICE_ID = "approve-route";
+
+/**
  * SHA-256 hex of a string. Tokens are high-entropy (32 random bytes), so salt-less
  * SHA-256 is appropriate (ADR-029) — argon2id is reserved for low-entropy PINs.
  * Runs in the Node runtime ("use node"), so node:crypto is available here.
@@ -167,7 +174,7 @@ export const approveStaffPinReset = action({
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
-        deviceId: "approve-route",
+        deviceId: OFF_BOOTH_DEVICE_ID,
       });
       throw new Error("INVALID_PIN");
     }
@@ -184,17 +191,11 @@ export const approveStaffPinReset = action({
       // booth_inline default (this reset did not happen at the booth).
       source: "wa_approval",
     });
-    await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+    // Mark resolved + write the idempotency cache row in the SAME transaction (I6).
+    return await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: args.idempotencyKey,
       requestId: req._id,
       resolved_by_manager_id: manager._id,
     });
-
-    const response = { resolved: true } as const;
-    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
-      key: args.idempotencyKey,
-      mutationName: "approvals.approveStaffPinReset",
-      response: JSON.stringify(response),
-    });
-    return response;
   },
 });

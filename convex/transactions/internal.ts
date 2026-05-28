@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, withFlag } from "./flags";
 
@@ -243,6 +244,9 @@ export const _confirmPaid_internal = internalMutation({
       entity_type: "pos_transactions",
       entity_id: args.txnId,
       mgr_approver_id: args.mgr_approver_id,
+      // v0.3: manual override is booth-only (manager present), so manual → booth_inline.
+      // v0.4 off-booth manual-payment approval will need to thread the real source
+      // (wa_approval) from the caller rather than hardcoding it here.
       source: args.source === "manual" ? "booth_inline" : "system",
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
@@ -255,33 +259,53 @@ export const _confirmPaid_internal = internalMutation({
  * function so the action can call it via runMutation after Xendit cancel.
  * Only valid on awaiting_payment transactions — throws INVALID_STATE_FOR_CANCEL
  * otherwise (guards against double-cancel races at the caller).
+ *
+ * withIdempotency-wrapped: the status flip + audit + cache row commit in ONE
+ * Convex transaction (I6 — no commit-then-cache window where a crash leaves
+ * state committed but uncached). A same-key retry short-circuits on the cache row
+ * before reaching the status guard, so the guard only ever fires on a genuine
+ * concurrent double-cancel.
  */
 export const _cancelCommit_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     txnId: v.id("pos_transactions"),
     reason: v.string(),
     actor_staff_id: v.id("staff"),
     device_id: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const txn = await ctx.db.get(args.txnId);
-    if (!txn) throw new Error("TXN_NOT_FOUND");
-    if (txn.status !== "awaiting_payment") {
-      throw new Error("INVALID_STATE_FOR_CANCEL");
-    }
-    await ctx.db.patch(args.txnId, {
-      status: "cancelled",
-      cancelled_at: Date.now(),
-      cancelled_reason: args.reason,
-    });
-    await logAudit(ctx, {
-      actor_id: args.actor_staff_id,
-      action: "transaction.cancelled",
-      entity_type: "pos_transactions",
-      entity_id: args.txnId,
-      source: "booth_inline",
-      device_id: args.device_id,
-      reason: args.reason,
-    });
-  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      txnId: Id<"pos_transactions">;
+      reason: string;
+      actor_staff_id: Id<"staff">;
+      device_id?: string;
+    },
+    { cancelled: true }
+  >(
+    "transactions.cancelTransaction",
+    async (ctx, args) => {
+      const txn = await ctx.db.get(args.txnId);
+      if (!txn) throw new Error("TXN_NOT_FOUND");
+      if (txn.status !== "awaiting_payment") {
+        throw new Error("INVALID_STATE_FOR_CANCEL");
+      }
+      await ctx.db.patch(args.txnId, {
+        status: "cancelled",
+        cancelled_at: Date.now(),
+        cancelled_reason: args.reason,
+      });
+      await logAudit(ctx, {
+        actor_id: args.actor_staff_id,
+        action: "transaction.cancelled",
+        entity_type: "pos_transactions",
+        entity_id: args.txnId,
+        source: "booth_inline",
+        device_id: args.device_id,
+        reason: args.reason,
+      });
+      return { cancelled: true as const };
+    },
+  ),
 });
