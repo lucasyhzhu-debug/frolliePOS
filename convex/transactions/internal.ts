@@ -142,9 +142,24 @@ export const _confirmPaid_internal = internalMutation({
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
     if (!txn) throw new Error("TXN_NOT_FOUND");
-    // 0. Status guard (idempotent re-fire)
+    // 0. Status guard.
+    //   paid → idempotent re-fire (a second confirmation path arriving after the
+    //   first wins); silent no-op.
+    if (txn.status === "paid") return;
     if (txn.status !== "awaiting_payment") {
-      // Idempotent re-fire — second confirmation path arriving after first wins.
+      // A payment confirmation arrived for a terminal, non-paid txn (e.g. the sale
+      // was cancelled but Xendit's best-effort expire! had failed and the customer
+      // paid anyway). Money may have moved with no sale record. Do NOT auto-flip
+      // (a manager reconciles), but emit an alert so it isn't silently swallowed.
+      await logAudit(ctx, {
+        actor_id: args.mgr_approver_id ?? "system",
+        action: "payment.confirmed_on_terminal",
+        entity_type: "pos_transactions",
+        entity_id: args.txnId,
+        source: args.source === "manual" ? "booth_inline" : "system",
+        reason: args.manual_reason,
+        metadata: { source: args.source, txn_status: txn.status },
+      });
       return;
     }
 

@@ -99,8 +99,15 @@ export default function SaleCharge() {
     if (session.status !== "active") return;
     if (!txnId) return;
     if (!initKey) return;
-    // Only create when there is no invoice for the selected method yet.
-    if (invoice && invoice.method === selectedMethod) return;
+    // The selected method already has its active invoice — clear its in-flight
+    // marker so a later tab-swap back to this method can re-create it. The marker
+    // only exists to dedupe the create round-trip, not to permanently block a
+    // legitimate re-create (without this, QRIS→BCA→QRIS leaves the QRIS tab stuck
+    // on "Generating…" forever since `has(method)` stays true). Then nothing to do.
+    if (invoice && invoice.method === selectedMethod) {
+      requestedMethods.current.delete(selectedMethod);
+      return;
+    }
     // Wait until the reactive invoice query has resolved (undefined === loading).
     // `invoice` is null when loaded-but-absent; we only create in that case, or
     // when the existing invoice is for a different method.

@@ -58,16 +58,20 @@ export function useStartupReconciliation(
     ran.current = true;
 
     void (async () => {
-      let confirmed = 0;
-      for (const txn of recent) {
-        if (!txn.xendit_invoice_id_current) continue;
-        try {
-          const result = await checkStatus({ invoiceId: txn.xendit_invoice_id_current });
-          if (result.status === "PAID") confirmed++;
-        } catch {
-          // Swallow — transient errors don't abort the reconciliation loop.
-        }
-      }
+      // Independent invoices — check them in parallel rather than awaiting each in
+      // sequence (this runs on a startup hot path). Per-check errors are swallowed
+      // so one transient failure doesn't drop the rest.
+      const invoiceIds = recent
+        .map((txn) => txn.xendit_invoice_id_current)
+        .filter((id): id is string => Boolean(id));
+      const results = await Promise.all(
+        invoiceIds.map((invoiceId) =>
+          checkStatus({ invoiceId })
+            .then((r) => r.status === "PAID")
+            .catch(() => false),
+        ),
+      );
+      const confirmed = results.filter(Boolean).length;
       if (confirmed > 0) {
         toast.success(`Reconciled ${confirmed} pending payment${confirmed === 1 ? "" : "s"}.`);
       }

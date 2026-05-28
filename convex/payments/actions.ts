@@ -15,6 +15,22 @@ interface XenditInvoiceResponse {
   account_number?: string;
 }
 
+/**
+ * Read a fetch Response body as JSON without throwing on a non-JSON body.
+ * Xendit 5xx/timeout responses can be an HTML page; calling r.json() directly
+ * would throw a SyntaxError mid-action instead of letting the `!ok` guard surface
+ * a clean XENDIT_* error. Non-JSON bodies come back under `_raw` for the error path.
+ */
+async function readJson<T>(r: Response): Promise<T> {
+  const text = await r.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return { _raw: text } as T;
+  }
+}
+
 async function xenditPost<T = any>(
   path: string,
   body: Record<string, unknown>,
@@ -32,7 +48,7 @@ async function xenditPost<T = any>(
     },
     body: JSON.stringify(body),
   });
-  return { ok: r.ok, data: await r.json() };
+  return { ok: r.ok, data: await readJson<T>(r) };
 }
 
 async function xenditGet<T = any>(path: string): Promise<{ ok: boolean; data: T }> {
@@ -43,7 +59,7 @@ async function xenditGet<T = any>(path: string): Promise<{ ok: boolean; data: T 
     method: "GET",
     headers: { Authorization: auth },
   });
-  return { ok: r.ok, data: await r.json() };
+  return { ok: r.ok, data: await readJson<T>(r) };
 }
 
 /**

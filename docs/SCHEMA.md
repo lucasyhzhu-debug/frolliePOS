@@ -538,6 +538,7 @@ transaction.committed       # draft → awaiting_payment (cart committed)
 transaction.cancelled       # awaiting_payment/draft → cancelled (also draft delete)
 transaction.resumed         # draft pulled back into an active cart (row deleted, not a void)
 payment.confirmed           # _confirmPaid (path recorded in confirmed_via: webhook|polling|manual)
+payment.confirmed_on_terminal # paid webhook/poll arrived for a cancelled/terminal txn — alert, no auto-flip (manager reconciles)
 # payments/
 payment.invoice_created     # Xendit invoice created (QRIS or BCA VA)
 payment.invoice_cancelled   # prior invoice cancelled on cart-edit retry (ADR-014)

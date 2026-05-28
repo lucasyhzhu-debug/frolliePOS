@@ -28,17 +28,9 @@ export default function SaleChargeSuccess() {
     txnId ? { txnId } : "skip",
   );
 
-  // Loading: query not yet resolved (undefined means in-flight).
-  if (result === undefined) {
-    return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading receipt…</p>
-      </main>
-    );
-  }
-
-  // No txnId param in the URL.
+  // No txnId param in the URL. Checked BEFORE the loading guard: with no txnId the
+  // query is "skip" and result stays undefined forever, so the loading branch would
+  // otherwise spin indefinitely instead of showing this error.
   if (!txnId) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
@@ -46,6 +38,16 @@ export default function SaleChargeSuccess() {
         <Button variant="outline" onClick={() => navigate("/sale")}>
           New sale
         </Button>
+      </main>
+    );
+  }
+
+  // Loading: query not yet resolved (undefined means in-flight).
+  if (result === undefined) {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading receipt…</p>
       </main>
     );
   }

@@ -124,6 +124,13 @@ export const _markResolved_internal = internalMutation({
   >(
     "approvals.approveStaffPinReset",
     async (ctx, args) => {
+      // Single-use enforcement: if a concurrent approval (a different manager
+      // opening the same /approve link with its own idempotencyKey) already
+      // resolved this request, reject rather than double-resolve + double-audit.
+      // Same-key retries never reach here — withIdempotency short-circuits first.
+      const req = await ctx.db.get(args.requestId);
+      if (!req) throw new Error("REQUEST_NOT_FOUND");
+      if (req.status !== "pending") throw new Error("REQUEST_ALREADY_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "resolved",
         resolved_at: Date.now(),
