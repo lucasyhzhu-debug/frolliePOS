@@ -92,6 +92,24 @@ export const _allocateReceiptNumber_internal = internalMutation({
 });
 
 /**
+ * Set the denormalized active-invoice pointer on a transaction. Owned by the
+ * transactions module because it writes pos_transactions; the payments module
+ * routes here via ctx.runMutation when committing/replacing a Xendit invoice
+ * (ADR-034 — payments must not write transactions' table directly). Because
+ * runMutation-within-a-mutation shares the same Convex transaction, the invoice
+ * insert + this pointer patch + the idempotency cache row commit atomically.
+ */
+export const _setCurrentInvoice_internal = internalMutation({
+  args: {
+    txnId: v.id("pos_transactions"),
+    xenditInvoiceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.txnId, { xendit_invoice_id_current: args.xenditInvoiceId });
+  },
+});
+
+/**
  * THE FUNNEL. All three confirmation paths (webhook, polling, manual) converge
  * here. Idempotent via status guard: if txn is not in awaiting_payment, this
  * is a no-op. Spec §"Canonical sale data flow → THE FUNNEL".
