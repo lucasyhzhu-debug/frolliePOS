@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
-import { internal } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 
 async function seedAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -88,6 +88,24 @@ describe("payments/internal", () => {
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(s.staff);
     expect(txn?.confirmed_manual_reason).toBe("BCA cleared manually");
+  });
+
+  it("getCurrentInvoice returns the most recently created invoice for the txn", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-a", txnId: s.txn, xendit_invoice_id: "xnd-a",
+      xendit_idempotency_key: "k-a", method: "QRIS", qr_string: "qr-a",
+      status_at_create: "PENDING",
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-b", txnId: s.txn, xendit_invoice_id: "xnd-b",
+      xendit_idempotency_key: "k-b", method: "BCA_VA", va_number: "1234567890",
+      status_at_create: "PENDING",
+    });
+    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn });
+    expect(inv?.xendit_invoice_id).toBe("xnd-b");
   });
 
   it("webhook dedup: same xendit_invoice_id called twice — second is no-op (status guard inside _confirmPaid)", async () => {
