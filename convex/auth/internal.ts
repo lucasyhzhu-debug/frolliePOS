@@ -5,6 +5,21 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 
 /**
+ * Resolve a staff member's display fields (name, code) by id.
+ * Called by approvals/public via ctx.runQuery to cross the module boundary
+ * (ADR-034: approvals does not own the `staff` table).
+ * Returns null if the staff row does not exist.
+ */
+export const _getStaffNameCode_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, args): Promise<{ name: string; code?: string } | null> => {
+    const s = await ctx.db.get(args.staffId);
+    if (!s) return null;
+    return { name: s.name, code: s.code };
+  },
+});
+
+/**
  * Read the pin_hash for verify. Internal-only — only the Node action that
  * runs argon2Verify is allowed to call this.
  */
