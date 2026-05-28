@@ -1,4 +1,4 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
@@ -212,39 +212,37 @@ export const _auditInvoiceCancelOutcome_internal = internalMutation({
 });
 
 /**
- * Resolve a Xendit invoice id → txn id, then delegate to the funnel.
- * Webhook path. Idempotent because _confirmPaid status-guards.
+ * Resolve a Xendit invoice id → txn id, then delegate to the funnel. Shared by
+ * the webhook and polling entry points (their only difference is the `source`
+ * recorded on the confirmation). Unknown invoice → silent drop (e.g. a test
+ * webhook). Idempotent because _confirmPaid status-guards.
  */
+async function _resolveAndConfirm(
+  ctx: MutationCtx,
+  xenditInvoiceId: string,
+  source: "webhook" | "polling",
+): Promise<void> {
+  const inv = await ctx.db
+    .query("pos_xendit_invoices")
+    .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", xenditInvoiceId))
+    .first();
+  if (!inv) return;
+  await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
+    txnId: inv.transaction_id,
+    source,
+  });
+}
+
+/** Webhook path (primary). */
 export const _onPaidWebhook_internal = internalMutation({
   args: { xendit_invoice_id: v.string() },
-  handler: async (ctx, args) => {
-    const inv = await ctx.db
-      .query("pos_xendit_invoices")
-      .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", args.xendit_invoice_id))
-      .first();
-    if (!inv) return; // unknown invoice — silently drop (could be a test webhook)
-    await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
-      txnId: inv.transaction_id, source: "webhook",
-    });
-  },
+  handler: (ctx, args) => _resolveAndConfirm(ctx, args.xendit_invoice_id, "webhook"),
 });
 
-/**
- * Polling-fallback path. Same resolution as the webhook path; the funnel's
- * status guard makes a late poll after a webhook confirmation a no-op.
- */
+/** Polling-fallback path — the funnel's status guard makes a late poll a no-op. */
 export const _onPaidPolling_internal = internalMutation({
   args: { xendit_invoice_id: v.string() },
-  handler: async (ctx, args) => {
-    const inv = await ctx.db
-      .query("pos_xendit_invoices")
-      .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", args.xendit_invoice_id))
-      .first();
-    if (!inv) return;
-    await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
-      txnId: inv.transaction_id, source: "polling",
-    });
-  },
+  handler: (ctx, args) => _resolveAndConfirm(ctx, args.xendit_invoice_id, "polling"),
 });
 
 /**

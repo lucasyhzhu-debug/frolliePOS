@@ -4,6 +4,7 @@ import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
+import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
 
 /**
@@ -161,9 +162,7 @@ export const commitCart = mutation({
           (voucher.expires_at == null || voucher.expires_at > Date.now()) &&
           (voucher.min_cart_value == null || subtotal >= voucher.min_cart_value)
         ) {
-          voucherDiscount = voucher.type === "percentage"
-            ? Math.floor((subtotal * voucher.value) / 100)
-            : Math.min(voucher.value, subtotal);
+          voucherDiscount = computeVoucherDiscount(voucher.type, voucher.value, subtotal);
           voucherCodeSnapshot = voucher.code;
         }
         // If voucher fails server-side, silently drop — frontend already

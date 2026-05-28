@@ -1,6 +1,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc } from "../_generated/dataModel";
+import { computeVoucherDiscount } from "../lib/voucher";
 
 /**
  * Active, unexpired vouchers. Bundled into the offline catalog cache snapshot
@@ -56,10 +57,7 @@ export const validateVoucher = query({
     if (voucher.min_cart_value != null && args.cartSubtotal < voucher.min_cart_value) {
       return { valid: false, discountAmount: 0, reason: "MIN_CART_VALUE" };
     }
-    const discountAmount =
-      voucher.type === "percentage"
-        ? Math.floor((args.cartSubtotal * voucher.value) / 100)
-        : Math.min(voucher.value, args.cartSubtotal);
+    const discountAmount = computeVoucherDiscount(voucher.type, voucher.value, args.cartSubtotal);
     return { valid: true, discountAmount, voucherId: voucher._id };
   },
 });
