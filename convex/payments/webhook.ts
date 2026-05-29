@@ -39,8 +39,9 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
         payment_source: source,
       });
     } catch (err) {
-      // A mutation throw must never become a 500 (retry-storm guard).
-      console.log("[xendit] webhook mutation error:", err);
+      // A mutation throw must never become a 500 (retry-storm guard). Logged at
+      // error level: a paid webhook that couldn't commit is an alertable event.
+      console.error("[xendit] webhook mutation error:", err);
     }
   }
 
