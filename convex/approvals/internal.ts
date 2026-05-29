@@ -211,3 +211,90 @@ export const _getByTokenHash_internal = internalQuery({
       .first();
   },
 });
+
+/**
+ * Deny a pending approval request. Terminal — mirrors _markResolved_internal
+ * but sets status="denied". withIdempotency-wrapped so concurrent manager
+ * retries or double-taps don't double-write the deny lifecycle.
+ */
+export const _markDenied_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    requestId: v.id("pos_approval_requests"),
+    denied_by_manager_id: v.id("staff"),
+    deny_reason: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      requestId: Id<"pos_approval_requests">;
+      denied_by_manager_id: Id<"staff">;
+      deny_reason: string;
+    },
+    { denied: true }
+  >(
+    "approvals.denyRequest",
+    async (ctx, args) => {
+      const req = await ctx.db.get(args.requestId);
+      if (!req) throw new Error("REQUEST_NOT_FOUND");
+      if (req.status !== "pending") throw new Error("REQUEST_ALREADY_RESOLVED");
+      await ctx.db.patch(args.requestId, {
+        status: "denied",
+        denied_at: Date.now(),
+        denied_by_manager_id: args.denied_by_manager_id,
+        deny_reason: args.deny_reason,
+      });
+      await logAudit(ctx, {
+        actor_id: args.denied_by_manager_id,
+        action: KIND_AUDIT[req.kind as ApprovalKind].denied,
+        entity_type: "pos_approval_requests",
+        entity_id: args.requestId,
+        source: "telegram_approval",
+        mgr_approver_id: args.denied_by_manager_id,
+        reason: args.deny_reason,
+        metadata: { approval_request_id: args.requestId },
+      });
+      return { denied: true as const };
+    },
+  ),
+});
+
+/**
+ * Dedup guard for non-staff kinds: list live pending rows for (kind, entity_id).
+ * Used by the v0.4 notify actions to skip a second notification while a live
+ * pending request already exists for the same entity.
+ */
+export const _listPendingByKind_internal = internalQuery({
+  args: { kind: v.string(), entityId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_kind_status", (q) =>
+        q.eq("kind", args.kind as ApprovalKind).eq("status", "pending"),
+      )
+      .collect();
+    const now = Date.now();
+    return rows.filter(
+      (r) => r.entity_id === args.entityId && r.token_expires_at > now,
+    );
+  },
+});
+
+/**
+ * Best-effort patch of the sent Telegram message id + chat id onto the request
+ * row (called after a successful Telegram send so we can later edit/delete the
+ * message). Never throws on missing row — best-effort by design.
+ */
+export const _linkTelegramMessage_internal = internalMutation({
+  args: {
+    requestId: v.id("pos_approval_requests"),
+    messageId: v.optional(v.number()),
+    chatId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.requestId, {
+      telegram_message_id: args.messageId,
+      telegram_chat_id: args.chatId,
+    });
+  },
+});
