@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 const sourceValidator = v.union(
   v.literal("booth_inline"),
   v.literal("wa_approval"),
+  v.literal("telegram_approval"),
   v.literal("system"),
   v.literal("reaper"),
 );
@@ -31,7 +32,7 @@ export async function logAudit(
     after_state?: unknown;
     device_id?: string;
     mgr_approver_id?: Id<"staff">;
-    source: "booth_inline" | "wa_approval" | "system" | "reaper";
+    source: "booth_inline" | "wa_approval" | "telegram_approval" | "system" | "reaper";
     reason?: string;
     metadata?: Record<string, unknown>;
   },
