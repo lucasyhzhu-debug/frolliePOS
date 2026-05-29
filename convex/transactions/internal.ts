@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
-import { NEG_STOCK, VOUCHER_OVER_REDEEMED, withFlag } from "./flags";
+import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -138,6 +138,7 @@ export const _confirmPaid_internal = internalMutation({
     source: v.union(v.literal("webhook"), v.literal("polling"), v.literal("manual")),
     mgr_approver_id: v.optional(v.id("staff")),
     manual_reason: v.optional(v.string()),
+    paid_amount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
@@ -222,6 +223,13 @@ export const _confirmPaid_internal = internalMutation({
           break;
         }
       }
+    }
+
+    // 5b. Amount-mismatch defense (honor + flag): the money already moved, so we
+    // always confirm — but flag a mismatch for manager reconciliation. DYNAMIC
+    // QR + is_closed FVA make this unlikely, but this is a money path.
+    if (args.paid_amount !== undefined && args.paid_amount !== txn.total) {
+      flags = withFlag(flags, PAYMENT_AMOUNT_MISMATCH);
     }
 
     // 6. Voucher redemption (if applicable)

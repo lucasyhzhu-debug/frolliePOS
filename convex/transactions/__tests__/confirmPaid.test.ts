@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
-import { VOUCHER_OVER_REDEEMED } from "../flags";
+import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
 
 async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -181,6 +181,28 @@ describe("_confirmPaid_internal funnel", () => {
     expect(after.redemption?.discount_amount).toBe(20_000);
     expect(after.voucher?.used_count).toBe(1);
     expect(after.txn!.flags & VOUCHER_OVER_REDEEMED).toBe(0);
+  });
+
+  it("paid_amount mismatch: honors payment but sets PAYMENT_AMOUNT_MISMATCH flag", async () => {
+    const t = convexTest(schema);
+    const s = await seedTxnAwaiting(t); // seeds total = 200_000
+    await t.mutation(internal.transactions.internal._confirmPaid_internal, {
+      txnId: s.txn, source: "webhook", paid_amount: 199_000,
+    });
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(PAYMENT_AMOUNT_MISMATCH);
+  });
+
+  it("paid_amount matching total: no mismatch flag", async () => {
+    const t = convexTest(schema);
+    const s = await seedTxnAwaiting(t);
+    await t.mutation(internal.transactions.internal._confirmPaid_internal, {
+      txnId: s.txn, source: "webhook", paid_amount: 200_000,
+    });
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(0);
   });
 
   it("over-redeemed voucher through funnel: VOUCHER_OVER_REDEEMED flag set, no redemption row", async () => {
