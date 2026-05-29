@@ -157,6 +157,21 @@ export default function Approve() {
     );
   }
 
+  // ── Non-pin-reset kinds: stub for future UI (manual_payment_override etc.) ─
+  // This component only renders the staff_pin_reset approval flow. Other kinds
+  // will get their own UI in a later task; for now show a neutral placeholder.
+  if (request.kind !== "staff_pin_reset") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <p className="text-sm text-muted-foreground">
+          This approval type is not yet supported in this view.
+        </p>
+      </main>
+    );
+  }
+
+  // From here: request.kind === "staff_pin_reset" — subject_staff_name etc. are safe.
+
   // ── Already resolved ─────────────────────────────────────────────────────
   if (request.status === "resolved") {
     return (
