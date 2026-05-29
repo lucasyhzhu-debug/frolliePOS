@@ -2,6 +2,44 @@
 // All user-supplied fields must pass through escapeHtml() because we use
 // parse_mode: "HTML" — unescaped <, >, & will either crash the API parser
 // (HTTP 400) or render as broken markup.
+//
+// sendTelegramHtml ported from convex-telegram-bot-starter for chatRegistry.ts
+
+interface TelegramSendResponse {
+  ok: boolean;
+  result?: { message_id: number };
+  description?: string;
+}
+
+/**
+ * POST to Telegram sendMessage with parse_mode: HTML.
+ * Throws on transport error, non-OK HTTP, or ok:false in the JSON body.
+ */
+export async function sendTelegramHtml(
+  token: string,
+  chatId: string,
+  html: string,
+): Promise<{ message_id: number }> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: html,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Telegram sendMessage HTTP ${res.status}: ${body}`);
+  }
+  const json = (await res.json()) as TelegramSendResponse;
+  if (!json.ok || !json.result) {
+    throw new Error(`Telegram sendMessage failed: ${json.description ?? "unknown"}`);
+  }
+  return json.result;
+}
 
 export type InlineKeyboardButton = {
   text: string;
