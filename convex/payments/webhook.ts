@@ -20,15 +20,19 @@ function tokenMatches(received: string, expected: string): boolean {
  * paid mutation is wrapped so a throw never becomes a 500 (a non-2xx on a post-
  * record error creates a permanent retry loop). Always 200 otherwise.
  */
+/** Reject obviously-misconfigured tokens (real Xendit tokens are long random
+ * strings). Guards against an operator fat-fingering the env var to "" or " ". */
+const MIN_CALLBACK_TOKEN_LEN = 16;
+
 export const xenditWebhook = httpAction(async (ctx, request) => {
   const expected = process.env.XENDIT_CALLBACK_TOKEN;
   const received = request.headers.get("x-callback-token") ?? "";
-  if (!expected || !tokenMatches(received, expected)) {
+  if (!expected || expected.length < MIN_CALLBACK_TOKEN_LEN || !tokenMatches(received, expected)) {
     return new Response("unauthorized", { status: 401 });
   }
 
   const raw = await request.text();
-  const { paid, matchKey, amount, receiptId, source } = parseXenditWebhook(raw);
+  const { paid, matchKey, amount, receiptId, paymentSource } = parseXenditWebhook(raw);
 
   if (paid && matchKey) {
     try {
@@ -36,7 +40,7 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
         xendit_invoice_id: matchKey,
         paid_amount: amount,
         receipt_id: receiptId,
-        payment_source: source,
+        payment_source: paymentSource,
       });
     } catch (err) {
       // A mutation throw must never become a 500 (retry-storm guard). Logged at

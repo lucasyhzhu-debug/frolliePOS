@@ -83,6 +83,6 @@ describe("transactions/actions.cancelTransaction", () => {
         sessionId: s.session, txnId: s.txn,
         reason: "should reject", idempotencyKey: "k-c3",
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("INVALID_STATE_FOR_CANCEL");
   });
 });

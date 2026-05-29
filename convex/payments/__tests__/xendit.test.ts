@@ -61,7 +61,7 @@ describe("parseXenditWebhook", () => {
       matchKey: "qr_123",
       amount: 35000,
       receiptId: "RRN-1",
-      source: "DANA",
+      paymentSource: "DANA",
     });
   });
 

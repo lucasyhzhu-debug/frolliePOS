@@ -98,6 +98,11 @@ export const retryWithFreshInvoice = action({
 
     const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
+    // Same guard as requestPayment: never mint a fresh invoice for a txn that has
+    // already left awaiting_payment (a webhook may have won mid-retry). Without it
+    // a retry burns a Xendit charge + persists an orphan invoice that no webhook
+    // will ever match, with no cancel audit row.
+    if (txn.status !== "awaiting_payment") throw new Error("INVALID_STATE");
 
     // Unique ref per retry so a regenerate can't collide with the prior QR's
     // reference. Matching is on the globally-unique provider id; this only avoids

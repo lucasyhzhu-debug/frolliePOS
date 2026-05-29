@@ -184,12 +184,16 @@ export const _replaceInvoiceCommit_internal = internalMutation({
   ),
 });
 
-
 /**
  * Resolve a Xendit provider id (QR id / FVA id) → invoice row → txn, record the
  * reconciliation fields on the payments-owned invoice row, then funnel to
  * _confirmPaid_internal threading paid_amount for the mismatch flag. Unknown id
  * → silent drop. Idempotent because the funnel status-guards.
+ *
+ * Atomicity invariant: the RRN/source patch and the _confirmPaid_internal call
+ * run in ONE Convex transaction (nested ctx.runMutation shares it), so if the
+ * funnel throws, the patch rolls back too. Do NOT split the patch into a
+ * separate mutation — that would break this all-or-nothing guarantee.
  */
 async function _resolveAndConfirm(
   ctx: MutationCtx,

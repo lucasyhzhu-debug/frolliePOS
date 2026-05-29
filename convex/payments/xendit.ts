@@ -25,7 +25,9 @@ export type WebhookParse = {
   matchKey: string | null;
   amount?: number;
   receiptId?: string;
-  source?: string;
+  // The paying wallet/bank (DANA/OVO/BCA). Named distinctly from the funnel's
+  // `source` (the confirmation PATH: webhook/polling/manual) to avoid confusion.
+  paymentSource?: string;
 };
 
 /** Basic auth: secret key as username, EMPTY password. Buffer (node runtime). */
@@ -152,7 +154,7 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
       matchKey: d.qr_id ?? d.id ?? null,
       amount: d.amount,
       receiptId: d.payment_detail?.receipt_id,
-      source: d.payment_detail?.source,
+      paymentSource: d.payment_detail?.source,
     };
   }
   return { paid: false, matchKey: null };
