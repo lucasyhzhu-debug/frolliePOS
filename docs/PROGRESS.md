@@ -135,10 +135,9 @@ Merged 2026-05-26.
 
 ---
 
-## v0.3 — sale flow + Xendit 📋 PLANNED (next up)
+## v0.3 — sale flow + Xendit ✅ SHIPPED
 **Outcome:** Staff take a sale and accept QRIS or BCA VA payment, with retries that don't double-charge.
-**Target:** 29 May 2026
-Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook + idempotency harness updates.
+**Shipped:** 29 May 2026 via PR #3. 288 tests passing; payments live-verified on dev (QRIS + BCA FVA end-to-end via Xendit test-mode simulate, ADR-036). Prod deploy deferred to the v1.0 cutover.
 
 **You'll be able to:**
 - Build a cart with items + quantities, see live totals
