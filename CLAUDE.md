@@ -112,7 +112,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 - `src/components/ui/` — shadcn primitives (new-york style, stone base): `button`, `badge`, `card`, `input`, `label`, `separator`, `dialog`, `dropdown-menu`, `popover`, `select`, `switch`, `tabs`, `tooltip`, `progress`, `scroll-area`, `sonner` toast
 - `src/components/layout/` — `RootLayout` (app shell, session gate), `Stub` (route placeholder)
 - `src/components/pos/` — POS-specific shared components. `NumericKeypad` is the canonical PIN + qty input (3-col grid, keyboard-friendly, two sizes via `size: "compact" | "comfortable"`). `PinSheet` *(v0.3)* is the reusable PIN-entry sheet (built on `NumericKeypad`) used by change-PIN, manager reset, and the `/approve/:token` landing
-- `src/hooks/` — `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (v0.3: IDB-backed so a reload mid-payment doesn't double-execute). Added in v0.3: `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (ADR-026 re-check on startup)
+- `src/hooks/` — `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (v0.3: IDB-backed so a reload mid-payment doesn't double-execute). Added in v0.3: `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op shell since [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) downgraded the ADR-026 re-check to manual-only)
 - `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge). Other utilities (`format.ts`, `wa-link.ts`, `receipt-template.ts`) land per phase
 - `src/pwa/` — service worker bootstrap (vite-plugin-pwa handles registration)
 - `docs/SCHEMA.md` — POS tables plus relationship to Frollie Pro schema
