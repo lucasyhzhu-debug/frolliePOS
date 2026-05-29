@@ -368,7 +368,7 @@ export default function SaleCharge() {
                     SCAN TO PAY
                   </p>
                   {invoice?.qr_string ? (
-                    <div className="rounded-lg bg-white p-3">
+                    <div className="rounded-lg bg-white p-3" role="img" aria-label="QRIS payment QR code">
                       <QRCodeSVG value={invoice.qr_string} size={220} marginSize={0} />
                     </div>
                   ) : (
