@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { verifyPinOrThrow } from "../auth/verifyPin";
+import { createQrisCharge, createBcaVaCharge } from "./xendit";
 
 const XENDIT_BASE = "https://api.xendit.co";
 
@@ -98,31 +99,25 @@ export const requestPayment = action({
     if (!txn) throw new Error("TXN_NOT_FOUND");
     if (txn.status !== "awaiting_payment") throw new Error("INVALID_STATE");
 
-    // 3. POST Xendit
-    const payload: Record<string, unknown> = {
-      external_id: `pos-${args.txnId}`,
-      amount: txn.total,
-      payment_methods: args.method === "QRIS" ? ["QRIS"] : ["BCA"],
-      description: `Frollie POS sale ${args.txnId}`,
-    };
-    const { ok, data } = await xenditPost<XenditInvoiceResponse>("/v2/invoices", payload, args.idempotencyKey);
-    if (!ok) throw new Error(`XENDIT_INVOICE_FAILED: ${JSON.stringify(data)}`);
+    // 3. Mint the charge via the deep adapter (QR Codes for QRIS, FVA for BCA).
+    const ref = `pos-${args.txnId}`;
+    const charge =
+      args.method === "QRIS"
+        ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
+        : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
 
-    // 4. Commit invoice + cache row atomically. The commit mutation returns the
-    // FULL action response shape and caches it under args.idempotencyKey, so a
-    // retry's _lookup_internal pre-check above replays the complete blob
-    // (qrString/vaNumber included) — staffreview Critical #1.
+    // 4. Commit invoice + cache row atomically (returns the full action response).
     return await ctx.runMutation(
       internal.payments.internal._persistInvoiceCommit_internal,
       {
         idempotencyKey: args.idempotencyKey,
         txnId: args.txnId,
-        xendit_invoice_id: data.id,
+        xendit_invoice_id: charge.providerId,
         xendit_idempotency_key: args.idempotencyKey,
         method: args.method,
-        qr_string: data.qr_string,
-        va_number: data.account_number,
-        status_at_create: data.status,
+        qr_string: charge.qrString,
+        va_number: charge.vaNumber,
+        status_at_create: charge.statusAtCreate,
       },
     );
   },

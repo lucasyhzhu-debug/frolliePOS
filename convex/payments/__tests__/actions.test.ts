@@ -61,7 +61,7 @@ describe("payments/actions.requestPayment", () => {
     _xenditMockNextResponse({
       id: "xnd-real-1",
       qr_string: "00020101021126...",
-      status: "PENDING",
+      status: "ACTIVE",
     });
     const key = `pay-${Date.now()}`;
     const r = await t.action(api.payments.actions.requestPayment, {
@@ -75,7 +75,11 @@ describe("payments/actions.requestPayment", () => {
 
     const calls = _xenditMockCalls();
     expect(calls.length).toBe(1);
+    expect(calls[0].url).toContain("/qr_codes");
+    expect(calls[0].headers["api-version"]).toBe("2022-07-31");
     expect(calls[0].headers["X-IDEMPOTENCY-KEY"]).toBe(key);
+    expect(calls[0].body.type).toBe("DYNAMIC");
+    expect(calls[0].body.reference_id).toBe(`pos-${s.txn}`);
   });
 
   it("staffreview Critical #1: retry with same idempotencyKey forwards same X-IDEMPOTENCY-KEY to Xendit AND deduplicates Convex-side", async () => {
@@ -84,7 +88,7 @@ describe("payments/actions.requestPayment", () => {
     _xenditMockNextResponse({
       id: "xnd-dedup",
       qr_string: "qr-dedup",
-      status: "PENDING",
+      status: "ACTIVE",
     });
     const key = "pay-critical-1";
     const r1 = await t.action(api.payments.actions.requestPayment, {
@@ -94,7 +98,7 @@ describe("payments/actions.requestPayment", () => {
     _xenditMockNextResponse({
       id: "xnd-WRONG",
       qr_string: "qr-WRONG",
-      status: "PENDING",
+      status: "ACTIVE",
     });
     const r2 = await t.action(api.payments.actions.requestPayment, {
       sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: key,
@@ -108,6 +112,7 @@ describe("payments/actions.requestPayment", () => {
     // both sides.
     const calls = _xenditMockCalls();
     expect(calls.length).toBe(1);
+    expect(calls[0].url).toContain("/qr_codes");
     expect(calls[0].headers["X-IDEMPOTENCY-KEY"]).toBe(key);
 
     const invoices = await t.run((ctx) =>
@@ -116,19 +121,33 @@ describe("payments/actions.requestPayment", () => {
     expect(invoices.length).toBe(1);
   });
 
-  it("BCA_VA: posts to Xendit, returns vaNumber", async () => {
+  it("BCA_VA: posts to Xendit FVA endpoint, returns vaNumber", async () => {
     const t = convexTest(schema);
     const s = await seedAwaiting(t);
-    _xenditMockNextResponse({
-      id: "xnd-bca",
-      bank_code: "BCA",
-      account_number: "1234567890",
-      status: "PENDING",
-    });
+    _xenditMockNextResponse({ id: "va_real_1", account_number: "1080099887", status: "PENDING" });
     const r = await t.action(api.payments.actions.requestPayment, {
       sessionId: s.session, txnId: s.txn, method: "BCA_VA", idempotencyKey: "k-bca",
     });
-    expect(r.vaNumber).toBe("1234567890");
+    expect(r.vaNumber).toBe("1080099887");
+    const calls = _xenditMockCalls();
+    expect(calls[0].url).toContain("/callback_virtual_accounts");
+    expect(calls[0].body.bank_code).toBe("BCA");
+    expect(calls[0].body.is_closed).toBe(true);
+    expect(calls[0].body.expected_amount).toBe(25_000);
+  });
+
+  it("QRIS: a Xendit 4xx surfaces as XENDIT_QR_FAILED and persists nothing", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    _xenditMockNextResponse({ error_code: "BAD" }, 400);
+    await expect(
+      t.action(api.payments.actions.requestPayment, {
+        sessionId: s.session, txnId: s.txn, method: "QRIS",
+        idempotencyKey: `pay-fail-${Date.now()}`,
+      }),
+    ).rejects.toThrow(/XENDIT_QR_FAILED/);
+    const invoices = await t.run((ctx) => ctx.db.query("pos_xendit_invoices").collect());
+    expect(invoices.length).toBe(0);
   });
 
   it("throws SESSION_INVALID when the session has ended (C3 — no invoice for a terminated session)", async () => {
