@@ -231,3 +231,27 @@ The 2343-line in-tree script at `scripts/build-progress-html.mjs` was extracted 
 6. Update this CLAUDE.md: remove this whole section, change the `packages/ceo-progress-report/` bullet in "File locations" to say "snapshot retired, see npm package" (or delete the snapshot dir entirely if you're feeling tidy).
 
 The plan reference: [`docs/superpowers/plans/2026-05-27-ceo-progress-report-extraction.md`](./docs/superpowers/plans/2026-05-27-ceo-progress-report-extraction.md) — search for "Open follow-ups #5" for the original commitment.
+
+## gstack (REQUIRED — global install)
+
+**Before doing ANY work, verify gstack is installed:**
+
+```bash
+test -d ~/.claude/skills/gstack/bin && echo "GSTACK_OK" || echo "GSTACK_MISSING"
+```
+
+If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
+
+> gstack is required for all AI-assisted work in this repo.
+> Install it:
+> ```bash
+> git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+> cd ~/.claude/skills/gstack && ./setup --team
+> ```
+> Then restart your AI coding tool.
+
+Do not skip skills, ignore gstack errors, or work around missing gstack.
+
+Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
+and /browse are available. Use /browse for all web browsing.
+Use ~/.claude/skills/gstack/... for gstack file paths (the global path).
