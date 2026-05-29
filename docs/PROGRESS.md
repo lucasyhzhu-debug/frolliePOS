@@ -517,6 +517,7 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 - 🗂️ `routes/mgr/products.tsx` — ProductsManager (taxonomy editor)
 - 🗂️ `routes/mgr/receipt.tsx` — ReceiptConfig
 - 🗂️ `lib/receipt-template.ts` — receipt HTML rendering
+- 🗂️ Cohesive navigation strategy — app-wide nav shell / header chrome with consistent back/home affordances across spoke screens + cart-abandon semantics. _Surfaced in v0.3 UAT (2026-05-29): `/sale` and other spokes have no in-app route back to Home; staff rely on browser-back. Define the shell here BEFORE building the v0.5 screen set so screens aren't each retrofitted. Deliberately deferred from v0.3 — a one-off back button was declined in favour of doing nav once, coherently._
 
 ### Cross-cutting
 - 🗂️ ADR-008 (refunds as new rows, status computed on read)
