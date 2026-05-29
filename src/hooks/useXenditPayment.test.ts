@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 // computePhase is a pure function — test it without mounting the hook.
 import {
   computePhase,
-  POLL_CEILING_MS,
+  PAYMENT_CEILING_MS,
 } from "./useXenditPayment";
 import type { Id } from "../../convex/_generated/dataModel";
 
@@ -72,9 +72,9 @@ describe("computePhase", () => {
 // Constants
 // ---------------------------------------------------------------------------
 describe("useXenditPayment constants", () => {
-  it("exports POLL_CEILING_MS = 60000 (charge route ceiling timer)", () => {
-    // Polling is retired (Decision B) but POLL_CEILING_MS drives the charge
+  it("exports PAYMENT_CEILING_MS = 60000 (charge route ceiling timer)", () => {
+    // Polling is retired (Decision B) but PAYMENT_CEILING_MS drives the charge
     // route's wall-clock ceiling for the manual-fallback CTA reveal.
-    expect(POLL_CEILING_MS).toBe(60_000);
+    expect(PAYMENT_CEILING_MS).toBe(60_000);
   });
 });

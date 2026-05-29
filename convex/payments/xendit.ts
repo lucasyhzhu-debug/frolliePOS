@@ -83,6 +83,12 @@ export async function createQrisCharge(
     throw new Error(`XENDIT_QR_FAILED: ${res.status} ${await res.text()}`);
   }
   const json = (await res.json()) as { id: string; qr_string: string; status?: string };
+  // A 200 without a usable instrument must fail loudly, not persist an invoice
+  // that renders "No QR payload" and strands the txn in awaiting_payment — the
+  // exact failure mode this dedicated-API switch exists to eliminate.
+  if (!json.id || !json.qr_string) {
+    throw new Error(`XENDIT_QR_FAILED: 200 but missing id/qr_string: ${JSON.stringify(json)}`);
+  }
   return { providerId: json.id, qrString: json.qr_string, statusAtCreate: json.status ?? "ACTIVE" };
 }
 
@@ -105,6 +111,10 @@ export async function createBcaVaCharge(
     throw new Error(`XENDIT_VA_FAILED: ${res.status} ${await res.text()}`);
   }
   const json = (await res.json()) as { id: string; account_number: string; status?: string };
+  // Same guard as QRIS: a 200 without an id/account_number is unusable.
+  if (!json.id || !json.account_number) {
+    throw new Error(`XENDIT_VA_FAILED: 200 but missing id/account_number: ${JSON.stringify(json)}`);
+  }
   return { providerId: json.id, vaNumber: json.account_number, statusAtCreate: json.status ?? "PENDING" };
 }
 

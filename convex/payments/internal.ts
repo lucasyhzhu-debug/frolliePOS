@@ -205,11 +205,14 @@ async function _resolveAndConfirm(
     .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", xenditInvoiceId))
     .first();
   if (!inv) return;
-  if (extra.receipt_id !== undefined || extra.payment_source !== undefined) {
-    await ctx.db.patch(inv._id, {
-      ...(extra.receipt_id !== undefined ? { receipt_id: extra.receipt_id } : {}),
-      ...(extra.payment_source !== undefined ? { payment_source: extra.payment_source } : {}),
-    });
+  // First-writer-wins: only stamp reconciliation fields not already set. Xendit
+  // retries webhooks, and the patch runs before _confirmPaid_internal's status
+  // guard, so without this a duplicate delivery would overwrite the original RRN.
+  const recon: { receipt_id?: string; payment_source?: string } = {};
+  if (extra.receipt_id !== undefined && inv.receipt_id === undefined) recon.receipt_id = extra.receipt_id;
+  if (extra.payment_source !== undefined && inv.payment_source === undefined) recon.payment_source = extra.payment_source;
+  if (recon.receipt_id !== undefined || recon.payment_source !== undefined) {
+    await ctx.db.patch(inv._id, recon);
   }
   await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
     txnId: inv.transaction_id,

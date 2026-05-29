@@ -8,11 +8,11 @@ export type Phase =
   | { kind: "paid" }
   | { kind: "cancelled" };
 
-// Kept: the charge route's wall-clock ceiling timer reads this to reveal the
-// manual-fallback CTAs (Retry / Manager override / Cancel). Polling is retired
-// (Decision B) — payment detection is webhook-only; the reactive subscription
-// flips the phase to "paid" the instant the webhook writes.
-export const POLL_CEILING_MS = 60_000;
+// Wall-clock ceiling: the charge route reads this to reveal the manual-fallback
+// CTAs (Retry / Manager override / Cancel) after 60s. NOT a polling interval —
+// polling is retired (Decision B); payment detection is webhook-only and the
+// reactive subscription flips the phase to "paid" the instant the webhook writes.
+export const PAYMENT_CEILING_MS = 60_000;
 
 /**
  * Pure function — exported so tests can unit-test phase derivation in isolation

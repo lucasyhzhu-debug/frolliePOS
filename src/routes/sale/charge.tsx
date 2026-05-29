@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
-import { useXenditPayment, POLL_CEILING_MS } from "@/hooks/useXenditPayment";
+import { useXenditPayment, PAYMENT_CEILING_MS } from "@/hooks/useXenditPayment";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -88,7 +88,7 @@ export default function SaleCharge() {
     return () => clearInterval(handle);
   }, [showingId]);
 
-  const ceilingReached = elapsedMs >= POLL_CEILING_MS;
+  const ceilingReached = elapsedMs >= PAYMENT_CEILING_MS;
 
   // ---- initial-invoice creation guard ----
   // Tracks which methods we've already kicked off a create for, so an effect

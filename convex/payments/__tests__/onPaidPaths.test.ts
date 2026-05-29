@@ -111,6 +111,29 @@ describe("payments/internal", () => {
     expect(inv?.xendit_invoice_id).toBe("xnd-b");
   });
 
+  it("getCurrentInvoice skips a superseded (cancelled) invoice even when it is newest", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-act", txnId: s.txn, xendit_invoice_id: "xnd-active",
+      xendit_idempotency_key: "k-act", method: "QRIS", qr_string: "qr-act",
+      status_at_create: "ACTIVE",
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    // A NEWER row that has been superseded (cancelled_at set). getCurrentInvoice
+    // must skip it and return the older still-active row — proving it filters on
+    // cancelled_at, not merely "newest wins".
+    await t.run((ctx) =>
+      ctx.db.insert("pos_xendit_invoices", {
+        transaction_id: s.txn, xendit_invoice_id: "xnd-cancelled",
+        xendit_idempotency_key: "k-cancel", method: "QRIS", qr_string: "qr-cancel",
+        status_at_create: "ACTIVE", created_at: Date.now(), cancelled_at: Date.now(),
+      }),
+    );
+    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn });
+    expect(inv?.xendit_invoice_id).toBe("xnd-active");
+  });
+
   it("webhook dedup: same xendit_invoice_id called twice — second is no-op (status guard inside _confirmPaid)", async () => {
     const t = convexTest(schema);
     const s = await seedAwaiting(t);
