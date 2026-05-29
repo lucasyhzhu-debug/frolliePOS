@@ -1,52 +1,47 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { parseXenditWebhook } from "./xendit";
 
-const webhookBodyValidator = (
-  body: unknown,
-): body is {
-  id: string;
-  status: "PAID" | "EXPIRED" | "PENDING";
-  external_id?: string;
-} => {
-  if (typeof body !== "object" || body === null) return false;
-  const b = body as Record<string, unknown>;
-  return typeof b.id === "string" && typeof b.status === "string";
-};
+/** Constant-time compare; folds any length difference into the diff (I2). */
+function tokenMatches(received: string, expected: string): boolean {
+  let diff = received.length ^ expected.length;
+  const max = Math.max(received.length, expected.length);
+  for (let i = 0; i < max; i++) {
+    diff |= (received.charCodeAt(i) || 0) ^ (expected.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
 
 /**
- * Inbound Xendit webhook. Verified via constant-time compare of the
- * x-callback-token header against XENDIT_CALLBACK_TOKEN env var.
- * Dedup via _onPaidWebhook_internal → _confirmPaid_internal status guard.
- * Always returns 200 on success/duplicate — Xendit retries on non-2xx.
+ * Inbound Xendit webhook (QR Codes `qr.payment` + FVA payment callbacks share
+ * this endpoint). Token-verified; missing config OR mismatch → 401 (the only
+ * response that makes Xendit redeliver, and both self-heal once the token is
+ * fixed). Shape parsing is delegated to the adapter's parseXenditWebhook; the
+ * paid mutation is wrapped so a throw never becomes a 500 (a non-2xx on a post-
+ * record error creates a permanent retry loop). Always 200 otherwise.
  */
 export const xenditWebhook = httpAction(async (ctx, request) => {
   const expected = process.env.XENDIT_CALLBACK_TOKEN;
-  if (!expected) return new Response("misconfigured", { status: 500 });
-
   const received = request.headers.get("x-callback-token") ?? "";
-  // Constant-time compare: fold any length difference into the diff and walk the
-  // longer of the two, rather than returning early on length mismatch — a
-  // wrong-length token must not be distinguishable from a wrong-byte one by
-  // timing (I2). charCodeAt past the end is NaN → coerced to 0.
-  let diff = received.length ^ expected.length;
-  const max = Math.max(received.length, expected.length);
-  for (let i = 0; i < max; i++)
-    diff |= (received.charCodeAt(i) || 0) ^ (expected.charCodeAt(i) || 0);
-  if (diff !== 0) return new Response("unauthorized", { status: 401 });
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response("bad request", { status: 400 });
+  if (!expected || !tokenMatches(received, expected)) {
+    return new Response("unauthorized", { status: 401 });
   }
 
-  if (!webhookBodyValidator(body)) return new Response("bad request", { status: 400 });
+  const raw = await request.text();
+  const { paid, matchKey, amount, receiptId, source } = parseXenditWebhook(raw);
 
-  if (body.status === "PAID") {
-    await ctx.runMutation(internal.payments.internal._onPaidWebhook_internal, {
-      xendit_invoice_id: body.id,
-    });
+  if (paid && matchKey) {
+    try {
+      await ctx.runMutation(internal.payments.internal._onPaidWebhook_internal, {
+        xendit_invoice_id: matchKey,
+        paid_amount: amount,
+        receipt_id: receiptId,
+        payment_source: source,
+      });
+    } catch (err) {
+      // A mutation throw must never become a 500 (retry-storm guard).
+      console.log("[xendit] webhook mutation error:", err);
+    }
   }
 
   return new Response("ok", { status: 200 });

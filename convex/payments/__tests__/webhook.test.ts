@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
+import { PAYMENT_AMOUNT_MISMATCH } from "../../transactions/flags";
 
 beforeEach(() => {
   process.env.XENDIT_CALLBACK_TOKEN = "tok-test";
@@ -53,49 +54,91 @@ async function seedAwaitingWithInvoice(
 }
 
 describe("payments/webhook", () => {
-  it("rejects request without matching x-callback-token", async () => {
+  it("rejects request without matching x-callback-token (401)", async () => {
     const t = convexTest(schema);
-    const response = await t.fetch("/payments/webhook", {
+    const r = await t.fetch("/payments/webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-callback-token": "wrong" },
-      body: JSON.stringify({ id: "xnd-1", status: "PAID" }),
+      body: JSON.stringify({ event: "qr.payment", data: { qr_id: "x", status: "SUCCEEDED" } }),
     });
-    expect(response.status).toBe(401);
+    expect(r.status).toBe(401);
   });
 
-  it("on valid PAID webhook, funnels to _confirmPaid via _onPaidWebhook", async () => {
+  it("missing token config → 401 (behavior change from 500)", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithInvoice(t, "xnd-wh");
+    delete process.env.XENDIT_CALLBACK_TOKEN;
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "anything" },
+      body: JSON.stringify({ event: "qr.payment", data: { qr_id: "x", status: "SUCCEEDED" } }),
+    });
+    expect(r.status).toBe(401);
+    process.env.XENDIT_CALLBACK_TOKEN = "tok-test"; // restore for later tests
+  });
 
+  it("valid QRIS SUCCEEDED webhook funnels to paid + records receipt_id/source", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaitingWithInvoice(t, "qr_wh");
     const r = await t.fetch("/payments/webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-callback-token": "tok-test" },
-      body: JSON.stringify({ id: "xnd-wh", status: "PAID", external_id: "pos-..." }),
+      body: JSON.stringify({
+        event: "qr.payment",
+        data: {
+          qr_id: "qr_wh", status: "SUCCEEDED", amount: 25_000,
+          payment_detail: { receipt_id: "RRN-9", source: "OVO" },
+        },
+      }),
     });
     expect(r.status).toBe(200);
-
-    const txn = await t.run((ctx) => ctx.db.get(s.txn));
-    expect(txn?.status).toBe("paid");
-    expect(txn?.confirmed_via).toBe("webhook");
+    const after = await t.run(async (ctx) => {
+      const txn = await ctx.db.get(s.txn);
+      const inv = await ctx.db
+        .query("pos_xendit_invoices")
+        .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", "qr_wh"))
+        .first();
+      return { txn, inv };
+    });
+    expect(after.txn?.status).toBe("paid");
+    expect(after.txn?.confirmed_via).toBe("webhook");
+    expect(after.inv?.receipt_id).toBe("RRN-9");
+    expect(after.inv?.payment_source).toBe("OVO");
   });
 
-  it("returns 200 on duplicate PAID webhook (idempotent)", async () => {
+  it("mismatched webhook amount threads through → PAYMENT_AMOUNT_MISMATCH flag set", async () => {
     const t = convexTest(schema);
-    await seedAwaitingWithInvoice(t, "xnd-dup");
+    const s = await seedAwaitingWithInvoice(t, "qr_mismatch");
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test" },
+      body: JSON.stringify({
+        event: "qr.payment",
+        data: { qr_id: "qr_mismatch", status: "SUCCEEDED", amount: 24_000 },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(PAYMENT_AMOUNT_MISMATCH);
+  });
 
-    const headers = { "Content-Type": "application/json", "x-callback-token": "tok-test" };
-    const body = JSON.stringify({ id: "xnd-dup", status: "PAID" });
+  it("bad JSON → 200 no-op (avoids Xendit retry loop)", async () => {
+    const t = convexTest(schema);
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test" },
+      body: "{not json",
+    });
+    expect(r.status).toBe(200);
+  });
 
-    const r1 = await t.fetch("/payments/webhook", { method: "POST", headers, body });
-    expect(r1.status).toBe(200);
-
-    const r2 = await t.fetch("/payments/webhook", { method: "POST", headers, body });
-    expect(r2.status).toBe(200);
-
-    const movements = await t.run((ctx) =>
-      ctx.db.query("pos_stock_movements").collect(),
-    );
-    // _confirmPaid status guard: second webhook is a no-op → only one movement row
-    expect(movements.length).toBe(1);
+  it("unmatched matchKey → 200 (silent drop)", async () => {
+    const t = convexTest(schema);
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test" },
+      body: JSON.stringify({ event: "qr.payment", data: { qr_id: "nope", status: "SUCCEEDED" } }),
+    });
+    expect(r.status).toBe(200);
   });
 });

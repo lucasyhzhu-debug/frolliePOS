@@ -52,17 +52,6 @@ async function xenditPost<T = any>(
   return { ok: r.ok, data: await readJson<T>(r) };
 }
 
-async function xenditGet<T = any>(path: string): Promise<{ ok: boolean; data: T }> {
-  const key = process.env.XENDIT_SECRET_KEY;
-  if (!key) throw new Error("XENDIT_SECRET_KEY not set");
-  const auth = `Basic ${Buffer.from(`${key}:`).toString("base64")}`;
-  const r = await fetch(`${XENDIT_BASE}${path}`, {
-    method: "GET",
-    headers: { Authorization: auth },
-  });
-  return { ok: r.ok, data: await readJson<T>(r) };
-}
-
 /**
  * Create a Xendit invoice for a transaction. Action-level idempotency pattern
  * per spec §"Action-level idempotency" + staffreview Critical #1:
@@ -189,30 +178,6 @@ export const retryWithFreshInvoice = action({
         cancel_outcome,
       },
     );
-  },
-});
-
-/**
- * Polling fallback — GET invoice status; if PAID, runMutation _onPaidPolling.
- * No idempotencyKey arg: this is a side-effect-free read for the PENDING case,
- * and the funnel is idempotent for the PAID case.
- */
-export const checkInvoiceStatus = action({
-  args: { invoiceId: v.string() },
-  handler: async (ctx, args): Promise<{
-    status: "PENDING" | "PAID" | "EXPIRED" | "UNKNOWN";
-  }> => {
-    if (!args.invoiceId) return { status: "UNKNOWN" };
-    const { ok, data } = await xenditGet<XenditInvoiceResponse>(`/v2/invoices/${args.invoiceId}`);
-    if (!ok) return { status: "UNKNOWN" };
-    if (data.status === "PAID") {
-      await ctx.runMutation(internal.payments.internal._onPaidPolling_internal, {
-        xendit_invoice_id: args.invoiceId,
-      });
-      return { status: "PAID" };
-    }
-    if (data.status === "EXPIRED") return { status: "EXPIRED" };
-    return { status: "PENDING" };
   },
 });
 

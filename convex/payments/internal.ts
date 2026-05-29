@@ -212,37 +212,48 @@ export const _auditInvoiceCancelOutcome_internal = internalMutation({
 });
 
 /**
- * Resolve a Xendit invoice id → txn id, then delegate to the funnel. Shared by
- * the webhook and polling entry points (their only difference is the `source`
- * recorded on the confirmation). Unknown invoice → silent drop (e.g. a test
- * webhook). Idempotent because _confirmPaid status-guards.
+ * Resolve a Xendit provider id (QR id / FVA id) → invoice row → txn, record the
+ * reconciliation fields on the payments-owned invoice row, then funnel to
+ * _confirmPaid_internal threading paid_amount for the mismatch flag. Unknown id
+ * → silent drop. Idempotent because the funnel status-guards.
  */
 async function _resolveAndConfirm(
   ctx: MutationCtx,
   xenditInvoiceId: string,
-  source: "webhook" | "polling",
+  extra: { paid_amount?: number; receipt_id?: string; payment_source?: string },
 ): Promise<void> {
   const inv = await ctx.db
     .query("pos_xendit_invoices")
     .withIndex("by_xendit_invoice_id", (q) => q.eq("xendit_invoice_id", xenditInvoiceId))
     .first();
   if (!inv) return;
+  if (extra.receipt_id !== undefined || extra.payment_source !== undefined) {
+    await ctx.db.patch(inv._id, {
+      ...(extra.receipt_id !== undefined ? { receipt_id: extra.receipt_id } : {}),
+      ...(extra.payment_source !== undefined ? { payment_source: extra.payment_source } : {}),
+    });
+  }
   await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
     txnId: inv.transaction_id,
-    source,
+    source: "webhook",
+    paid_amount: extra.paid_amount,
   });
 }
 
-/** Webhook path (primary). */
+/** Webhook path (primary — and now the sole automatic confirmation path). */
 export const _onPaidWebhook_internal = internalMutation({
-  args: { xendit_invoice_id: v.string() },
-  handler: (ctx, args) => _resolveAndConfirm(ctx, args.xendit_invoice_id, "webhook"),
-});
-
-/** Polling-fallback path — the funnel's status guard makes a late poll a no-op. */
-export const _onPaidPolling_internal = internalMutation({
-  args: { xendit_invoice_id: v.string() },
-  handler: (ctx, args) => _resolveAndConfirm(ctx, args.xendit_invoice_id, "polling"),
+  args: {
+    xendit_invoice_id: v.string(),
+    paid_amount: v.optional(v.number()),
+    receipt_id: v.optional(v.string()),
+    payment_source: v.optional(v.string()),
+  },
+  handler: (ctx, args) =>
+    _resolveAndConfirm(ctx, args.xendit_invoice_id, {
+      paid_amount: args.paid_amount,
+      receipt_id: args.receipt_id,
+      payment_source: args.payment_source,
+    }),
 });
 
 /**

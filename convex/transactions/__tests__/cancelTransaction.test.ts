@@ -5,8 +5,6 @@ import { api } from "../../_generated/api";
 import {
   installFetchMock,
   _xenditMockReset,
-  _xenditMockNextResponse,
-  _xenditMockThrowNext,
 } from "../../payments/__tests__/_xenditMock";
 
 beforeEach(() => {
@@ -45,39 +43,35 @@ describe("transactions/actions.cancelTransaction", () => {
     expect(txn?.cancelled_reason).toBe("staff cancel before payment");
   });
 
-  it("staffreview T3: cancel with invoice, Xendit cancel-API throws 5xx — best-effort, still flips status, audit logs success: false", async () => {
+  it("Decision E: cancel with existing invoice — flips status cleanly (no Xendit HTTP, no expire! call)", async () => {
     const t = convexTest(schema);
     const s = await seedAwaitingWithSession(t);
-    // Persist a fake invoice
+    // Persist a fake invoice pointer on the txn (as if requestPayment had run)
     await t.run((ctx) =>
-      ctx.db.patch(s.txn, { xendit_invoice_id_current: "xnd-fail" }),
+      ctx.db.patch(s.txn, { xendit_invoice_id_current: "xnd-cancel" }),
     );
     await t.run((ctx) =>
       ctx.db.insert("pos_xendit_invoices", {
-        transaction_id: s.txn, xendit_invoice_id: "xnd-fail",
+        transaction_id: s.txn, xendit_invoice_id: "xnd-cancel",
         xendit_idempotency_key: "k", method: "QRIS",
         qr_string: "qr", status_at_create: "PENDING", created_at: Date.now(),
       }),
     );
-    _xenditMockThrowNext(new Error("Xendit 500"));
+    // No mock needed — the action no longer calls Xendit on cancel (Decision E).
     await t.action(api.transactions.actions.cancelTransaction, {
       sessionId: s.session, txnId: s.txn,
-      reason: "cancel with hostile Xendit", idempotencyKey: "k-c2",
+      reason: "cancel with existing invoice", idempotencyKey: "k-c2",
     });
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("cancelled");
-
+    expect(txn?.cancelled_reason).toBe("cancel with existing invoice");
+    // No payment.invoice_cancelled audit row (that path no longer exists for cancel).
     const audit = await t.run((ctx) =>
       ctx.db.query("audit_log")
         .withIndex("by_action_date", (q) => q.eq("action", "payment.invoice_cancelled"))
         .collect(),
     );
-    expect(audit.length).toBeGreaterThan(0);
-    // audit_log.metadata is stored as a stringified JSON (logAudit JSON.stringify's
-    // it; schema is v.optional(v.string())) — parse it back to assert the outcome.
-    const meta = JSON.parse(audit[audit.length - 1].metadata ?? "{}");
-    expect(meta.success).toBe(false);
-    expect(meta.error).toBeTruthy();
+    expect(audit.length).toBe(0);
   });
 
   it("rejects cancelling a paid txn", async () => {

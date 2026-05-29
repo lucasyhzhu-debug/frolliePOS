@@ -206,25 +206,6 @@ describe("payments/actions.retryWithFreshInvoice", () => {
   });
 });
 
-describe("payments/actions.checkInvoiceStatus", () => {
-  it("returns PAID when Xendit says PAID and funnels to _confirmPaid", async () => {
-    const t = convexTest(schema);
-    const s = await seedAwaiting(t);
-    _xenditMockNextResponse({ id: "xnd-poll", qr_string: "qr", status: "PENDING" });
-    await t.action(api.payments.actions.requestPayment, {
-      sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "k-poll-1",
-    });
-    _xenditMockNextResponse({ id: "xnd-poll", status: "PAID" });
-    const r = await t.action(api.payments.actions.checkInvoiceStatus, {
-      invoiceId: "xnd-poll",
-    });
-    expect(r.status).toBe("PAID");
-    const txn = await t.run((ctx) => ctx.db.get(s.txn));
-    expect(txn?.status).toBe("paid");
-    expect(txn?.confirmed_via).toBe("polling");
-  });
-});
-
 describe("payments/actions.manuallyConfirmPayment", () => {
   it("argon2id-verifies manager PIN and funnels to _confirmPaid with source=manual", async () => {
     const t = convexTest(schema);
