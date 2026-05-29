@@ -20,9 +20,10 @@ import { toast } from "sonner";
 type Method = "QRIS" | "BCA_VA";
 
 /**
- * Charge screen — the three-path payment confirmation surface (ADR strategic
- * foundations §8). Reads :txnId, drives a Xendit invoice per method, polls for
- * payment via useXenditPayment, and at the 60s ceiling reveals the three CTAs:
+ * Charge screen — the payment confirmation surface (ADR strategic foundations
+ * §8, amended by ADR-036). Reads :txnId, drives a Xendit invoice per method, and
+ * subscribes to payment status reactively via useXenditPayment (webhook-driven;
+ * polling retired per ADR-036). At the 60s ceiling it reveals the three CTAs:
  * Retry (fresh invoice), Manager override (manual confirm), Cancel sale.
  *
  * State-machine shape:
@@ -310,15 +311,6 @@ export default function SaleCharge() {
             </p>
             <Button variant="outline" onClick={() => navigate("/sale")}>
               New sale
-            </Button>
-          </div>
-        ) : phase.kind === "expired" ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3">
-            <p className="text-sm text-muted-foreground">
-              This invoice expired.
-            </p>
-            <Button onClick={handleRetry} disabled={retrying}>
-              {retrying ? "Generating…" : "Generate fresh invoice"}
             </Button>
           </div>
         ) : phase.kind === "paid" ? (

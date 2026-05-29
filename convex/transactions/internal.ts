@@ -111,9 +111,11 @@ export const _setCurrentInvoice_internal = internalMutation({
 });
 
 /**
- * THE FUNNEL. All three confirmation paths (webhook, polling, manual) converge
- * here. Idempotent via status guard: if txn is not in awaiting_payment, this
- * is a no-op. Spec §"Canonical sale data flow → THE FUNNEL".
+ * THE FUNNEL. All confirmation paths converge here. Post-ADR-036 the live paths
+ * are webhook (primary, automatic) + manual override; the "polling" source label
+ * is retained for the idempotent re-fire test + any future reconciliation, but no
+ * runtime polling path emits it. Idempotent via status guard: if txn is not in
+ * awaiting_payment, this is a no-op. Spec §"Canonical sale data flow → THE FUNNEL".
  *
  * Steps (in order):
  *   0. Status guard (idempotent re-fire)
@@ -149,9 +151,10 @@ export const _confirmPaid_internal = internalMutation({
     if (txn.status === "paid") return;
     if (txn.status !== "awaiting_payment") {
       // A payment confirmation arrived for a terminal, non-paid txn (e.g. the sale
-      // was cancelled but Xendit's best-effort expire! had failed and the customer
-      // paid anyway). Money may have moved with no sale record. Do NOT auto-flip
-      // (a manager reconciles), but emit an alert so it isn't silently swallowed.
+      // was cancelled, but the QR/VA stayed live on Xendit's side — there is no
+      // expire API for QR Codes (Decision E) — and the customer paid anyway).
+      // Money may have moved with no sale record. Do NOT auto-flip (a manager
+      // reconciles), but emit an alert so it isn't silently swallowed.
       await logAudit(ctx, {
         actor_id: args.mgr_approver_id ?? "system",
         action: "payment.confirmed_on_terminal",

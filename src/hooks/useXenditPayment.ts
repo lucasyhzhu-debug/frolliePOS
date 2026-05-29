@@ -6,7 +6,6 @@ export type Phase =
   | { kind: "loading" }
   | { kind: "showing" }
   | { kind: "paid" }
-  | { kind: "expired" }
   | { kind: "cancelled" };
 
 // Kept: the charge route's wall-clock ceiling timer reads this to reveal the
