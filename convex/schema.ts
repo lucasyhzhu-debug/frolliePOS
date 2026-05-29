@@ -9,6 +9,7 @@ import { paymentsTables } from "./payments/schema";
 import { inventoryTables } from "./inventory/schema";
 import { vouchersTables } from "./vouchers/schema";
 import { approvalsTables } from "./approvals/schema";
+import { settingsTables } from "./settings/schema";
 
 export default defineSchema({
   ...authTables,
@@ -21,4 +22,5 @@ export default defineSchema({
   ...inventoryTables,
   ...vouchersTables,
   ...approvalsTables,
+  ...settingsTables,
 });
