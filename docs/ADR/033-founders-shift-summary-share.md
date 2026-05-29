@@ -1,7 +1,7 @@
 # 033. Founders shift-summary share: opt-in, default ON
 
 **Date:** 2026-05-21
-**Status:** Accepted
+**Status:** Superseded by [ADR-035](./035-telegram-as-internal-comms.md) — 2026-05-27
 **Group:** Time
 
 ## Context

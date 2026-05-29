@@ -5,6 +5,7 @@ import {
   renderApproval,
   renderShiftSummary,
   renderCustom,
+  renderStaffPinReset,
   makeNonce,
 } from "./telegramHtml";
 
@@ -112,6 +113,33 @@ describe("renderCustom", () => {
         { text: "Test B", callback_data: "test_b:abc" },
       ],
     ]);
+  });
+});
+
+describe("renderStaffPinReset", () => {
+  test("renders HTML with staff name, code, locked-at, link", () => {
+    const r = renderStaffPinReset({
+      staff_name: "Lucy",
+      staff_code: "S-0042",
+      locked_at_iso: "2026-05-27T07:23:00Z",
+      request_url: "https://pos.dev/approve/abc123",
+    });
+    expect(r.text).toContain("Lucy");
+    expect(r.text).toContain("S-0042");
+    expect(r.text).toContain("Tap to reset PIN");
+    expect(r.text).toContain("https://pos.dev/approve/abc123");
+    expect(r.text).toContain("60 minutes");
+  });
+
+  test("HTML-escapes staff name to prevent injection", () => {
+    const r = renderStaffPinReset({
+      staff_name: "<script>alert(1)</script>",
+      staff_code: "S-9",
+      locked_at_iso: "2026-05-27T07:23:00Z",
+      request_url: "https://pos.dev/approve/x",
+    });
+    expect(r.text).not.toContain("<script>");
+    expect(r.text).toContain("&lt;script&gt;");
   });
 });
 

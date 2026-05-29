@@ -1,0 +1,22 @@
+{
+  "name": "ceo-progress-report",
+  "displayName": "CEO Progress Report",
+  "version": "0.1.0",
+  "description": "Turn PROGRESS.md into an editorial build-log dashboard your CEO will actually read. Ships writing-discipline skills + slash commands wrapping the npm CLI.",
+  "author": {
+    "name": "Lucas Zhu",
+    "email": "lucas@malostudio.id"
+  },
+  "homepage": "https://github.com/lucasyhzhu-debug/ceo-progress-report",
+  "repository": "https://github.com/lucasyhzhu-debug/ceo-progress-report",
+  "license": "MIT",
+  "keywords": [
+    "roadmap",
+    "progress",
+    "dashboard",
+    "ceo",
+    "build-log",
+    "writing-discipline",
+    "markdown"
+  ]
+}

@@ -1,4 +1,6 @@
 import { query } from "../_generated/server";
+import { api } from "../_generated/api";
+import { Doc } from "../_generated/dataModel";
 
 /**
  * Single payload for the catalog screen + offline cache. Persisted to IDB
@@ -6,12 +8,30 @@ import { query } from "../_generated/server";
  * available_qty per product is computed client-side (ADR-017) from the
  * components + stockLevels in this payload.
  *
- * vouchers not in v0.2 — added in v0.6.
+ * Stock levels are sourced via api.inventory.public.getStockLevels (ADR-034:
+ * inventory owns pos_stock_levels; catalog reads through inventory's public API).
+ * The Record<id, on_hand> map is converted to an array of {inventory_sku_id,
+ * on_hand} rows to preserve the useCatalogCache consumer contract.
+ *
+ * Vouchers are bundled for offline apply per ADR-009 (server re-validates at
+ * commitCart). Active+unexpired rows are sourced via
+ * api.vouchers.public.getActiveVouchers (ADR-034: vouchers owns pos_vouchers).
  */
 export const catalog = query({
   args: {},
-  handler: async (ctx) => {
-    const [products, skus, allComponents, allStockLevels] = await Promise.all([
+  // Explicit return type breaks the cross-module circular inference (this handler
+  // calls ctx.runQuery on inventory + vouchers public APIs). Without it tsc -b
+  // collapses the inferred element types and downstream consumers see `any`.
+  handler: async (
+    ctx,
+  ): Promise<{
+    products: Doc<"pos_products">[];
+    skus: Doc<"pos_inventory_skus">[];
+    components: Doc<"pos_product_components">[];
+    stockLevels: Array<{ inventory_sku_id: string; on_hand: number }>;
+    vouchers: Doc<"pos_vouchers">[];
+  }> => {
+    const [products, skus, allComponents, stockLevelMap, vouchers] = await Promise.all([
       ctx.db
         .query("pos_products")
         .withIndex("by_active_sort", (q) => q.eq("active", true))
@@ -21,15 +41,22 @@ export const catalog = query({
         .withIndex("by_active", (q) => q.eq("active", true))
         .collect(),
       ctx.db.query("pos_product_components").collect(),
-      ctx.db.query("pos_stock_levels").collect(),
+      ctx.runQuery(api.inventory.public.getStockLevels, {}),
+      ctx.runQuery(api.vouchers.public.getActiveVouchers, {}),
     ]);
 
     const activeProductIds = new Set(products.map((p) => p._id));
-    const activeSkuIds = new Set(skus.map((s) => s._id));
 
     const components = allComponents.filter((c) => activeProductIds.has(c.product_id));
-    const stockLevels = allStockLevels.filter((s) => activeSkuIds.has(s.inventory_sku_id));
 
-    return { products, skus, components, stockLevels };
+    // Convert the Record<id, on_hand> map returned by inventory.public.getStockLevels
+    // into an array of {inventory_sku_id, on_hand} rows — preserving the shape
+    // that useCatalogCache and the catalog tests expect.
+    const stockLevels = Object.entries(stockLevelMap).map(([inventory_sku_id, on_hand]) => ({
+      inventory_sku_id,
+      on_hand,
+    }));
+
+    return { products, skus, components, stockLevels, vouchers };
   },
 });

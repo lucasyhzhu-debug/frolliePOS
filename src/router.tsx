@@ -9,8 +9,8 @@ import { RootLayout } from "@/components/layout/RootLayout";
  *   /sale                        — cart / new sale (CartA)
  *   /sale/drafts                 — saved drafts
  *   /sale/voucher                — apply voucher
- *   /sale/charge                 — QR display (ChargeA)
- *   /sale/charge/success         — paid screen
+ *   /sale/charge/:txnId          — QR display (ChargeA)
+ *   /sale/charge/:txnId/success  — paid screen
  *   /stock                       — stock check (inventory)
  *   /stock/in                    — stock-in
  *   /lock                        — end-of-shift lock + handoff
@@ -79,8 +79,8 @@ const routes: RouteObject[] = [
       { path: "sale", element: <Sale /> },
       { path: "sale/drafts", element: <SaleDrafts /> },
       { path: "sale/voucher", element: <SaleVoucher /> },
-      { path: "sale/charge", element: <SaleCharge /> },
-      { path: "sale/charge/success", element: <SaleChargeSuccess /> },
+      { path: "sale/charge/:txnId", element: <SaleCharge /> },
+      { path: "sale/charge/:txnId/success", element: <SaleChargeSuccess /> },
       { path: "stock", element: <Stock /> },
       { path: "stock/in", element: <StockIn /> },
       { path: "lock", element: <Lock /> },

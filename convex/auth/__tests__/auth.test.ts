@@ -1,7 +1,40 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+
+// Wiring the lockout scheduler (Task 18) means hitting the 3rd failed PIN now
+// schedules approvals.actions.notifyStaffLockout, which sends a Telegram message.
+// Stub fetch + env so that scheduled send is offline and deterministic; tests
+// that trip the lockout drain it with t.finishInProgressScheduledFunctions().
+const realFetch = globalThis.fetch;
+beforeEach(() => {
+  process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+  process.env.TELEGRAM_CHAT_ID = "-1001234567";
+  process.env.POS_BASE_URL = "https://pos.dev";
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).includes("telegram")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1 } }),
+        text: async () => "{}",
+      } as unknown as Response;
+    }
+    return realFetch(url as RequestInfo);
+  }) as typeof fetch;
+});
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+// runAfter(0) is dispatched via setTimeout(0): the job is still `pending` when the
+// scheduling action returns, so a bare finishInProgressScheduledFunctions() would
+// no-op. Yield one macrotask to let the timer move the job to `inProgress`, then drain.
+async function drainScheduled(t: ReturnType<typeof convexTest>) {
+  await new Promise((r) => setTimeout(r, 0));
+  await t.finishInProgressScheduledFunctions();
+}
 
 export async function seedStaff(
   t: ReturnType<typeof convexTest>,
@@ -147,6 +180,8 @@ describe("loginWithPin (action)", () => {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `wrong-${i}`,
       }).catch(() => void 0);
     }
+    // Drain the scheduled notifyStaffLockout (Task 18) so it doesn't fire after teardown.
+    await drainScheduled(t);
 
     // 4th attempt (even with correct PIN) should be locked out
     await expect(
@@ -192,6 +227,7 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix7-wrong-${i}`,
       }).catch(() => void 0);
     }
+    await drainScheduled(t);
 
     // Fast-forward: set locked_until to the past to simulate expiry
     await t.run(async (ctx) => {
@@ -263,6 +299,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
         staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: `fix14-wrong-${i}`,
       }).catch(() => void 0);
     }
+    await drainScheduled(t);
 
     const auditsBefore = await t.query(internal.audit.internal._list_internal, { action: "staff.locked_out" });
     // Lockout was set — at least 1 audit row from the 3rd failure

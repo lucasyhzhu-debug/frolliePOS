@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 export const _countStaff_internal = internalQuery({
@@ -24,6 +25,12 @@ export const _reset_internal = internalMutation({
     for (const table of [
       "audit_log", "pos_idempotency", "pos_auth_attempts",
       "staff_sessions", "registered_devices", "pending_device_setups",
+      // v0.3 sale / payment / voucher / approval tables (children before parents).
+      // Without these, a dev reset left orphaned txns + an ever-climbing receipt
+      // counter, breaking the "wipe + bootstrap" smoke-flow premise (I5).
+      "pos_voucher_redemptions", "pos_stock_movements", "pos_xendit_invoices",
+      "pos_transaction_lines", "pos_transactions", "pos_receipt_counters",
+      "pos_vouchers", "pos_approval_requests",
       "pos_stock_levels", "pos_product_components", "pos_products", "pos_inventory_skus",
       "staff",
     ] as const) {
@@ -125,5 +132,45 @@ export const _reset_internal = internalMutation({
     });
 
     return { wiped, inserted };
+  },
+});
+
+/**
+ * Commit the bootstrap seed: insert Lucas as S-0001 (manager, PIN 1111 hashed
+ * by the caller action). Aborts if the staff table is already non-empty — this
+ * is a one-shot operation for fresh deployments only.
+ *
+ * seed module is allowlisted in eslint.config.js ALLOWLIST so writing the
+ * auth-owned `staff` table from here is permitted per ADR-034.
+ */
+export const _bootstrapCommit_internal = internalMutation({
+  args: { pinHash: v.string() },
+  handler: async (ctx, args): Promise<{ staffId: Id<"staff">; staffCode: string }> => {
+    const existing = await ctx.db.query("staff").take(1);
+    if (existing.length > 0) {
+      throw new Error("already_bootstrapped");
+    }
+
+    const now = Date.now();
+    const staffCode = "S-0001";
+    const staffId = await ctx.db.insert("staff", {
+      name: "Lucas",
+      code: staffCode,
+      pin_hash: args.pinHash,
+      role: "manager",
+      active: true,
+      created_at: now,
+    });
+
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "staff.bootstrapped",
+      entity_type: "staff",
+      entity_id: staffId,
+      source: "system",
+      metadata: { code: staffCode },
+    });
+
+    return { staffId, staffCode };
   },
 });

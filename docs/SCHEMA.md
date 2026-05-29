@@ -9,10 +9,17 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | Module | Tables owned |
 |---|---|
 | `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
-| `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components`, `pos_stock_levels` |
+| `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components` |
+| `inventory/` *(v0.3)* | `pos_stock_movements`, `pos_stock_levels` (moved from `catalog/` in v0.3 per ADR-034) |
+| `transactions/` *(v0.3)* | `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` |
+| `payments/` *(v0.3)* | `pos_xendit_invoices` |
+| `vouchers/` *(v0.3)* | `pos_vouchers`, `pos_voucher_redemptions` |
+| `approvals/` *(v0.3)* | `pos_approval_requests` |
 | `idempotency/` | `pos_idempotency` |
 | `audit/` | `audit_log` |
 | `telegram/` (POC) | `telegram_log` |
+
+> **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
 Cross-module direct `ctx.db` access is a CI lint block (see `tools/eslint-rules/no-cross-module-db-access.js`).
 
@@ -106,18 +113,18 @@ Singles only. What kitchen produces, what stock-in adds to ([ADR-016](./ADR/016-
 
 Indexes: `by_sku` on `sku` (unique), `by_active` on `active`.
 
-### `pos_stock_levels`
-Denormalised current stock for fast catalog rendering. Reconciled nightly from `pos_stock_movements`.
+### `pos_stock_levels` — v0.3 shipped *(owned by `inventory/`)*
+Denormalised current stock for fast catalog rendering. Reconciled nightly from `pos_stock_movements`. **Moved from `catalog/` to `inventory/` in v0.3** (ADR-034).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_stock_levels">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
 | `on_hand` | `number` | Can go negative ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)) |
-| `last_movement_id` | `Id<"pos_stock_movements">?` | For reconciliation audit |
+| `last_movement_id` | `string?` | **Kept as `v.string()` (not `Id<>`) in v0.3** — narrowing to `Id<"pos_stock_movements">` would risk schema-validation rejection on legacy dev rows. Reconcile at prod cutover (v1.0). Not written by any v0.3 code path. |
 | `updated_at` | `number` | |
 
-Indexes: `by_sku` on `inventory_sku_id` (unique).
+Indexes: `by_sku` on `inventory_sku_id`.
 
 ### `pos_products` *(rewritten in v0.5 — sellable pack-size units)*
 Sellable products with pack-size pricing. Each product draws from one or more inventory SKUs via `pos_product_components`.
@@ -152,61 +159,50 @@ Maps a sellable product to the inventory SKUs it consumes.
 
 Indexes: `by_product` on `product_id`, `by_sku` on `inventory_sku_id`.
 
-### `pos_transactions`
-Core sale record.
+### `pos_transactions` — v0.3 shipped *(owned by `transactions/`)*
+Core sale record. The v0.3 shape below is what ships in `convex/transactions/schema.ts`. The v0.5 design adds line-level discounts, manual discount sources, per-line tax aggregation, void provenance, receipt tokens, and customer fields — none of those columns exist yet.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_transactions">` | |
+| `receipt_number` | `string?` | `R-YYYY-NNNN`; allocated **only at `_confirmPaid`** ([ADR-023](./ADR/023-receipt-number-format.md)) |
+| `status` | `"draft" \| "awaiting_payment" \| "paid" \| "cancelled"` | v0.3 states. v0.5 adds `"voided"` (refund-derived statuses computed on read per [ADR-008](./ADR/008-refunds-as-new-rows.md)) |
+| `subtotal` | `number` | Sum of line subtotals (integer rupiah per [ADR-015](./ADR/015-idr-integer-rupiah.md)) |
+| `voucher_code_snapshot` | `string?` | Snapshot of the applied voucher code |
+| `voucher_discount` | `number` | `0` if no voucher ([ADR-010](./ADR/010-no-voucher-stacking.md): one voucher per txn) |
+| `total` | `number` | `subtotal - voucher_discount` |
+| `flags` | `number` | Bitset; `NEG_STOCK = 1 << 0` ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)); `PAYMENT_AMOUNT_MISMATCH = 1 << 2` (paid amount ≠ transaction total — honor-and-flag per [ADR-036](./ADR/036-xendit-dedicated-apis-inline.md)). See `transactions/flags.ts` |
 | `staff_id` | `Id<"staff">` | Creator |
-| `device_id` | `string` | |
-| `status` | `"draft" \| "awaiting_payment" \| "paid" \| "voided"` | Refund-derived statuses (`partial_refund`, `refunded`) are computed on read from `pos_refunds` per [ADR-008](./ADR/008-refunds-as-new-rows.md) |
-| `subtotal` | `number` | Sum of line subtotals (pre-discount, pre-tax) |
-| `line_discounts_total` | `number` | Sum of line-level discounts |
-| `voucher_discount` | `number` | Cart-level voucher amount ([ADR-024](./ADR/024-discount-ordering-line-voucher-tax.md)) |
-| `discount_source` | `"voucher_code" \| "manual_pct" \| "manual_amount" \| null` | At most one ([ADR-010](./ADR/010-no-voucher-stacking.md)) |
-| `tax_amount` | `number` | Computed per line, summed |
-| `total` | `number` | `subtotal - line_discounts_total - voucher_discount + tax_amount` |
-| `flags` | `number` | Bitset; `NEG_STOCK = 1 << 0` ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)) |
-| `payment_method` | `"qris" \| "bca_va" \| null` | |
-| `xendit_invoice_id` | `string?` | Current invoice ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)) |
-| `receipt_number` | `string?` | `R-YYYY-NNNN` allocated on transition to paid ([ADR-023](./ADR/023-receipt-number-format.md)) |
-| `receipt_token` | `string?` | 32-byte URL-safe random ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)) |
-| `customer_phone` | `string?` | Optional, captured for WhatsApp receipt |
-| `customer_name` | `string?` | Optional |
-| `notes` | `string?` | Staff free-text |
-| `voided_by` | `Id<"staff">?` | |
-| `voided_at` | `number?` | |
-| `created_at` | `number` | |
-| `paid_at` | `number?` | |
+| `xendit_invoice_id_current` | `string?` | Denormalised pointer to the active invoice ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)). Canonical invoice store is `pos_xendit_invoices`. `null` for draft |
+| `created_at` | `number` | Server-set ([ADR-031](./ADR/031-convex-server-time-wins.md)) |
+| `paid_at` | `number?` | Set at `_confirmPaid` |
+| `cancelled_at` | `number?` | |
+| `cancelled_reason` | `string?` | |
+| `confirmed_via` | `"webhook" \| "polling" \| "manual" \| null` | Confirmation provenance ([strategic foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)) |
+| `confirmed_mgr_approver_id` | `Id<"staff">?` | Manager who approved a `manual` confirm |
+| `confirmed_manual_reason` | `string?` | Required for `manual` confirm |
 
 Indexes:
-- `by_status_date` on `[status, created_at]`
-- `by_staff_date` on `[staff_id, created_at]`
+- `by_status_created` on `[status, created_at]` (ADR-026 reconciliation)
 - `by_receipt_number` on `receipt_number`
-- `by_receipt_token` on `receipt_token`
-- `by_xendit_invoice` on `xendit_invoice_id`
+- `by_staff_created` on `[staff_id, created_at]`
 
-### `pos_transaction_lines` *(renamed from `pos_transaction_items` in v0.5)*
-Line items. **Prices snapshotted at sale time** (never recomputed).
+### `pos_transaction_lines` — v0.3 shipped *(owned by `transactions/`)*
+Line items. **Prices snapshotted at sale time** (never recomputed). The v0.5 design adds per-line discounts, computed tax amount, line total, and `refunded_qty` — none of those columns exist in v0.3.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_transaction_lines">` | |
 | `transaction_id` | `Id<"pos_transactions">` | |
 | `product_id` | `Id<"pos_products">` | Reference for reporting; do NOT join for price |
+| `product_code_snapshot` | `string` | Stable product code at sale time |
 | `product_name_snapshot` | `string` | Product name at sale time |
-| `product_pack_snapshot` | `string` | Pack label at sale time |
+| `unit_price_snapshot` | `number` | Snapshot, integer rupiah |
+| `tax_rate_snapshot` | `number` | Schema-ready ([strategic foundations §4](./ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)); `0` today |
 | `qty` | `number` | Integer pack units (e.g. 2 boxes of "Dubai 3pcs") |
-| `unit_price` | `number` | Snapshot, integer rupiah |
-| `line_subtotal` | `number` | `qty * unit_price` |
-| `line_discount` | `number` | Per-line discount amount |
-| `tax_rate` | `number` | Decimal, 0 today |
-| `tax_amount` | `number` | Computed |
-| `line_total` | `number` | `line_subtotal - line_discount + tax_amount` |
-| `refunded_qty` | `number` | Denormalised, incremented by refund mutations ([ADR-008](./ADR/008-refunds-as-new-rows.md)) |
+| `line_subtotal` | `number` | `qty * unit_price_snapshot` |
 
-Indexes: `by_transaction` on `transaction_id`, `by_product_date` on `[product_id, _creationTime]` for reporting.
+Indexes: `by_transaction` on `transaction_id`.
 
 ### `pos_payments`
 Payment attempts. One transaction can have multiple if the first invoice expired or was cancelled+retried.
@@ -236,20 +232,29 @@ Indexes:
 - `by_xendit_invoice` on `xendit_invoice_id` (unique)
 - `by_status_expires` on `[status, expires_at]` for cleanup
 
-### `pos_xendit_invoices` *(new in v0.5 — audit)*
-History of all Xendit invoices created for a transaction, including cancelled ones ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)).
+### `pos_xendit_invoices` — v0.3 shipped *(owned by `payments/`)*
+History of all Xendit invoices created for a transaction, including cancelled ones ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), adjusted by [ADR-036](./ADR/036-xendit-dedicated-apis-inline.md)). `by_xendit_invoice_id` is the webhook dedup index.
+
+> **ADR-036 (2026-05-28):** `xendit_invoice_id` stores the QR Codes `id` for QRIS invoices and the FVA `id` for BCA VA invoices — it is the webhook match index in both cases. Two additive optional columns added: `receipt_id` and `payment_source`.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_xendit_invoices">` | |
 | `transaction_id` | `Id<"pos_transactions">` | |
-| `xendit_invoice_id` | `string` | |
+| `xendit_invoice_id` | `string` | Dual-meaning: QR Codes `id` (QRIS) or FVA `id` (BCA VA). Webhook match key via `by_xendit_invoice_id` index |
+| `xendit_idempotency_key` | `string` | `X-IDEMPOTENCY-KEY` sent to Xendit at creation; recorded for audit + retry traceability |
+| `method` | `"QRIS" \| "BCA_VA"` | |
+| `qr_string` | `string?` | QRIS payload (QRIS invoices only) |
+| `va_number` | `string?` | BCA VA account number (BCA_VA invoices only) |
+| `status_at_create` | `string` | Xendit-reported status at creation |
 | `created_at` | `number` | |
 | `cancelled_at` | `number?` | |
-| `replaced_by` | `string?` | Subsequent Xendit invoice id |
-| `status_at_cancel` | `string?` | Xendit-reported status at cancellation time |
+| `cancelled_reason` | `string?` | |
+| `replaced_by_invoice_id` | `Id<"pos_xendit_invoices">?` | Points to the invoice that superseded this one on retry |
+| `receipt_id` | `string?` | Bank RRN (Reference/Receipt Number) — join key to the Xendit settlement report for Frollie Pro reconciliation. Written on webhook by `_onPaidWebhook_internal` when `payment_detail.receipt_id` is present |
+| `payment_source` | `string?` | Paying wallet or bank (e.g. `"DANA"`, `"OVO"`, `"BCA"`). Written on webhook when `payment_detail.source` is present |
 
-Indexes: `by_transaction` on `transaction_id`, `by_xendit_invoice` on `xendit_invoice_id`.
+Indexes: `by_transaction` on `transaction_id`, `by_xendit_invoice_id` on `xendit_invoice_id` (webhook dedup).
 
 ### `pos_refunds`
 Refund operations ([ADR-008](./ADR/008-refunds-as-new-rows.md)).
@@ -287,26 +292,22 @@ Line-level refund detail for partial refunds. Empty for full refunds.
 
 Indexes: `by_refund` on `refund_id`.
 
-### `pos_stock_movements`
-Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-source-enum.md)).
+### `pos_stock_movements` — v0.3 shipped *(owned by `inventory/`)*
+Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-source-enum.md)). The v0.3 shape ships the `sale` source path only; `stock_in`, `spoilage`, and `adjustment` are reserved enum members wired up in v0.5/v0.6. Sale movements reference their originating transaction line; the `by_line_and_sku` index gives the ADR-026 reconciliation-dedup guard (no second decrement for the same line+SKU).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_stock_movements">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
-| `qty` | `number` | Signed (negative for sale/spoilage, positive for stock-in/refund) |
-| `source` | `"sale" \| "stock_in_kitchen" \| "stock_in_adjustment" \| "stock_in_return" \| "refund" \| "spoilage"` | |
-| `ref_id` | `string?` | `transaction_line_id` for sales, `refund_line_id` for refunds |
-| `ref_type` | `"transaction_line" \| "refund_line" \| null` | |
-| `staff_id` | `Id<"staff">` | |
-| `approved_by` | `Id<"staff">?` | Required for `adjustment` and `spoilage` |
-| `notes` | `string?` | Required for `adjustment` and `spoilage` |
+| `qty` | `number` | Signed; **negative for sale** |
+| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment"` | Only `sale` is written in v0.3 |
+| `source_transaction_line_id` | `Id<"pos_transaction_lines">?` | Set for `sale` movements; the ADR-026 dedup key |
 | `created_at` | `number` | |
+| `recorded_by_staff_id` | `Id<"staff">?` | Staff who triggered the movement |
 
 Indexes:
-- `by_sku_date` on `[inventory_sku_id, created_at]`
-- `by_source_date` on `[source, created_at]`
-- **Unique constraint** on `[ref_type, ref_id, inventory_sku_id]` where `ref_id` is non-null ([ADR-026](./ADR/026-reconciliation-on-reload.md))
+- `by_sku_created` on `[inventory_sku_id, created_at]`
+- `by_line_and_sku` on `[source_transaction_line_id, inventory_sku_id]` (ADR-026 reconciliation dedup)
 
 ### `pos_drafts` *(new in v0.5)*
 Saved cart state with TTL ([ADR-032](./ADR/032-saved-drafts-purge-24h.md)).
@@ -339,70 +340,57 @@ Discount configurations created by management.
 
 Indexes: `by_active` on `active`.
 
-### `pos_vouchers`
-Voucher codes. Static, manager-managed.
+### `pos_vouchers` — v0.3 shipped *(owned by `vouchers/`)*
+Voucher codes. Static, manager-managed. v0.3 carries the discount inline on the voucher (`type` + `value`) rather than via a separate `pos_discounts` row; the `pos_discounts` table is a v0.5 concept and is not yet created.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_vouchers">` | |
-| `code` | `string` | Uppercase, unique |
-| `discount_id` | `Id<"pos_discounts">` | |
-| `expires_at` | `number?` | Null = no expiry |
+| `code` | `string` | UPPERCASE, immutable |
+| `type` | `"percentage" \| "amount"` | |
+| `value` | `number` | Percentage `0-100`, or rupiah amount |
+| `min_cart_value` | `number?` | Subtotal threshold to qualify |
 | `max_redemptions` | `number?` | Null = unlimited |
 | `used_count` | `number` | Incremented atomically with redemption insert |
-| `min_cart_value` | `number?` | Subtotal-after-line-discount threshold |
+| `expires_at` | `number?` | Null = no expiry |
 | `active` | `boolean` | |
-| `created_by` | `Id<"staff">` | |
 | `created_at` | `number` | |
+| `created_by_staff_id` | `Id<"staff">?` | Optional — vouchers created via the Convex dashboard (v0.3–v0.5 manager workflow) have no staff context |
 
-Indexes: `by_code` on `code` (unique), `by_active` on `active`.
+Indexes: `by_code` on `code`, `by_active_expires` on `[active, expires_at]`.
 
-### `pos_voucher_redemptions`
-Append-only. One row per redemption.
+### `pos_voucher_redemptions` — v0.3 shipped *(owned by `vouchers/`)*
+Append-only. One row per redemption. `by_transaction` enforces the one-voucher-per-txn rule ([ADR-010](./ADR/010-no-voucher-stacking.md)).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_voucher_redemptions">` | |
 | `voucher_id` | `Id<"pos_vouchers">` | |
 | `transaction_id` | `Id<"pos_transactions">` | |
-| `redeemed_by` | `Id<"staff">` | |
+| `code_snapshot` | `string` | Voucher code at redemption time |
 | `discount_amount` | `number` | Snapshot of discount applied |
 | `redeemed_at` | `number` | |
 
 Indexes: `by_voucher` on `voucher_id`, `by_transaction` on `transaction_id`.
 
-### `pos_approval_requests` *(new in v0.5 — WA approval)*
-Each row = one manager-PIN gate request ([ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md), [ADR-030](./ADR/030-approval-audit-captures-full-context.md)).
+### `pos_approval_requests` — v0.3 shipped *(owned by `approvals/`)*
+Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)). **v0.3 ships exactly one `kind` (`staff_pin_reset`)** and **collapses the capability token onto the request row** (`token_hash` + `token_expires_at`) rather than a separate `pos_approval_tokens` table — so `pos_approval_tokens` does **not** exist in v0.3. v0.4 will extend `kind` (`refund`, `manual_payment`, …) and `status` (`denied`).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_approval_requests">` | |
-| `kind` | `"refund" \| "manual_confirm" \| "negative_stock" \| "void" \| "stock_adjustment" \| "spoilage"` | |
-| `requester_staff_id` | `Id<"staff">` | |
-| `entity_id` | `string` | Stringified id of the target entity (txn id, payment id, etc.) |
-| `payload` | `string` | JSON: human-readable summary shown on the WA landing page |
-| `reason_provided` | `string?` | Staff-typed reason |
-| `status` | `"pending" \| "approved" \| "denied" \| "expired" \| "cancelled"` | |
-| `decided_by_mgr_id` | `Id<"staff">?` | |
-| `decided_at` | `number?` | |
-| `audit_log_id` | `Id<"audit_log">?` | Linked on approve/deny |
-| `created_at` | `number` | |
+| `kind` | `"staff_pin_reset"` | Single literal in v0.3; v0.4 widens the union |
+| `subject_staff_id` | `Id<"staff">` | The staff member whose PIN is being reset |
+| `triggered_by_event` | `string` | `"auth_lockout"` in v0.3 |
+| `triggered_at` | `number` | |
+| `token_hash` | `string` | `sha256(rawToken)` hex; raw token only ever in the URL. SHA-256 (not argon2id) because we need index lookup by hash; tokens are high-entropy (32 bytes) so salt-less hashing is fine (per [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-004](./ADR/004-pin-hashing-server-side.md)) |
+| `token_expires_at` | `number` | `triggered_at + 60min` ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)) |
+| `status` | `"pending" \| "resolved" \| "expired"` | v0.4 adds `"denied"` |
+| `notified_at` | `number?` | Stamped when the Telegram notification went out |
+| `resolved_at` | `number?` | |
+| `resolved_by_manager_id` | `Id<"staff">?` | Manager who approved (PIN authorises ACT per [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)) |
 
-Indexes: `by_status` on `status`, `by_requester_date` on `[requester_staff_id, created_at]`.
-
-### `pos_approval_tokens` *(new in v0.5)*
-Capability URLs for WA approval landings ([ADR-028](./ADR/028-approval-token-single-use-60min.md)).
-
-| Field | Type | Notes |
-|---|---|---|
-| `_id` | `Id<"pos_approval_tokens">` | |
-| `token` | `string` | 32-byte URL-safe random; unique |
-| `request_id` | `Id<"pos_approval_requests">` | |
-| `expires_at` | `number` | `created_at + 60min` |
-| `consumed_at` | `number?` | Single-use |
-| `consumed_by_mgr_id` | `Id<"staff">?` | |
-
-Indexes: `by_token` on `token` (unique), `by_request` on `request_id`, `by_expires` on `expires_at`.
+Indexes: `by_token_hash` on `token_hash`, `by_status_triggered` on `[status, triggered_at]`, `by_subject_staff` on `subject_staff_id`.
 
 ### `pos_idempotency` *(new in v0.5)*
 Mutation dedupe table ([ADR-013](./ADR/013-idempotency-keys.md)).
@@ -457,16 +445,16 @@ Daily settlement records from Xendit ([strategic foundations §7](./ADR/000-stra
 
 Indexes: `by_settlement_date` on `settlement_date`, `by_xendit_id` on `xendit_settlement_id`.
 
-### `pos_receipt_counters` *(new in v0.5)*
-Atomic counter for `R-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-format.md)).
+### `pos_receipt_counters` — v0.3 shipped *(owned by `transactions/`)*
+Atomic counter for `R-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-format.md)). The `next_number` is allocated atomically inside `_confirmPaid`.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_receipt_counters">` | |
-| `year` | `number` | Unique |
-| `next` | `number` | Next NNNN to allocate |
+| `year` | `number` | **WIB calendar year** (UTC+7, no DST) — not the UTC year. The new WIB year takes effect at 17:00 UTC on Dec 31; booth + accounting + customers all expect the WIB calendar |
+| `next_number` | `number` | Monotonic; next NNNN to allocate |
 
-Indexes: `by_year` on `year` (unique).
+Indexes: `by_year` on `year`.
 
 ### `audit_log`
 Append-only log of every state-changing action ([ADR-007](./ADR/007-audit-log-append-only.md)).
@@ -546,6 +534,35 @@ settlement.synced
 settings.updated
 ```
 
+**Audit actions actually emitted as of v0.3 (verified against `convex/`).** `audit_log.action` is a free `v.string()`, so the enum above is the planned v1 vocabulary; the strings below are what v0.3 mutations/actions write today. New-in-v0.3 strings supersede some planned placeholders (e.g. `transaction.committed` is emitted, not the planned `transaction.created`; `payment.confirmed` carries the path in `confirmed_via`, not the planned per-path `payment.confirmed_webhook` etc.).
+
+```
+# transactions/
+transaction.committed       # draft → awaiting_payment (cart committed)
+transaction.cancelled       # awaiting_payment/draft → cancelled (also draft delete)
+transaction.resumed         # draft pulled back into an active cart (row deleted, not a void)
+payment.confirmed           # _confirmPaid (path recorded in confirmed_via: webhook|polling|manual)
+payment.confirmed_on_terminal # paid webhook/poll arrived for a cancelled/terminal txn — alert, no auto-flip (manager reconciles)
+# payments/
+payment.invoice_created     # Xendit invoice created (QRIS or BCA VA)
+payment.invoice_cancelled   # prior invoice cancelled on cart-edit retry (ADR-014)
+# inventory/
+stock.sale_movement         # signed-negative SKU decrement on sale
+# vouchers/
+voucher.redeemed            # voucher applied + used_count incremented
+voucher.over_redeemed       # redemption pushed used_count past max_redemptions (flagged, not blocked)
+# auth/ + seed/
+staff.locked_out            # 3-strike lockout (ADR-002)
+staff.pin_changed           # self change via auth.changePin
+staff.pin_reset             # manager reset via resetStaffPin / approveStaffPinReset
+staff.bootstrapped          # seed-created staff
+# approvals/
+approval.created            # pos_approval_requests row inserted (system actor)
+approval.notified           # Telegram lockout link sent (system actor)
+approval.notification_failed # Telegram send failed; pending row deleted, trail kept (system actor)
+approval.resolved           # manager approved off-booth PIN reset (wa_approval source)
+```
+
 ## Relationship to Frollie Pro tables
 
 | Frollie Pro table | POS read | POS write | Notes |
@@ -567,7 +584,7 @@ settings.updated
 ## Data integrity rules enforced in mutations
 
 1. `pos_transaction_lines.unit_price` MUST equal the product's price at the time of insertion. Never recompute.
-2. `pos_transactions.total = subtotal - line_discounts_total - voucher_discount + tax_amount`. Validated on every write.
+2. `pos_transactions.total = subtotal - line_discounts_total - voucher_discount + tax_amount` (ADR-024). **v0.3 simplification:** with PPN=0 and no line-level discounts yet, only `subtotal`, `voucher_discount`, and `total` are stored, and the implemented invariant is `total = subtotal - voucher_discount`. The `line_discounts_total` / `tax_amount` columns land when line discounts and PPN activate (see Future migrations).
 3. `pos_refunds.amount` ≤ `pos_transactions.total - sum(prior_succeeded_refunds.amount)`.
 4. `pos_payments.status` transitions: `pending → paid | expired | failed | cancelled`. No backwards.
 5. `pos_transactions.status` transitions:
@@ -577,6 +594,6 @@ settings.updated
 6. `audit_log` rows are never updated or deleted.
 7. `staff_sessions.started_at` is server-set only.
 8. `pos_vouchers.used_count` updates atomically with `pos_voucher_redemptions` inserts (single mutation).
-9. `pos_stock_movements` unique constraint on `(ref_type, ref_id, inventory_sku_id)` prevents reconciliation double-decrements.
+9. `pos_stock_movements` reconciliation double-decrements are prevented by the `by_line_and_sku` index on `(source_transaction_line_id, inventory_sku_id)` — `_recordSaleMovement_internal` checks it before inserting a `sale` movement (ADR-026). *(v0.3 shipped this index-guard rather than the originally-planned `(ref_type, ref_id, inventory_sku_id)` unique constraint.)*
 10. `pos_approval_tokens.consumed_at` MUST be set before any state mutation triggered by the approval — gates token re-use.
 11. `pos_idempotency` keyed mutation responses MUST be byte-identical on replay (return stored `response_blob` verbatim).

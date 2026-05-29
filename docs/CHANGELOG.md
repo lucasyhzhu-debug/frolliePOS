@@ -2,6 +2,22 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-05-28 — Xendit inline payments fix (v0.3)
+
+- QRIS now uses the Xendit QR Codes API (inline scannable QR) instead of the Invoice API
+- BCA VA now uses the Virtual Accounts (FVA) API for an inline VA number (live-unverified)
+- Webhook parses the QR Codes v2 shape (`data.status: "SUCCEEDED"`, match on `qr_id`); always-200 + 401-on-missing-config
+- Retired QRIS status polling + poll-based reconciliation; webhook + manager override are the confirmation paths
+- Captured RRN (`receipt_id`) + paying `payment_source`; added `PAYMENT_AMOUNT_MISMATCH` flag
+- ADR-036 supersedes ADR-011, adjusts ADR-014, amends strategic-foundations §8 + ADR-026
+
+## 2026-05-27 — Tooling: CEO Progress Report extraction
+
+- Extracted PROGRESS.md → progress.html renderer from `scripts/build-progress-html.mjs` into a standalone, installable package at `packages/ceo-progress-report/`.
+- Package bundles: Node CLI (`ceo-report init`, `ceo-report build`), Claude Code plugin with two skills (`buildlog-author`, `buildlog-review`) and two slash commands, starter templates, GH Action workflow.
+- Frollie POS continues using the in-tree script for v0.3 work; migration to the published package planned post-v0.3 (hard commitment — see plan Risks).
+- npm publish + Claude Code marketplace submission deferred to follow-up tasks.
+
 ## Unreleased
 
 ### Architecture
@@ -11,6 +27,44 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 ### POC
 
 - Telegram bot integration playground at `/dev/telegram`. Sends approval / shift summary / custom messages via Convex action `telegram:send:sendTemplate`; receives button-press callbacks via `httpAction` at `/telegram-webhook`. Sandbox table `telegram_log`. Vitest + convex-test coverage for HTML escape, template renderers, and webhook (security + dedupe). Spec: `docs/superpowers/specs/2026-05-25-telegram-poc-design.md`. Does NOT replace ADR-027 / ADR-033 yet.
+
+## [0.3.0] — 2026-05-27
+
+The first end-to-end sale. v0.2 shipped auth + catalog; v0.3 makes the booth able to take money.
+
+### Added
+
+- **Sale flow (cart → commit → charge → receipt).** New `transactions/` module: `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters`. Cart is committed (`draft → awaiting_payment`) snapshotting product code, name, unit price, and tax rate onto each line (never re-joined for price per [ADR-015](./ADR/015-idr-integer-rupiah.md) + business rule #1). Receipt number `R-YYYY-NNNN` allocated atomically inside `_confirmPaid` against a **WIB-calendar-year** counter ([ADR-023](./ADR/023-receipt-number-format.md)). Routes: `sale/index` (cart), `sale/charge` (method + invoice), `sale/charge-success` (receipt).
+- **Xendit charge (QRIS + BCA VA).** New `payments/` module: `pos_xendit_invoices` audit table (one row per invoice, `by_xendit_invoice_id` for webhook dedup). Invoice creation records the `X-IDEMPOTENCY-KEY` sent to Xendit. Single active invoice per transaction — prior invoice cancelled via Xendit API on cart-edit retry, the superseded id linked via `replaced_by_invoice_id` ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)). Webhook at `convex/payments/webhook.ts` with mandatory signature verification.
+- **Three-path payment confirmation** ([strategic foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)): webhook (primary), polling fallback, and manager manual-override. The chosen path is recorded on `pos_transactions.confirmed_via` (`webhook | polling | manual`); manual override also records `confirmed_mgr_approver_id` + `confirmed_manual_reason`.
+- **Reconciliation on reload** ([ADR-026](./ADR/026-reconciliation-on-reload.md)): `useStartupReconciliation` re-checks any recent `awaiting_payment` transaction with Xendit on startup. The `pos_stock_movements.by_line_and_sku` index gates against a double-decrement (one sale movement per transaction-line + SKU).
+- **Drafts.** Cart can be saved and resumed; the committed-but-unpaid transaction is the draft (`status: "draft"`). Route `sale/drafts`. `useOfflineQueue` queues commits offline; payments/auth still block offline ([ADR-025](./ADR/025-service-worker-cache.md)).
+- **Vouchers.** New `vouchers/` module: `pos_vouchers` (discount carried inline as `type` + `value`; no separate `pos_discounts` table yet) and append-only `pos_voucher_redemptions`. One voucher per transaction enforced via `by_transaction` ([ADR-010](./ADR/010-no-voucher-stacking.md)); no stacking. Over-redemption past `max_redemptions` is flagged (`voucher.over_redeemed`), not hard-blocked. Route `sale/voucher`.
+- **Stock decrement on sale.** New `inventory/` module owns `pos_stock_movements` + `pos_stock_levels` (both **moved out of `catalog/`** per [ADR-034](./ADR/034-deep-modules-surface-apis.md)). A sale writes a signed-negative `pos_stock_movements` row (`source: "sale"`) per consumed inventory SKU. Negative stock is allowed and flagged via `pos_transactions.flags |= NEG_STOCK`, not blocked ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)).
+- **PIN management.** `auth.changePin` (self-service, verifies current PIN), `auth.resetStaffPin` (manager at booth resets a staff PIN by proving the manager's own PIN), and the off-booth path below. All three converge on a single internal funnel `_changePinCommit_internal` (actor `self` → `staff.pin_changed`; actor `manager_reset` → `staff.pin_reset` + lockout unwind). `staff.bootstrapped` audited on seed-created staff.
+- **Off-booth PIN-reset approval via Telegram** ([ADR-035](./ADR/035-telegram-as-internal-comms.md), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)). New `approvals/` module: `pos_approval_requests` (kind `staff_pin_reset` only in v0.3; capability token collapsed onto the row as `token_hash` + `token_expires_at`, no separate `pos_approval_tokens` table). A 3-strike lockout schedules `notifyStaffLockout`, which posts a single-use 60-minute link to the managers' Telegram group; a manager opens `/approve/:token` (token authorises VIEW) and resets the PIN by entering their own PIN (PIN authorises ACT). Dedup guard skips a second notification while a live request exists; a failed Telegram send deletes the stuck pending row so the next cycle retries cleanly.
+- **Frontend hooks:** `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation`. `useIdempotency` upgraded to IDB-backed persistence so a reload mid-payment doesn't double-execute.
+- **Frontend components:** `src/components/pos/PinSheet` — reusable PIN-entry sheet (built on `NumericKeypad`) used by change-PIN, manager reset, and the `/approve/:token` landing.
+
+### Changed
+
+- **`docs/SCHEMA.md`** documents the 8 v0.3 tables with their **actual shipped shapes** (which are leaner than the previously-written v0.5 design specs) and adds the v0.3-emitted `audit_log.action` strings. Module-ownership table gains `inventory/`, `transactions/`, `payments/`, `vouchers/`, `approvals/`.
+- **`CLAUDE.md`** file-locations, business-rules, auth, and how-to-add-a-feature sections updated for the new modules, hooks, routes, the `_changePinCommit_internal` funnel, and the add-an-approval-KIND recipe.
+
+### Shipped-vs-planned divergences (so the docs reflect reality)
+
+- `pos_transactions` ships without line-level discounts, manual discount sources, per-line tax aggregation, void provenance, `receipt_token`, or customer fields — those remain v0.5 design. v0.3 status union is `draft | awaiting_payment | paid | cancelled` (no `voided` yet).
+- `pos_transaction_lines` uses `*_snapshot`-suffixed fields (`product_code_snapshot`, `product_name_snapshot`, `unit_price_snapshot`, `tax_rate_snapshot`) and omits `line_discount` / `tax_amount` / `line_total` / `refunded_qty`.
+- `pos_stock_movements` references `source_transaction_line_id` (an `Id`) and uses the `by_line_and_sku` index for ADR-026 dedup rather than a unique `(ref_type, ref_id, sku)` constraint; `inventory_sku_id` (not `sku_id`) is the FK name.
+- `pos_stock_levels.last_movement_id` stays `v.string()` (not `Id<>`) in v0.3 to avoid schema-validation rejection on legacy dev rows; reconciled at prod cutover.
+- `pos_vouchers` carries the discount inline (`type` + `value`) instead of via a `pos_discounts` FK; `created_by_staff_id` is optional (dashboard-created vouchers have no staff context).
+- `pos_approval_requests` ships the token **on the request row** (no `pos_approval_tokens` table) and a single `kind` (`staff_pin_reset`); the off-booth comms channel is **Telegram** ([ADR-035](./ADR/035-telegram-as-internal-comms.md)), superseding the wa.me model ([ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md)) for this flow.
+
+### Notes
+
+- **ADR-035 accepted: Telegram as the internal comms channel.** The off-booth PIN-reset link is delivered via the managers' Telegram group, graduating the v0.2 Telegram POC. Supersedes the wa.me share-intent model ([ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md)) for v0.3's approval flow.
+- Tokens authorise VIEW; PINs authorise ACT ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)). Token = 32-byte URL-safe random, SHA-256-hashed at rest, single-use, 60-minute TTL.
+- A locked-out manager can still approve their own off-booth reset link — the token + correct PIN are sufficient authority (lockout state is deliberately not re-checked on the approve path).
 
 ## [0.2.1] — 2026-05-26
 

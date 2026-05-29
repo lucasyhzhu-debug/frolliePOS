@@ -28,7 +28,20 @@ const OWNERSHIP = {
   pos_inventory_skus: "catalog",
   pos_products: "catalog",
   pos_product_components: "catalog",
-  pos_stock_levels: "catalog",
+  // inventory module — pos_stock_levels moved from catalog to inventory in v0.3 (ADR-034)
+  pos_stock_levels: "inventory",
+  pos_stock_movements: "inventory",
+  // transactions module
+  pos_transactions: "transactions",
+  pos_transaction_lines: "transactions",
+  pos_receipt_counters: "transactions",
+  // payments module
+  pos_xendit_invoices: "payments",
+  // vouchers module
+  pos_vouchers: "vouchers",
+  pos_voucher_redemptions: "vouchers",
+  // approvals module
+  pos_approval_requests: "approvals",
   // idempotency module
   pos_idempotency: "idempotency",
   // audit module
@@ -85,7 +98,11 @@ export default [
 
   {
     // Module-boundary rule — only meaningful inside convex/
+    // __tests__ directories are exempt: test setup helpers legitimately seed
+    // rows across module boundaries to build fixtures; that's test infra, not
+    // production cross-module coupling.
     files: ["convex/**/*.ts"],
+    ignores: ["convex/**/__tests__/**"],
     plugins: {
       "frollie-internal": {
         rules: {

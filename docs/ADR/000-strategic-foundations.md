@@ -166,6 +166,8 @@ Each section ends with a one-line link to the implementation ADRs it ties into.
 
 ## 8. Three-path payment confirmation (operational pattern)
 
+> **Amended by [ADR-036](./036-xendit-dedicated-apis-inline.md)** (2026-05-28): polling leg retired for QRIS and BCA VA — confirmation paths for these methods are webhook (primary) + manager-PIN manual override (fallback).
+
 **Decision.** Payment is confirmed via one of three sources, in priority order: **webhook** (primary, Xendit POSTs to `convex/xendit/webhook.ts`), **polling** (fallback — frontend polls `GET /v2/invoices/{id}` every 2s for up to 60s, server re-verifies with Xendit before flipping status), or **manual override** (last resort — manager-PIN re-entry with reason, no Xendit re-verification, heavy audit logging). Each path stores a distinct `confirmed_via` value on `pos_payments`.
 
 **Why.** Webhooks usually arrive in 1-3 seconds but occasionally delay 10-30 seconds (Xendit queue, network conditions). Rarely they fail entirely. Staff cannot be left holding up the counter line waiting for a webhook that might be late — but they also cannot confirm payment based on hearing the customer's bank app go "ding" without verification. Three paths closes the gap.

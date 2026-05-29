@@ -32,6 +32,7 @@ export default function LoginRoute() {
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
     if (!deviceId) { toast.error("Device not ready — please wait"); return; }
+    if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
     try {
       const { sessionId } = await login({
         staffId: stage.staff._id, pin, deviceId, idempotencyKey,

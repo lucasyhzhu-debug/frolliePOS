@@ -45,10 +45,5 @@ export const catalogTables = {
     .index("by_product", ["product_id"])
     .index("by_sku", ["inventory_sku_id"]),
 
-  pos_stock_levels: defineTable({
-    inventory_sku_id: v.id("pos_inventory_skus"),
-    on_hand: v.number(),
-    last_movement_id: v.optional(v.string()),
-    updated_at: v.number(),
-  }).index("by_sku", ["inventory_sku_id"]),
+  // pos_stock_levels MOVED to convex/inventory/schema.ts in v0.3 (ADR-034).
 };

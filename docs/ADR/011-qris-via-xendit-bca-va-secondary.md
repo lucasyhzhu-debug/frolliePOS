@@ -4,6 +4,8 @@
 **Status:** Accepted
 **Group:** Pay
 
+> **Superseded by [ADR-036](./036-xendit-dedicated-apis-inline.md)** (2026-05-28): replaces the unified Invoice API surface with dedicated QR Codes API (QRIS) + Virtual Accounts FVA API (BCA VA) for inline rendering.
+
 ## Context
 
 Indonesian retail payments. QRIS is a single dynamic QR that any wallet accepts (GoPay, OVO, DANA, plus most bank apps). BCA Virtual Account is a per-transaction account number that customers transfer to from their banking app — useful when QRIS isn't accepted by the customer's bank or wallet.

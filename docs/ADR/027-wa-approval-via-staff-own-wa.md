@@ -1,7 +1,7 @@
 # 027. WhatsApp approval via staff's own WhatsApp
 
 **Date:** 2026-05-21
-**Status:** Accepted
+**Status:** Superseded by [ADR-035](./035-telegram-as-internal-comms.md) — 2026-05-27
 **Group:** WA
 
 ## Context

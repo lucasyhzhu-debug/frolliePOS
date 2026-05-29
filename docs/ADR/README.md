@@ -40,26 +40,29 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 | [024](./024-discount-ordering-line-voucher-tax.md) | Receipts | Discount ordering: line → voucher → tax | 2026-05-21 | Accepted |
 | [025](./025-service-worker-cache.md) | Sync | Service worker cache policy | 2026-05-21 | Accepted |
 | [026](./026-reconciliation-on-reload.md) | Sync | Reconciliation on reload | 2026-05-21 | Accepted |
-| [027](./027-wa-approval-via-staff-own-wa.md) | WA | WhatsApp approval via staff's own WhatsApp | 2026-05-21 | Accepted |
+| [027](./027-wa-approval-via-staff-own-wa.md) | WA | WhatsApp approval via staff's own WhatsApp | 2026-05-21 | Superseded by ADR-035 |
 | [028](./028-approval-token-single-use-60min.md) | WA | Approval token: single-use, 60-minute TTL | 2026-05-21 | Accepted |
 | [029](./029-token-authorizes-view-pin-authorizes-act.md) | WA | Token authorises VIEW; PIN authorises ACT | 2026-05-21 | Accepted |
 | [030](./030-approval-audit-captures-full-context.md) | WA | Approval audit captures full context | 2026-05-21 | Accepted |
 | [031](./031-convex-server-time-wins.md) | Time | Convex server time wins | 2026-05-21 | Accepted |
 | [032](./032-saved-drafts-purge-24h.md) | Time | Saved drafts purge after 24h | 2026-05-21 | Accepted |
-| [033](./033-founders-shift-summary-share.md) | Time | Founders shift-summary share: opt-in, default ON | 2026-05-21 | Accepted |
+| [033](./033-founders-shift-summary-share.md) | Time | Founders shift-summary share: opt-in, default ON | 2026-05-21 | Superseded by ADR-035 |
 | [034](./034-deep-modules-surface-apis.md) | Arch | Deep modules with surface APIs as architectural blueprint | 2026-05-26 | Accepted |
+| [035](./035-telegram-as-internal-comms.md) | Comms | Telegram as internal comms infrastructure | 2026-05-27 | Accepted |
+| [036](./036-xendit-dedicated-apis-inline.md) | Pay | Xendit inline QRIS via QR Codes API + BCA VA via FVA API | 2026-05-28 | Accepted |
 
 ## Groups
 
 - **Auth** — sessions, PINs, lockouts (ADR-001 through ADR-005)
 - **Ops** — shifts, audit, refunds, vouchers (ADR-006 through ADR-010)
-- **Pay** — Xendit, idempotency, currency (ADR-011 through ADR-015)
+- **Pay** — Xendit, idempotency, currency (ADR-011 through ADR-015; ADR-036 extends; ADR-011 superseded by ADR-036)
 - **Stock** — products ↔ inventory, movements (ADR-016 through ADR-020)
 - **Receipts** — receipt URL, numbering, tax (ADR-021 through ADR-024)
 - **Sync** — offline, service worker, reconciliation (ADR-025, ADR-026)
-- **WA** — WhatsApp manager approval (ADR-027 through ADR-030)
-- **Time** — timestamps, retention, scheduled (ADR-031 through ADR-033)
+- **WA** — WhatsApp manager approval (ADR-027 through ADR-030; ADR-027 superseded by ADR-035)
+- **Time** — timestamps, retention, scheduled (ADR-031 through ADR-033; ADR-033 superseded by ADR-035)
 - **Arch** — foundational architecture (ADR-034)
+- **Comms** — internal communications channel (ADR-035)
 
 ## Template
 

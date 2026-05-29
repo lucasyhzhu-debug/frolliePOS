@@ -96,6 +96,31 @@ export function renderCustom(payload: CustomPayload, nonce: string): RenderedMes
   return message;
 }
 
+export type StaffPinResetPayload = {
+  staff_name: string;
+  staff_code: string;
+  locked_at_iso: string;
+  request_url: string;
+};
+
+export function renderStaffPinReset(payload: StaffPinResetPayload): RenderedMessage {
+  const lockedAtFormatted = new Date(payload.locked_at_iso).toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const text =
+    `🚨 <b>Staff locked out</b>\n\n` +
+    `${escapeHtml(payload.staff_name)} (<code>${escapeHtml(payload.staff_code)}</code>) failed PIN entry 3 times.\n` +
+    `Locked at ${escapeHtml(lockedAtFormatted)} WIB.\n\n` +
+    `<a href="${escapeHtml(payload.request_url)}">Tap to reset PIN →</a>\n\n` +
+    `<i>This link expires in 60 minutes.</i>`;
+
+  return { text };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {
