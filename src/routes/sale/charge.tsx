@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams } from "react-router";
 import { useAction } from "convex/react";
 import { Loader2 } from "lucide-react";
@@ -366,14 +367,15 @@ export default function SaleCharge() {
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
                     SCAN TO PAY
                   </p>
-                  {/* No QR-render library is bundled (avoids a new dep); the
-                      raw qr_string payload is shown so it can be loaded into a
-                      QR generator / scanned by a tool that accepts the string. */}
-                  <code className="block w-full break-all rounded-md bg-muted px-3 py-2 text-center text-xs">
-                    {invoice?.qr_string ?? "—"}
-                  </code>
+                  {invoice?.qr_string ? (
+                    <div className="rounded-lg bg-white p-3">
+                      <QRCodeSVG value={invoice.qr_string} size={220} marginSize={0} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No QR payload.</p>
+                  )}
                   <p className="text-[11px] text-muted-foreground">
-                    QRIS payload (render with the device camera app / QR tool)
+                    Scan with any QRIS-enabled wallet
                   </p>
                 </>
               ) : (
