@@ -277,6 +277,21 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
   - **notes:**
     - 2026-05-28: Shipped as payments.actions.checkInvoiceStatus (GET status → _onPaidPolling funnel) + useXenditPayment hook driving 2s/60s cadence — no separate xendit/polling.ts file.
 
+- ✅ **[v03-be-xendit-dedicated-apis]** Xendit dedicated-API fix — QR Codes (QRIS) + FVA (BCA) inline, webhook reparse, polling/reconciliation retired (ADR-036) (4ad10b8)
+  - **agent:** `claude`
+  - **deps:** `v03-be-payments`, `v03-be-xendit-webhook`, `v03-be-xendit-polling`, `v03-fe-use-xendit-payment`
+  - **docs:** [ADR-036](./ADR/036-xendit-dedicated-apis-inline.md), [plan](./superpowers/plans/2026-05-28-xendit-dedicated-apis.md), [staffreview](./reviews/staffreview-feat-v0.3-sale-xendit-2026-05-29.md)
+  - **subtasks:**
+    - [x] Deep adapter `convex/payments/xendit.ts` (QR Codes + FVA endpoints, api-version header, webhook parser) + pure tests
+    - [x] Additive `receipt_id`/`payment_source` columns + `PAYMENT_AMOUNT_MISMATCH` flag threaded into the funnel
+    - [x] Thin `requestPayment` onto adapter (both methods)
+    - [x] Rewrite webhook to QR Codes v2 shape (match on `qr_id`, always-200, 401-on-missing-config); retire polling + startup reconciliation
+    - [x] Render scannable QRIS via `qrcode.react`
+    - [x] Thin `retryWithFreshInvoice` onto adapter (unique ref, local supersede, no expire)
+    - [x] ADR-036 + supersede ADR-011/014, amend §8/ADR-026; CHANGELOG/SCHEMA/CLAUDE
+  - **notes:**
+    - 2026-05-29: Supersedes the original Invoice-API impl (v03-be-payments/-webhook/-polling) — the unified Invoice API never returned qr_string/account_number at create (only invoice_url), blocking all v0.3 payments. Built via subagent-driven-development (per-task spec + code-quality review) + triple-review. Commits 1136500..4ad10b8. BCA FVA path is code-complete but LIVE-UNVERIFIED (Decision C). HARD GATE remaining: a dashboard simulate-payment must write `paid` end-to-end (live Xendit webhook config).
+
 ### Frontend (`src/`)
 - ✅ **[v03-fe-use-cart]** `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough) (a503f90)
   - **agent:** `frontend-integrator`
