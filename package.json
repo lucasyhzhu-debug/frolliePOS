@@ -60,6 +60,7 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react-swc": "^3.7.2",
     "@vitest/ui": "^2.1.8",
+    "ceo-progress-report": "^0.1.0",
     "convex-test": "^0.0.34",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^5.1.0",
