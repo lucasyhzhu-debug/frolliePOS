@@ -110,6 +110,9 @@ export async function createBcaVaCharge(
  * Pure webhook parser. Discriminates the two Xendit envelopes that hit our
  * single endpoint and extracts the match key + amount + reconciliation fields.
  *  - BCA VA (live-unverified): flat FVA callback — no `event`, arrival = paid.
+ *    LIVE-UNVERIFIED means the flat `callback_virtual_account_id` field name and
+ *    the absence of an `event` wrapper are asserted from Xendit's FVA docs, NOT
+ *    confirmed against a real callback. Verify before BCA go-live (Decision C).
  *  - QRIS (reference-proven): { event: "qr.payment", data: { status, qr_id } }.
  *  - Anything else (incl. the legacy flat Invoice {id,status:"PAID"}) → ignored.
  */
@@ -133,7 +136,15 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
   }
 
   // QRIS — QR Codes v2 envelope (or a bare data object as a fallback).
+  // Intentionally NOT gated on `event === "qr.payment"`: detection keys off the
+  // SUCCEEDED status so a slightly-wrong event-label assumption can't silently
+  // drop a REAL payment (false negative — the costly failure on a money path).
+  // The near-impossible false positive (a non-qr.payment envelope carrying
+  // data.status SUCCEEDED to this endpoint) is the accepted trade. Do not
+  // "harden" this into an event-label gate without live-verifying the label.
   const d = p.data ?? p;
+  // "COMPLETED" is an Invoice-API status, kept only as a defensive fallback;
+  // QR Codes v2 uses SUCCEEDED.
   const paid = d.status === "SUCCEEDED" || d.status === "COMPLETED";
   if (paid) {
     return {
