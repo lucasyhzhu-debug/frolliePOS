@@ -3,40 +3,64 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+import { validateContext, KIND_AUDIT, type ApprovalKind } from "./kinds";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
  * Token fields (token_hash, token_expires_at) are supplied by the caller —
  * raw token generation happens in the action layer (ADR-029: token authorises VIEW).
+ *
+ * INVARIANT: every insert goes through validateContext — context is validated
+ * per-kind before the row is written. Adding a kind requires extending kinds.ts.
+ * v0.3 behavior preserved: staff_pin_reset passes no context; validateContext
+ * returns {} so the context field is stored as an empty object.
  */
 export const _createRequest_internal = internalMutation({
   args: {
-    kind: v.union(v.literal("staff_pin_reset")),
-    subject_staff_id: v.id("staff"),
+    kind: v.union(
+      v.literal("staff_pin_reset"),
+      v.literal("manual_payment_override"),
+    ),
+    requester_staff_id: v.optional(v.id("staff")),
+    entity_type: v.optional(v.string()),
+    entity_id: v.optional(v.string()),
+    subject_staff_id: v.optional(v.id("staff")),
+    context: v.optional(v.any()),
+    reason: v.optional(v.string()),
     triggered_by_event: v.string(),
     triggered_at: v.number(),
     token_hash: v.string(),
     token_expires_at: v.number(),
   },
   handler: async (ctx, args) => {
+    // INVARIANT: every writer validates context here — no bypass path.
+    const validatedContext = validateContext(args.kind as ApprovalKind, args.context);
+
     const requestId = await ctx.db.insert("pos_approval_requests", {
       kind: args.kind,
+      requester_staff_id: args.requester_staff_id,
+      entity_type: args.entity_type,
+      entity_id: args.entity_id,
       subject_staff_id: args.subject_staff_id,
+      context: validatedContext,
+      reason: args.reason,
       triggered_by_event: args.triggered_by_event,
       triggered_at: args.triggered_at,
       token_hash: args.token_hash,
       token_expires_at: args.token_expires_at,
       status: "pending",
+      notification_channel: "telegram",
     });
 
     await logAudit(ctx, {
-      actor_id: "system",
-      action: "approval.created",
+      actor_id: args.requester_staff_id ?? "system",
+      action: KIND_AUDIT[args.kind as ApprovalKind].requested,
       entity_type: "pos_approval_requests",
       entity_id: requestId,
       source: "system",
       metadata: {
         kind: args.kind,
+        entity_id: args.entity_id,
         subject_staff_id: args.subject_staff_id,
       },
     });

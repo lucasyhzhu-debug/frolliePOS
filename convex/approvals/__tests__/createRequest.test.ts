@@ -56,6 +56,55 @@ describe("_createRequest_internal", () => {
   });
 });
 
+describe("_createRequest_internal — manual_payment_override", () => {
+  it("creates a manual_payment_override request and validates context", async () => {
+    const t = convexTest(schema);
+    const staff = await t.run((ctx) =>
+      ctx.db.insert("staff", {
+        name: "L",
+        code: "S-0001",
+        role: "manager",
+        active: true,
+        pin_hash: "x",
+        created_at: Date.now(),
+      }),
+    );
+    const { requestId } = await t.mutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "manual_payment_override",
+        requester_staff_id: staff,
+        entity_type: "pos_transactions",
+        entity_id: "txn_1",
+        context: { txn_id: "txn_1", amount_idr: 50000, reason: "BCA cleared" },
+        reason: "BCA cleared",
+        triggered_by_event: "manual_payment_request",
+        triggered_at: Date.now(),
+        token_hash: "abc",
+        token_expires_at: Date.now() + 3600_000,
+      },
+    );
+    const row = await t.run((ctx) => ctx.db.get(requestId));
+    expect(row?.context).toMatchObject({ txn_id: "txn_1", amount_idr: 50000 });
+  });
+
+  it("rejects an invalid manual_payment context (non-integer amount_idr)", async () => {
+    const t = convexTest(schema);
+    await expect(
+      t.mutation(internal.approvals.internal._createRequest_internal, {
+        kind: "manual_payment_override",
+        entity_type: "pos_transactions",
+        entity_id: "t1",
+        context: { txn_id: "t1", amount_idr: 1.5, reason: "x" }, // non-integer
+        triggered_by_event: "x",
+        triggered_at: Date.now(),
+        token_hash: "h",
+        token_expires_at: Date.now() + 1,
+      }),
+    ).rejects.toThrow(/CONTEXT_INVALID/);
+  });
+});
+
 describe("_markNotified_internal", () => {
   it("sets notified_at (truthy) on an existing approval request", async () => {
     const t = convexTest(schema);
