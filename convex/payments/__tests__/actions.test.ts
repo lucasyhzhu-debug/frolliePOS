@@ -204,6 +204,25 @@ describe("payments/actions.retryWithFreshInvoice", () => {
       }),
     ).rejects.toThrow("SESSION_INVALID");
   });
+
+  it("retryWithFreshInvoice: QRIS mints a fresh QR with a unique ref and no expire call", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    _xenditMockNextResponse({ id: "qr_first", qr_string: "qr1", status: "ACTIVE" });
+    await t.action(api.payments.actions.requestPayment, {
+      sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "init-1",
+    });
+    _xenditMockReset(); // clears recorded calls; the fetch mock from beforeEach stays installed
+    _xenditMockNextResponse({ id: "qr_second", qr_string: "qr2", status: "ACTIVE" });
+    const r = await t.action(api.payments.actions.retryWithFreshInvoice, {
+      sessionId: s.session, txnId: s.txn, method: "QRIS", idempotencyKey: "retry-1",
+    });
+    expect(r.qrString).toBe("qr2");
+    const calls = _xenditMockCalls();
+    expect(calls.every((c) => !c.url.includes("expire"))).toBe(true);
+    expect(calls[0].url).toContain("/qr_codes");
+    expect(calls[0].body.reference_id).toContain("-r-");
+  });
 });
 
 describe("payments/actions.manuallyConfirmPayment", () => {

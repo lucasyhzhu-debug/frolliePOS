@@ -7,50 +7,6 @@ import { internal, api } from "../_generated/api";
 import { verifyPinOrThrow } from "../auth/verifyPin";
 import { createQrisCharge, createBcaVaCharge } from "./xendit";
 
-const XENDIT_BASE = "https://api.xendit.co";
-
-interface XenditInvoiceResponse {
-  id: string;
-  status: string;
-  qr_string?: string;
-  account_number?: string;
-}
-
-/**
- * Read a fetch Response body as JSON without throwing on a non-JSON body.
- * Xendit 5xx/timeout responses can be an HTML page; calling r.json() directly
- * would throw a SyntaxError mid-action instead of letting the `!ok` guard surface
- * a clean XENDIT_* error. Non-JSON bodies come back under `_raw` for the error path.
- */
-async function readJson<T>(r: Response): Promise<T> {
-  const text = await r.text();
-  if (!text) return {} as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return { _raw: text } as T;
-  }
-}
-
-async function xenditPost<T = any>(
-  path: string,
-  body: Record<string, unknown>,
-  idempotencyKey: string,
-): Promise<{ ok: boolean; data: T }> {
-  const key = process.env.XENDIT_SECRET_KEY;
-  if (!key) throw new Error("XENDIT_SECRET_KEY not set");
-  const auth = `Basic ${Buffer.from(`${key}:`).toString("base64")}`;
-  const r = await fetch(`${XENDIT_BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: auth,
-      "X-IDEMPOTENCY-KEY": idempotencyKey,
-    },
-    body: JSON.stringify(body),
-  });
-  return { ok: r.ok, data: await readJson<T>(r) };
-}
 
 /**
  * Create a Xendit invoice for a transaction. Action-level idempotency pattern
@@ -140,42 +96,34 @@ export const retryWithFreshInvoice = action({
 
     const prev = await ctx.runQuery(api.payments.public.getCurrentInvoice, { txnId: args.txnId });
     if (!prev) throw new Error("PREV_INVOICE_MISSING");
-    let cancel_outcome: { success: boolean; error?: string } = { success: true };
-    try {
-      const { ok, data } = await xenditPost(`/invoices/${prev.xendit_invoice_id}/expire!`, {}, `${args.idempotencyKey}:cancel`);
-      if (!ok) cancel_outcome = { success: false, error: JSON.stringify(data) };
-    } catch (e: any) {
-      cancel_outcome = { success: false, error: String(e?.message ?? e) };
-    }
 
     const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
-    const { ok, data } = await xenditPost<XenditInvoiceResponse>("/v2/invoices", {
-      // Unique per retry — randomUUID avoids the Date.now() collision two
-      // concurrent retries in the same millisecond would hit (I3).
-      external_id: `pos-${args.txnId}-retry-${crypto.randomUUID()}`,
-      amount: txn.total,
-      payment_methods: args.method === "QRIS" ? ["QRIS"] : ["BCA"],
-      description: `Frollie POS sale ${args.txnId} (retry)`,
-    }, args.idempotencyKey);
-    if (!ok) throw new Error(`XENDIT_INVOICE_FAILED: ${JSON.stringify(data)}`);
 
-    // Commit mutation returns + caches the full action response shape under
-    // args.idempotencyKey (staffreview Critical #1 — retry replays the complete
-    // blob via the _lookup_internal pre-check above).
+    // Unique ref per retry so a regenerate can't collide with the prior QR's
+    // reference. Matching is on the globally-unique provider id; this only avoids
+    // any Xendit-side duplicate-reference ambiguity.
+    const ref = `pos-${args.txnId}-r-${crypto.randomUUID()}`;
+    const charge =
+      args.method === "QRIS"
+        ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
+        : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
+
+    // No Xendit "expire" exists for QR codes; the prior row is superseded locally
+    // (Decision E). Pass a success outcome — the local supersede did succeed.
     return await ctx.runMutation(
       internal.payments.internal._replaceInvoiceCommit_internal,
       {
         idempotencyKey: args.idempotencyKey,
         txnId: args.txnId,
         prev_invoice_id: prev._id,
-        new_xendit_id: data.id,
+        new_xendit_id: charge.providerId,
         new_xendit_idempotency_key: args.idempotencyKey,
         method: args.method,
-        qr_string: data.qr_string,
-        va_number: data.account_number,
-        status_at_create: data.status,
-        cancel_outcome,
+        qr_string: charge.qrString,
+        va_number: charge.vaNumber,
+        status_at_create: charge.statusAtCreate,
+        cancel_outcome: { success: true },
       },
     );
   },
