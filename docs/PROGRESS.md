@@ -291,6 +291,7 @@ Plan to be written. Scope per WORKFLOW.md: sale flow + QRIS + BCA VA + webhook +
     - [x] ADR-036 + supersede ADR-011/014, amend §8/ADR-026; CHANGELOG/SCHEMA/CLAUDE
   - **notes:**
     - 2026-05-29: Supersedes the original Invoice-API impl (v03-be-payments/-webhook/-polling) — the unified Invoice API never returned qr_string/account_number at create (only invoice_url), blocking all v0.3 payments. Built via subagent-driven-development (per-task spec + code-quality review) + triple-review. Commits 1136500..4ad10b8. BCA FVA path is code-complete but LIVE-UNVERIFIED (Decision C). HARD GATE remaining: a dashboard simulate-payment must write `paid` end-to-end (live Xendit webhook config).
+    - 2026-05-29: HARD GATE ✅ PASSED — live-verified end-to-end on dev (`helpful-grasshopper-46`) via Xendit test-mode simulate. QRIS (`qr.payment` SUCCEEDED → receipt R-2026-0001) AND BCA FVA (flat callback, no `event` field, matches on `callback_virtual_account_id` == stored FVA id → receipt R-2026-0002) both confirmed → `paid` via webhook with no manual action, RRN captured, no mismatch flag. Decision C (BCA live-unverified) is CLOSED. Prereq fixed: `XENDIT_CALLBACK_TOKEN` must be set under that exact name (dev had the token under `XENDIT_WEBHOOK_TOKEN`, which would 401 every callback).
 
 ### Frontend (`src/`)
 - ✅ **[v03-fe-use-cart]** `hooks/useCart.ts` — Zustand store for cart-build (local state where Convex reactivity isn't enough) (a503f90)
