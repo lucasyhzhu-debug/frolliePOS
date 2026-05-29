@@ -222,6 +222,14 @@ describe("payments/actions.retryWithFreshInvoice", () => {
     expect(calls.every((c) => !c.url.includes("expire"))).toBe(true);
     expect(calls[0].url).toContain("/qr_codes");
     expect(calls[0].body.reference_id).toContain("-r-");
+
+    // Decision E: the prior invoice is superseded LOCALLY (no remote expire).
+    const rows = await t.run((ctx) => ctx.db.query("pos_xendit_invoices").collect());
+    expect(rows.length).toBe(2);
+    const prior = rows.find((row) => row.xendit_invoice_id === "qr_first")!;
+    const fresh = rows.find((row) => row.xendit_invoice_id === "qr_second")!;
+    expect(prior.cancelled_at).toBeDefined();
+    expect(prior.replaced_by_invoice_id).toBe(fresh._id);
   });
 });
 
