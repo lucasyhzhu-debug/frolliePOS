@@ -133,7 +133,22 @@ describe("payments/actions.requestPayment", () => {
     expect(calls[0].url).toContain("/callback_virtual_accounts");
     expect(calls[0].body.bank_code).toBe("BCA");
     expect(calls[0].body.is_closed).toBe(true);
+    expect(calls[0].body.is_single_use).toBe(true);
     expect(calls[0].body.expected_amount).toBe(25_000);
+  });
+
+  it("BCA_VA: a Xendit 4xx surfaces as XENDIT_VA_FAILED and persists nothing", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    _xenditMockNextResponse({ error_code: "BAD" }, 400);
+    await expect(
+      t.action(api.payments.actions.requestPayment, {
+        sessionId: s.session, txnId: s.txn, method: "BCA_VA",
+        idempotencyKey: `va-fail-${Date.now()}`,
+      }),
+    ).rejects.toThrow(/XENDIT_VA_FAILED/);
+    const invoices = await t.run((ctx) => ctx.db.query("pos_xendit_invoices").collect());
+    expect(invoices.length).toBe(0);
   });
 
   it("QRIS: a Xendit 4xx surfaces as XENDIT_QR_FAILED and persists nothing", async () => {
