@@ -513,6 +513,7 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 - 🗂️ `routes/stock.tsx` — stock check (inventory)
 - 🗂️ `routes/stock/in.tsx` — stock-in entry (with NumericKeypad qty input)
 - 🗂️ `routes/lock.tsx` — full lock + handoff (end-of-shift)
+- 🗂️ Lock → resume UX: locking should land on the PREVIOUS person's PIN entry (open `/login` at the `pin` stage pre-set to the last-logged-in staff), NOT the full "Who's working?" list — keeping the existing "← back" to switch staff for a real handoff. Requires persisting the last staff identity at lock time; PIN still required (no auth bypass). _Surfaced in v0.3 UAT 2026-05-29; part of the lock+handoff design above._
 - 🗂️ `routes/mgr/dashboard.tsx` — DashA wireframe (laptop-first)
 - 🗂️ `routes/mgr/products.tsx` — ProductsManager (taxonomy editor)
 - 🗂️ `routes/mgr/receipt.tsx` — ReceiptConfig
