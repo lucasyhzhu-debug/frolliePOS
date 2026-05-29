@@ -41,7 +41,7 @@ export const getByToken = query({
     kind: Doc<"pos_approval_requests">["kind"];
     subject_staff_name: string;
     subject_staff_code?: string;
-    status: "pending" | "resolved" | "expired";
+    status: "pending" | "resolved" | "denied" | "expired";
     triggered_at: number;
     token_expires_at: number;
     resolved_at?: number;
@@ -55,6 +55,10 @@ export const getByToken = query({
 
     if (!req) return null;
 
+    // subject_staff_id is always present for staff_pin_reset; other kinds (e.g.
+    // manual_payment_override) won't have it. Guard before calling auth boundary.
+    if (!req.subject_staff_id) return null;
+
     // Resolve staff via auth module boundary (ADR-034: approvals does not own `staff`)
     const staffInfo = await ctx.runQuery(
       internal.auth.internal._getStaffNameCode_internal,
@@ -64,7 +68,7 @@ export const getByToken = query({
     if (!staffInfo) return null;
 
     // Compute effective status without mutating the DB row
-    const effectiveStatus: "pending" | "resolved" | "expired" =
+    const effectiveStatus: "pending" | "resolved" | "denied" | "expired" =
       req.status === "pending" && req.token_expires_at <= Date.now()
         ? "expired"
         : req.status;

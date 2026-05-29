@@ -179,6 +179,10 @@ export const approveStaffPinReset = action({
       throw new Error("INVALID_PIN");
     }
 
+    // subject_staff_id is always present for staff_pin_reset; guard for TS (schema
+    // made it optional in v0.4 to support other kinds like manual_payment_override).
+    if (!req.subject_staff_id) throw new Error("REQUEST_MISSING_SUBJECT");
+
     const newPinHash: string = await ctx.runAction(
       internal.auth.actions._hashPin_internal,
       { pin: args.newPin },
