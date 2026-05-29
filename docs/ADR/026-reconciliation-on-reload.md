@@ -4,6 +4,8 @@
 **Status:** Accepted
 **Group:** Sync
 
+> **Amended by [ADR-036](./036-xendit-dedicated-apis-inline.md)** (2026-05-28): `useStartupReconciliation` poll body gutted; missed-webhook recovery for QRIS/FVA is manual-only (manager-PIN override) — polling QRIS status is architecturally impossible.
+
 ## Context
 
 Power loss, browser crash, or accidental refresh mid-sale: a transaction may have been paid in Xendit but not yet decremented locally. Or the cart may have an active Xendit invoice that the device no longer knows about. Without an explicit reconciliation pass on startup, these orphan states accumulate.

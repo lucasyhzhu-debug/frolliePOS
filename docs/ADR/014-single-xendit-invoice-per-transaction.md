@@ -4,6 +4,8 @@
 **Status:** Accepted
 **Group:** Pay
 
+> **Adjusted by [ADR-036](./036-xendit-dedicated-apis-inline.md)** (2026-05-28): prior invoice superseded locally (no Xendit cancel-API call for QR codes); `is_closed` + `is_single_use` on FVA prevent double-pay for BCA VA.
+
 ## Context
 
 Staff shows a QR. Customer takes a minute to find their wallet. Staff notices the cart is wrong, cancels, edits, retries. Without explicit cancellation, the first Xendit invoice is orphaned — still active on Xendit's side, capable of receiving a payment that no longer corresponds to anything in the POS.

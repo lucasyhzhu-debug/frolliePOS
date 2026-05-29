@@ -171,7 +171,7 @@ Core sale record. The v0.3 shape below is what ships in `convex/transactions/sch
 | `voucher_code_snapshot` | `string?` | Snapshot of the applied voucher code |
 | `voucher_discount` | `number` | `0` if no voucher ([ADR-010](./ADR/010-no-voucher-stacking.md): one voucher per txn) |
 | `total` | `number` | `subtotal - voucher_discount` |
-| `flags` | `number` | Bitset; `NEG_STOCK = 1 << 0` ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)). See `transactions/flags.ts` |
+| `flags` | `number` | Bitset; `NEG_STOCK = 1 << 0` ([ADR-018](./ADR/018-negative-stock-allowed-flagged.md)); `PAYMENT_AMOUNT_MISMATCH = 1 << 2` (paid amount ≠ transaction total — honor-and-flag per [ADR-036](./ADR/036-xendit-dedicated-apis-inline.md)). See `transactions/flags.ts` |
 | `staff_id` | `Id<"staff">` | Creator |
 | `xendit_invoice_id_current` | `string?` | Denormalised pointer to the active invoice ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)). Canonical invoice store is `pos_xendit_invoices`. `null` for draft |
 | `created_at` | `number` | Server-set ([ADR-031](./ADR/031-convex-server-time-wins.md)) |
@@ -233,13 +233,15 @@ Indexes:
 - `by_status_expires` on `[status, expires_at]` for cleanup
 
 ### `pos_xendit_invoices` — v0.3 shipped *(owned by `payments/`)*
-History of all Xendit invoices created for a transaction, including cancelled ones ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md)). `by_xendit_invoice_id` is the webhook dedup index.
+History of all Xendit invoices created for a transaction, including cancelled ones ([ADR-014](./ADR/014-single-xendit-invoice-per-transaction.md), adjusted by [ADR-036](./ADR/036-xendit-dedicated-apis-inline.md)). `by_xendit_invoice_id` is the webhook dedup index.
+
+> **ADR-036 (2026-05-28):** `xendit_invoice_id` stores the QR Codes `id` for QRIS invoices and the FVA `id` for BCA VA invoices — it is the webhook match index in both cases. Two additive optional columns added: `receipt_id` and `payment_source`.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_xendit_invoices">` | |
 | `transaction_id` | `Id<"pos_transactions">` | |
-| `xendit_invoice_id` | `string` | Xendit's id — dedup key for webhook |
+| `xendit_invoice_id` | `string` | Dual-meaning: QR Codes `id` (QRIS) or FVA `id` (BCA VA). Webhook match key via `by_xendit_invoice_id` index |
 | `xendit_idempotency_key` | `string` | `X-IDEMPOTENCY-KEY` sent to Xendit at creation; recorded for audit + retry traceability |
 | `method` | `"QRIS" \| "BCA_VA"` | |
 | `qr_string` | `string?` | QRIS payload (QRIS invoices only) |
@@ -249,6 +251,8 @@ History of all Xendit invoices created for a transaction, including cancelled on
 | `cancelled_at` | `number?` | |
 | `cancelled_reason` | `string?` | |
 | `replaced_by_invoice_id` | `Id<"pos_xendit_invoices">?` | Points to the invoice that superseded this one on retry |
+| `receipt_id` | `string?` | Bank RRN (Reference/Receipt Number) — join key to the Xendit settlement report for Frollie Pro reconciliation. Written on webhook by `_onPaidWebhook_internal` when `payment_detail.receipt_id` is present |
+| `payment_source` | `string?` | Paying wallet or bank (e.g. `"DANA"`, `"OVO"`, `"BCA"`). Written on webhook when `payment_detail.source` is present |
 
 Indexes: `by_transaction` on `transaction_id`, `by_xendit_invoice_id` on `xendit_invoice_id` (webhook dedup).
 

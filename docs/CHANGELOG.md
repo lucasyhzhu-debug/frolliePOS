@@ -2,6 +2,15 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-05-28 — Xendit inline payments fix (v0.3)
+
+- QRIS now uses the Xendit QR Codes API (inline scannable QR) instead of the Invoice API
+- BCA VA now uses the Virtual Accounts (FVA) API for an inline VA number (live-unverified)
+- Webhook parses the QR Codes v2 shape (`data.status: "SUCCEEDED"`, match on `qr_id`); always-200 + 401-on-missing-config
+- Retired QRIS status polling + poll-based reconciliation; webhook + manager override are the confirmation paths
+- Captured RRN (`receipt_id`) + paying `payment_source`; added `PAYMENT_AMOUNT_MISMATCH` flag
+- ADR-036 supersedes ADR-011, adjusts ADR-014, amends strategic-foundations §8 + ADR-026
+
 ## 2026-05-27 — Tooling: CEO Progress Report extraction
 
 - Extracted PROGRESS.md → progress.html renderer from `scripts/build-progress-html.mjs` into a standalone, installable package at `packages/ceo-progress-report/`.

@@ -60,7 +60,7 @@ Mirror Frollie Pro for **stack choices** (framework, language, libraries). POS *
 - **React Router v7** (library mode)
 - **Vercel hosting** (frontend)
 - **PWA** (`vite-plugin-pwa` — service worker + manifest, installable on Android)
-- **Xendit** for payments (Invoice API)
+- **Xendit** for payments (QR Codes API for QRIS, Virtual Accounts FVA API for BCA VA — [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md))
 - **Sonner** for toast notifications
 - **Zustand** for local state where Convex reactivity isn't enough (cart-build only)
 - **IDB** for offline queue
@@ -73,7 +73,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 2. **Audit log is append-only.** Never update or delete a row in `audit_log` ([ADR-007](./docs/ADR/007-audit-log-append-only.md)). Enforced at the mutation layer; code review catches violations.
 3. **PPN is 0 today, schema-ready for 11% later.** Don't hardcode 0. Read from `pos_products.tax_rate` (default 0). When Frollie hits PKP threshold, flip `pos_settings.is_pkp` and the default — no migration ([strategic foundations §4](./docs/ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)).
 4. **Refunds are their own entity.** Never mutate a paid transaction's status to "refunded" — create a `pos_refunds` row; status is computed on read ([ADR-008](./docs/ADR/008-refunds-as-new-rows.md)).
-5. **Payment confirmation has three paths.** Webhook (primary), polling (fallback after 2s, every 2s, 60s ceiling), manual override (manager PIN OR WA approval, audit-logged with reason) ([strategic foundations §8](./docs/ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)).
+5. **Payment confirmation has two paths for QRIS/BCA VA.** Webhook (primary — Xendit POSTs `qr.payment` / `virtual_account.payment` to `convex/payments/webhook.ts`) and manager-PIN manual override (fallback — audit-logged with reason). Polling retired for these methods ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) amends [strategic foundations §8](./docs/ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)).
 6. **Stock-in only at inventory-SKU level.** Products are never restocked directly — selling a "Dubai 8pcs" decrements 8 from the `dubai` SKU ([ADR-016](./docs/ADR/016-product-inventory-separation.md)).
 7. **Negative stock allowed at sale, flagged.** Don't hard-block; set `pos_transactions.flags |= NEG_STOCK` and let manager reconcile ([ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md)).
 8. **Stock-in is a logged movement, never a number edit.** Every stock change writes a `pos_stock_movements` row with required `source` enum. `pos_stock_levels` is a denormalised cache, reconciled nightly.
@@ -86,7 +86,7 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 15. **Every public mutation accepts `idempotencyKey`.** Server dedupes for 24h via `pos_idempotency` ([ADR-013](./docs/ADR/013-idempotency-keys.md)). Mutation harness wraps every public mutation so individual functions don't have to think about it.
 16. **Server time wins.** Every `_at` field is set via `Date.now()` inside the Convex function — never client-supplied ([ADR-031](./docs/ADR/031-convex-server-time-wins.md)).
 17. **PWA partial offline:** catalog cached, cart builds, drafts queue, stock-in queues. Payments / auth / refunds block offline with clear UI ([ADR-025](./docs/ADR/025-service-worker-cache.md)).
-18. **Reconciliation on reload:** on startup, any recent `awaiting_payment` txn triggers a Xendit re-check (`useStartupReconciliation`). Double-decrement is prevented by the `pos_stock_movements.by_line_and_sku` index — one `sale` movement per `(source_transaction_line_id, inventory_sku_id)` ([ADR-026](./docs/ADR/026-reconciliation-on-reload.md)). *(v0.3 shipped this index rather than a unique `(ref_type, ref_id, sku_id)` constraint.)*
+18. **Reconciliation on reload (QRIS/FVA — manual-only):** `useStartupReconciliation` is a thin no-op shell — the poll body was gutted because QR status polling is architecturally impossible and the `checkInvoiceStatus` action was removed ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) amends [ADR-026](./docs/ADR/026-reconciliation-on-reload.md)). Missed-webhook recovery for QRIS/BCA VA is manager-PIN manual override only. Double-decrement is still prevented by the `pos_stock_movements.by_line_and_sku` index — one `sale` movement per `(source_transaction_line_id, inventory_sku_id)`. *(v0.3 shipped this index rather than a unique `(ref_type, ref_id, sku_id)` constraint.)*
 19. **PIN changes funnel through one mutation.** `auth.changePin` (self), `auth.resetStaffPin` (manager at booth), and `approvals.approveStaffPinReset` (off-booth) all commit via the shared internal `_changePinCommit_internal`. Branch on `actor.kind`: `"self"` → logs `staff.pin_changed`; `"manager_reset"` → logs `staff.pin_reset`, clears `pos_auth_attempts` (lockout unwind), and stamps `source` (`booth_inline` at booth, `wa_approval` off-booth). Never log PIN values — the payload has no PIN fields. Don't add a fourth reset path that bypasses this funnel.
 
 ## File locations
@@ -157,11 +157,12 @@ If you need to add a table, update `convex/schema.ts` in this repo — POS table
 ## Xendit integration notes
 
 - Test mode keys in `.env.local`, prod keys in Vercel + Convex env.
-- **Invoice API** with `payment_methods: ["QRIS", "BCA"]` is the unified flow. QRIS button creates an invoice with `qr_string`; BCA VA button creates one with `virtual_account` ([ADR-011](./docs/ADR/011-qris-via-xendit-bca-va-secondary.md)).
-- Webhook endpoint: `convex/xendit/webhook.ts` exposed as a Convex HTTP action. **Signature verification mandatory** via `XENDIT_CALLBACK_TOKEN`.
-- Polling fallback hits `GET /v2/invoices/{id}`.
+- **QRIS** uses the **QR Codes API** (`POST /qr_codes`, returns inline `qr_string`). **BCA VA** uses the **Virtual Accounts (FVA) API** (`POST /callback_virtual_accounts`, returns inline `account_number`). Both render inside the POS — no redirect to a hosted invoice page. The Invoice API (`POST /v2/invoices`) is **not used** ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) supersedes [ADR-011](./docs/ADR/011-qris-via-xendit-bca-va-secondary.md)).
+- **`api-version: 2022-07-31` header is load-bearing** on QR creation — without it, the `qr.payment` webhook never fires. Asserted by the `buildQrisHeaders()` unit test.
+- Webhook endpoint: `convex/payments/webhook.ts` exposed as a Convex HTTP action. **Signature verification mandatory** via `XENDIT_CALLBACK_TOKEN`. Always returns 200 (missing config or wrong token → 401). Parses two webhook shapes: QRIS (`event: "qr.payment"`, match on `data.qr_id`, status `SUCCEEDED`) and BCA VA (flat FVA callback, match on `callback_virtual_account_id`).
+- **No polling.** Polling retired for QRIS/FVA — confirmation paths are webhook + manager-PIN manual override only.
 - **Idempotency at two levels:** every public mutation has client-supplied `idempotencyKey` ([ADR-013](./docs/ADR/013-idempotency-keys.md)); webhook handler also dedupes by `xendit_invoice_id` because Xendit retries.
-- **Single active invoice per transaction:** on cart edit + retry, explicitly call Xendit's cancel-invoice API before creating a new one ([ADR-014](./docs/ADR/014-single-xendit-invoice-per-transaction.md)). Prior invoice ids audit-logged to `pos_xendit_invoices`.
+- **Single active invoice per transaction (local supersede):** on cart edit + retry, mint a fresh QR/VA and mark the prior `pos_xendit_invoices` row cancelled + `replaced_by_invoice_id` locally. No Xendit cancel-API call for QR codes ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) adjusts [ADR-014](./docs/ADR/014-single-xendit-invoice-per-transaction.md)). Prior invoice ids audit-logged to `pos_xendit_invoices`.
 
 ## Auth
 
