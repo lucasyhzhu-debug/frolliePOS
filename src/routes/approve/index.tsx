@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useParams } from "react-router";
 import { useQuery, useAction } from "convex/react";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { NumericKeypad } from "@/components/pos/NumericKeypad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { rp } from "@/lib/format";
 
 /*
  * SERVICE-WORKER NOTE (staffreview Improvement #13):
@@ -24,10 +25,12 @@ function mapError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes("TOKEN_INVALID")) return "Invalid link";
   if (msg.includes("TOKEN_EXPIRED")) return "Link expired";
-  if (msg.includes("REQUEST_RESOLVED")) return "Already reset";
+  if (msg.includes("REQUEST_RESOLVED")) return "Already resolved";
   if (msg.includes("NOT_MANAGER")) return "That staff code is not a manager";
   if (msg.includes("INVALID_PIN")) return "Wrong manager PIN";
   if (msg.includes("NEW_PIN_INVALID")) return "New PIN must be 4 digits";
+  if (msg.includes("WRONG_KIND")) return "Approval type mismatch";
+  if (msg.includes("TXN_NOT_AWAITING")) return "Transaction is no longer awaiting payment";
   return msg;
 }
 
@@ -49,19 +52,25 @@ function PinDots({ value }: { value: string }) {
   );
 }
 
-/** Which PIN field the keypad is currently filling. */
+// ────────────────────────────────────────────────────────────────────────────
+// staff_pin_reset variant
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Which PIN field the keypad is currently filling (pin_reset flow). */
 type ActiveField = "managerPin" | "newPin";
 
-export default function Approve() {
-  const { token } = useParams<{ token: string }>();
+interface PinResetProps {
+  token: string;
+  request: {
+    kind: "staff_pin_reset";
+    subject_staff_name: string;
+    subject_staff_code?: string;
+    status: string;
+    token_expires_at: number;
+  };
+}
 
-  // useQuery returns undefined while loading, null when not found.
-  const request = useQuery(
-    api.approvals.public.getByToken,
-    token ? { rawToken: token } : "skip",
-  );
-
-  // Form state
+function PinResetVariant({ token, request }: PinResetProps) {
   const [staffCode, setStaffCode] = useState("");
   const [managerPin, setManagerPin] = useState("");
   const [newPin, setNewPin] = useState("");
@@ -70,7 +79,7 @@ export default function Approve() {
   const [error, setError] = useState<string | undefined>(undefined);
   const [succeeded, setSucceeded] = useState(false);
 
-  const idempotencyIntent = `approve-pin-reset:${token ?? "none"}`;
+  const idempotencyIntent = `approve-pin-reset:${token}`;
   const idempotencyKey = useIdempotency(idempotencyIntent);
   const approveAction = useAction(api.approvals.actions.approveStaffPinReset);
 
@@ -93,8 +102,7 @@ export default function Approve() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!token) return;
-    if (!idempotencyKey) return; // IDB not ready yet — single-paint guard
+    if (!idempotencyKey) return;
     if (managerPin.length !== 4) {
       setError("Manager PIN must be 4 digits");
       return;
@@ -122,12 +130,10 @@ export default function Approve() {
     } catch (err) {
       const mapped = mapError(err);
       setError(mapped);
-      // On certain terminal errors (token gone) clear the idempotency key so a
-      // retry attempt gets a fresh UUID rather than re-hitting the dedup cache.
       if (
         mapped === "Invalid link" ||
         mapped === "Link expired" ||
-        mapped === "Already reset"
+        mapped === "Already resolved"
       ) {
         void clearIntent(idempotencyIntent);
       }
@@ -136,55 +142,6 @@ export default function Approve() {
     }
   }
 
-  // ── Loading ──────────────────────────────────────────────────────────────
-  if (request === undefined) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Checking link…</p>
-      </main>
-    );
-  }
-
-  // ── Invalid / expired (null result or status="expired") ──────────────────
-  if (request === null || request.status === "expired") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <p className="text-sm text-muted-foreground">
-          This reset link has expired or is invalid.
-        </p>
-      </main>
-    );
-  }
-
-  // ── Non-pin-reset kinds: stub for future UI (manual_payment_override etc.) ─
-  // This component only renders the staff_pin_reset approval flow. Other kinds
-  // will get their own UI in a later task; for now show a neutral placeholder.
-  if (request.kind !== "staff_pin_reset") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <p className="text-sm text-muted-foreground">
-          This approval type is not yet supported in this view.
-        </p>
-      </main>
-    );
-  }
-
-  // From here: request.kind === "staff_pin_reset" — subject_staff_name etc. are safe.
-
-  // ── Already resolved ─────────────────────────────────────────────────────
-  if (request.status === "resolved") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
-        <p className="text-sm font-medium">
-          ✓ {request.subject_staff_name}&apos;s PIN has already been reset.
-        </p>
-      </main>
-    );
-  }
-
-  // ── Success (just completed in this session) ─────────────────────────────
   if (succeeded) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
@@ -196,7 +153,6 @@ export default function Approve() {
     );
   }
 
-  // ── Pending form ─────────────────────────────────────────────────────────
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
@@ -292,10 +248,7 @@ export default function Approve() {
 
         {/* Error message */}
         {error && (
-          <p
-            role="alert"
-            className="text-center text-sm text-destructive"
-          >
+          <p role="alert" className="text-center text-sm text-destructive">
             {error}
           </p>
         )}
@@ -322,6 +275,423 @@ export default function Approve() {
           )}
         </Button>
       </form>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// manual_payment_override variant
+// ────────────────────────────────────────────────────────────────────────────
+
+interface ManualPaymentProps {
+  token: string;
+  request: {
+    kind: "manual_payment_override";
+    display: {
+      amount_idr: number;
+      reason: string;
+      receipt_preview?: string;
+      requester_name?: string;
+    };
+    status: string;
+    token_expires_at: number;
+  };
+}
+
+function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
+  const [staffCode, setStaffCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  // Deny-flow state
+  const [showDenyReason, setShowDenyReason] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  const [denyPending, setDenyPending] = useState(false);
+
+  // Terminal outcome state
+  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+
+  const approveIntent = `approve-payment:${token}`;
+  const denyIntent = `deny-payment:${token}`;
+  const approveKey = useIdempotency(approveIntent);
+  const denyKey = useIdempotency(denyIntent);
+
+  const approveAction = useAction(api.approvals.actions.approveManualPayment);
+  const denyAction = useAction(api.approvals.actions.denyRequest);
+
+  function handleKeyPress(key: string) {
+    setError(undefined);
+    setManagerPin((prev) => {
+      if (key === "C") return "";
+      if (key === "⌫") return prev.slice(0, -1);
+      return prev.length < 4 ? prev + key : prev;
+    });
+  }
+
+  async function handleApprove(e: React.FormEvent) {
+    e.preventDefault();
+    if (!approveKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+
+    setPending(true);
+    setError(undefined);
+    try {
+      await approveAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        idempotencyKey: approveKey,
+      });
+      setOutcome("approved");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(approveIntent);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleConfirmDeny() {
+    if (!denyKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+    if (!denyReason.trim()) return;
+
+    setDenyPending(true);
+    setError(undefined);
+    try {
+      await denyAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        denyReason: denyReason.trim(),
+        idempotencyKey: denyKey,
+      });
+      setOutcome("denied");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(denyIntent);
+      }
+    } finally {
+      setDenyPending(false);
+    }
+  }
+
+  // ── Outcome screens ────────────────────────────────────────────────────────
+  if (outcome === "approved") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <p className="text-sm font-medium">
+          ✓ Approved — payment of {rp(request.display.amount_idr)} confirmed.
+        </p>
+      </main>
+    );
+  }
+
+  if (outcome === "denied") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">Declined — payment request rejected.</p>
+      </main>
+    );
+  }
+
+  // ── Pending form ──────────────────────────────────────────────────────────
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
+      <header className="w-full max-w-sm text-center pt-6">
+        <h1 className="text-lg font-semibold">Manager approval needed</h1>
+      </header>
+
+      {/* Summary card */}
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Amount</span>
+          <span className="font-semibold tabular-nums">
+            {rp(request.display.amount_idr)}
+          </span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-right">{request.display.reason}</span>
+        </div>
+        {request.display.requester_name && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Requested by</span>
+            <span>{request.display.requester_name}</span>
+          </div>
+        )}
+        {request.display.receipt_preview && (
+          <div className="pt-1 border-t border-border">
+            <span className="text-muted-foreground text-xs">{request.display.receipt_preview}</span>
+          </div>
+        )}
+      </div>
+
+      <form
+        onSubmit={handleApprove}
+        className="flex w-full max-w-sm flex-col gap-5"
+        aria-label="Manual payment approval form"
+      >
+        {/* Manager staff code */}
+        <div className="space-y-1.5">
+          <Label htmlFor="mgr-staff-code">Your staff code (e.g. S-0001)</Label>
+          <Input
+            id="mgr-staff-code"
+            type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={staffCode}
+            onChange={(e) => {
+              setStaffCode(e.target.value);
+              setError(undefined);
+            }}
+            placeholder="e.g. MGR01"
+            disabled={pending || denyPending}
+          />
+        </div>
+
+        {/* Manager PIN entry */}
+        <div className="space-y-2">
+          <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
+            <span className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Your manager PIN
+            </span>
+            {managerPin.length > 0 ? (
+              <PinDots value={managerPin} />
+            ) : (
+              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+            )}
+          </div>
+          <NumericKeypad
+            onPress={handleKeyPress}
+            onClear={() => handleKeyPress("C")}
+            onBackspace={() => handleKeyPress("⌫")}
+            size="compact"
+          />
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <p role="alert" className="text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {/* Deny reason input — revealed after clicking Deny */}
+        {showDenyReason && (
+          <div className="space-y-1.5">
+            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Input
+              id="deny-reason"
+              type="text"
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder="e.g. Customer requested cancellation"
+              disabled={denyPending}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-2">
+          {!showDenyReason ? (
+            <>
+              <Button
+                type="submit"
+                disabled={
+                  pending ||
+                  denyPending ||
+                  !approveKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4
+                }
+                className="w-full"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Approving…
+                  </>
+                ) : (
+                  "Approve"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => {
+                  setError(undefined);
+                  setShowDenyReason(true);
+                }}
+                disabled={pending || denyPending}
+              >
+                Deny
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirmDeny}
+                disabled={
+                  denyPending ||
+                  pending ||
+                  !denyKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4 ||
+                  denyReason.trim().length === 0
+                }
+              >
+                {denyPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Declining…
+                  </>
+                ) : (
+                  "Confirm Deny"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setShowDenyReason(false);
+                  setDenyReason("");
+                  setError(undefined);
+                }}
+                disabled={denyPending}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Root route component — dispatches on request.kind
+// ────────────────────────────────────────────────────────────────────────────
+
+export default function Approve() {
+  const { token } = useParams<{ token: string }>();
+
+  // useQuery returns undefined while loading, null when not found.
+  const request = useQuery(
+    api.approvals.public.getByToken,
+    token ? { rawToken: token } : "skip",
+  );
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (request === undefined) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Checking link…</p>
+      </main>
+    );
+  }
+
+  // ── Invalid / expired (null result or status="expired") ──────────────────
+  if (request === null || request.status === "expired") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <p className="text-sm text-muted-foreground">
+          This reset link has expired or is invalid.
+        </p>
+      </main>
+    );
+  }
+
+  // ── Already resolved (resolved/denied) ───────────────────────────────────
+  if (request.status === "resolved" || request.status === "denied") {
+    if (request.kind === "staff_pin_reset") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <CheckCircle2 className="h-8 w-8 text-teal-600" />
+          <p className="text-sm font-medium">
+            ✓ {request.subject_staff_name}&apos;s PIN has already been reset.
+          </p>
+        </main>
+      );
+    }
+    if (request.kind === "manual_payment_override") {
+      const wasApproved = request.status === "resolved";
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          {wasApproved ? (
+            <>
+              <CheckCircle2 className="h-8 w-8 text-teal-600" />
+              <p className="text-sm font-medium">
+                ✓ Payment of {rp(request.display.amount_idr)} already approved.
+              </p>
+            </>
+          ) : (
+            <>
+              <XCircle className="h-8 w-8 text-destructive" />
+              <p className="text-sm font-medium">This payment request was declined.</p>
+            </>
+          )}
+        </main>
+      );
+    }
+  }
+
+  // ── Dispatch on kind ──────────────────────────────────────────────────────
+  if (!token) return null;
+
+  if (request.kind === "staff_pin_reset") {
+    return <PinResetVariant token={token} request={request} />;
+  }
+
+  if (request.kind === "manual_payment_override") {
+    return <ManualPaymentVariant token={token} request={request} />;
+  }
+
+  // Unknown kind — neutral fallback for future kinds not yet handled in UI
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+      <p className="text-sm text-muted-foreground">
+        This approval type is not yet supported in this view.
+      </p>
     </main>
   );
 }

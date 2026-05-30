@@ -24,8 +24,8 @@ import { RootLayout } from "@/components/layout/RootLayout";
  *   /mgr/receipt                 — ReceiptConfig
  *
  *   /wait/:requestId             — StaffWaitingApproval (the requester's screen)
- *   /approve/:token              — WA approve landing (PUBLIC — no auth)
- *   /approve/:token/pin          — PIN sheet continuation
+ *   /approve/:token              — Telegram approve landing (PUBLIC — no auth)
+ *                                  Handles staff_pin_reset + manual_payment_override variants
  *
  *   /r/:receiptNumber            — public receipt page (no auth, signed URL)
  *
@@ -54,7 +54,6 @@ const MgrReceipt = lazy(() => import("@/routes/mgr/receipt"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
-const ApprovePin = lazy(() => import("@/routes/approve/pin"));
 
 const Receipt = lazy(() => import("@/routes/receipt"));
 const Activate = lazy(() => import("@/routes/activate"));
@@ -63,7 +62,6 @@ const routes: RouteObject[] = [
   // Public routes — no auth, no app shell
   { path: "/activate", element: <Activate /> },
   { path: "/approve/:token", element: <Approve /> },
-  { path: "/approve/:token/pin", element: <ApprovePin /> },
   { path: "/r/:receiptNumber", element: <Receipt /> },
 
   // App shell — RootLayout handles session gate + redirects unauthenticated traffic to /login
