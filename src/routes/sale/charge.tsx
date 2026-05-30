@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams, useBlocker } from "react-router";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
 import { useXenditPayment, PAYMENT_CEILING_MS } from "@/hooks/useXenditPayment";
 import { useIdempotency } from "@/hooks/useIdempotency";
+import { useCountdown, DEFAULT_LIFETIME_MS } from "@/hooks/useCountdown";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
@@ -127,6 +129,17 @@ export default function SaleCharge() {
 
   const ceilingReached = elapsedMs >= PAYMENT_CEILING_MS;
 
+  // ---- countdown timer ----
+  // Target epoch = invoice creation time + default Xendit QR lifetime (15min).
+  // We derive this from the invoice rather than storing expires_at in the schema —
+  // Xendit's expiry is deterministic from creation time and adding the field would
+  // require a schema migration with no operational benefit over this derivation.
+  const countdownTarget =
+    invoice?.created_at != null
+      ? invoice.created_at + DEFAULT_LIFETIME_MS
+      : undefined;
+  const { mmss, pctRemaining, expired: qrExpired } = useCountdown(countdownTarget);
+
   // ---- initial-invoice creation guard ----
   // Tracks which methods we've already kicked off a create for, so an effect
   // re-run (or StrictMode double-mount) doesn't fire requestPayment twice. The
@@ -209,10 +222,21 @@ export default function SaleCharge() {
   const [overrideError, setOverrideError] = useState<string | undefined>(
     undefined,
   );
-  // Wave 4 Task 18 will replace this with a manager-picker dropdown.
-  // For now the caller must supply a code via the PinSheet title/UI; this
-  // placeholder satisfies the type until the picker is wired up.
-  const [overrideManagerCode, setOverrideManagerCode] = useState("");
+  // Picker state: null = show picker, non-null = manager selected → show PIN form.
+  const [pickedManager, setPickedManager] = useState<{
+    _id: string;
+    name: string;
+    code: string;
+  } | null>(null);
+
+  // Fetch active managers for the booth picker. Session must be active — the query
+  // is deferred until the sheet opens (but Convex will subscribe as soon as args resolve).
+  const managers = useQuery(
+    api.staff.public.listActiveManagers,
+    session.status === "active"
+      ? { sessionId: session.sessionId }
+      : "skip",
+  );
 
   const handleOverrideSubmit = async (pin: string) => {
     if (session.status !== "active" || !txnId) return;
@@ -221,8 +245,8 @@ export default function SaleCharge() {
       setOverrideError("Reason is required");
       return;
     }
-    if (!overrideManagerCode.trim()) {
-      setOverrideError("Manager code is required");
+    if (!pickedManager) {
+      setOverrideError("Select a manager first");
       return;
     }
     setOverridePending(true);
@@ -231,7 +255,7 @@ export default function SaleCharge() {
       await manuallyConfirmPayment({
         sessionId: session.sessionId,
         txnId,
-        managerStaffCode: overrideManagerCode.trim(),
+        managerStaffCode: pickedManager.code,
         managerPin: pin,
         reason,
         idempotencyKey: crypto.randomUUID(),
@@ -470,6 +494,21 @@ export default function SaleCharge() {
               )}
             </Card>
 
+            {/* Countdown timer — shown only when an invoice is active */}
+            {invoiceMatches && (
+              <div className="w-full" data-testid="countdown-panel">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{selectedMethod === "QRIS" ? "QR" : "VA"} expires in {mmss}</span>
+                </div>
+                <Progress value={Math.min(pctRemaining * 100, 100)} className="mt-1 h-1" />
+                {qrExpired && (
+                  <p className="mt-2 text-sm text-amber-600" data-testid="countdown-expired-msg">
+                    {selectedMethod === "QRIS" ? "QR" : "VA"} expired — tap Retry for a fresh one.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Waiting / ceiling state */}
             {approvalRequestId ? (
               // Off-booth approval in progress — show the pending widget.
@@ -523,6 +562,7 @@ export default function SaleCharge() {
                   onClick={() => {
                     setOverrideReason("");
                     setOverrideError(undefined);
+                    setPickedManager(null);
                     setOverrideOpen(true);
                   }}
                 >
@@ -601,42 +641,81 @@ export default function SaleCharge() {
         onCancelPayment={onCancelPaymentForBlocker}
       />
 
-      {/* Manager override PIN sheet — reason is REQUIRED before confirm fires. */}
+      {/* Manager picker — shown before the PIN sheet when override is triggered.
+          Two-step: (1) pick which manager is at the booth, (2) enter their PIN. */}
+      {overrideOpen && !pickedManager && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+          data-testid="manager-picker"
+        >
+          <Card className="w-full max-w-sm p-5 pb-6">
+            <h3 className="mb-4 text-center text-base font-semibold">
+              Pick a manager
+            </h3>
+            {managers === undefined ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading managers…</span>
+              </div>
+            ) : managers.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No active managers found.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {managers.map((m) => (
+                  <Button
+                    key={m._id}
+                    variant="outline"
+                    className="justify-between"
+                    data-testid={`pick-manager-${m.code}`}
+                    onClick={() => {
+                      setPickedManager(m);
+                      setOverrideError(undefined);
+                    }}
+                  >
+                    <span>{m.name}</span>
+                    <span className="text-xs text-muted-foreground">{m.code}</span>
+                  </Button>
+                ))}
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              className="mt-4 w-full"
+              onClick={() => {
+                setOverrideOpen(false);
+                setPickedManager(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </Card>
+        </div>
+      )}
+
+      {/* Manager override PIN sheet — shown after a manager is picked.
+          Reason is REQUIRED before the PIN confirm fires. */}
       <PinSheet
-        open={overrideOpen}
+        open={overrideOpen && pickedManager !== null}
         title="Manager override"
-        label={`Enter your PIN, ${session.staff.name} — confirms payment`}
+        label={`Enter ${pickedManager?.name ?? "manager"}'s PIN to confirm payment`}
         pending={overridePending}
         error={overrideError}
         onSubmit={handleOverrideSubmit}
         onCancel={() => {
-          if (!overridePending) setOverrideOpen(false);
+          if (!overridePending) {
+            // Go back to picker step rather than closing entirely.
+            setPickedManager(null);
+            setOverrideError(undefined);
+          }
         }}
         extraField={
           <div className="space-y-3">
-            {/* Wave 4 Task 18 replaces this text input with a manager-picker
-                dropdown populated from _listActiveManagers_internal. */}
-            <div className="space-y-1.5">
-              <label
-                htmlFor="override-mgr-code"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                Manager code (required)
-              </label>
-              <input
-                id="override-mgr-code"
-                type="text"
-                value={overrideManagerCode}
-                onChange={(e) => {
-                  setOverrideManagerCode(e.target.value);
-                  if (overrideError === "Manager code is required") {
-                    setOverrideError(undefined);
-                  }
-                }}
-                placeholder="e.g. M-0001"
-                disabled={overridePending}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              />
+            {/* Selected manager badge */}
+            <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2">
+              <span className="text-sm font-medium">{pickedManager?.name}</span>
+              <span className="text-xs text-muted-foreground">{pickedManager?.code}</span>
             </div>
             <div className="space-y-1.5">
               <label
@@ -647,6 +726,7 @@ export default function SaleCharge() {
               </label>
               <textarea
                 id="override-reason"
+                data-testid="override-reason-input"
                 value={overrideReason}
                 onChange={(e) => {
                   setOverrideReason(e.target.value);
