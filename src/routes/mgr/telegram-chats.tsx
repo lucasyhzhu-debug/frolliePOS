@@ -126,10 +126,10 @@ function ChatCard({
   chat: Chat;
   sessionId: string;
 }) {
-  const assignRole = useMutation(api.telegram.chatRegistry.mgrAssignRole);
-  const archiveChat = useMutation(api.telegram.chatRegistry.mgrArchiveChat);
-  const restoreChat = useMutation(api.telegram.chatRegistry.mgrRestoreChat);
-  const sendTest = useAction(api.telegram.chatRegistry.mgrSendTest);
+  const assignRole = useMutation(api.telegram.chatRegistry.public.mgrAssignRole);
+  const archiveChat = useMutation(api.telegram.chatRegistry.public.mgrArchiveChat);
+  const restoreChat = useMutation(api.telegram.chatRegistry.public.mgrRestoreChat);
+  const sendTest = useAction(api.telegram.chatRegistry.public.mgrSendTest);
 
   const [busy, setBusy] = useState(false);
   const archived = chat.archivedAt !== undefined;
@@ -377,7 +377,7 @@ function MgrTelegramChatsInner({
 }) {
   const navigate = useNavigate();
 
-  const chats = useQuery(api.telegram.chatRegistry.mgrListChats, {
+  const chats = useQuery(api.telegram.chatRegistry.public.mgrListChats, {
     sessionId: sessionId as Doc<"staff_sessions">["_id"],
     includeArchived,
   });

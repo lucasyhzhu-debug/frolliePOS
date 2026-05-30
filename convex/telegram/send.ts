@@ -60,7 +60,7 @@ export const sendTemplate = action({
 
     // Step 2: resolve chat id by role — throws if no chat assigned
     const chatId = await ctx.runQuery(
-      internal.telegram.chatRegistry.getChatIdByRole,
+      internal.telegram.chatRegistry.internal.getChatIdByRole,
       { role: args.role },
     );
 

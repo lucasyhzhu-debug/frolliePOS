@@ -162,7 +162,7 @@ export function buildHandleTelegramWebhook(
         match,
         onNonCommandMessage: options?.trackLastSeen
           ? async (m) => {
-              await ctx.runMutation(internal.telegram.chatRegistry.touchChatLastSeen, { chatId: m.chatId });
+              await ctx.runMutation(internal.telegram.chatRegistry.internal.touchChatLastSeen, { chatId: m.chatId });
             }
           : undefined,
       },

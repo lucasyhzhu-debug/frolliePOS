@@ -84,7 +84,7 @@ export const sendFoundersSummary = internalAction({
     // cron tick). Tracked in PROGRESS.md v0.5 stabilization. Deeper fix:
     // sendTemplate accepts an optional chatId override so we capture once.
     try {
-      await ctx.runQuery(internal.telegram.chatRegistry.getChatIdByRole, {
+      await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatIdByRole, {
         role: "founders",
       });
     } catch (err) {

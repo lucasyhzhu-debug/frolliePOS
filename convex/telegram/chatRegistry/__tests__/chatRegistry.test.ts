@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "../../schema";
-import { api, internal } from "../../_generated/api";
-import { parseCommand } from "../chatRegistry";
-import type { Id } from "../../_generated/dataModel";
+import schema from "../../../schema";
+import { api, internal } from "../../../_generated/api";
+import { parseCommand } from "../internal";
+import type { Id } from "../../../_generated/dataModel";
 
 // ─── PART A: parseCommand (pure) ─────────────────────────────────────────────
 //
@@ -104,7 +104,7 @@ describe("getChatIdByRole lookup chain", () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100111", role: "managers" });
     const chatId = await t.query(
-      internal.telegram.chatRegistry.getChatIdByRole,
+      internal.telegram.chatRegistry.internal.getChatIdByRole,
       { role: "managers" },
     );
     expect(chatId).toBe("-100111");
@@ -113,7 +113,7 @@ describe("getChatIdByRole lookup chain", () => {
   it("throws when no row and no env fallback", async () => {
     const t = convexTest(schema);
     await expect(
-      t.query(internal.telegram.chatRegistry.getChatIdByRole, {
+      t.query(internal.telegram.chatRegistry.internal.getChatIdByRole, {
         role: "managers",
       }),
     ).rejects.toThrow(/No Telegram chat assigned to role 'managers'/);
@@ -125,7 +125,7 @@ describe("getChatIdByRole lookup chain", () => {
     try {
       const t = convexTest(schema);
       const chatId = await t.query(
-        internal.telegram.chatRegistry.getChatIdByRole,
+        internal.telegram.chatRegistry.internal.getChatIdByRole,
         { role: "managers" },
       );
       expect(chatId).toBe("-100999");
@@ -141,7 +141,7 @@ describe("getChatIdByRole lookup chain", () => {
       const t = convexTest(schema);
       await seedRow(t, { chatId: "-100111", role: "managers" });
       const chatId = await t.query(
-        internal.telegram.chatRegistry.getChatIdByRole,
+        internal.telegram.chatRegistry.internal.getChatIdByRole,
         { role: "managers" },
       );
       expect(chatId).toBe("-100111");
@@ -158,16 +158,16 @@ describe("role uniqueness / slot freeing", () => {
     await seedRow(t, { chatId: "-100BBB" }); // dormant, no role
 
     expect(
-      await t.query(internal.telegram.chatRegistry.getChatIdByRole, {
+      await t.query(internal.telegram.chatRegistry.internal.getChatIdByRole, {
         role: "managers",
       }),
     ).toBe("-100AAA");
 
-    await t.mutation(internal.telegram.chatRegistry.archiveChat, {
+    await t.mutation(internal.telegram.chatRegistry.internal.archiveChat, {
       chatId: "-100AAA",
     });
     await expect(
-      t.query(internal.telegram.chatRegistry.getChatIdByRole, { role: "managers" }),
+      t.query(internal.telegram.chatRegistry.internal.getChatIdByRole, { role: "managers" }),
     ).rejects.toThrow(/No Telegram chat assigned to role 'managers'/);
   });
 });
@@ -177,7 +177,7 @@ describe("archiveChat", () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100ARC", role: "managers" });
 
-    await t.mutation(internal.telegram.chatRegistry.archiveChat, {
+    await t.mutation(internal.telegram.chatRegistry.internal.archiveChat, {
       chatId: "-100ARC",
     });
 
@@ -191,7 +191,7 @@ describe("archiveChat", () => {
     expect(row?.role).toBeUndefined();
 
     await expect(
-      t.query(internal.telegram.chatRegistry.getChatIdByRole, {
+      t.query(internal.telegram.chatRegistry.internal.getChatIdByRole, {
         role: "managers",
       }),
     ).rejects.toThrow();
@@ -203,7 +203,7 @@ describe("restoreChat", () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100RES", archivedAt: NOW });
 
-    await t.mutation(internal.telegram.chatRegistry.restoreChat, {
+    await t.mutation(internal.telegram.chatRegistry.internal.restoreChat, {
       chatId: "-100RES",
     });
 
@@ -220,7 +220,7 @@ describe("restoreChat", () => {
 describe("touchChatLastSeen", () => {
   it("is a no-op on an unknown chatId (no insert)", async () => {
     const t = convexTest(schema);
-    await t.mutation(internal.telegram.chatRegistry.touchChatLastSeen, {
+    await t.mutation(internal.telegram.chatRegistry.internal.touchChatLastSeen, {
       chatId: "-100UNKNOWN",
     });
     const all = await t.run(async (ctx) =>
@@ -233,7 +233,7 @@ describe("touchChatLastSeen", () => {
     const t = convexTest(schema);
     const id = await seedRow(t, { chatId: "-100TOUCH" });
 
-    await t.mutation(internal.telegram.chatRegistry.touchChatLastSeen, {
+    await t.mutation(internal.telegram.chatRegistry.internal.touchChatLastSeen, {
       chatId: "-100TOUCH",
     });
 
@@ -245,7 +245,7 @@ describe("touchChatLastSeen", () => {
     const t = convexTest(schema);
     const id = await seedRow(t, { chatId: "-100ARCH", archivedAt: NOW });
 
-    await t.mutation(internal.telegram.chatRegistry.touchChatLastSeen, {
+    await t.mutation(internal.telegram.chatRegistry.internal.touchChatLastSeen, {
       chatId: "-100ARCH",
     });
 
@@ -264,7 +264,7 @@ describe("upsertChatRow three states", () => {
   it("none → inserted", async () => {
     const t = convexTest(schema);
     const res = await t.mutation(
-      internal.telegram.chatRegistry.upsertChatRow,
+      internal.telegram.chatRegistry.internal.upsertChatRow,
       { chatId: "-100UP1", ...args },
     );
     expect(res).toEqual({ status: "inserted" });
@@ -274,7 +274,7 @@ describe("upsertChatRow three states", () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100UP2" }); // no role
     const res = await t.mutation(
-      internal.telegram.chatRegistry.upsertChatRow,
+      internal.telegram.chatRegistry.internal.upsertChatRow,
       { chatId: "-100UP2", ...args },
     );
     expect(res).toEqual({ status: "dormant" });
@@ -284,7 +284,7 @@ describe("upsertChatRow three states", () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100UP3", role: "managers" });
     const res = await t.mutation(
-      internal.telegram.chatRegistry.upsertChatRow,
+      internal.telegram.chatRegistry.internal.upsertChatRow,
       { chatId: "-100UP3", ...args },
     );
     expect(res).toEqual({ status: "live", role: "managers" });
@@ -295,7 +295,7 @@ describe("seedFromEnvWrite allowlist guard", () => {
   it("throws 'Unknown telegram role' for an unknown role (not in KNOWN_TELEGRAM_ROLES)", async () => {
     const t = convexTest(schema);
     await expect(
-      t.mutation(internal.telegram.chatRegistry.seedFromEnvWrite, {
+      t.mutation(internal.telegram.chatRegistry.internal.seedFromEnvWrite, {
         chatId: "-100SEED",
         chatType: "supergroup",
         title: "Seed Group",
@@ -313,7 +313,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     const { sessionId } = await seedSession(t);
     await seedRow(t, { chatId: "-100MGR1" });
 
-    await t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+    await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
       idempotencyKey: "mgr-assign-k1",
       sessionId,
       chatId: "-100MGR1",
@@ -335,7 +335,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     await seedRow(t, { chatId: "-100MGR2" });
 
     await expect(
-      t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
         idempotencyKey: "mgr-assign-k2",
         sessionId,
         chatId: "-100MGR2",
@@ -350,7 +350,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     await seedRow(t, { chatId: "-100MGR3" });
 
     await expect(
-      t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
         idempotencyKey: "mgr-assign-k3",
         sessionId,
         chatId: "-100MGR3",
@@ -366,7 +366,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     await seedRow(t, { chatId: "-100B" });
 
     await expect(
-      t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
         idempotencyKey: "mgr-assign-uniq",
         sessionId,
         chatId: "-100B",
@@ -384,7 +384,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     const KEY = "mgr-assign-dedup";
 
     // First call: assigns "managers" to -100IDEM1.
-    await t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+    await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
       idempotencyKey: KEY,
       sessionId,
       chatId: "-100IDEM1",
@@ -393,7 +393,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
 
     // Second call WITH SAME KEY but DIFFERENT chatId. If withIdempotency works,
     // the handler is skipped entirely and -100IDEM2 stays dormant.
-    await t.mutation(api.telegram.chatRegistry.mgrAssignRole, {
+    await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
       idempotencyKey: KEY,
       sessionId,
       chatId: "-100IDEM2",
@@ -424,7 +424,7 @@ describe("mgrListChats — manager-session gate", () => {
     await seedRow(t, { chatId: "-100L1", role: "managers" });
     await seedRow(t, { chatId: "-100L2" });
 
-    const rows = await t.query(api.telegram.chatRegistry.mgrListChats, {
+    const rows = await t.query(api.telegram.chatRegistry.public.mgrListChats, {
       sessionId,
       includeArchived: false,
     });
@@ -435,7 +435,7 @@ describe("mgrListChats — manager-session gate", () => {
     const t = convexTest(schema);
     const { sessionId } = await seedSession(t, { role: "staff" });
     await expect(
-      t.query(api.telegram.chatRegistry.mgrListChats, {
+      t.query(api.telegram.chatRegistry.public.mgrListChats, {
         sessionId,
         includeArchived: false,
       }),
@@ -449,7 +449,7 @@ describe("mgrArchiveChat — manager-session gate", () => {
     const { sessionId } = await seedSession(t);
     await seedRow(t, { chatId: "-100ARCMGR", role: "managers" });
 
-    await t.mutation(api.telegram.chatRegistry.mgrArchiveChat, {
+    await t.mutation(api.telegram.chatRegistry.public.mgrArchiveChat, {
       idempotencyKey: "mgr-arc-k1",
       sessionId,
       chatId: "-100ARCMGR",
@@ -470,7 +470,7 @@ describe("mgrArchiveChat — manager-session gate", () => {
     const { sessionId } = await seedSession(t, { role: "staff" });
     await seedRow(t, { chatId: "-100ARCST" });
     await expect(
-      t.mutation(api.telegram.chatRegistry.mgrArchiveChat, {
+      t.mutation(api.telegram.chatRegistry.public.mgrArchiveChat, {
         idempotencyKey: "mgr-arc-k2",
         sessionId,
         chatId: "-100ARCST",
@@ -485,7 +485,7 @@ describe("mgrRestoreChat — manager-session gate", () => {
     const { sessionId } = await seedSession(t);
     await seedRow(t, { chatId: "-100RSMGR", archivedAt: NOW });
 
-    await t.mutation(api.telegram.chatRegistry.mgrRestoreChat, {
+    await t.mutation(api.telegram.chatRegistry.public.mgrRestoreChat, {
       idempotencyKey: "mgr-rs-k1",
       sessionId,
       chatId: "-100RSMGR",
@@ -505,7 +505,7 @@ describe("mgrRestoreChat — manager-session gate", () => {
     const { sessionId } = await seedSession(t, { role: "staff" });
     await seedRow(t, { chatId: "-100RSST", archivedAt: NOW });
     await expect(
-      t.mutation(api.telegram.chatRegistry.mgrRestoreChat, {
+      t.mutation(api.telegram.chatRegistry.public.mgrRestoreChat, {
         idempotencyKey: "mgr-rs-k2",
         sessionId,
         chatId: "-100RSST",
@@ -530,7 +530,7 @@ describe("mgrSendTest — action-safe manager-session gate", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     try {
       await expect(
-        t.action(api.telegram.chatRegistry.mgrSendTest, {
+        t.action(api.telegram.chatRegistry.public.mgrSendTest, {
           sessionId,
           chatId: "-100TEST",
         }),
@@ -556,7 +556,7 @@ describe("mgrSendTest — action-safe manager-session gate", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     try {
       await expect(
-        t.action(api.telegram.chatRegistry.mgrSendTest, {
+        t.action(api.telegram.chatRegistry.public.mgrSendTest, {
           sessionId,
           chatId: "-100MISSING",
         }),
