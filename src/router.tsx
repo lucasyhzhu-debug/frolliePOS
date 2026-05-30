@@ -59,15 +59,12 @@ const ApprovePin = lazy(() => import("@/routes/approve/pin"));
 const Receipt = lazy(() => import("@/routes/receipt"));
 const Activate = lazy(() => import("@/routes/activate"));
 
-const DevTelegram = lazy(() => import("@/routes/dev/telegram"));
-
 const routes: RouteObject[] = [
   // Public routes — no auth, no app shell
   { path: "/activate", element: <Activate /> },
   { path: "/approve/:token", element: <Approve /> },
   { path: "/approve/:token/pin", element: <ApprovePin /> },
   { path: "/r/:receiptNumber", element: <Receipt /> },
-  { path: "/dev/telegram", element: <DevTelegram /> },
 
   // App shell — RootLayout handles session gate + redirects unauthenticated traffic to /login
   {
