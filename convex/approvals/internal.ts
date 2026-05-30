@@ -340,8 +340,15 @@ export const _linkTelegramMessage_internal = internalMutation({
 });
 
 /**
- * Shared system-deny patch. Three v0.5.0 callers: (1) token PIN-cap trip,
- * (2) manager-initiated cancelPendingRequest, (3) cancelAwaitingPayment cascade.
+ * Shared system-deny patch. Three v0.5.0 callers:
+ *   (1) Token PIN-cap auto-deny (_recordTokenPinFailure_internal inlines this
+ *       for the extra `failed_pin_attempts` metadata field) — source: "system".
+ *   (2) Manager-initiated cancelPendingRequest (Task 10) — source: "telegram_approval"
+ *       when actioned from the off-booth Telegram UI, or "booth_inline" when from
+ *       the in-booth manager panel.
+ *   (3) cancelAwaitingPayment cascade (Task 11) — source: "system".
+ * Caller supplies `source` explicitly so audit data is semantically correct for
+ * each context — mirrors the _markResolved_internal / _markDenied_internal pattern.
  * Returns { denied: true } on success, { denied: false } no-op if already terminal.
  */
 export const _markDeniedBySystem_internal = internalMutation({
@@ -349,6 +356,11 @@ export const _markDeniedBySystem_internal = internalMutation({
     requestId: v.id("pos_approval_requests"),
     deny_reason: v.string(),
     cancelled_by_manager_id: v.optional(v.id("staff")),
+    source: v.union(
+      v.literal("booth_inline"),
+      v.literal("telegram_approval"),
+      v.literal("system"),
+    ),
   },
   handler: async (ctx, args) => {
     const req = await ctx.db.get(args.requestId);
@@ -365,7 +377,7 @@ export const _markDeniedBySystem_internal = internalMutation({
       action: KIND_AUDIT[req.kind].denied,
       entity_type: "pos_approval_requests",
       entity_id: args.requestId,
-      source: args.cancelled_by_manager_id ? "booth_inline" : "system",
+      source: args.source,
       reason: args.deny_reason,
       metadata: { approval_request_id: args.requestId, kind: req.kind },
     });
@@ -388,6 +400,8 @@ export const _cancelPendingApprovalsForTxn_internal = internalMutation({
     const now = Date.now();
     for (const req of rows) {
       if (req.entity_id !== args.txnId) continue;
+      // Skip already-expired rows — they're user-visible as "expired" via effectiveStatus;
+      // re-patching to "denied" would change audit shape without changing UX.
       if (req.token_expires_at <= now) continue;
       await ctx.db.patch(req._id, {
         status: "denied",
