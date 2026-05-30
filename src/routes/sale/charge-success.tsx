@@ -6,6 +6,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 
 /**
  * Charge-success screen — shown after a transaction reaches "paid" status.
@@ -33,36 +34,42 @@ export default function SaleChargeSuccess() {
   // otherwise spin indefinitely instead of showing this error.
   if (!txnId) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-        <p className="text-sm text-destructive">No transaction specified.</p>
-        <Button variant="outline" onClick={() => navigate("/sale")}>
-          New sale
-        </Button>
-      </main>
+      <SpokeLayout title="Sale complete" hideBack>
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+          <p className="text-sm text-destructive">No transaction specified.</p>
+          <Button variant="outline" onClick={() => navigate("/sale")}>
+            New sale
+          </Button>
+        </main>
+      </SpokeLayout>
     );
   }
 
   // Loading: query not yet resolved (undefined means in-flight).
   if (result === undefined) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading receipt…</p>
-      </main>
+      <SpokeLayout title="Sale complete" hideBack>
+        <main className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading receipt…</p>
+        </main>
+      </SpokeLayout>
     );
   }
 
   // Not found (result === null) or not paid yet.
   if (result === null || result.status !== "paid") {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-        <p className="text-sm text-muted-foreground">
-          {result === null ? "Transaction not found." : "Payment not yet confirmed."}
-        </p>
-        <Button variant="outline" onClick={() => navigate("/sale")}>
-          New sale
-        </Button>
-      </main>
+      <SpokeLayout title="Sale complete" hideBack>
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+          <p className="text-sm text-muted-foreground">
+            {result === null ? "Transaction not found." : "Payment not yet confirmed."}
+          </p>
+          <Button variant="outline" onClick={() => navigate("/sale")}>
+            New sale
+          </Button>
+        </main>
+      </SpokeLayout>
     );
   }
 
@@ -77,6 +84,7 @@ export default function SaleChargeSuccess() {
     : "Paid";
 
   return (
+    <SpokeLayout title="Sale complete" hideBack>
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
       {/* Success mark */}
       <div className="flex flex-col items-center gap-2">
@@ -125,5 +133,6 @@ export default function SaleChargeSuccess() {
         New sale
       </Button>
     </main>
+    </SpokeLayout>
   );
 }
