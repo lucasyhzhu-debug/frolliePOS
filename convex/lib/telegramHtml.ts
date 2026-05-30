@@ -117,14 +117,20 @@ export function renderStaffPinReset(payload: StaffPinResetPayload): RenderedMess
     hour12: false,
   });
 
+  // v0.4: deliver the action link as an inline_keyboard URL button (matches
+  // renderManualPaymentApproval). Inline <a href="..."> tags get silently
+  // dropped by Telegram for some http://localhost URLs in group messages —
+  // the URL button always renders and Telegram opens the URL externally.
   const text =
     `🚨 <b>Staff locked out</b>\n\n` +
     `${escapeHtml(payload.staff_name)} (<code>${escapeHtml(payload.staff_code)}</code>) failed PIN entry 3 times.\n` +
     `Locked at ${escapeHtml(lockedAtFormatted)} WIB.\n\n` +
-    `<a href="${escapeHtml(payload.request_url)}">Tap to reset PIN →</a>\n\n` +
     `<i>This link expires in 60 minutes.</i>`;
 
-  return { text };
+  return {
+    text,
+    inline_keyboard: [[{ text: "Tap to reset PIN →", url: payload.request_url }]],
+  };
 }
 
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.

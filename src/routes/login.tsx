@@ -47,9 +47,10 @@ export default function LoginRoute() {
       const msg = err instanceof Error ? err.message : "Login failed";
       const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
       const friendly =
-        lockedMatch ? `Too many tries. Wait ${lockedMatch[1]} seconds.` :
-        msg.includes("INVALID_PIN") ? "Wrong PIN." :
-        msg;
+        lockedMatch
+          ? `Locked out. A manager has been notified to reset your PIN. Wait ${lockedMatch[1]}s to retry, or use the new PIN once it lands.`
+          : msg.includes("INVALID_PIN") ? "Wrong PIN." :
+            msg;
       toast.error(friendly);
       setPinReset((n) => n + 1);
     }

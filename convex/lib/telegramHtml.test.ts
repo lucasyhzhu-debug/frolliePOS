@@ -100,7 +100,7 @@ describe("renderFoundersSummary", () => {
 });
 
 describe("renderStaffPinReset", () => {
-  test("renders HTML with staff name, code, locked-at, link", () => {
+  test("renders HTML body + URL button to the request_url (v0.4: URL button, not inline <a>)", () => {
     const r = renderStaffPinReset({
       staff_name: "Lucy",
       staff_code: "S-0042",
@@ -109,9 +109,13 @@ describe("renderStaffPinReset", () => {
     });
     expect(r.text).toContain("Lucy");
     expect(r.text).toContain("S-0042");
-    expect(r.text).toContain("Tap to reset PIN");
-    expect(r.text).toContain("https://pos.dev/approve/abc123");
     expect(r.text).toContain("60 minutes");
+    // URL no longer embedded in text body — it lives on an inline_keyboard URL button
+    expect(r.text).not.toContain("https://pos.dev");
+    expect(r.text).not.toContain("<a href");
+    expect(r.inline_keyboard).toEqual([
+      [{ text: "Tap to reset PIN →", url: "https://pos.dev/approve/abc123" }],
+    ]);
   });
 
   test("HTML-escapes staff name to prevent injection", () => {
