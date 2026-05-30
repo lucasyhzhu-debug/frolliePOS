@@ -73,6 +73,11 @@ export default [
       // global expectations (`process`, `console`); not in scope for the
       // v0.2.1 module-boundary work.
       "scripts/**",
+      // Frozen in-tree snapshot of ceo-progress-report npm package (Node.js CJS/ESM).
+      // Linted independently in its own package; not part of the POS app lint surface.
+      "packages/**",
+      // Reference implementation docs — not production code, not linted here.
+      "docs/**",
     ],
   },
 
@@ -113,7 +118,7 @@ export default [
       },
     },
     rules: {
-      "frollie-internal/idempotency-required": "warn", // flipped to "error" in Wave 2 final commit
+      "frollie-internal/idempotency-required": "error",
       "frollie-internal/no-cross-module-db-access": [
         "error",
         {
