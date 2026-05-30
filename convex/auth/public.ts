@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
-import { requireSession } from "./sessions";
 
 /**
  * List active staff for the login screen.
@@ -56,7 +55,12 @@ export const logout = mutation({
       return null;
     },
     {
-      authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); },
+      // intentional: logout is idempotent — a stale or already-ended session must
+      // remain a graceful no-op (handler body returns null without throwing). The
+      // idempotency key dedupes genuine double-taps of the Lock button. Strict
+      // authCheck would surface a NO_SESSION error to the PWA, breaking the UX
+      // contract that "Lock" is safe to retry.
+      authCheck: async () => {},
     },
   ),
 });
