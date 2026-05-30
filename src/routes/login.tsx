@@ -6,6 +6,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { storeSession } from "@/hooks/useSession";
+import { getLastStaff } from "@/hooks/useLastStaff";
 import { StaffListItem } from "@/components/auth/StaffListItem";
 import { PinEntry } from "@/components/auth/PinEntry";
 import { ConnDot } from "@/components/layout/ConnDot";
@@ -22,6 +23,19 @@ export default function LoginRoute() {
   const login = useAction(api.auth.actions.loginWithPin);
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
+
+  // Pre-stage to PIN entry for the last-known staffer (UX optimisation — no
+  // auth bypass; PIN is still required). Runs once when the active-staff list
+  // first resolves. Silently falls back to the list if the stored id is absent
+  // from the active list (deactivated, removed, or never set).
+  useEffect(() => {
+    if (staff === undefined) return;
+    if (stage.kind !== "list") return;
+    const lastId = getLastStaff();
+    if (!lastId) return;
+    const match = staff.find((s) => s._id === lastId);
+    if (match) setStage({ kind: "pin", staff: match });
+  }, [staff]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
   // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
