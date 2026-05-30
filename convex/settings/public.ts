@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { query, mutation } from "../_generated/server";
+import { Id } from "../_generated/dataModel";
 import { requireManagerSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 
 export const getSettings = query({
   args: {},
@@ -11,9 +13,24 @@ export const getSettings = query({
   },
 });
 
+// withIdempotency serializes the handler return via JSON.stringify so the
+// cache row's response_blob is non-null. Match the chatRegistry mgr* shape.
+type ToggleResult = { ok: true };
+
 export const setFoundersSummaryEnabled = mutation({
-  args: { sessionId: v.id("staff_sessions"), enabled: v.boolean() },
-  handler: async (ctx, args) => {
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    enabled: v.boolean(),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      enabled: boolean;
+    },
+    ToggleResult
+  >("settings.setFoundersSummaryEnabled", async (ctx, args) => {
     const { staffId } = await requireManagerSession(ctx, args.sessionId);
     const row = await ctx.db.query("pos_settings").first();
     if (row) {
@@ -36,6 +53,6 @@ export const setFoundersSummaryEnabled = mutation({
       source: "booth_inline",
       metadata: { enabled: args.enabled },
     });
-    return { ok: true };
-  },
+    return { ok: true as const };
+  }),
 });

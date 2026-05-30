@@ -85,14 +85,24 @@ it("defaults to enabled when pos_settings row is absent", async () => {
   expect((res as { ok: boolean }).ok).toBe(true);
 });
 
-it("audits skip + throws (no retry storm) when the founders role is unbound (non-transient)", async () => {
-  // No telegramChats row → getChatIdByRole throws (non-transient, no "no available workers")
+it("audits skip + returns {skipped: 'role_unbound'} when the founders role is unbound (no retry storm)", async () => {
+  // No telegramChats row → role pre-check returns role_unbound, audited as such.
+  // Fix I-6 (CLAUDE.md rule #12): unbound role no longer throws — it audits and
+  // skips, distinguishing config errors from real Telegram 5xx (send_failed).
   const t = convexTest(schema);
   // No pos_settings row → defaults to enabled.
-  await expect(
-    t.action(internal.telegram.foundersSummary.sendFoundersSummary, {}),
-  ).rejects.toThrow();
+  const res = await t.action(internal.telegram.foundersSummary.sendFoundersSummary, {});
+  expect(res).toEqual({ skipped: "role_unbound" });
   const audit = await t.run((ctx) => ctx.db.query("audit_log").collect());
+  expect(
+    audit.some(
+      (r) =>
+        r.action === "founders.summary_skipped" &&
+        r.metadata != null &&
+        (JSON.parse(r.metadata) as { reason: string }).reason === "role_unbound",
+    ),
+  ).toBe(true);
+  // Crucially: NO send_failed audit row (the misleading conflation Fix I-6 corrected).
   expect(
     audit.some(
       (r) =>
@@ -100,20 +110,20 @@ it("audits skip + throws (no retry storm) when the founders role is unbound (non
         r.metadata != null &&
         (JSON.parse(r.metadata) as { reason: string }).reason === "send_failed",
     ),
-  ).toBe(true);
+  ).toBe(false);
 });
 
 // ─── sendFoundersSummaryResilient ─────────────────────────────────────────────
 
-it("resilient wrapper: throws immediately on non-transient error (no retry loop)", async () => {
-  // No telegramChats → non-transient throw from sendFoundersSummary.
-  // The wrapper must surface it, not loop.
+it("resilient wrapper: surfaces role_unbound skip cleanly (no retry, no throw)", async () => {
+  // No telegramChats → pre-check skip. The wrapper passes the skip return
+  // through without scheduling a retry (config errors don't recover by waiting).
   const t = convexTest(schema);
-  await expect(
-    t.action(internal.telegram.foundersSummary.sendFoundersSummaryResilient, {
-      attempt: 0,
-    }),
-  ).rejects.toThrow();
+  const res = await t.action(
+    internal.telegram.foundersSummary.sendFoundersSummaryResilient,
+    { attempt: 0 },
+  );
+  expect(res).toEqual({ skipped: "role_unbound" });
 });
 
 it("resilient wrapper: succeeds when founders chat is bound", async () => {

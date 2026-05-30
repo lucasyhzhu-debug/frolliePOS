@@ -53,7 +53,9 @@ export const sendFoundersSummary = internalAction({
   args: {},
   handler: async (
     ctx,
-  ): Promise<{ ok: true } | { skipped: "disabled" }> => {
+  ): Promise<
+    { ok: true } | { skipped: "disabled" } | { skipped: "role_unbound" }
+  > => {
     // Step 1: check the toggle
     const settings = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
@@ -64,6 +66,20 @@ export const sendFoundersSummary = internalAction({
         reason: "disabled",
       });
       return { skipped: "disabled" };
+    }
+
+    // Step 1b: pre-check the founders role binding so an unbound role is audited
+    // as "role_unbound" — not "send_failed" (which would conflate config errors
+    // with real Telegram 5xx). CLAUDE.md rule #12 + audit operational hygiene.
+    try {
+      await ctx.runQuery(internal.telegram.chatRegistry.getChatIdByRole, {
+        role: "founders",
+      });
+    } catch {
+      await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+        reason: "role_unbound",
+      });
+      return { skipped: "role_unbound" };
     }
 
     // Step 2: WIB day window
@@ -121,7 +137,15 @@ export const sendFoundersSummaryResilient = internalAction({
   args: {
     attempt: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<{ ok: true } | { skipped: "disabled" }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | { ok: true }
+    | { skipped: "disabled" }
+    | { skipped: "role_unbound" }
+    | { ok: true; retried: true; nextAttempt: number }
+  > => {
     const attempt = args.attempt ?? 0;
 
     try {
@@ -138,9 +162,12 @@ export const sendFoundersSummaryResilient = internalAction({
           { attempt: attempt + 1 },
         );
         // Don't rethrow — the retry is queued; the current execution is done.
-        // Return a sentinel so the cron dashboard shows "scheduled retry" rather
-        // than an error (the dashboard only shows errors on throw).
-        return { ok: true };
+        // The cron dashboard sees a clean return; we tag the return value with
+        // `retried: true` + `nextAttempt` so observability tooling (and the cron
+        // run log line) can distinguish "first-try clean send" from "transient
+        // failure, retry queued". The dashboard only shows errors on throw, so
+        // this preserves no-noise behavior while making the retry visible.
+        return { ok: true as const, retried: true as const, nextAttempt: attempt + 1 };
       }
       // Non-transient OR retries exhausted: surface the error.
       throw err;

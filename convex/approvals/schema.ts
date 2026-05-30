@@ -35,12 +35,18 @@ export const approvalsTables = {
                                                  // passwords (per ADR-004); high-entropy tokens use SHA-256.
     token_expires_at: v.number(),                // triggered_at + 60min per ADR-029
 
-    // Lifecycle: v0.3 had pending/resolved/expired; v0.4 adds "denied" for manager reject.
+    // Lifecycle: pending → resolved | denied. "expired" is NOT a DB-row state —
+    // it's a virtual status computed at read time when row.status === "pending"
+    // && row.token_expires_at <= Date.now() (see approvals/public.getByToken,
+    // getRequestStatus, getRecentPinResetForStaff). No mutation writes "expired",
+    // so it is intentionally absent from this union — preventing a future
+    // contributor from inserting a row in a state the lifecycle mutations would
+    // refuse to act on (they would throw REQUEST_ALREADY_RESOLVED instead of
+    // the user-expected TOKEN_EXPIRED). v0.4 adds "denied" for manager reject.
     status: v.union(
       v.literal("pending"),
       v.literal("resolved"),
-      v.literal("denied"),      // NEW in v0.4
-      v.literal("expired"),
+      v.literal("denied"),
     ),
     notified_at: v.optional(v.number()),
     resolved_at: v.optional(v.number()),

@@ -58,7 +58,11 @@ export const _createRequest_internal = internalMutation({
       entity_type: "pos_approval_requests",
       entity_id: requestId,
       source: "system",
+      // approval_request_id surfaced explicitly in metadata per ADR-030 amendment —
+      // the `by_entity` index already covers entity_id lookups, but keeping the
+      // id in metadata matches the convention used by approval.resolved/denied rows.
       metadata: {
+        approval_request_id: requestId,
         kind: args.kind,
         entity_id: args.entity_id,
         subject_staff_id: args.subject_staff_id,
@@ -167,13 +171,18 @@ export const _markResolved_internal = internalMutation({
         resolved_by_manager_id: args.resolved_by_manager_id,
       });
 
+      // Audit action string comes from KIND_AUDIT (ADR-030 + business rule #20):
+      // route via the registry so per-kind divergence stays in one place. Metadata
+      // carries approval_request_id + kind so dashboards can filter "all resolved
+      // manual_payment approvals" without joining back to pos_approval_requests.
       await logAudit(ctx, {
         actor_id: args.resolved_by_manager_id,
-        action: "approval.resolved",
+        action: KIND_AUDIT[req.kind as ApprovalKind].resolved,
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
         source: args.source,
         mgr_approver_id: args.resolved_by_manager_id,
+        metadata: { approval_request_id: args.requestId, kind: req.kind },
       });
 
       return { resolved: true as const };
@@ -229,6 +238,9 @@ export const _markDenied_internal = internalMutation({
     requestId: v.id("pos_approval_requests"),
     denied_by_manager_id: v.id("staff"),
     deny_reason: v.string(),
+    // Origin of the deny — symmetric to _markResolved_internal so a future
+    // booth-inline deny path (any kind) can record source factually.
+    source: v.union(v.literal("wa_approval"), v.literal("telegram_approval")),
   },
   handler: withIdempotency<
     {
@@ -236,6 +248,7 @@ export const _markDenied_internal = internalMutation({
       requestId: Id<"pos_approval_requests">;
       denied_by_manager_id: Id<"staff">;
       deny_reason: string;
+      source: "wa_approval" | "telegram_approval";
     },
     { denied: true }
   >(
@@ -255,10 +268,10 @@ export const _markDenied_internal = internalMutation({
         action: KIND_AUDIT[req.kind as ApprovalKind].denied,
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
-        source: "telegram_approval",
+        source: args.source,
         mgr_approver_id: args.denied_by_manager_id,
         reason: args.deny_reason,
-        metadata: { approval_request_id: args.requestId },
+        metadata: { approval_request_id: args.requestId, kind: req.kind },
       });
       return { denied: true as const };
     },
@@ -269,14 +282,26 @@ export const _markDenied_internal = internalMutation({
  * Dedup guard for non-staff kinds: list live pending rows for (kind, entity_id).
  * Used by the v0.4 notify actions to skip a second notification while a live
  * pending request already exists for the same entity.
+ *
+ * `kind` is a literal union (not v.string()) so Convex runtime-validates the
+ * arg — without this, a typo'd kind would silently return [] via the
+ * `by_kind_status` index (no matching rows for "manual_paymet_override").
+ * The single-writer invariant on _createRequest_internal still enforces
+ * `validateContext`; this validator catches caller-side typos at the read path.
  */
 export const _listPendingByKind_internal = internalQuery({
-  args: { kind: v.string(), entityId: v.string() },
+  args: {
+    kind: v.union(
+      v.literal("staff_pin_reset"),
+      v.literal("manual_payment_override"),
+    ),
+    entityId: v.string(),
+  },
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_kind_status", (q) =>
-        q.eq("kind", args.kind as ApprovalKind).eq("status", "pending"),
+        q.eq("kind", args.kind).eq("status", "pending"),
       )
       .collect();
     const now = Date.now();

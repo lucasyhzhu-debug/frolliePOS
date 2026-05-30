@@ -19,11 +19,26 @@ it("_markDenied_internal sets denied lifecycle + audits", async () => {
   const t = convexTest(schema);
   const { mgr, req } = await seedPending(t);
   await t.mutation(internal.approvals.internal._markDenied_internal, {
-    idempotencyKey: "k1", requestId: req, denied_by_manager_id: mgr, deny_reason: "looks fraudulent",
+    idempotencyKey: "k1",
+    requestId: req,
+    denied_by_manager_id: mgr,
+    deny_reason: "looks fraudulent",
+    source: "telegram_approval",
   });
   const row = await t.run((ctx) => ctx.db.get(req));
   expect(row?.status).toBe("denied");
   expect(row?.deny_reason).toBe("looks fraudulent");
+
+  // Source must thread through to the audit row (Fix I-5: symmetric to
+  // _markResolved_internal — denied no longer hardcodes telegram_approval).
+  const denyAudit = await t.run((ctx) =>
+    ctx.db
+      .query("audit_log")
+      .filter((q) => q.eq(q.field("entity_id"), req))
+      .filter((q) => q.eq(q.field("action"), "approval.denied"))
+      .first(),
+  );
+  expect(denyAudit?.source).toBe("telegram_approval");
 });
 
 it("_listPendingByKind_internal returns live rows for (kind, entity_id)", async () => {

@@ -386,6 +386,8 @@ describe("MgrTelegramChats — founders summary toggle", () => {
     const args = stubSetFounders.mock.calls[0][0] as Record<string, unknown>;
     expect(args.enabled).toBe(false);
     expect(args.sessionId).toBe("sess-mgr");
+    expect(typeof args.idempotencyKey).toBe("string");
+    expect((args.idempotencyKey as string).length).toBeGreaterThan(0);
   });
 
   it("calls setFoundersSummaryEnabled(true) when toggled on (was false)", async () => {

@@ -2,8 +2,11 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export const telegramTables = {
-  // POC debug-trail ONLY now. Not the dedupe source (telegramUpdates) nor the
-  // approval linkage (pos_approval_requests.telegram_message_id).
+  // Outbound debug-trail. audit_log is authoritative for compliance; this is
+  // a forensic convenience for replaying sent payloads while debugging a bad
+  // template render. NOT the dedupe source (telegramUpdates) nor the approval
+  // linkage (pos_approval_requests.telegram_message_id). Purged after 30 days
+  // by the telegram-log-purge cron (crons.ts).
   telegram_log: defineTable({
     direction: v.union(v.literal("out"), v.literal("in")),
     template_kind: v.optional(v.string()),
@@ -41,5 +44,9 @@ export const telegramTables = {
   telegramUpdates: defineTable({
     updateId: v.number(),
     receivedAt: v.number(),
-  }).index("by_update_id", ["updateId"]),
+  })
+    .index("by_update_id", ["updateId"])
+    // by_received_at: powers the daily purge cron (telegram/internal._purgeOldTelegramUpdates_internal)
+    // — bounds the scan to rows older than the 7-day TTL.
+    .index("by_received_at", ["receivedAt"]),
 };

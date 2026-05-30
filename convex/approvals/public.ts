@@ -226,6 +226,12 @@ export const getRecentPinResetForStaff = query({
     const RECENCY_MS = 10 * 60 * 1000;
     const cutoff = Date.now() - RECENCY_MS;
 
+    // Scope by_subject_staff already narrows to one staff's pin_reset history.
+    // For v0.4 single-stall, lockout count per staff stays small (a manager
+    // resets after each), so the post-collect filter is a few rows at most.
+    // If lockout history grows large (multi-stall / long-running deployments),
+    // promote to a composite `["subject_staff_id", "triggered_at"]` index and
+    // switch to `.gt("triggered_at", cutoff).order("desc").first()`.
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
@@ -271,6 +277,10 @@ export const getRecentPinResetForStaff = query({
  * Token-gated per ADR-029 ("token authorizes VIEW"): a valid approval token
  * is required, so this isn't a public staff-roster leak. Returns null when
  * the token is invalid/expired so the UI can surface "Link expired".
+ *
+ * Cross-module read goes via auth/internal per ADR-034 — approvals does not
+ * read the `staff` table directly. The internal query uses the `by_role`
+ * index so we don't full-scan staff on every reactive page load.
  */
 export const listActiveManagers = query({
   // Arg name intentionally differs from getByToken (`rawToken`) so test mocks
@@ -288,11 +298,9 @@ export const listActiveManagers = query({
       .unique();
     if (!req || req.token_expires_at <= Date.now()) return null;
 
-    const all = await ctx.db.query("staff").collect();
-    return all
-      .filter((s) => s.active && s.role === "manager")
-      .map((s) => ({ _id: s._id as unknown as string, name: s.name, code: s.code ?? "" }))
-      .filter((m) => m.code !== "") // a manager with no code can't authenticate via this flow
-      .sort((a, b) => a.code.localeCompare(b.code));
+    return await ctx.runQuery(
+      internal.auth.internal._listActiveManagers_internal,
+      {},
+    );
   },
 });

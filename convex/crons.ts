@@ -14,4 +14,22 @@ crons.daily(
   { attempt: 0 },
 );
 
+// Retention purges. Both tables are debug/dedup trails — the audit_log is the
+// authoritative record, so bounded TTLs are safe. Run pre-dawn WIB (03:00 WIB
+// = 20:00 UTC) so they don't compete with the 22:00 founders summary window
+// and don't touch the booth during business hours.
+crons.daily(
+  "telegram-updates-purge",
+  { hourUTC: 20, minuteUTC: 0 },
+  internal.telegram.internal._purgeOldTelegramUpdates_internal,
+  {},
+);
+
+crons.daily(
+  "telegram-log-purge",
+  { hourUTC: 20, minuteUTC: 5 },
+  internal.telegram.internal._purgeOldTelegramLog_internal,
+  {},
+);
+
 export default crons;

@@ -88,6 +88,7 @@ function FoundersSummaryToggle({ sessionId }: { sessionId: string }) {
     setBusy(true);
     try {
       await setEnabled({
+        idempotencyKey: crypto.randomUUID(),
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         enabled: next,
       });

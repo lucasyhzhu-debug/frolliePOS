@@ -73,3 +73,53 @@ export const logOutbound = internalMutation({
     });
   },
 });
+
+/**
+ * Daily purge for telegramUpdates dedup rows older than 7 days. Telegram
+ * update_ids increase monotonically and retries happen within seconds, so a
+ * 7-day dedup window is generous. Without this purge the table grows by every
+ * inbound update (including all non-command group chatter) for the lifetime
+ * of the deployment.
+ *
+ * Page-bounded (PURGE_BATCH) so a single cron tick never overwhelms a write
+ * txn. If more rows remain, the next day's run picks up the rest.
+ */
+const TELEGRAM_UPDATES_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TELEGRAM_LOG_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PURGE_BATCH = 500;
+
+export const _purgeOldTelegramUpdates_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: number }> => {
+    const cutoff = Date.now() - TELEGRAM_UPDATES_TTL_MS;
+    const old = await ctx.db
+      .query("telegramUpdates")
+      .withIndex("by_received_at", (q) => q.lt("receivedAt", cutoff))
+      .take(PURGE_BATCH);
+    for (const row of old) {
+      await ctx.db.delete(row._id);
+    }
+    return { deleted: old.length };
+  },
+});
+
+/**
+ * Daily purge for telegram_log debug-trail rows older than 30 days. The audit
+ * log is authoritative for compliance; telegram_log is a forensic convenience
+ * for replaying sent payloads while debugging a bad template render. 30 days
+ * is long enough to investigate a stale issue, short enough to bound storage.
+ */
+export const _purgeOldTelegramLog_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: number }> => {
+    const cutoff = Date.now() - TELEGRAM_LOG_TTL_MS;
+    const old = await ctx.db
+      .query("telegram_log")
+      .withIndex("by_created_at", (q) => q.lt("created_at", cutoff))
+      .take(PURGE_BATCH);
+    for (const row of old) {
+      await ctx.db.delete(row._id);
+    }
+    return { deleted: old.length };
+  },
+});

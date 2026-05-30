@@ -178,6 +178,7 @@ export const approveStaffPinReset = action({
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
       });
       throw new Error("INVALID_PIN");
     }
@@ -421,6 +422,7 @@ export const approveManualPayment = action({
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
       });
       throw new Error("INVALID_PIN");
     }
@@ -519,6 +521,7 @@ export const denyRequest = action({
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
       });
       throw new Error("INVALID_PIN");
     }
@@ -531,6 +534,7 @@ export const denyRequest = action({
       requestId: req._id,
       denied_by_manager_id: manager._id,
       deny_reason: args.denyReason,
+      source: "telegram_approval",
     });
   },
 });

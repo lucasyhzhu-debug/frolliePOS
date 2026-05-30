@@ -39,6 +39,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { sendTelegramHtml, escapeHtml } from "../lib/telegramHtml";
 import { requireManagerSession } from "../auth/sessions";
 import { withIdempotency } from "../idempotency/internal";
+import { logAudit } from "../audit/internal";
 import {
   KNOWN_TELEGRAM_ROLES,
   isKnownTelegramRole,
@@ -336,17 +337,52 @@ export const mgrAssignRole = mutation({
     },
     MgrOpResult
   >("telegram.mgrAssignRole", async (ctx, args) => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { staffId } = await requireManagerSession(ctx, args.sessionId);
     if (args.role !== null && !isKnownTelegramRole(args.role)) {
       throw new ConvexError(
         `Unknown telegram role: '${args.role}'. Add it to KNOWN_TELEGRAM_ROLES in convex/telegram/config.ts.`,
       );
     }
+    // Capture the row's prior role + the displaced row's prior role (if any)
+    // for the audit before/after. assignRoleImpl re-queries internally.
+    const target = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
+      .unique();
+    const previousRole = target?.role ?? null;
+    let displacedFromChatId: string | undefined;
+    if (args.role !== null) {
+      const holder = await ctx.db
+        .query("telegramChats")
+        .withIndex("by_role_archived", (q) =>
+          q.eq("role", args.role!).eq("archivedAt", undefined),
+        )
+        .first();
+      if (holder && holder.chatId !== args.chatId) displacedFromChatId = holder.chatId;
+    }
+
     await assignRoleImpl(ctx, {
       chatId: args.chatId,
       role: args.role,
       forceReassign: args.forceReassign,
       restoreIfArchived: args.restoreIfArchived,
+    });
+
+    // Audit AFTER impl succeeds — assignment changes which Telegram chat receives
+    // approval messages, so misroutes need attribution (ADR-007 + rule #2).
+    await logAudit(ctx, {
+      actor_id: staffId,
+      action: "telegram.role_assigned",
+      entity_type: "telegramChats",
+      entity_id: args.chatId,
+      before_state: { role: previousRole },
+      after_state: { role: args.role },
+      source: "booth_inline",
+      metadata: {
+        ...(displacedFromChatId ? { displaced_from_chat_id: displacedFromChatId } : {}),
+        ...(args.forceReassign ? { force_reassign: true } : {}),
+        ...(args.restoreIfArchived ? { restored_from_archive: true } : {}),
+      },
     });
     return { ok: true as const };
   }),
@@ -366,8 +402,22 @@ export const mgrArchiveChat = mutation({
     },
     MgrOpResult
   >("telegram.mgrArchiveChat", async (ctx, args) => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { staffId } = await requireManagerSession(ctx, args.sessionId);
+    const target = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
+      .unique();
+    const previousRole = target?.role ?? null;
     await archiveChatImpl(ctx, args.chatId);
+    await logAudit(ctx, {
+      actor_id: staffId,
+      action: "telegram.chat_archived",
+      entity_type: "telegramChats",
+      entity_id: args.chatId,
+      before_state: { role: previousRole, archived: false },
+      after_state: { role: null, archived: true },
+      source: "booth_inline",
+    });
     return { ok: true as const };
   }),
 });
@@ -386,10 +436,38 @@ export const mgrRestoreChat = mutation({
     },
     MgrOpResult
   >("telegram.mgrRestoreChat", async (ctx, args) => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { staffId } = await requireManagerSession(ctx, args.sessionId);
     await restoreChatImpl(ctx, args.chatId);
+    await logAudit(ctx, {
+      actor_id: staffId,
+      action: "telegram.chat_restored",
+      entity_type: "telegramChats",
+      entity_id: args.chatId,
+      before_state: { archived: true },
+      after_state: { archived: false },
+      source: "booth_inline",
+    });
     return { ok: true as const };
   }),
+});
+
+/**
+ * Audit a manager-initiated Telegram test send. Called via ctx.runMutation
+ * from mgrSendTest (an action — cannot logAudit directly). Emitted AFTER
+ * the Telegram send returns OK so failures don't leave false-positive trails;
+ * lastError on the row already records the failure case.
+ */
+export const _auditMgrSendTest_internal = internalMutation({
+  args: { staffId: v.id("staff"), chatId: v.string() },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: args.staffId,
+      action: "telegram.test_sent",
+      entity_type: "telegramChats",
+      entity_id: args.chatId,
+      source: "booth_inline",
+    });
+  },
 });
 
 // ─── sendTestMessage ─────────────────────────────────────────────────────────
@@ -420,7 +498,7 @@ export const mgrSendTest = action({
     // Actions cannot call ctx.db directly — gate authz by running the
     // session-check internalQuery FIRST. Throws MANAGER_ONLY / NO_SESSION
     // before any external Telegram call so a stale UI can't fire test sends.
-    await ctx.runQuery(
+    const { staffId } = await ctx.runQuery(
       internal.auth.internal._requireManagerSession_internal,
       { sessionId: args.sessionId },
     );
@@ -430,6 +508,12 @@ export const mgrSendTest = action({
     });
     if (!row) throw new ConvexError(`No registered Telegram chat with id '${args.chatId}'`);
     await sendTestMessageImpl(ctx, args.chatId);
+    // Audit only on successful send — failures leave a trail via recordLastError
+    // on the chat row itself, so no audit-vs-state divergence.
+    await ctx.runMutation(internal.telegram.chatRegistry._auditMgrSendTest_internal, {
+      staffId,
+      chatId: args.chatId,
+    });
   },
 });
 
