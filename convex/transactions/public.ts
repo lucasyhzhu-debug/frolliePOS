@@ -360,5 +360,8 @@ export const deleteDraft = mutation({
       });
       return { deleted: true as const };
     },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
   ),
 });
