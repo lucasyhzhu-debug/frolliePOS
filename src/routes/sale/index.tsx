@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router";
+import { useEffect } from "react";
+import { useNavigate, useBlocker } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
@@ -10,7 +11,8 @@ import { hasFlag, NEG_STOCK } from "../../../convex/transactions/flags";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ConnDot } from "@/components/layout/ConnDot";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -40,6 +42,25 @@ export default function Sale() {
 
   const isEmpty = lines.length === 0;
 
+  // ---- navigation guard ----
+  // Block route transitions when the cart has items so the user can save or
+  // discard before leaving. Does not fire when navigating within the same path.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !isEmpty && currentLocation.pathname !== nextLocation.pathname,
+  );
+
+  // Secondary guard for hard page-leave (tab close / browser refresh). The
+  // beforeunload handler is the only mechanism available for those cases.
+  useEffect(() => {
+    if (isEmpty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isEmpty]);
+
   // ---- handlers ----
 
   const handleSaveDraft = async () => {
@@ -65,6 +86,36 @@ export default function Sale() {
       const msg = err instanceof Error ? err.message : "Could not save draft";
       toast.error(msg);
     }
+  };
+
+  // ---- blocker-dialog handlers ----
+  // These are called from the AbandonCartDialog when the user navigates away
+  // with items in the cart. Unlike handleSaveDraft, they do NOT navigate — the
+  // blocker's proceed() call navigates to the originally-blocked destination.
+  const onBlockerSaveDraft = async () => {
+    if (session.status !== "active") return;
+    if (!idKeyDraft) return;
+    try {
+      await commitCart({
+        sessionId: session.sessionId,
+        idempotencyKey: idKeyDraft,
+        intent: "draft",
+        lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+        voucherCode,
+      });
+      await clearIntent(`draft:${session.sessionId}`);
+      clear();
+      toast.success("Draft saved");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not save draft";
+      toast.error(msg);
+      // Re-throw so the dialog doesn't call onProceed on failure.
+      throw err;
+    }
+  };
+
+  const onBlockerDiscard = () => {
+    clear();
   };
 
   const handleCharge = async () => {
@@ -104,13 +155,7 @@ export default function Sale() {
   if (session.status !== "active") return null;
 
   return (
-    <main className="flex flex-1 flex-col gap-0 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <h1 className="text-base font-semibold">New sale</h1>
-        <ConnDot />
-      </header>
-
+    <SpokeLayout title="New sale">
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* ---- Product grid ---- */}
         <section className="flex-1 overflow-y-auto p-4">
@@ -261,6 +306,16 @@ export default function Sale() {
           </div>
         </aside>
       </div>
-    </main>
+
+      {/* Navigation guard: fires when the user tries to leave with cart items */}
+      <AbandonCartDialog
+        variant="cart"
+        open={blocker.state === "blocked"}
+        onCancel={() => blocker.reset?.()}
+        onProceed={() => blocker.proceed?.()}
+        onSaveDraft={onBlockerSaveDraft}
+        onDiscard={onBlockerDiscard}
+      />
+    </SpokeLayout>
   );
 }
