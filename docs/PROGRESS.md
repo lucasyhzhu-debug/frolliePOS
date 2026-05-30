@@ -428,49 +428,333 @@ Merged 2026-05-26.
 
 ---
 
-## v0.4 — Telegram approval + manager mobile + founders share 🗂️ BACKLOG
-**Outcome:** Managers approve refunds and overrides from anywhere via a Telegram bot; no booth presence required. Founders get an automatic end-of-shift summary in their Telegram group.
-**Target:** TBD
-Plan not yet written. Scope per WORKFLOW.md: polling + manual override + audit log + Telegram approval pattern + manager home (mobile) + founders share. **Built on the v0.2 Telegram POC** — bot `@FrolliePOS_Bot` already deployed, dev group already wired (`-5247663806`), end-to-end round-trip validated. Reuse the pattern in `docs/PATTERNS/telegram-bot-integration.md`. ADR-027 (wa.me manager approval) and ADR-033 (founders wa.me share) are superseded by this phase.
+## v0.4 — Telegram approval + self-registration + founders share ✅ SHIPPED
+**Outcome:** Managers approve manual payment overrides from anywhere via a Telegram URL-button; Telegram groups self-register with the bot via /register; founders receive an automatic daily sales summary at 22:00 WIB.
+**Shipped:** 30 May 2026 on branch `feat/v0.4-telegram-approval`. [Plan](./superpowers/plans/2026-05-29-v0.4-telegram-approval.md), [spec](./superpowers/specs/2026-05-29-v0.4-telegram-approval-design.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md) (amended), [ADR-037](./ADR/037-telegram-self-registration.md) (new).
 
 **You'll be able to:**
-- Approve refunds + overrides from your phone via Telegram — no booth presence required
-- Receive auto-posted end-of-shift summaries in the Frollie · Founders Telegram group
-- Use a mobile manager home screen with live sales tape + approvals queue
-- Trust that approval links are single-use, 60-minute expiry, PIN-gated
+- Request off-booth manager approval when QRIS/BCA VA doesn't auto-confirm — a Telegram card lands in the managers group, manager taps the link and enters their PIN to approve or deny
+- Trust approvals are single-use, 60-minute expiry, PIN-gated (ADR-029: token authorizes VIEW; PIN authorizes ACT)
+- Register a Telegram group with the bot by messaging `/register` — no hardcoded `TELEGRAM_CHAT_ID`; managers assign the `managers` or `founders` role via the in-app admin page
+- Receive an automated daily founders summary at 22:00 WIB (opt-out via manager toggle)
 
 **Still not yet:**
-- Issue refunds end-to-end (approval path lands here; refund logic ships v0.5)
-- Manage staff/products in-app (v0.5)
-- View receipts, history, dashboard, or stock (v0.5)
+- Issue refunds end-to-end (off-booth approval path is ready; refund logic ships v0.5)
+- Manager home screen / approvals queue in-app (v0.5)
+- Multi-kind approval queue UI for managers (v0.5)
 
 ### Backend (`convex/`)
-- 🗂️ `approvals.ts` — `create_internal`, `approve`, `deny`; manager-PIN gates send an inline-button card to **Frollie · Managers** Telegram group via `convex/telegram/send.ts` (new template kind: `manager_approval`)
-- 🗂️ Approval tokens: 32-byte URL-safe random, single-use, 60-min TTL (ADR-029 still applies — token authorizes VIEW, PIN authorizes ACT). Link is the `url` field of a Telegram inline button.
-- 🗂️ Manual payment override path (manager PIN OR Telegram approval, audit-logged with reason)
-- 🗂️ `dashboard.ts` (partial — mobile manager view only)
-- 🗂️ `audit.ts` updates — `mgr_approver_id` populated when source is `telegram_approval`
-- 🗂️ Convex scheduler for token reaping
-- 🗂️ Replace POC's sandbox `telegram_log` with real integration: link Telegram messages to `pos_approval_requests` rows via `request_id` foreign key; keep `telegram_log` only as a debug/audit trail (or retire it).
-- 🗂️ Webhook hardening (graduated from POC): wrap `sendTemplate` in `withIdempotency` (ADR-013), validate payload shape per `kind` (drop `v.any()`), surface `editMessageText` failures as audit-log entries, not just `console.warn`.
+- ✅ **[v04-be-approvals-schema-generalize]** `approvals/schema.ts` — generalize `pos_approval_requests` for multi-kind: add `kind` union, `entity_type`/`entity_id`, denied lifecycle fields, `by_kind_status` index (7fde766)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [x] Add `manual_payment_override` literal to `kind` union
+    - [x] Add `entity_type`, `entity_id`, `context`, `denied_at`, `denied_by_manager_id`, `deny_reason` fields
+    - [x] Add `by_kind_status` index
+    - [x] Tests: manual_payment row round-trip
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-telegram-registry-schema]** `telegram/schema.ts` — add `telegramChats` + `telegramUpdates` tables; demote `telegram_log` to debug-trail (e8b8cc0)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-037](./ADR/037-telegram-self-registration.md), [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [x] `telegramChats` with `by_chatId` + `by_role_archived` indexes
+    - [x] `telegramUpdates` for webhook dedupe
+    - [x] Tests: chat row round-trip via `by_role_archived`
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-settings-schema]** `settings/schema.ts` — `pos_settings` singleton table with `founders_summary_enabled` toggle (9b19151)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [x] Create `convex/settings/schema.ts`
+    - [x] Compose into root `convex/schema.ts`
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-audit-source-literal]** `audit/schema.ts` — additive `telegram_approval` source literal (keeps `wa_approval`) (37baef1)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-007](./ADR/007-audit-log-append-only.md), [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [x] Add `telegram_approval` to source union in schema + validator + logAudit type
+    - [x] Tests: both `wa_approval` and `telegram_approval` accepted
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-approvals-kinds]** `approvals/kinds.ts` — `APPROVAL_KINDS` registry: per-kind context validators + audit/template maps (883be7f)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-approvals-schema-generalize`
+  - **docs:** [CLAUDE.md §how-to-add-a-feature-8](../CLAUDE.md#how-to-add-a-feature), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] `validateContext` per-kind — `staff_pin_reset` returns `{}`; `manual_payment_override` validates integer rupiah + non-empty reason
+    - [x] `KIND_AUDIT` + `KIND_TEMPLATE` maps
+    - [x] Tests: valid + invalid contexts, map values
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-createrequest-generalize]** `approvals/internal.ts` — generalize `_createRequest_internal` with per-kind context validation via `APPROVAL_KINDS` registry (8b22c9f)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-approvals-kinds`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md)
+  - **subtasks:**
+    - [x] Accepts `kind`, `entity_type`, `entity_id`, `context` args
+    - [x] Calls `validateContext` before insert
+    - [x] Existing `staff_pin_reset` callers unchanged
+    - [x] Tests: `manual_payment_override` round-trip, invalid context rejected
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-approvals-lifecycle-internals]** `approvals/internal.ts` — add `_markDenied_internal`, `_listPendingByKind_internal`, `_linkTelegramMessage_internal` (db125d3)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-approvals-kinds`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md)
+  - **subtasks:**
+    - [x] `_markDenied_internal` — idempotency-wrapped; sets `denied` lifecycle + audits
+    - [x] `_listPendingByKind_internal` — dedup guard by `(kind, entity_id)` with expiry filter
+    - [x] `_linkTelegramMessage_internal` — best-effort Telegram message-id patch
+    - [x] Tests: deny lifecycle, list returns only live rows, link patches
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-getbytoken-discriminate]** `approvals/public.ts` — generalize `getByToken` with per-kind discriminated display; add `getRequestStatus` reactive query (86942fa)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-approvals-kinds`, `v04-be-approvals-lifecycle-internals`
+  - **docs:** [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] `getByToken` branches on `kind` — pin_reset returns `subject_staff_name`; manual_payment returns `display: {amount_idr, reason}`
+    - [x] `getRequestStatus` reactive query for the charge screen polling
+    - [x] Tests: manual_payment token returns correct display fields
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-lib-helpers-port]** `convex/lib/` — port `chunking`, `constantTimeEqual`, `cronRetry`; add `sendTelegramHtml` to `telegramHtml.ts` (6546648)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [PATTERNS/telegram-bot-integration.md](./PATTERNS/telegram-bot-integration.md)
+  - **subtasks:**
+    - [x] `chunking.ts`, `constantTimeEqual.ts`, `cronRetry.ts` ported verbatim + tests
+    - [x] `sendTelegramHtml(token, chatId, html)` added to existing `telegramHtml.ts`
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-telegram-config]** `convex/telegram/config.ts` — Frollie role constants (`managers`, `founders`), `isKnownTelegramRole` guard (78029a4)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-037](./ADR/037-telegram-self-registration.md)
+  - **subtasks:**
+    - [x] `KNOWN_TELEGRAM_ROLES`, `TelegramRole`, `isKnownTelegramRole`
+    - [x] `TELEGRAM_ADMIN_URL` + `TELEGRAM_BOT_USERNAME` env wrappers
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-chatregistry-keystone]** `convex/telegram/chatRegistry.ts` — ported chat registry with `admin*` → `mgr*` session-gated twins; `mgrSendTest` as action with `_requireManagerSession_internal` (e219e43)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-lib-helpers-port`, `v04-be-telegram-config`
+  - **docs:** [ADR-037](./ADR/037-telegram-self-registration.md)
+  - **subtasks:**
+    - [x] Port `chatRegistry.ts` verbatim; adapt `admin*` → `mgr*` with `requireManagerSession`
+    - [x] `mgrSendTest` as action; auth via `_requireManagerSession_internal` (action-safe)
+    - [x] `withIdempotency` on `mgrAssignRole`/`mgrArchiveChat`/`mgrRestoreChat`
+    - [x] Tests: register upsert, assignRole uniqueness, archive-clears-role, role lookup, manager-vs-staff gate, idempotency dedup
+  - **notes:** no happy-path test for `mgrSendTest` (manager + valid chat); redundant `isKnownTelegramRole` check in `mgrAssignRole` (defensible defense-in-depth since `assignRoleImpl` also checks).
+
+- ✅ **[v04-be-telegram-commands]** `convex/telegram/{commands,registryCommands}.ts` — command-registry dispatcher + `/register`/`/start` self-registration commands (74c8c6f)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-chatregistry-keystone`
+  - **docs:** [ADR-037](./ADR/037-telegram-self-registration.md)
+  - **subtasks:**
+    - [x] `commands.ts` — `MessageContext`, `CommandRegistration`, `buildCommandMatcher`
+    - [x] `registryCommands.ts` — `buildRegistryCommands` → `/register`, `/start`
+    - [x] Tests: strict matcher, case sensitivity, `@botname` suffix
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-telegram-webhook-rewrite]** `convex/telegram/webhook.ts` + `convex/http.ts` — replace POC callback webhook with command-registry handler; retire `/dev/telegram` playground; rewire http route (0d10756)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-telegram-commands`
+  - **docs:** [RUNBOOK-telegram.md](./RUNBOOK-telegram.md)
+  - **subtasks:**
+    - [x] Port starter's `webhook.ts` verbatim; delete POC callback handler
+    - [x] Rewire `http.ts` to `buildHandleTelegramWebhook(...buildRegistryCommands(...))`
+    - [x] Re-point `setWebhook` on dev deployment; documented in RUNBOOK
+    - [x] Tests: secret accept/401, always-200-after-dedupe, unknown-command silent-200, register dispatch
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-telegram-send-harden]** `convex/telegram/send.ts` — role-routed, idempotent, typed `sendTemplate`; audited send failures; URL-button approvals (9160a72)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-chatregistry-keystone`, `v04-be-approvals-kinds`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] `role` arg replaces hardcoded `TELEGRAM_CHAT_ID`; resolves via `getChatIdByRole`
+    - [x] Typed per-kind payload `v.union` (drop `v.any()`)
+    - [x] Action-level idempotency via `_lookup_internal` + `_writeCache_internal`
+    - [x] On Telegram failure: audit row `telegram.send_failed` then rethrow
+    - [x] `renderManualPaymentApproval` + URL-button ("Open approval →") added to `telegramHtml.ts`; POC `renderApproval` callback card deleted
+    - [x] Tests: role resolution, message_id returned, malformed payload rejected
+  - **notes:** `send.ts` switch cases use `as { ... }` casts because `v.union` payload isn't tagged — runtime-safe via the Convex validator but vulnerable to stale casts if shapes drift. Also: idempotency replay is not unit-tested (structurally sound, same pattern as `approveStaffPinReset`).
+
+- ✅ **[v04-be-settings-module]** `convex/settings/{public,internal}.ts` — `getSettings` (read-time default ON) + `setFoundersSummaryEnabled` (manager-gated) (a5381d6)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-settings-schema`
+  - **docs:** [ADR-005](./ADR/005-manager-pin-one-off.md)
+  - **subtasks:**
+    - [x] `getSettings` — returns `founders_summary_enabled: true` when row absent (no seeded row required)
+    - [x] `setFoundersSummaryEnabled` — manager-only; upserts singleton; audit logs toggle
+    - [x] `_getSettings_internal` for cron access
+    - [x] Tests: default ON, manager toggle, staff rejected
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-request-manual-payment]** `approvals/actions.ts` — `requestManualPaymentApproval` off-booth request path: mint token, create request, notify managers via Telegram (cd379e8)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-createrequest-generalize`, `v04-be-telegram-send-harden`, `v04-be-approvals-lifecycle-internals`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] Mint 32-byte raw token; store SHA-256 hash only
+    - [x] Dedup: skip if live pending request exists for the same `txnId`
+    - [x] `sendTemplate` to `managers` role; link message-id to request (best-effort)
+    - [x] On send failure: delete the pending request so next cycle retries cleanly
+    - [x] Action-level idempotency cache
+    - [x] Tests: creates pending row + Telegram send (mocked), dedup skips second call
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-approve-manual-payment]** `approvals/actions.ts` — `approveManualPayment` action; `source=telegram_approval` threaded through `_onPaidManual_internal` → `_confirmPaid_internal` (501f6c0)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-request-manual-payment`
+  - **docs:** [ADR-013](./ADR/013-idempotency-keys.md), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [CLAUDE.md §business-rules-5](../CLAUDE.md)
+  - **subtasks:**
+    - [x] Token SHA-256 + constant-time compare; status + expiry guards
+    - [x] Manager-by-code resolve; argon2id verify; failed attempt on bad PIN
+    - [x] `_onPaidManual_internal` called with `source: "telegram_approval"`
+    - [x] `_markResolved_internal` under the top-level idempotency key
+    - [x] Tests: approve confirms txn + resolves request, wrong PIN records attempt, replay cached
+  - **notes:** `withIdempotency` cache LABEL on `_markResolved_internal` still reads `"approvals.approveStaffPinReset"`; pure observability, no functional impact.
+
+- ✅ **[v04-be-deny-request]** `approvals/actions.ts` — kind-agnostic `denyRequest` off-booth decline path (77ae447)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-approvals-lifecycle-internals`
+  - **docs:** [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] Token resolve; status/expiry guards; manager PIN verify
+    - [x] Delegates to `_markDenied_internal`
+    - [x] Tests: deny resolves request to `denied`; non-pending request rejected
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-daily-sales-aggregate]** `transactions/internal.ts` — `_dailySalesSummary_internal` query for founders summary (f8d7909)
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-034](./ADR/034-deep-modules-surface-apis.md), [CLAUDE.md §business-rules-14](../CLAUDE.md)
+  - **subtasks:**
+    - [x] WIB day-window from `convex/lib/time.ts` extended with day-label helper
+    - [x] Aggregate paid txns → `total_idr`, `txn_count`, `top_products[]`
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-founders-cron-action]** `convex/telegram/` — `sendFoundersSummary` action with resilient `cronRetry` wrapper (131ab67)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-daily-sales-aggregate`, `v04-be-telegram-send-harden`, `v04-be-settings-module`
+  - **docs:** [ADR-033](./ADR/033-founders-shift-summary-share.md) (amended)
+  - **subtasks:**
+    - [x] Check `founders_summary_enabled`; no-op if disabled
+    - [x] `renderFoundersSummary` in `telegramHtml.ts`; send to `founders` role
+    - [x] `cronRetry` wrapper caps retries + audit-logs failures
+  - **notes:** _(empty)_
+
+- ✅ **[v04-be-crons-register]** `convex/crons.ts` — daily founders shift-summary cron at 22:00 WIB (15:00 UTC) (b9ccb4a)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-founders-cron-action`
+  - **docs:** [ADR-033](./ADR/033-founders-shift-summary-share.md) (amended)
+  - **subtasks:**
+    - [x] `crons.daily(...)` at 15:00 UTC
+    - [x] Convex codegen + typecheck clean
+  - **notes:** _(empty)_
 
 ### Frontend (`src/`)
-- 🗂️ `routes/wait/[requestId].tsx` — StaffWaitingApproval screen (the requester's view; status driven by reactive query on `pos_approval_requests`)
-- 🗂️ `routes/approve/[token].tsx` — PUBLIC landing, opens when a manager taps the Telegram inline button (no auth gate; URL is the button's `url` field)
-- 🗂️ `routes/approve/[token]/pin.tsx` — PIN sheet continuation
-- 🗂️ `routes/mgr/home.tsx` — MgrHomeMobile wireframe (live tape + approvals queue)
-- 🗂️ `routes/lock.tsx` — partial: founders shift-summary auto-post to Telegram (replaces ADR-033 wa.me toggle; either auto-on-lock or behind a manager-configurable setting)
-- 🗂️ ~~`lib/wa-link.ts`~~ — **REMOVED from plan**: superseded by `convex/telegram/send.ts` (manager_approval template). The POS UI now triggers approvals via a Convex mutation, not a wa.me share-intent.
-- 🗂️ `hooks/useApproval.ts` — subscribes to `pos_approval_requests`, dispatches approval-request mutation, surfaces "waiting" / "approved" / "denied" states + error toasting (Sonner) on Telegram delivery failure
-- 🗂️ Optional: tiny error-toast UX layer in `/dev/telegram` playground forms — same Sonner pattern, makes the page production-grade enough to leave in
+- ✅ **[v04-fe-useapproval-hook]** `src/hooks/useApproval.ts` — reactive approval-status hook: surfaces `pending`/`resolved`/`denied`/`expired` states + dispatches request mutation (c520bbb)
+  - **agent:** `frontend-integrator`
+  - **deps:** `v04-be-getbytoken-discriminate`, `v04-be-request-manual-payment`
+  - **docs:** [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] Subscribe to `getRequestStatus` reactive query
+    - [x] `requestApproval(txnId, reason)` — calls `requestManualPaymentApproval`, stores `requestId`
+    - [x] Expose `status`, `requestId`, `error`, `isRequesting`
+  - **notes:** _(empty)_
+
+- ✅ **[v04-fe-approvalpending-component]** `src/components/pos/ApprovalPending.tsx` — reusable "waiting for manager" UI with spinner, denied/expired states, and retry affordance (9b532c6)
+  - **agent:** `ui-component-builder`
+  - **deps:** `v04-fe-useapproval-hook`
+  - **docs:** [CLAUDE.md §stack](../CLAUDE.md#stack)
+  - **subtasks:**
+    - [x] `pending` state — spinner + "Waiting for manager approval via Telegram"
+    - [x] `denied`/`expired` states — dismissible with retry CTA
+    - [x] `resolved` state — brief success before parent navigates
+  - **notes:** _(empty)_
+
+- ✅ **[v04-fe-approve-manual-variant]** `src/routes/approve/index.tsx` — `manual_payment` variant on the `/approve/:token` landing; Deny button; drop unused `pin.tsx` stub (6161457)
+  - **agent:** `frontend-integrator`
+  - **deps:** `v04-be-getbytoken-discriminate`, `v04-be-approve-manual-payment`, `v04-be-deny-request`
+  - **docs:** [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
+  - **subtasks:**
+    - [x] Switch UI on `kind` — manual_payment shows `amount_idr` + `reason` + requester name
+    - [x] Deny flow (PIN-gated) calls `denyRequest`
+    - [x] `src/routes/approve/pin.tsx` deleted (unused Stub)
+  - **notes:** _(empty)_
+
+- ✅ **[v04-fe-charge-inline-approval]** `src/routes/sale/charge.tsx` — inline `<ApprovalPending>` + "Request manager approval" button for off-booth manual payment (4390e69)
+  - **agent:** `frontend-integrator`
+  - **deps:** `v04-fe-useapproval-hook`, `v04-fe-approvalpending-component`
+  - **docs:** [CLAUDE.md §business-rules-5](../CLAUDE.md)
+  - **subtasks:**
+    - [x] "Request manager approval" button appears when payment times out or staff taps it
+    - [x] `<ApprovalPending>` replaces the QR/VA view while request is live
+    - [x] On `resolved` → navigate to charge-success
+  - **notes:** _(empty)_
+
+- ✅ **[v04-fe-mgr-telegram-chats]** `src/routes/mgr/telegram-chats.tsx` — manager-gated Telegram chat registry admin: list chats, assign roles, archive/restore, send test (4a7f600)
+  - **agent:** `ui-component-builder`
+  - **deps:** `v04-be-chatregistry-keystone`
+  - **docs:** [ADR-037](./ADR/037-telegram-self-registration.md)
+  - **subtasks:**
+    - [x] List registered chats with role badges
+    - [x] Role assignment + archive/restore via `mgrAssignRole`/`mgrArchiveChat`/`mgrRestoreChat`
+    - [x] Founders summary toggle via `setFoundersSummaryEnabled`
+    - [x] Send-test button per chat via `mgrSendTest`
+  - **notes:** _(empty)_
 
 ### Cross-cutting
-- 🗂️ **Write the new ADR superseding ADR-027 + ADR-033** — title TBD (e.g., `ADR-034-telegram-as-internal-comms-channel.md`). Should reference the POC + pattern doc and explicitly mark ADR-027 / ADR-033 with `Status: superseded by ADR-034`. Decision date: 2026-05-26.
-- 🗂️ ADR-005 (manager-PIN gates) wired to Telegram bot flow as the v0.4+ default when no manager at booth (the link in the inline button leads to `/approve/:token`; PIN entered on landing).
-- 🗂️ Founders shift-summary auto-post to `Frollie · Founders` Telegram group (reuses POC's `shift_summary` template kind).
-- 🗂️ Production Telegram setup: separate prod bot via BotFather, prod group(s), prod env vars on `savory-zebra-800`, prod `setWebhook` call (see `docs/RUNBOOK-telegram.md` § "Promoting Telegram from dev to prod — checklist").
-- 🗂️ Schema additions: `pos_approval_requests`, `pos_approval_tokens` (plus consider retiring or repurposing `telegram_log` once `pos_approval_requests` carries the inbound state).
-- 🗂️ SCHEMA.md audit enum: `approval.requested`, `approval.viewed`, `approval.approved`, `approval.denied`, `payment.manual_override`, `telegram.send_failed`
+- ✅ **[v04-xc-schema-docs]** `docs/SCHEMA.md` — v0.4 additions: generalized `pos_approval_requests`, `telegramChats`, `telegramUpdates`, `pos_settings`, `telegram_approval` source (ea76d5e)
+  - **agent:** `—`
+  - **deps:** `v04-be-approvals-schema-generalize`, `v04-be-telegram-registry-schema`, `v04-be-settings-schema`, `v04-be-audit-source-literal`
+  - **docs:** [SCHEMA.md](./SCHEMA.md)
+  - **subtasks:**
+    - [x] Document new fields + denied lifecycle on `pos_approval_requests`
+    - [x] `telegramChats` + `telegramUpdates` table entries
+    - [x] `pos_settings` table entry
+    - [x] `telegram_approval` source literal in audit enum
+  - **notes:** _(empty)_
+
+- ✅ **[v04-xc-regression-fix-notify-lockout]** `convex/seed/internal.ts` — seed `telegramChats` with `role: "managers"` so `notifyStaffLockout` wave-boundary test passes (ceb7114)
+  - **agent:** `convex-expert`
+  - **deps:** `v04-be-telegram-registry-schema`, `v04-be-chatregistry-keystone`
+  - **docs:** [CLAUDE.md §business-rules-19](../CLAUDE.md)
+  - **subtasks:**
+    - [x] Seed `telegramChats` managers row in `_seedStaffCommit_internal` test helper
+    - [x] `notifyStaffLockout` tests green end-to-end (no `MANAGERS_CHAT_NOT_FOUND`)
+  - **notes:** _(empty)_
+
+- ✅ **[v04-xc-adrs]** ADR-037 (self-registration); amend ADR-030 + ADR-035 for v0.4 (285c0c0)
+  - **agent:** `—`
+  - **deps:** `v04-be-chatregistry-keystone`, `v04-be-telegram-webhook-rewrite`
+  - **docs:** [ADR-035](./ADR/035-telegram-as-internal-comms.md), [ADR-037](./ADR/037-telegram-self-registration.md)
+  - **subtasks:**
+    - [x] ADR-037: documents chat self-registration pattern (`/register`, role assignment, `telegramChats` table)
+    - [x] ADR-035 amended: POC replaced by production registry; no more hardcoded `TELEGRAM_CHAT_ID`
+    - [x] ADR-030 amended: approval token now on `pos_approval_requests` row (no separate `pos_approval_tokens` table)
+  - **notes:** _(empty)_
+
+- ✅ **[v04-xc-project-docs]** `CLAUDE.md`, `docs/RUNBOOK-telegram.md`, `docs/CHANGELOG.md`, `docs/API_REFERENCE.md` — v0.4 docs pass (e470313)
+  - **agent:** `—`
+  - **deps:** `v04-xc-adrs`
+  - **docs:** [CHANGELOG.md](./CHANGELOG.md), [RUNBOOK-telegram.md](./RUNBOOK-telegram.md)
+  - **subtasks:**
+    - [x] CLAUDE.md: updated file-locations, auth section, business rules #10 (Telegram replaces WA), #12 (founders cron)
+    - [x] RUNBOOK-telegram.md: self-registration runbook + prod promotion checklist
+    - [x] CHANGELOG.md v0.4 entry
+    - [x] API_REFERENCE.md: new `approvals`, `settings`, `telegram` endpoints documented
+  - **notes:** _(empty)_
 
 ---
 
