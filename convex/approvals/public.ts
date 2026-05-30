@@ -1,6 +1,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import { effectiveStatus, type EffectiveStatus } from "./lib";
 
 /**
  * Derive a SHA-256 hex digest from a string using Web Crypto (V8-compatible).
@@ -19,8 +20,6 @@ async function sha256Hex(s: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // Discriminated return type for getByToken
 // ---------------------------------------------------------------------------
-
-type EffectiveStatus = "pending" | "resolved" | "denied" | "expired";
 
 // Shared "decision details" populated when status === "denied". Set per-kind so
 // the already-resolved/denied surfaces can render informative copy ("Declined by
@@ -87,13 +86,10 @@ export const getByToken = query({
     if (!req) return null;
 
     // Compute effective status without mutating the DB row
-    const effectiveStatus: EffectiveStatus =
-      req.status === "pending" && req.token_expires_at <= Date.now()
-        ? "expired"
-        : req.status;
+    const eff: EffectiveStatus = effectiveStatus(req);
 
     const base = {
-      status: effectiveStatus,
+      status: eff,
       triggered_at: req.triggered_at,
       token_expires_at: req.token_expires_at,
       ...(req.resolved_at !== undefined ? { resolved_at: req.resolved_at } : {}),
@@ -103,7 +99,7 @@ export const getByToken = query({
     // so the "already denied" surfaces can render informative copy instead of a
     // generic message. Cross-module read goes via auth/internal per ADR-034.
     const denyDetails: DenyDetails = {};
-    if (effectiveStatus === "denied") {
+    if (eff === "denied") {
       if (req.denied_at !== undefined) denyDetails.denied_at = req.denied_at;
       if (req.deny_reason !== undefined) denyDetails.deny_reason = req.deny_reason;
       if (req.denied_by_manager_id && req.denied_by_manager_id !== "system") {
@@ -186,14 +182,10 @@ export const getRequestStatus = query({
   handler: async (
     ctx,
     args,
-  ): Promise<{ status: "pending" | "resolved" | "denied" | "expired" } | null> => {
+  ): Promise<{ status: EffectiveStatus } | null> => {
     const req = await ctx.db.get(args.requestId);
     if (!req) return null;
-    const status: "pending" | "resolved" | "denied" | "expired" =
-      req.status === "pending" && req.token_expires_at <= Date.now()
-        ? "expired"
-        : req.status;
-    return { status };
+    return { status: effectiveStatus(req) };
   },
 });
 
@@ -216,7 +208,7 @@ export const getRecentPinResetForStaff = query({
     args,
   ): Promise<{
     requestId: string;
-    status: "pending" | "resolved" | "denied" | "expired";
+    status: EffectiveStatus;
     triggered_at: number;
     deny_reason?: string;
     denied_by_manager_name?: string;
@@ -250,8 +242,7 @@ export const getRecentPinResetForStaff = query({
     if (pinResets.length === 0) return null;
     const req = pinResets[0];
 
-    const status: "pending" | "resolved" | "denied" | "expired" =
-      req.status === "pending" && req.token_expires_at <= Date.now() ? "expired" : req.status;
+    const status: EffectiveStatus = effectiveStatus(req);
 
     let denied_by_manager_name: string | undefined;
     let denied_by_manager_code: string | undefined;
