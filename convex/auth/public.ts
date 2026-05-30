@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
+import { requireSession } from "./sessions";
 
 /**
  * List active staff for the login screen.
@@ -53,6 +54,9 @@ export const logout = mutation({
         source: "booth_inline", device_id: session.device_id,
       });
       return null;
+    },
+    {
+      authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); },
     },
   ),
 });
