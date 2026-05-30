@@ -147,6 +147,7 @@ describe("_markResolved_internal", () => {
       idempotencyKey: "k-markresolved",
       requestId,
       resolved_by_manager_id: mgrId,
+      source: "telegram_approval",
     });
     expect(r.resolved).toBe(true);
 

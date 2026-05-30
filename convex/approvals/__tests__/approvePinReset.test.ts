@@ -65,8 +65,10 @@ describe("approvals/actions.approveStaffPinReset", () => {
     expect(req?.status).toBe("resolved");
     expect(req?.resolved_by_manager_id).toBe(mgrId);
 
-    // The off-booth reset must record source=wa_approval on the staff.pin_reset
+    // The off-booth reset must record the off-booth source on the staff.pin_reset
     // audit row (Fix I-1) — booth_inline would be factually wrong here.
+    // v0.4: shipped path always delivered via Telegram; legacy "wa_approval"
+    // literal updated to "telegram_approval".
     const resetAudit = await t.run((ctx) =>
       ctx.db
         .query("audit_log")
@@ -74,7 +76,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
         .collect(),
     );
     expect(resetAudit.length).toBe(1);
-    expect(resetAudit[0].source).toBe("wa_approval");
+    expect(resetAudit[0].source).toBe("telegram_approval");
   });
 
   it("rejects expired token", async () => {

@@ -302,9 +302,13 @@ const changePinActorValidator = v.union(
 // Audit `source` union (mirrors audit/internal.ts sourceValidator). Off-booth
 // callers (e.g. approvals.approveStaffPinReset via Telegram) override this so the
 // staff.pin_reset row records where the action actually originated.
+// v0.4 (Task 21): "telegram_approval" added — the shipped off-booth path always
+// delivers via Telegram, so the action layer threads that literal end-to-end.
+// "wa_approval" retained for backward compatibility on existing rows.
 const changePinSourceValidator = v.union(
   v.literal("booth_inline"),
   v.literal("wa_approval"),
+  v.literal("telegram_approval"),
   v.literal("system"),
   v.literal("reaper"),
 );

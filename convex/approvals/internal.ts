@@ -137,12 +137,18 @@ export const _markResolved_internal = internalMutation({
     idempotencyKey: v.string(),
     requestId: v.id("pos_approval_requests"),
     resolved_by_manager_id: v.id("staff"),
+    // v0.4 (Task 21): origin of the resolve. The action layer threads
+    // "telegram_approval" for both shipped kinds (staff_pin_reset, manual_payment_override).
+    // Kept as a parameter (not hardcoded) so future kinds can record a different
+    // origin (e.g. booth_inline if a manager ever resolves at the booth).
+    source: v.union(v.literal("wa_approval"), v.literal("telegram_approval")),
   },
   handler: withIdempotency<
     {
       idempotencyKey: string;
       requestId: Id<"pos_approval_requests">;
       resolved_by_manager_id: Id<"staff">;
+      source: "wa_approval" | "telegram_approval";
     },
     { resolved: true }
   >(
@@ -166,7 +172,7 @@ export const _markResolved_internal = internalMutation({
         action: "approval.resolved",
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
-        source: "wa_approval",
+        source: args.source,
         mgr_approver_id: args.resolved_by_manager_id,
       });
 

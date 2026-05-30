@@ -141,6 +141,13 @@ export const _confirmPaid_internal = internalMutation({
     mgr_approver_id: v.optional(v.id("staff")),
     manual_reason: v.optional(v.string()),
     paid_amount: v.optional(v.number()),
+    // v0.4 (Task 21): for source="manual", the caller threads the real audit
+    // origin (booth_inline at the booth, telegram_approval off-booth). Omitted
+    // by booth callers (payments.manuallyConfirmPayment) → defaults to
+    // booth_inline. Ignored for source="webhook" / "polling".
+    approvalSource: v.optional(
+      v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    ),
   },
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
@@ -160,7 +167,10 @@ export const _confirmPaid_internal = internalMutation({
         action: "payment.confirmed_on_terminal",
         entity_type: "pos_transactions",
         entity_id: args.txnId,
-        source: args.source === "manual" ? "booth_inline" : "system",
+        source:
+          args.source === "manual"
+            ? args.approvalSource ?? "booth_inline"
+            : "system",
         reason: args.manual_reason,
         metadata: { source: args.source, txn_status: txn.status },
       });
@@ -270,10 +280,15 @@ export const _confirmPaid_internal = internalMutation({
       entity_type: "pos_transactions",
       entity_id: args.txnId,
       mgr_approver_id: args.mgr_approver_id,
-      // v0.3: manual override is booth-only (manager present), so manual → booth_inline.
-      // v0.4 off-booth manual-payment approval will need to thread the real source
-      // (wa_approval) from the caller rather than hardcoding it here.
-      source: args.source === "manual" ? "booth_inline" : "system",
+      // v0.4 (Task 21): manual override may now originate off-booth. The caller
+      // (payments._onPaidManual_internal) threads approvalSource so the audit
+      // row reflects where the action actually happened: booth_inline at the
+      // booth (default), telegram_approval via the off-booth approve link.
+      // Non-manual paths (webhook/polling) keep source="system".
+      source:
+        args.source === "manual"
+          ? args.approvalSource ?? "booth_inline"
+          : "system",
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });

@@ -2,9 +2,14 @@
 
 import { convexTest } from "convex-test";
 import { expect, it, vi, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
 import schema from "../../schema";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { Id } from "../../_generated/dataModel";
+
+function sha256Hex(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
+}
 
 const realFetch = globalThis.fetch;
 
@@ -163,4 +168,172 @@ it("dedup: second call for same txn while request pending returns existing reque
     ctx.db.query("pos_approval_requests").collect(),
   );
   expect(rows.filter((r) => r.kind === "manual_payment_override").length).toBe(1);
+});
+
+// ─── approveManualPayment (Task 21) ─────────────────────────────────────────
+// Off-booth approve path: a manager opens the /approve/:token link and confirms
+// payment with their own PIN. Mirrors approveStaffPinReset's envelope (token
+// sha256 + constant-time compare, manager-by-code resolve, argon2 verify,
+// failed-attempt path, action-level idempotency).
+
+const MGR_CODE = "S-9";
+const MGR_PIN = "9999";
+
+async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
+  txnId: Id<"pos_transactions">;
+  requestId: Id<"pos_approval_requests">;
+  rawToken: string;
+  mgrId: Id<"staff">;
+  staffId: Id<"staff">;
+}> {
+  // Manager with a REAL argon2 hash (so argon2Verify can succeed).
+  const mgrId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+    name: "Manager",
+    pin: MGR_PIN,
+    role: "manager",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(mgrId, { code: MGR_CODE });
+  });
+
+  const { staffId, txnId } = await t.run(async (ctx) => {
+    const staffId = await ctx.db.insert("staff", {
+      name: "Lucy",
+      code: "S-1",
+      role: "staff",
+      active: true,
+      pin_hash: "x",
+      created_at: Date.now(),
+    });
+    const txnId = await ctx.db.insert("pos_transactions", {
+      status: "awaiting_payment",
+      subtotal: 50000,
+      voucher_discount: 0,
+      total: 50000,
+      flags: 0,
+      staff_id: staffId,
+      created_at: Date.now(),
+    });
+    return { staffId, txnId };
+  });
+
+  const rawToken = "raw-token-approve-mp";
+  const { requestId } = await t.mutation(
+    internal.approvals.internal._createRequest_internal,
+    {
+      kind: "manual_payment_override",
+      requester_staff_id: staffId,
+      entity_type: "pos_transactions",
+      entity_id: txnId as unknown as string,
+      context: {
+        txn_id: txnId as unknown as string,
+        amount_idr: 50000,
+        reason: "BCA app shows paid",
+      },
+      reason: "BCA app shows paid",
+      triggered_by_event: "manual_payment_request",
+      triggered_at: Date.now(),
+      token_hash: sha256Hex(rawToken),
+      token_expires_at: Date.now() + 3_600_000,
+    },
+  );
+
+  return { txnId, requestId, rawToken, mgrId, staffId };
+}
+
+it("approves: manager PIN confirms payment + resolves request", async () => {
+  const t = convexTest(schema);
+  const { txnId, requestId, rawToken } = await seedApprovable(t);
+
+  const res = await t.action(api.approvals.actions.approveManualPayment, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    idempotencyKey: "appr-1",
+  });
+  expect(res.resolved).toBe(true);
+
+  const txn = await t.run((ctx) => ctx.db.get(txnId));
+  expect(txn?.status).toBe("paid");
+  expect(txn?.confirmed_via).toBe("manual");
+
+  const req = await t.run((ctx) => ctx.db.get(requestId));
+  expect(req?.status).toBe("resolved");
+});
+
+it("audits payment.confirmed with source=telegram_approval (NOT booth_inline) on off-booth approve", async () => {
+  const t = convexTest(schema);
+  const { rawToken } = await seedApprovable(t);
+
+  await t.action(api.approvals.actions.approveManualPayment, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    idempotencyKey: "appr-src",
+  });
+
+  const confirmRows = await t.run((ctx) =>
+    ctx.db
+      .query("audit_log")
+      .withIndex("by_action_date", (q) => q.eq("action", "payment.confirmed"))
+      .collect(),
+  );
+  expect(confirmRows.length).toBe(1);
+  expect(confirmRows[0].source).toBe("telegram_approval");
+});
+
+it("wrong PIN throws INVALID_PIN and records a failed attempt against the manager", async () => {
+  const t = convexTest(schema);
+  const { rawToken, mgrId } = await seedApprovable(t);
+
+  await expect(
+    t.action(api.approvals.actions.approveManualPayment, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: "0000", // wrong
+      idempotencyKey: "appr-wrong",
+    }),
+  ).rejects.toThrow("INVALID_PIN");
+
+  const attempt = await t.run((ctx) =>
+    ctx.db
+      .query("pos_auth_attempts")
+      .withIndex("by_staff", (q) => q.eq("staff_id", mgrId))
+      .first(),
+  );
+  expect(attempt?.fail_count).toBe(1);
+});
+
+it("idempotency replay: same key returns cached result without firing twice", async () => {
+  const t = convexTest(schema);
+  const { txnId, requestId, rawToken } = await seedApprovable(t);
+
+  const r1 = await t.action(api.approvals.actions.approveManualPayment, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    idempotencyKey: "appr-replay",
+  });
+  const r2 = await t.action(api.approvals.actions.approveManualPayment, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    idempotencyKey: "appr-replay",
+  });
+  expect(r2).toEqual(r1);
+
+  // Only one payment.confirmed audit row — no double-execution.
+  const confirmRows = await t.run((ctx) =>
+    ctx.db
+      .query("audit_log")
+      .withIndex("by_action_date", (q) => q.eq("action", "payment.confirmed"))
+      .collect(),
+  );
+  expect(confirmRows.length).toBe(1);
+
+  // Txn paid + request resolved exactly once.
+  const txn = await t.run((ctx) => ctx.db.get(txnId));
+  expect(txn?.status).toBe("paid");
+  const req = await t.run((ctx) => ctx.db.get(requestId));
+  expect(req?.status).toBe("resolved");
 });

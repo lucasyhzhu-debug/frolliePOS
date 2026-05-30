@@ -252,6 +252,13 @@ export const _onPaidManual_internal = internalMutation({
     txnId: v.id("pos_transactions"),
     reason: v.string(),
     mgr_approver_id: v.id("staff"),
+    // v0.4 (Task 21): origin of the manual confirmation. Booth path
+    // (payments.manuallyConfirmPayment) omits this → defaults to booth_inline
+    // inside _confirmPaid_internal. Off-booth path
+    // (approvals.approveManualPayment) passes "telegram_approval".
+    source: v.optional(
+      v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    ),
   },
   handler: withIdempotency<
     {
@@ -259,6 +266,7 @@ export const _onPaidManual_internal = internalMutation({
       txnId: Id<"pos_transactions">;
       reason: string;
       mgr_approver_id: Id<"staff">;
+      source?: "booth_inline" | "telegram_approval";
     },
     { confirmed: true; receiptNumber: string }
   >(
@@ -269,6 +277,7 @@ export const _onPaidManual_internal = internalMutation({
         source: "manual",
         mgr_approver_id: args.mgr_approver_id,
         manual_reason: args.reason,
+        approvalSource: args.source,
       });
       // Read back inside the same transaction. _confirmPaid status-guards: a txn
       // that was already cancelled/expired (not awaiting_payment) no-ops and never

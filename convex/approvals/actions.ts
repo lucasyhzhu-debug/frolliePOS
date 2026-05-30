@@ -194,15 +194,18 @@ export const approveStaffPinReset = action({
       staffId: req.subject_staff_id,
       newPinHash,
       actor: { kind: "manager_reset", mgr_approver_id: manager._id },
-      // Off-booth Telegram path: record the audit origin as wa_approval, not the
-      // booth_inline default (this reset did not happen at the booth).
-      source: "wa_approval",
+      // Off-booth Telegram path: record the audit origin as telegram_approval,
+      // not the booth_inline default (this reset did not happen at the booth).
+      // v0.4 (Task 21): shipped delivery is always Telegram; the legacy
+      // "wa_approval" literal is replaced by "telegram_approval" for consistency.
+      source: "telegram_approval",
     });
     // Mark resolved + write the idempotency cache row in the SAME transaction (I6).
     return await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
       idempotencyKey: args.idempotencyKey,
       requestId: req._id,
       resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
     });
   },
 });
@@ -336,5 +339,111 @@ export const requestManualPaymentApproval = action({
     });
 
     return out;
+  },
+});
+
+/**
+ * Off-booth manual-payment approval via the Telegram link. Spec §"approveManualPayment".
+ * Mirrors approveStaffPinReset's envelope so the security story is identical:
+ *
+ *   1. Action-level idempotency pre-check (ADR-013) — same key replay returns
+ *      the cached resolve response without re-firing the funnel.
+ *   2. sha256 the raw token, lookup the request by token hash, then do a
+ *      constant-time compare (defense-in-depth even though the index already matched).
+ *   3. Status === pending, token not expired, kind === "manual_payment_override".
+ *   4. Resolve approving manager by staff code (active manager only).
+ *   5. argon2-verify managerPin against the MANAGER's hash. On fail, record a
+ *      failed attempt against the manager and throw INVALID_PIN.
+ *   6. Run the payment funnel via _onPaidManual_internal (idempotency-keyed with
+ *      a :onpaid suffix so it doesn't collide with the action-level cache).
+ *      Thread source="telegram_approval" so the payment.confirmed audit row
+ *      records the real origin (not booth_inline).
+ *   7. Mark the request resolved with the TOP-LEVEL idempotencyKey — same as
+ *      approveStaffPinReset, this row's cache write is what the action-level
+ *      _lookup_internal pre-check replays.
+ *
+ * Locked-out manager self-approve (mirrors approveStaffPinReset Improvement #6):
+ * INTENTIONAL. argon2Verify only consults the manager's pin_hash; lockout is not
+ * checked. Token + correct PIN are sufficient authority.
+ *
+ * Never logs PIN or token values.
+ */
+export const approveManualPayment = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ resolved: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { resolved: true };
+
+    // Step 2: token lookup + constant-time compare
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // Step 3: state guards
+    if (req.kind !== "manual_payment_override") throw new Error("WRONG_KIND");
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Extract txnId from the validated context (set by requestManualPaymentApproval).
+    const ctxBag = (req.context ?? {}) as { txn_id?: string };
+    if (!ctxBag.txn_id) throw new Error("REQUEST_MISSING_TXN");
+    const txnId = ctxBag.txn_id as unknown as Id<"pos_transactions">;
+
+    // Step 4: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 5: argon2-verify manager PIN; record failed attempt on miss
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+      });
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 6: run the payment funnel. The :onpaid suffix gives the funnel its
+    // own idempotency key — same top-level retry replays both this mutation
+    // (existing cache row) AND step 7 (the cached resolve response).
+    await ctx.runMutation(internal.payments.internal._onPaidManual_internal, {
+      idempotencyKey: `${args.idempotencyKey}:onpaid`,
+      txnId,
+      reason: req.reason ?? "Manual payment (off-booth approval)",
+      mgr_approver_id: manager._id,
+      source: "telegram_approval",
+    });
+
+    // Step 7: mark resolved + cache action response in ONE transaction (I6).
+    // The TOP-LEVEL idempotencyKey is intentionally reused here so the action's
+    // _lookup_internal pre-check sees the cached resolve blob on retry.
+    return await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: args.idempotencyKey,
+      requestId: req._id,
+      resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
+    });
   },
 });
