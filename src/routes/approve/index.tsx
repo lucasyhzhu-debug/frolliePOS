@@ -84,11 +84,19 @@ function PinResetVariant({ token, request }: PinResetProps) {
   const [activeField, setActiveField] = useState<ActiveField>("managerPin");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [succeeded, setSucceeded] = useState(false);
+  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+
+  // Deny-flow state — mirrors the manual_payment variant
+  const [showDenyReason, setShowDenyReason] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  const [denyPending, setDenyPending] = useState(false);
 
   const idempotencyIntent = `approve-pin-reset:${token}`;
   const idempotencyKey = useIdempotency(idempotencyIntent);
+  const denyIntent = `deny-pin-reset:${token}`;
+  const denyKey = useIdempotency(denyIntent);
   const approveAction = useAction(api.approvals.actions.approveStaffPinReset);
+  const denyAction = useAction(api.approvals.actions.denyRequest);
 
   // Token-gated active-managers list for the picker (replaces the v0.4 text input)
   const managers = useQuery(api.approvals.public.listActiveManagers, { token });
@@ -143,7 +151,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
         managerStaffCode: staffCode.trim(),
         idempotencyKey,
       });
-      setSucceeded(true);
+      setOutcome("approved");
     } catch (err) {
       const mapped = mapError(err);
       setError(mapped);
@@ -159,12 +167,61 @@ function PinResetVariant({ token, request }: PinResetProps) {
     }
   }
 
-  if (succeeded) {
+  async function handleConfirmDeny() {
+    if (!denyKey) return;
+    if (!staffCode.trim()) {
+      setError("Select your manager identity");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+    if (!denyReason.trim()) return;
+
+    setDenyPending(true);
+    setError(undefined);
+    try {
+      await denyAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        denyReason: denyReason.trim(),
+        idempotencyKey: denyKey,
+      });
+      setOutcome("denied");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(denyIntent);
+      }
+    } finally {
+      setDenyPending(false);
+    }
+  }
+
+  if (outcome === "approved") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-teal-600" />
         <p className="text-sm font-medium">
           ✓ PIN reset — {request.subject_staff_name} can now log in with the new PIN.
+        </p>
+      </main>
+    );
+  }
+
+  if (outcome === "denied") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">
+          Declined — PIN reset request rejected. {request.subject_staff_name} stays locked.
         </p>
       </main>
     );
@@ -285,11 +342,12 @@ function PinResetVariant({ token, request }: PinResetProps) {
           </p>
         )}
 
-        {/* Submit */}
+        {/* Submit (approve = reset PIN) */}
         <Button
           type="submit"
           disabled={
             pending ||
+            denyPending ||
             !idempotencyKey ||
             staffCode.trim().length === 0 ||
             managerPin.length !== 4 ||
@@ -306,6 +364,82 @@ function PinResetVariant({ token, request }: PinResetProps) {
             "Reset PIN"
           )}
         </Button>
+
+        {/* Decline (deny — kind-agnostic denyRequest). New PIN is NOT required
+            to decline; manager identity + manager PIN + reason are enough. */}
+        {showDenyReason ? (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <Label htmlFor="deny-reason">Why are you declining?</Label>
+            <Input
+              id="deny-reason"
+              type="text"
+              autoComplete="off"
+              value={denyReason}
+              onChange={(e) => {
+                setDenyReason(e.target.value);
+                setError(undefined);
+              }}
+              placeholder="e.g. Suspicious lockout"
+              disabled={denyPending}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleConfirmDeny}
+                disabled={
+                  denyPending ||
+                  !denyKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4 ||
+                  denyReason.trim().length === 0
+                }
+              >
+                {denyPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Declining…
+                  </>
+                ) : (
+                  "Confirm decline"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowDenyReason(false);
+                  setDenyReason("");
+                  setError(undefined);
+                }}
+                disabled={denyPending}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setShowDenyReason(true);
+              setError(undefined);
+            }}
+            disabled={
+              pending ||
+              denyPending ||
+              staffCode.trim().length === 0 ||
+              managerPin.length !== 4
+            }
+            className="w-full"
+          >
+            Decline reset request
+          </Button>
+        )}
       </form>
     </main>
   );
