@@ -91,8 +91,10 @@ curl.exe "https://api.telegram.org/bot<TOKEN>/getUpdates?allowed_updates=%5B%22m
 curl.exe -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" `
   -d "url=https://helpful-grasshopper-46.convex.site/telegram-webhook" `
   -d "secret_token=<SECRET>" `
-  -d 'allowed_updates=["callback_query"]'
+  -d 'allowed_updates=["message","callback_query"]'
 ```
+
+Note: `allowed_updates` must include `"message"` so `/register` and `/start` commands are delivered. See also [LESSON 6 — BotFather privacy mode](#lesson-6--botfather-privacy-mode-and-setcommands) (in the v0.4 lessons section at the bottom).
 
 ---
 
@@ -206,6 +208,8 @@ When the Telegram integration is ready to ship to prod:
    npx convex env set TELEGRAM_BOT_TOKEN <prod_token> --prod
    npx convex env set TELEGRAM_CHAT_ID -- <prod_chat_id> --prod
    npx convex env set TELEGRAM_WEBHOOK_SECRET <new_random_secret> --prod
+   npx convex env set POS_BASE_URL https://frollie-pos.vercel.app --prod
+   npx convex env set TELEGRAM_FALLBACK_ROLE managers --prod
    ```
 5. **Deploy the code:** `npx convex deploy`
 6. **Register the prod webhook:**
@@ -213,7 +217,88 @@ When the Telegram integration is ready to ship to prod:
    curl.exe -X POST "https://api.telegram.org/bot<PROD_TOKEN>/setWebhook" `
      -d "url=https://savory-zebra-800.convex.site/telegram-webhook" `
      -d "secret_token=<PROD_SECRET>" `
-     -d 'allowed_updates=["callback_query"]'
+     -d 'allowed_updates=["message","callback_query"]'
    ```
+   Note: `allowed_updates` now includes `"message"` in addition to `"callback_query"` — the `/register` and `/start` commands arrive as `message` updates. Without it, chat self-registration won't work.
 7. **Smoke test** the round-trip in prod with a non-disruptive message.
 8. **Verify** `getWebhookInfo` against the prod token shows `pending_update_count: 0` and no `last_error_message`.
+
+---
+
+## Self-registration operator flow (v0.4)
+
+v0.4 replaces the manual `TELEGRAM_CHAT_ID` env-var approach with a self-registration registry. Each Telegram group sends `/register` to the bot, and a manager assigns the group's role via the `/mgr/telegram-chats` UI.
+
+**Initial setup (per environment):**
+
+1. **Create the role groups** in Telegram (e.g. "Frollie · Managers" and "Frollie · Founders"). Add `@FrolliePOS_Bot` (or whatever your bot username is) to each group.
+2. **Register each group** — in each group chat, any member sends: `/register` (or `/register@YourBotUsername` in supergroups). The bot replies with a confirmation message containing the `chat_id` and a link to the admin UI.
+3. **Open the admin UI** at `<POS_BASE_URL>/mgr/telegram-chats` (requires a manager session). This is `api.telegram.chatRegistry.mgrListChats`.
+4. **Assign a role** to each registered chat via the `<Select>` dropdown — choose `managers` or `founders`. This calls `api.telegram.chatRegistry.mgrAssignRole`.
+5. **Send a test message** via the "Send test message" button on each row to confirm delivery. This calls `api.telegram.chatRegistry.mgrSendTest`.
+6. Once both chats have confirmed roles, the `TELEGRAM_CHAT_ID` / `TELEGRAM_FALLBACK_ROLE` env vars can remain as a fallback but are no longer the primary routing path.
+
+---
+
+## Lessons from v0.4 development
+
+### LESSON 6 — BotFather privacy mode and `/setcommands`
+
+After creating or updating the bot, set privacy mode so the bot only receives messages that are directed at it (commands starting with `/`, or messages the bot is directly mentioned in):
+
+1. Message BotFather: `/setprivacy` → select your bot → choose **Enable**.
+2. Optionally: `/setcommands` → paste the command list so Telegram shows autocomplete:
+   ```
+   register - Register this chat with the Frollie POS bot
+   start - Show help / bot info
+   ```
+
+Without privacy mode, the bot receives every message in the group — unnecessary network traffic and potential `allowed_updates` confusion.
+
+---
+
+### LESSON 8 — PowerShell mangles negative chat IDs
+
+Supergroup chat IDs are negative (`-100XXXXXXXXXX`). PowerShell interprets the leading `-` as a flag prefix in some contexts.
+
+**Safe pattern:**
+
+```powershell
+# DO THIS: quote the value or use the KEY=VALUE form
+npx convex env set TELEGRAM_CHAT_ID "-100123456789"
+
+# OR: use -- to signal end-of-flags, then the value
+npx convex env set TELEGRAM_CHAT_ID -- -100123456789
+```
+
+Do NOT use shell variable expansion with negative IDs — the shell may strip the sign.
+
+---
+
+### LESSON 9 — Supergroup migration changes the chat ID
+
+When a Telegram basic group becomes a supergroup, its `chat_id` changes from `-NNN` to `-100NNN`. Telegram triggers this migration when:
+- Group member count crosses certain thresholds.
+- An admin enables certain features (e.g. linked channels, slow mode).
+- A bot is added or promoted to admin in some configurations.
+
+**How to detect it:** the `lastSeenAt` field in the `telegramChats` row updates on every webhook event from that chat. If a bot stops receiving messages from a previously-working chat, open the Convex dashboard → `telegramChats` table and check whether the `chatId` matches what you expect.
+
+**Fix:**
+1. Archive the old row in `/mgr/telegram-chats` (it now has the wrong `chatId`).
+2. In the new supergroup, send `/register` again — the bot will receive it with the new `-100NNN` chat ID and create a fresh row.
+3. Assign the role to the new row, remove the old archived row.
+
+The `TELEGRAM_CHAT_ID` env-fallback also needs updating if you still rely on it.
+
+---
+
+## Manual founders-summary test
+
+To fire the founders shift-summary immediately (toggle must be ON, `founders` role must be bound):
+
+```powershell
+npx convex run telegram/foundersSummary:sendFoundersSummary
+```
+
+This calls the same logic as the 22:00 WIB cron but skips the resilient retry wrapper. If it returns `{ skipped: "disabled" }`, check the `founders_summary_enabled` toggle in `/mgr/telegram-chats`. If it throws `"No Telegram chat assigned to role 'founders'"`, bind the founders chat first.
