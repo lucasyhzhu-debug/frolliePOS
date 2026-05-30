@@ -296,6 +296,38 @@ export const _confirmPaid_internal = internalMutation({
 });
 
 /**
+ * Daily sales aggregate for the founders shift-summary cron (Task 24).
+ * Accepts raw epoch-ms window bounds — the cron computes WIB day start/end
+ * before calling this (ADR-034: time helpers live in lib/time.ts; aggregate
+ * logic stays in the transactions module).
+ *
+ * paid_at is optional on the schema (set only when status → "paid").
+ * Falls back to created_at when paid_at is absent (defensive, should not
+ * happen for paid rows, but preserves correctness over a silent zero).
+ *
+ * Flags are an integer bitset (transactions/flags.ts). Any non-zero value
+ * means at least one bit (NEG_STOCK, VOUCHER_OVER_REDEEMED, …) is set →
+ * counts as flagged for manager review.
+ */
+export const _dailySalesSummary_internal = internalQuery({
+  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ totalSalesIdr: number; txnCount: number; flaggedCount: number }> => {
+    const paid = (await ctx.db.query("pos_transactions").collect()).filter(
+      (x) =>
+        x.status === "paid" &&
+        (x.paid_at ?? x.created_at) >= args.dayStartMs &&
+        (x.paid_at ?? x.created_at) < args.dayEndMs,
+    );
+    const totalSalesIdr = paid.reduce((s, x) => s + (x.total ?? 0), 0);
+    const flaggedCount = paid.filter((x) => (x.flags ?? 0) !== 0).length;
+    return { totalSalesIdr, txnCount: paid.length, flaggedCount };
+  },
+});
+
+/**
  * Return the status + total of a transaction for approval gating.
  * Called by approvals.actions.requestManualPaymentApproval to verify the txn is
  * awaiting_payment before minting an approval request. Cross-module read kept
