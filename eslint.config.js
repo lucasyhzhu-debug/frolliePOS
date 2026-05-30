@@ -14,6 +14,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 import noCrossModuleDbAccess from "./tools/eslint-rules/no-cross-module-db-access.js";
+import idempotencyRequired from "./tools/eslint-rules/idempotency-required.js";
 
 // Single source of truth for table ownership. When a new module + table pair
 // lands, add the mapping here. Tables not present here are unpoliced.
@@ -107,10 +108,12 @@ export default [
       "frollie-internal": {
         rules: {
           "no-cross-module-db-access": noCrossModuleDbAccess,
+          "idempotency-required": idempotencyRequired,
         },
       },
     },
     rules: {
+      "frollie-internal/idempotency-required": "warn", // flipped to "error" in Wave 2 final commit
       "frollie-internal/no-cross-module-db-access": [
         "error",
         {
