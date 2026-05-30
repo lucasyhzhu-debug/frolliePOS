@@ -173,5 +173,10 @@ export const activateDevice = mutation({
         active: true,
       };
     },
+    {
+      // intentional: activateDevice runs before any session exists. Device-setup
+      // codes are the auth mechanism; no requireSession is possible here.
+      authCheck: async () => {},
+    },
   ),
 });
