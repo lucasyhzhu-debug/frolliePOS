@@ -96,8 +96,7 @@ const rule = {
               (p) =>
                 p.type === "Property" &&
                 p.key.type === "Identifier" &&
-                p.key.name === "authCheck" &&
-                (p.value.type === "ArrowFunctionExpression" || p.value.type === "FunctionExpression"),
+                p.key.name === "authCheck",
             );
           if (!hasAuthCheck) {
             context.report({ node: decl, messageId: "missingAuthCheck", data: { name: mutationName } });

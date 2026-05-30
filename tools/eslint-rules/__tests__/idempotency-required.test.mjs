@@ -22,6 +22,7 @@ tester.run("idempotency-required", rule, {
     { filename: "/x/convex/foo/public.ts", code: fix("passing.ts") },
     { filename: "/x/convex/foo/internal.ts", code: fix("exempt-internal.ts") },
     { filename: "/x/src/lib/whatever.ts", code: fix("missing-wrap.ts") }, // out-of-scope file
+    { filename: "/x/convex/foo/public.ts", code: fix("passing-authcheck-ref.ts") },
   ],
   invalid: [
     {
