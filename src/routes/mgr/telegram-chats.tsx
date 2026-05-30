@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
 import type { Doc } from "../../../convex/_generated/dataModel";
 
@@ -375,26 +376,14 @@ function MgrTelegramChatsInner({
   includeArchived: boolean;
   setIncludeArchived: (v: boolean) => void;
 }) {
-  const navigate = useNavigate();
-
   const chats = useQuery(api.telegram.chatRegistry.public.mgrListChats, {
     sessionId: sessionId as Doc<"staff_sessions">["_id"],
     includeArchived,
   });
 
   return (
-    <main className="flex flex-1 flex-col gap-4 p-4">
-      {/* page header */}
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold leading-tight">Telegram chats</h1>
-          <p className="text-xs text-muted-foreground">Manage bot registrations and roles</p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          ← Back
-        </Button>
-      </header>
-
+    <SpokeLayout title="Telegram chats">
+      <div className="flex flex-1 flex-col gap-4 p-4">
       {/* founders summary toggle */}
       <FoundersSummaryToggle sessionId={sessionId} />
 
@@ -430,6 +419,7 @@ function MgrTelegramChatsInner({
           ))}
         </div>
       )}
-    </main>
+      </div>
+    </SpokeLayout>
   );
 }
