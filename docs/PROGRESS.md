@@ -872,6 +872,7 @@ Plan not yet written.
 ### Frontend (`src/`)
 - 🗂️ PWA install prompt polish (Android Chrome A2HS UX)
 - 🗂️ Final empty/error states across all screens
+- 🗂️ Universal route-error framing — a shared `<RouteError>` component + standard prop interface (`title`, `detail`, `actions[]`, `severity`) wired as `errorElement` on every React Router route. Replaces React Router's default developer fallback ("Unexpected Application Error! / 💿 Hey developer 👋") with a Frollie-branded recovery surface (retry / go home / contact manager). Surfaced 2026-05-30 by the v0.4 `/mgr/telegram-chats` shake-out (a `process is not defined` from a server-only module import bubbled up as the raw dev fallback)
 
 ### Cross-cutting
 - 🗂️ Full e2e pass on real Android device
