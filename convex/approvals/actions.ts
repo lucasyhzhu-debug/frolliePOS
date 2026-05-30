@@ -13,6 +13,16 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
  * Sentinel device id for off-booth actions taken via the /approve/:token link,
  * which have no registered-device context. Recorded on failed-attempt rows so an
  * audit query can tell a booth PIN probe from an off-booth one (m-3).
+ *
+ * KNOWN SECURITY (deferred to v0.5): all three approve* actions verify the
+ * manager PIN per-code with NO per-token failed-attempt cap. An attacker who
+ * holds a live token can iterate manager codes (low-cardinality, predictable
+ * like S-0001) and burn 3 wrong PINs against each — locking out every manager
+ * in sequence. Each lockout fires notifyStaffLockout, which posts a fresh
+ * PIN-reset link to the same Telegram group, amplifying the loop. Mitigation:
+ * track failed attempts per token (or per token+manager pair) and invalidate
+ * the token after N misses across any code. Tracked in PROGRESS.md v0.5
+ * stabilization + Risks under watch.
  */
 const OFF_BOOTH_DEVICE_ID = "approve-route";
 

@@ -33,6 +33,11 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
   }
 }
 
+// KNOWN: today both kinds map to identical strings. The registry exists for
+// v0.5+ when refund/void kinds will want kind-distinguishing audit verbs
+// (e.g. "refund.resolved"). Until then, kind-distinguishing dashboards must
+// filter on metadata.kind (set in _markResolved_internal / _markDenied_internal),
+// not on audit.action. Tracked in PROGRESS.md v0.5 (Surfaced 2026-05-30 by simplify).
 export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: string; denied: string }> = {
   staff_pin_reset:         { requested: "approval.created", resolved: "approval.resolved", denied: "approval.denied" },
   manual_payment_override: { requested: "approval.created", resolved: "approval.resolved", denied: "approval.denied" },

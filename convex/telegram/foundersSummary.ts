@@ -76,6 +76,13 @@ export const sendFoundersSummary = internalAction({
     // binding. A bare catch would also swallow transient Convex platform errors
     // and audit them as role_unbound — suppressing the resilient retry path and
     // silently losing the day's summary on a temporary hiccup.
+    //
+    // KNOWN RACE: pre-check passes → admin unbinds role at the same moment →
+    // sendTemplate's internal getChatIdByRole throws (non-transient) → caught
+    // in the outer catch as send_failed, re-introducing the conflation the
+    // pre-check was meant to fix. Narrow window (millis), low impact (one
+    // cron tick). Tracked in PROGRESS.md v0.5 stabilization. Deeper fix:
+    // sendTemplate accepts an optional chatId override so we capture once.
     try {
       await ctx.runQuery(internal.telegram.chatRegistry.getChatIdByRole, {
         role: "founders",

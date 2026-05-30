@@ -234,16 +234,18 @@ describe("approvals/actions.approveStaffPinReset", () => {
     });
     expect(login.sessionId).toBeDefined();
 
-    // Audit row uses the staff_pin_reset's KIND_AUDIT.denied action string (not
-    // a generic "approval.denied") and threads source="telegram_approval" per
-    // the off-booth deny path (Fix I-5 + ADR-035).
+    // Audit row routes through KIND_AUDIT[req.kind].denied (today both kinds
+    // happen to map to the same "approval.denied" string — see kinds.ts; the
+    // registry is in place for v0.5 when refund/void kinds need distinct
+    // strings) and threads source="telegram_approval" per the off-booth deny
+    // path (Fix I-5 + ADR-035).
     const audits = await t.run((ctx) =>
       ctx.db
         .query("audit_log")
         .filter((q) => q.eq(q.field("entity_id"), requestId))
         .collect(),
     );
-    const denyRow = audits.find((a) => a.action.includes("denied"));
+    const denyRow = audits.find((a) => a.action === "approval.denied");
     expect(denyRow).toBeDefined();
     expect(denyRow!.source).toBe("telegram_approval");
     expect(denyRow!.mgr_approver_id).toBe(mgrId);

@@ -73,6 +73,12 @@ export function parseCommand(text: string): RegistryCommand | null {
 export const getChatIdByRole = internalQuery({
   args: { role: v.string() },
   handler: async (ctx, args): Promise<string> => {
+    // KNOWN: `.eq("archivedAt", undefined)` works in convex-test but is a
+    // documented prod-divergence gotcha (see memory: convex-optional-field-
+    // filter-gotcha). The Telegram POC ran live with this pattern, so the
+    // assumption holds for now — but a safer rewrite (post-filter in JS for
+    // archivedAt === undefined) is tracked in PROGRESS.md v0.5 stabilization.
+    // Same idiom also used in mgrAssignRole's displaced-holder lookup.
     const row = await ctx.db
       .query("telegramChats")
       .withIndex("by_role_archived", (q) =>

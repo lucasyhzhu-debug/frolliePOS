@@ -232,6 +232,12 @@ export const getRecentPinResetForStaff = query({
     // If lockout history grows large (multi-stall / long-running deployments),
     // promote to a composite `["subject_staff_id", "triggered_at"]` index and
     // switch to `.gt("triggered_at", cutoff).order("desc").first()`.
+    //
+    // KNOWN: returns the latest row regardless of status — includes "resolved"
+    // rows within the 10-min window, not just denied/pending. login.tsx is
+    // expected to branch on status before toasting; if it doesn't, a stale
+    // "your reset was resolved" toast can re-fire on every fresh session.
+    // Tracked in PROGRESS.md v0.5 stabilization (Surfaced 2026-05-30 by simplify).
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
