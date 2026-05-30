@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-05-29 — Tooling: CEO Progress Report cutover
+
+- Retired the in-tree `scripts/build-progress-html.mjs`; the rendered board is now built by the published `ceo-progress-report` npm package (added to devDependencies).
+- New build command: `npx ceo-report build --src docs/PROGRESS.md --out docs/progress.html`, configured via `buildlog.config.mjs` at the repo root (title/monogram/location/lanes).
+- Output verified functionally identical to the in-tree renderer (only cosmetic masthead/meta strings differ).
+- Closes the post-extraction "retire the in-tree script" commitment from the 2026-05-27 extraction plan.
+
 ## 2026-05-28 — Xendit inline payments fix (v0.3)
 
 - QRIS now uses the Xendit QR Codes API (inline scannable QR) instead of the Invoice API
