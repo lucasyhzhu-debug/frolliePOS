@@ -24,8 +24,12 @@ export default function LoginRoute() {
   const [pinReset, setPinReset] = useState(0);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
+  // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
+  // every wrong-PIN attempt re-uses the same key and the server's
+  // `_recordFailedAttempt_internal` dedupes them, freezing fail_count at 1 and
+  // silently preventing lockout (and the v0.4 off-booth notifyStaffLockout fan-out).
   const intentKey = stage.kind === "pin"
-    ? `login:${stage.staff._id}:${deviceId ?? "pending"}`
+    ? `login:${stage.staff._id}:${deviceId ?? "pending"}:${pinReset}`
     : "login:none";
   const idempotencyKey = useIdempotency(intentKey);
 
