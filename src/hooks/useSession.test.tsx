@@ -38,7 +38,7 @@ describe("useSession (localStorage layer)", () => {
     // useQuery is mocked to return undefined (loading state), so status
     // transitions from 'none' → 'loading' once stored is set.
     act(() => {
-      storeSession("test-session-id");
+      storeSession("test-session-id", "staff_dummy" as import("../../convex/_generated/dataModel").Id<"staff">);
     });
 
     // Both hooks must react — status moves from 'none' to 'loading'
@@ -49,7 +49,7 @@ describe("useSession (localStorage layer)", () => {
 
   it("clearSession notifies same-tab listeners", async () => {
     // Start with a stored session.
-    storeSession("another-session-id");
+    storeSession("another-session-id", "staff_dummy" as import("../../convex/_generated/dataModel").Id<"staff">);
 
     const { result } = renderHook(() => useSession());
     await waitFor(() => expect(result.current.status).toBe("loading"));

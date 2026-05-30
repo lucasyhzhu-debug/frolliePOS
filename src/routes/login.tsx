@@ -68,7 +68,7 @@ export default function LoginRoute() {
       const { sessionId } = await login({
         staffId: stage.staff._id, pin, deviceId, idempotencyKey,
       });
-      storeSession(sessionId);
+      storeSession(sessionId, stage.staff._id);
       navigate("/", { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";

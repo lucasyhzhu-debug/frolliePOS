@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-
-const STORAGE_KEY = "frollie-session-id";
+import { SESSION_KEY, LAST_STAFF_KEY } from "@/lib/storage-keys";
 
 // Module-level subscriber set for same-tab sync.
 // The `storage` event only fires in OTHER tabs; we need this for same-tab.
@@ -24,14 +23,14 @@ export type SessionState =
 
 export function useSession(): SessionState {
   const [stored, setStored] = useState<string | null>(() =>
-    typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null,
+    typeof localStorage !== "undefined" ? localStorage.getItem(SESSION_KEY) : null,
   );
 
   // Same-tab sync via module-level listener set + cross-tab sync via storage event.
   useEffect(() => {
     listeners.add(setStored);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) setStored(e.newValue);
+      if (e.key === SESSION_KEY) setStored(e.newValue);
     };
     window.addEventListener("storage", onStorage);
     return () => {
@@ -50,7 +49,7 @@ export function useSession(): SessionState {
   const isDead = stored != null && validation === null;
   useEffect(() => {
     if (isDead) {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SESSION_KEY);
       notify(null);
     }
   }, [isDead]);
@@ -65,12 +64,13 @@ export function useSession(): SessionState {
   };
 }
 
-export function storeSession(sessionId: string): void {
-  localStorage.setItem(STORAGE_KEY, sessionId);
+export function storeSession(sessionId: string, staffId: Id<"staff">): void {
+  localStorage.setItem(SESSION_KEY, sessionId);
+  localStorage.setItem(LAST_STAFF_KEY, staffId);
   notify(sessionId);
 }
 
 export function clearSession(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(SESSION_KEY);
   notify(null);
 }
