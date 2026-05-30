@@ -76,6 +76,7 @@ export const notifyStaffLockout = internalAction({
     const requestUrl = `${baseUrl}/approve/${rawToken}`;
     try {
       await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
         kind: "staff_pin_reset",
         payload: {
           staff_name: staffInfo.name,
@@ -83,6 +84,7 @@ export const notifyStaffLockout = internalAction({
           locked_at_iso: new Date(now).toISOString(),
           request_url: requestUrl,
         },
+        idempotencyKey: `notifyLockout:${requestId}`,
       });
     } catch (err) {
       // Telegram send failed (network / 5xx). The request row is already pending

@@ -43,7 +43,8 @@ export async function sendTelegramHtml(
 
 export type InlineKeyboardButton = {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
 };
 
 export type RenderedMessage = {
@@ -67,71 +68,38 @@ export function formatIdr(amount: number): string {
   return new Intl.NumberFormat("id-ID").format(Math.round(amount));
 }
 
-export type ApprovalPayload = {
-  action_type: "refund" | "manual_pay" | "neg_stock";
+export type ManualPaymentApprovalPayload = {
   amount_idr: number;
   reason: string;
+  requester_name: string;
+  approve_url: string;
 };
 
-const ACTION_LABELS: Record<ApprovalPayload["action_type"], string> = {
-  refund: "Refund",
-  manual_pay: "Manual payment override",
-  neg_stock: "Negative stock acknowledgment",
-};
-
-export function renderApproval(payload: ApprovalPayload, nonce: string): RenderedMessage {
+export function renderManualPaymentApproval(p: ManualPaymentApprovalPayload): RenderedMessage {
   const text =
-    `<b>${escapeHtml(ACTION_LABELS[payload.action_type])} approval</b>\n` +
-    `<b>Amount:</b> Rp ${formatIdr(payload.amount_idr)}\n` +
-    `<b>Reason:</b> <i>${escapeHtml(payload.reason)}</i>\n\n` +
-    `Tap a button below.`;
+    `💳 <b>Manual payment approval</b>\n` +
+    `<b>Amount:</b> Rp ${formatIdr(p.amount_idr)}\n` +
+    `<b>Requested by:</b> ${escapeHtml(p.requester_name)}\n` +
+    `<b>Reason:</b> <i>${escapeHtml(p.reason)}</i>\n\n` +
+    `<i>Open the link, enter your manager PIN to approve or deny. Expires in 60 min.</i>`;
+  return { text, inline_keyboard: [[{ text: "Open approval →", url: p.approve_url }]] };
+}
 
+export type FoundersSummaryPayload = {
+  dateLabel: string;
+  totalSalesIdr: number;
+  txnCount: number;
+  flaggedCount: number;
+};
+
+export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessage {
   return {
-    text,
-    inline_keyboard: [
-      [
-        { text: "Approve ✅", callback_data: `approve:${nonce}` },
-        { text: "Deny ❌", callback_data: `deny:${nonce}` },
-      ],
-    ],
+    text:
+      `📊 <b>Frollie — ${escapeHtml(p.dateLabel)}</b>\n` +
+      `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}\n` +
+      `<b>Transactions:</b> ${p.txnCount}\n` +
+      `<b>Flagged for review:</b> ${p.flaggedCount}`,
   };
-}
-
-export type ShiftSummaryPayload = {
-  staff_name: string;
-  sales_idr: number;
-  txn_count: number;
-  hours: number;
-};
-
-export function renderShiftSummary(payload: ShiftSummaryPayload): RenderedMessage {
-  const text =
-    `<b>${escapeHtml(payload.staff_name)} · shift closed</b>\n` +
-    `<b>Sales:</b> Rp ${formatIdr(payload.sales_idr)}\n` +
-    `<b>Txns:</b> ${payload.txn_count}\n` +
-    `<b>Hours:</b> ${payload.hours.toFixed(1)}`;
-
-  return { text };
-}
-
-export type CustomPayload = {
-  text: string;
-  include_buttons: boolean;
-};
-
-export function renderCustom(payload: CustomPayload, nonce: string): RenderedMessage {
-  const message: RenderedMessage = {
-    text: escapeHtml(payload.text),
-  };
-  if (payload.include_buttons) {
-    message.inline_keyboard = [
-      [
-        { text: "Test A", callback_data: `test_a:${nonce}` },
-        { text: "Test B", callback_data: `test_b:${nonce}` },
-      ],
-    ];
-  }
-  return message;
 }
 
 export type StaffPinResetPayload = {
