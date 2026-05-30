@@ -1,6 +1,9 @@
-import { query } from "../_generated/server";
+import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
+import { requireManagerSession } from "../auth/sessions";
+import { withIdempotency } from "../idempotency/internal";
 import { effectiveStatus, type EffectiveStatus } from "./lib";
 
 /**
@@ -300,4 +303,54 @@ export const listActiveManagers = query({
       {},
     );
   },
+});
+
+/**
+ * Cancel a pending approval request from the on-booth manager panel.
+ * ADR-005: manager-PIN gate is handled by requireManagerSession (session-based,
+ * not one-off PIN). The manager's staffId is recorded as cancelled_by_manager_id
+ * so the audit trail names who invalidated the request.
+ *
+ * Source is "booth_inline" — the manager invokes this from the in-booth UI
+ * (not from the off-booth Telegram approval link, which uses "telegram_approval").
+ *
+ * withIdempotency-wrapped per the strict ESLint idempotency-required rule (error
+ * severity since Task 6). Same-key replay returns { denied: boolean } from cache
+ * without re-patching the DB or re-emitting audit rows.
+ */
+export const cancelPendingRequest = mutation({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    requestId: v.id("pos_approval_requests"),
+    reason: v.optional(v.string()),
+    idempotencyKey: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      sessionId: Id<"staff_sessions">;
+      requestId: Id<"pos_approval_requests">;
+      reason?: string;
+      idempotencyKey: string;
+    },
+    { denied: boolean }
+  >(
+    "approvals.cancelPendingRequest",
+    async (ctx, args): Promise<{ denied: boolean }> => {
+      const session = await requireManagerSession(ctx, args.sessionId);
+      return await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: args.requestId,
+          deny_reason: args.reason ?? "manager_cancelled",
+          cancelled_by_manager_id: session.staffId,
+          source: "booth_inline",
+        },
+      );
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
 });
