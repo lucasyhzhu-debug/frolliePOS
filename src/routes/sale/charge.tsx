@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { PinSheet } from "@/components/pos/PinSheet";
+import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { toast } from "sonner";
 
 type Method = "QRIS" | "BCA_VA";
@@ -67,6 +68,9 @@ export default function SaleCharge() {
     api.payments.actions.manuallyConfirmPayment,
   );
   const cancelTransaction = useAction(api.transactions.actions.cancelTransaction);
+  const requestManualPaymentApproval = useAction(
+    api.approvals.actions.requestManualPaymentApproval,
+  );
 
   // ---- ceiling timer ----
   // Wall-clock elapsed since the current invoice started showing. Resets on a
@@ -205,6 +209,51 @@ export default function SaleCharge() {
       );
     } finally {
       setOverridePending(false);
+    }
+  };
+
+  // ---- off-booth approval ----
+  // When set, the screen shows <ApprovalPending> for the pending request.
+  const [approvalRequestId, setApprovalRequestId] = useState<
+    Id<"pos_approval_requests"> | null
+  >(null);
+  const [approvalReasonOpen, setApprovalReasonOpen] = useState(false);
+  const [approvalReason, setApprovalReason] = useState("");
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [approvalReasonError, setApprovalReasonError] = useState<
+    string | undefined
+  >(undefined);
+
+  const handleRequestApproval = async () => {
+    if (session.status !== "active" || !txnId) return;
+    const reason = approvalReason.trim();
+    if (!reason) {
+      setApprovalReasonError("Reason is required");
+      return;
+    }
+    setApprovalSubmitting(true);
+    setApprovalReasonError(undefined);
+    try {
+      const { requestId } = await requestManualPaymentApproval({
+        sessionId: session.sessionId,
+        txnId,
+        reason,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setApprovalReasonOpen(false);
+      setApprovalRequestId(requestId);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "Request failed";
+      const msg = raw.includes("TXN_NOT_AWAITING")
+        ? "This sale is no longer awaiting payment"
+        : raw.includes("NO_SESSION")
+          ? "Session expired — please sign in again"
+          : raw.includes("POS_BASE_URL not set")
+            ? "Server config missing: POS_BASE_URL not set (contact dev)"
+            : raw;
+      setApprovalReasonError(msg);
+    } finally {
+      setApprovalSubmitting(false);
     }
   };
 
@@ -386,7 +435,26 @@ export default function SaleCharge() {
             </Card>
 
             {/* Waiting / ceiling state */}
-            {!ceilingReached ? (
+            {approvalRequestId ? (
+              // Off-booth approval in progress — show the pending widget.
+              // The reactive payment subscription (phase.kind === "paid") handles
+              // navigation to charge-success when the manager approves, so
+              // onResolved is wired as a no-op safety net in case the reactive
+              // signal fires before the effect. onDenied / onExpired clears the
+              // request so staff can try again.
+              <div className="flex w-full flex-col gap-3">
+                <Separator />
+                <ApprovalPending
+                  requestId={approvalRequestId}
+                  onResolved={() => {
+                    // The paid effect handles navigation; clear id to avoid stale state.
+                    setApprovalRequestId(null);
+                  }}
+                  onDenied={() => setApprovalRequestId(null)}
+                  onExpired={() => setApprovalRequestId(null)}
+                />
+              </div>
+            ) : !ceilingReached ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Waiting for payment…</span>
@@ -402,6 +470,12 @@ export default function SaleCharge() {
                 </Button>
                 <Button
                   variant="secondary"
+                  disabled={session.staff.role !== "manager"}
+                  title={
+                    session.staff.role !== "manager"
+                      ? "Sign in as a manager to use this, or use 'Request manager approval' below"
+                      : undefined
+                  }
                   onClick={() => {
                     setOverrideReason("");
                     setOverrideError(undefined);
@@ -410,6 +484,56 @@ export default function SaleCharge() {
                 >
                   Manager override
                 </Button>
+                {/* Off-booth path: request sent to managers' Telegram group. */}
+                {!approvalReasonOpen ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setApprovalReason("");
+                      setApprovalReasonError(undefined);
+                      setApprovalReasonOpen(true);
+                    }}
+                  >
+                    Request manager approval
+                  </Button>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      data-testid="approval-reason-input"
+                      value={approvalReason}
+                      onChange={(e) => {
+                        setApprovalReason(e.target.value);
+                        if (approvalReasonError) setApprovalReasonError(undefined);
+                      }}
+                      placeholder="Why are you requesting manager approval?"
+                      rows={2}
+                      disabled={approvalSubmitting}
+                      className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                    {approvalReasonError && (
+                      <p className="text-xs text-destructive">{approvalReasonError}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={handleRequestApproval}
+                        disabled={approvalSubmitting || !approvalReason.trim()}
+                      >
+                        {approvalSubmitting ? "Sending…" : "Send request"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setApprovalReasonOpen(false);
+                          setApprovalReasonError(undefined);
+                        }}
+                        disabled={approvalSubmitting}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
@@ -428,7 +552,7 @@ export default function SaleCharge() {
       <PinSheet
         open={overrideOpen}
         title="Manager override"
-        label="Enter manager PIN to confirm payment"
+        label={`Enter your PIN, ${session.staff.name} — confirms payment`}
         pending={overridePending}
         error={overrideError}
         onSubmit={handleOverrideSubmit}

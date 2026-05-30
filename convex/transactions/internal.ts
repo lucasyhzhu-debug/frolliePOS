@@ -141,6 +141,13 @@ export const _confirmPaid_internal = internalMutation({
     mgr_approver_id: v.optional(v.id("staff")),
     manual_reason: v.optional(v.string()),
     paid_amount: v.optional(v.number()),
+    // v0.4 (Task 21): for source="manual", the caller threads the real audit
+    // origin (booth_inline at the booth, telegram_approval off-booth). Omitted
+    // by booth callers (payments.manuallyConfirmPayment) → defaults to
+    // booth_inline. Ignored for source="webhook" / "polling".
+    approvalSource: v.optional(
+      v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    ),
   },
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
@@ -160,7 +167,10 @@ export const _confirmPaid_internal = internalMutation({
         action: "payment.confirmed_on_terminal",
         entity_type: "pos_transactions",
         entity_id: args.txnId,
-        source: args.source === "manual" ? "booth_inline" : "system",
+        source:
+          args.source === "manual"
+            ? args.approvalSource ?? "booth_inline"
+            : "system",
         reason: args.manual_reason,
         metadata: { source: args.source, txn_status: txn.status },
       });
@@ -270,13 +280,73 @@ export const _confirmPaid_internal = internalMutation({
       entity_type: "pos_transactions",
       entity_id: args.txnId,
       mgr_approver_id: args.mgr_approver_id,
-      // v0.3: manual override is booth-only (manager present), so manual → booth_inline.
-      // v0.4 off-booth manual-payment approval will need to thread the real source
-      // (wa_approval) from the caller rather than hardcoding it here.
-      source: args.source === "manual" ? "booth_inline" : "system",
+      // v0.4 (Task 21): manual override may now originate off-booth. The caller
+      // (payments._onPaidManual_internal) threads approvalSource so the audit
+      // row reflects where the action actually happened: booth_inline at the
+      // booth (default), telegram_approval via the off-booth approve link.
+      // Non-manual paths (webhook/polling) keep source="system".
+      source:
+        args.source === "manual"
+          ? args.approvalSource ?? "booth_inline"
+          : "system",
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });
+  },
+});
+
+/**
+ * Daily sales aggregate for the founders shift-summary cron (Task 24).
+ * Accepts raw epoch-ms window bounds — the cron computes WIB day start/end
+ * before calling this (ADR-034: time helpers live in lib/time.ts; aggregate
+ * logic stays in the transactions module).
+ *
+ * paid_at is optional on the schema (set only when status → "paid").
+ * Falls back to created_at when paid_at is absent (defensive, should not
+ * happen for paid rows, but preserves correctness over a silent zero).
+ *
+ * Flags are an integer bitset (transactions/flags.ts). Any non-zero value
+ * means at least one bit (NEG_STOCK, VOUCHER_OVER_REDEEMED, …) is set →
+ * counts as flagged for manager review.
+ */
+export const _dailySalesSummary_internal = internalQuery({
+  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ totalSalesIdr: number; txnCount: number; flaggedCount: number }> => {
+    // by_status_paid_at indexes paid rows by the timestamp the summary cares
+    // about (paid_at). Earlier versions used by_status_created with a 1h
+    // backstop, which silently dropped cross-midnight late-paid sales (cart
+    // opened day N, paid >1h into day N+1). paid_at is server-set inside
+    // _confirmPaid (ADR-031), so for status="paid" rows it is always present.
+    const paid = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        q
+          .eq("status", "paid")
+          .gte("paid_at", args.dayStartMs)
+          .lt("paid_at", args.dayEndMs),
+      )
+      .collect();
+    const totalSalesIdr = paid.reduce((s, x) => s + (x.total ?? 0), 0);
+    const flaggedCount = paid.filter((x) => (x.flags ?? 0) !== 0).length;
+    return { totalSalesIdr, txnCount: paid.length, flaggedCount };
+  },
+});
+
+/**
+ * Return the status + total of a transaction for approval gating.
+ * Called by approvals.actions.requestManualPaymentApproval to verify the txn is
+ * awaiting_payment before minting an approval request. Cross-module read kept
+ * here so approvals does not read pos_transactions directly (ADR-034).
+ */
+export const _getTxnSummary_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<{ status: string; total: number } | null> => {
+    const t = await ctx.db.get(args.txnId);
+    if (!t) return null;
+    return { status: t.status, total: t.total }; // field name confirmed: `total` (schema.ts:21)
   },
 });
 

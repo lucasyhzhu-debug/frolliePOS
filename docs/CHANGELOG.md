@@ -35,6 +35,41 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 - Telegram bot integration playground at `/dev/telegram`. Sends approval / shift summary / custom messages via Convex action `telegram:send:sendTemplate`; receives button-press callbacks via `httpAction` at `/telegram-webhook`. Sandbox table `telegram_log`. Vitest + convex-test coverage for HTML escape, template renderers, and webhook (security + dedupe). Spec: `docs/superpowers/specs/2026-05-25-telegram-poc-design.md`. Does NOT replace ADR-027 / ADR-033 yet.
 
+## [0.4.0] — 2026-05-30
+
+Telegram graduation: the v0.3 Telegram POC becomes the primary off-booth approval channel. v0.4 ships the manual-payment override approval flow, the self-registration chat registry, the founders shift-summary cron, and the `APPROVAL_KINDS` extensibility registry.
+
+### Added
+
+- **Off-booth manual-payment approval flow** (`manual_payment_override` kind). Staff on the charge screen can request off-booth manager approval when no manager is present. The flow: `requestManualPaymentApproval` → Telegram card with URL button to `/approve/:token` → manager opens link (VIEW) + enters PIN (ACT) → `approveManualPayment` resolves the request and confirms the transaction, or `denyRequest` (kind-agnostic deny) closes it. The charge screen subscribes reactively via `useApproval` + `ApprovalPending`.
+- **`APPROVAL_KINDS` registry** (`convex/approvals/kinds.ts`) — `ApprovalKind` union, `validateContext` (single-writer invariant for per-kind context payloads, enforces ADR-015 integer rupiah), `KIND_AUDIT`, `KIND_TEMPLATE`. The canonical mechanism for adding a new approval kind (see "How to add a feature" #8 in CLAUDE.md).
+- **Telegram self-registration** — `telegramChats` + `telegramUpdates` tables; `/register` and `/start` bot commands wired via `buildRegistryCommands`; `getChatIdByRole` routes `sendTemplate` to the bound role chat with `TELEGRAM_CHAT_ID` as env-fallback during initial setup; `seedChatFromEnv` one-shot migration bootstrap.
+- **Manager-gated `/mgr/telegram-chats` admin route** — lists registered chats, lets a manager assign/reassign roles (`managers` / `founders`), archive/restore chats, send test messages, and toggle the founders-summary setting. Calls `api.telegram.chatRegistry.mgrListChats` / `mgrAssignRole` / `mgrArchiveChat` / `mgrRestoreChat` / `mgrSendTest`.
+- **Founders daily shift-summary cron** (22:00 WIB / 15:00 UTC) — `sendFoundersSummaryResilient` wraps `sendFoundersSummary` with linear back-off retry (up to `RESILIENT_MAX_ATTEMPTS`). Non-transient errors and unbound `founders` role produce an audited skip (`founders.summary_skipped`), not a retry storm. Registered in `convex/crons.ts`.
+- **`useApproval` reactive hook** (`src/hooks/useApproval.ts`) — wraps `approvals.public.getRequestStatus` reactive subscription + `requestManualPaymentApproval` action dispatch + IDB-backed idempotency key lifecycle. Used by `ApprovalPending` and the charge screen.
+- **`ApprovalPending` reusable component** (`src/components/pos/ApprovalPending.tsx`) — approval-pending overlay that renders pending / resolved / denied / expired states reactively, with per-state CTA.
+- **`pos_settings` singleton table** (`convex/settings/`) — `founders_summary_enabled` toggle (defaults `true` if the row is absent). `getSettings` (public query) + `setFoundersSummaryEnabled` (manager-gated mutation, audits `settings.founders_summary_toggled`).
+
+### Changed
+
+- **`pos_approval_requests` schema generalized** — new kind `manual_payment_override`; generic `entity_type` / `entity_id` pointer; per-kind `context` payload (validated by `validateContext`); `denied` terminal state + `denied_at` / `denied_by_manager_id` / `deny_reason` fields; `telegram_message_id` / `telegram_chat_id` linkage for message-edit on resolve.
+- **`sendTemplate`** is now role-routed (calls `getChatIdByRole` instead of reading `TELEGRAM_CHAT_ID` directly) + typed payload union + action-level idempotent + audited send-failures (`telegram.send_failed` via `_auditSendFailed_internal`).
+- **`convex/http.ts`** `/telegram-webhook` route rewritten — uses `buildHandleTelegramWebhook` + `buildRegistryCommands`; replaces the v0.3 POC callback handler. `allowed_updates` for `setWebhook` must now include `"message"` in addition to `"callback_query"` so `/register` commands are delivered.
+- **`_confirmPaid_internal` / `_onPaidManual_internal` / `_markResolved_internal`** thread an explicit `source` arg so off-booth flows audit as `telegram_approval` instead of defaulting to `booth_inline`.
+- **`approveStaffPinReset`** audit source updated from `wa_approval` → `telegram_approval` (reflects the actual delivery channel; the `wa_approval` literal is retained in the schema for historical rows from v0.3 but production code no longer emits it).
+
+### Deprecated / removed
+
+- **`/dev/telegram` POC playground** — retired. `convex/telegram/queries.ts` removed. The POC `callback_data` inline-button handler in `webhook.ts` replaced by the URL-button `/approve/:token` pattern (ADR-037).
+- **`TELEGRAM_CHAT_ID` as the primary routing mechanism** — demoted to env-fallback only. Role-bound chats in `telegramChats` supersede it. Keep the env var set during initial setup and prod cutover (see RUNBOOK).
+
+### Notes
+
+- All schema changes are additive — per-wave `git revert` is clean; no migrations required.
+- The v0.3 POC `callback_data` approach is replaced by URL buttons. Reason: URL buttons require no bot-side state to resolve; the token in the URL carries the full auth context (ADR-037).
+- The `setWebhook` endpoint must be re-called after deploy to update `allowed_updates` to include `"message"`. Dev deployment webhook URL: `https://helpful-grasshopper-46.convex.site/telegram-webhook`.
+- 444 tests passing at merge (29 commits on `feat/v0.4-telegram-approval`).
+
 ## [0.3.0] — 2026-05-27
 
 The first end-to-end sale. v0.2 shipped auth + catalog; v0.3 makes the booth able to take money.

@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
+import { requireManagerSession } from "./sessions";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -152,16 +153,39 @@ export const _getLockState_internal = internalQuery({
  *
  * Fix 10: wrapped in withIdempotency using a derived key (${key}:failed) so
  * action retries after a crash don't double-increment.
+ *
+ * `source` (optional, default "booth_inline") sets the audit row's source — off-booth
+ * PIN attempts (a wrong manager PIN on the /approve/:token landing) thread
+ * "telegram_approval" so the audit trail factually shows where the attempt happened
+ * (ADR-035 amendment + business rule #10). Without this, a "show me all off-booth
+ * manager PIN failures this week" query (filter `source = telegram_approval`) would
+ * miss every wrong PIN entered from /approve.
  */
+const failedAttemptSourceValidator = v.union(
+  v.literal("booth_inline"),
+  v.literal("telegram_approval"),
+);
+
 export const _recordFailedAttempt_internal = internalMutation({
-  args: { idempotencyKey: v.string(), staffId: v.id("staff"), deviceId: v.string() },
+  args: {
+    idempotencyKey: v.string(),
+    staffId: v.id("staff"),
+    deviceId: v.string(),
+    source: v.optional(failedAttemptSourceValidator),
+  },
   handler: withIdempotency<
-    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    {
+      idempotencyKey: string;
+      staffId: Id<"staff">;
+      deviceId: string;
+      source?: "booth_inline" | "telegram_approval";
+    },
     { newly_locked: boolean; seconds_remaining: number }
   >(
     "auth._recordFailedAttempt",
     async (ctx, args) => {
       const now = Date.now();
+      const source = args.source ?? "booth_inline";
       // Fix 3: use mutation-path helper that dedupes concurrent duplicate rows
       const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
 
@@ -181,13 +205,13 @@ export const _recordFailedAttempt_internal = internalMutation({
       await logAudit(ctx, {
         actor_id: args.staffId, action: "staff.failed_pin",
         entity_type: "staff", entity_id: args.staffId,
-        source: "booth_inline", device_id: args.deviceId,
+        source, device_id: args.deviceId,
       });
       if (lock) {
         await logAudit(ctx, {
           actor_id: args.staffId, action: "staff.locked_out",
           entity_type: "staff", entity_id: args.staffId,
-          source: "booth_inline", device_id: args.deviceId,
+          source, device_id: args.deviceId,
           reason: `${MAX_FAILS} consecutive failures`,
         });
         // Task 18: on the newly-locked transition only (lock != null this call),
@@ -301,9 +325,13 @@ const changePinActorValidator = v.union(
 // Audit `source` union (mirrors audit/internal.ts sourceValidator). Off-booth
 // callers (e.g. approvals.approveStaffPinReset via Telegram) override this so the
 // staff.pin_reset row records where the action actually originated.
+// v0.4 (Task 21): "telegram_approval" added — the shipped off-booth path always
+// delivers via Telegram, so the action layer threads that literal end-to-end.
+// "wa_approval" retained for backward compatibility on existing rows.
 const changePinSourceValidator = v.union(
   v.literal("booth_inline"),
   v.literal("wa_approval"),
+  v.literal("telegram_approval"),
   v.literal("system"),
   v.literal("reaper"),
 );
@@ -320,9 +348,10 @@ const changePinSourceValidator = v.union(
  *     clears pos_auth_attempts (lockout unwind).
  *
  * `source` (optional) sets the audit origin on the manager_reset row. Defaults to
- * "booth_inline" (manager at the booth). The off-booth Telegram path passes
- * "wa_approval" so the audit trail is factually correct. The self branch is always
- * at-booth in v0.3, so it stays "booth_inline".
+ * "booth_inline" (manager at the booth). The off-booth path passes
+ * "telegram_approval" (v0.4+; the legacy "wa_approval" literal remains in the
+ * validator for backward-compatible rows but no production caller emits it).
+ * The self branch is always at-booth in v0.3, so it stays "booth_inline".
  *
  * Never logs PIN values — payload has no PIN fields. Not withIdempotency-wrapped:
  * callers wrap their own public mutation/action with their idempotency key.
@@ -378,5 +407,46 @@ export const _seedStaffCommit_internal = internalMutation({
       active: true,
       created_at: Date.now(),
     });
+  },
+});
+
+/**
+ * Action-callable wrapper for `requireManagerSession`. Actions cannot read
+ * `ctx.db` directly, so callers (e.g. telegram.chatRegistry.mgrSendTest) reach
+ * the session gate via `ctx.runQuery(internal.auth.internal._requireManagerSession_internal, ...)`.
+ * Throws `MANAGER_ONLY` / `NO_SESSION` per requireManagerSession.
+ */
+export const _requireManagerSession_internal = internalQuery({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ staffId: Id<"staff">; deviceId: string }> => {
+    return await requireManagerSession(ctx, args.sessionId);
+  },
+});
+
+/**
+ * List active managers (with codes) for the /approve manager-identity picker.
+ * Lives here per ADR-034 — approvals does not read the `staff` table directly.
+ *
+ * Uses the `by_role` index to bound the scan to manager rows only. `active`
+ * + `code` filtering happens in JS (low-cardinality post-index narrowing —
+ * the role index brings the candidate set down to the manager-only subset).
+ */
+export const _listActiveManagers_internal = internalQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<Array<{ _id: string; name: string; code: string }>> => {
+    const managers = await ctx.db
+      .query("staff")
+      .withIndex("by_role", (q) => q.eq("role", "manager"))
+      .collect();
+    return managers
+      .filter((s) => s.active && s.code)
+      .map((s) => ({ _id: s._id as unknown as string, name: s.name, code: s.code ?? "" }))
+      .filter((m) => m.code !== "")
+      .sort((a, b) => a.code.localeCompare(b.code));
   },
 });

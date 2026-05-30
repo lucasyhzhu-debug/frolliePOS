@@ -14,10 +14,11 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `transactions/` *(v0.3)* | `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` |
 | `payments/` *(v0.3)* | `pos_xendit_invoices` |
 | `vouchers/` *(v0.3)* | `pos_vouchers`, `pos_voucher_redemptions` |
-| `approvals/` *(v0.3)* | `pos_approval_requests` |
+| `approvals/` *(v0.3, extended v0.4)* | `pos_approval_requests` |
 | `idempotency/` | `pos_idempotency` |
 | `audit/` | `audit_log` |
-| `telegram/` (POC) | `telegram_log` |
+| `telegram/` *(v0.4)* | `telegram_log` (debug-trail only), `telegramChats`, `telegramUpdates` |
+| `settings/` *(v0.4)* | `pos_settings` |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -373,24 +374,35 @@ Append-only. One row per redemption. `by_transaction` enforces the one-voucher-p
 
 Indexes: `by_voucher` on `voucher_id`, `by_transaction` on `transaction_id`.
 
-### `pos_approval_requests` — v0.3 shipped *(owned by `approvals/`)*
-Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)). **v0.3 ships exactly one `kind` (`staff_pin_reset`)** and **collapses the capability token onto the request row** (`token_hash` + `token_expires_at`) rather than a separate `pos_approval_tokens` table — so `pos_approval_tokens` does **not** exist in v0.3. v0.4 will extend `kind` (`refund`, `manual_payment`, …) and `status` (`denied`).
+### `pos_approval_requests` — v0.4 updated *(owned by `approvals/`)*
+Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)). v0.3 shipped with a single `kind` (`staff_pin_reset`). **v0.4 generalises the table**: `kind` gains `manual_payment_override`; the `subject_staff_id` field becomes optional (back-compat for `staff_pin_reset`); generic entity pointer fields (`requester_staff_id`, `entity_type`, `entity_id`, `context`, `reason`) are added for non-PIN kinds per [ADR-030](./ADR/030-approval-audit-captures-full-context.md); `status` gains `"denied"` with corresponding denial provenance fields; Telegram linkage columns are added. The capability token remains collapsed onto this row (`token_hash` + `token_expires_at`); `pos_approval_tokens` does not exist.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_approval_requests">` | |
-| `kind` | `"staff_pin_reset"` | Single literal in v0.3; v0.4 widens the union |
-| `subject_staff_id` | `Id<"staff">` | The staff member whose PIN is being reset |
-| `triggered_by_event` | `string` | `"auth_lockout"` in v0.3 |
+| `kind` | `"staff_pin_reset" \| "manual_payment_override"` | `manual_payment_override` added in v0.4 |
+| `requester_staff_id` | `Id<"staff">?` | Staff who triggered the request; optional because `staff_pin_reset` is system-triggered |
+| `entity_type` | `string?` | Generic entity pointer — entity being approved (e.g. `"pos_transactions"`). Non-PIN kinds |
+| `entity_id` | `string?` | Stringified `_id` of the entity being approved |
+| `subject_staff_id` | `Id<"staff">?` | Staff whose PIN is being reset (`staff_pin_reset` only; now optional for back-compat) |
+| `context` | `any?` | Per-kind context object. Validated by `APPROVAL_KINDS[kind]` in `_createRequest_internal` (single writer); `v.any()` in schema is unavoidable for a shared column |
+| `reason` | `string?` | Human-readable reason supplied by the requester |
+| `triggered_by_event` | `string` | `"auth_lockout"` for `staff_pin_reset`; arbitrary string for other kinds |
 | `triggered_at` | `number` | |
-| `token_hash` | `string` | `sha256(rawToken)` hex; raw token only ever in the URL. SHA-256 (not argon2id) because we need index lookup by hash; tokens are high-entropy (32 bytes) so salt-less hashing is fine (per [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-004](./ADR/004-pin-hashing-server-side.md)) |
+| `token_hash` | `string` | `sha256(rawToken)` hex; raw token only ever in the URL. SHA-256 (deterministic, not argon2id) — index lookup requires determinism; tokens are high-entropy (32 bytes) so salt-less hashing is fine ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md), [ADR-004](./ADR/004-pin-hashing-server-side.md)) |
 | `token_expires_at` | `number` | `triggered_at + 60min` ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)) |
-| `status` | `"pending" \| "resolved" \| "expired"` | v0.4 adds `"denied"` |
+| `status` | `"pending" \| "resolved" \| "denied" \| "expired"` | `"denied"` added in v0.4 |
 | `notified_at` | `number?` | Stamped when the Telegram notification went out |
 | `resolved_at` | `number?` | |
 | `resolved_by_manager_id` | `Id<"staff">?` | Manager who approved (PIN authorises ACT per [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)) |
+| `denied_at` | `number?` | Set when manager denies the request *(v0.4)* |
+| `denied_by_manager_id` | `Id<"staff">?` | Manager who denied *(v0.4)* |
+| `deny_reason` | `string?` | Required denial reason *(v0.4)* |
+| `notification_channel` | `"telegram"?` | Notification path used; `"telegram"` is the only supported literal *(v0.4)* |
+| `telegram_message_id` | `number?` | Telegram message ID of the approval notification; patched after send *(v0.4)* |
+| `telegram_chat_id` | `string?` | Telegram chat the notification was sent to; patched after send *(v0.4)* |
 
-Indexes: `by_token_hash` on `token_hash`, `by_status_triggered` on `[status, triggered_at]`, `by_subject_staff` on `subject_staff_id`.
+Indexes: `by_token_hash` on `token_hash`, `by_status_triggered` on `[status, triggered_at]`, `by_subject_staff` on `subject_staff_id`, `by_kind_status` on `[kind, status]` *(v0.4)*.
 
 ### `pos_idempotency` *(new in v0.5)*
 Mutation dedupe table ([ADR-013](./ADR/013-idempotency-keys.md)).
@@ -406,25 +418,63 @@ Mutation dedupe table ([ADR-013](./ADR/013-idempotency-keys.md)).
 
 Indexes: `by_key` on `key` (unique), `by_expires` on `expires_at`.
 
-### `pos_settings` *(new in v0.5 — singleton)*
-Business config that appears on receipts and elsewhere.
+### `telegram_log` *(owned by `telegram/` — debug-trail only)*
+POC debug-trail for inbound/outbound Telegram messages. **Not** the webhook dedupe source (that is `telegramUpdates`) and **not** the approval linkage (that is `pos_approval_requests.telegram_message_id`). Written opportunistically; do not build logic on top of it.
 
 | Field | Type | Notes |
 |---|---|---|
-| `_id` | `Id<"pos_settings">` | One row only |
-| `business_name` | `string` | "Frollie Indonesia" |
-| `booth_name` | `string` | "Frollie · Kota Kasablanka L1" |
-| `address` | `string` | |
-| `phone` | `string` | |
-| `email` | `string` | |
-| `npwp` | `string?` | Tax id; null until PKP |
-| `is_pkp` | `boolean` | Triggers PPN default-flip ([strategic foundations §4](./ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)) |
-| `header_copy` | `string` | Top of receipt |
-| `footer_copy` | `string` | Bottom of receipt |
-| `ig_qr_enabled` | `boolean` | Show IG-handle QR on receipt |
-| `receipt_token_salt` | `string` | Server-only |
+| `_id` | `Id<"telegram_log">` | |
+| `direction` | `"out" \| "in"` | |
+| `template_kind` | `string?` | Template used for outbound messages |
+| `payload_json` | `string` | Full message payload JSON |
+| `update_id` | `number?` | Telegram update ID (inbound) |
+| `callback_data` | `string?` | Callback query data (inbound) |
+| `from_user` | `string?` | Sender username/name (inbound) |
+| `message_id` | `number?` | Telegram message ID |
+| `created_at` | `number` | |
+
+Indexes: `by_update_id` on `update_id`, `by_created_at` on `created_at`.
+
+### `telegramChats` — v0.4 shipped *(owned by `telegram/`)*
+Self-registration registry. One row per Telegram chat that has sent `/register@<bot>`. Ported from the canonical `convex-telegram-bot-starter` ([ADR-035](./ADR/035-telegram-as-internal-comms.md)). Used to identify which group is the managers' group when dispatching approval notifications.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"telegramChats">` | |
+| `chatId` | `string` | Telegram chat ID |
+| `chatType` | `"private" \| "group" \| "supergroup"` | |
+| `title` | `string` | Chat display name |
+| `role` | `string?` | Logical role (e.g. `"managers"`, `"founders"`) — set via bot command post-registration |
+| `registeredBy` | `number?` | Telegram user ID of the registering user |
+| `registeredAt` | `number` | |
+| `lastSeenAt` | `number` | Updated on every inbound message from this chat |
+| `archivedAt` | `number?` | Set when the chat is deregistered; non-null = archived |
+| `lastError` | `{ at: number, message: string }?` | Last send error for this chat; cleared on next success |
+
+Indexes: `by_chatId` on `chatId`, `by_role_archived` on `[role, archivedAt]`.
+
+### `telegramUpdates` — v0.4 shipped *(owned by `telegram/`)*
+Webhook dedupe table. One row per processed Telegram update ID. Prevents double-processing Telegram retries before the bot responds 200. Insert-before-process; row persists forever (low volume, no reap needed for v1).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"telegramUpdates">` | |
+| `updateId` | `number` | Telegram `update_id` |
+| `receivedAt` | `number` | |
+
+Indexes: `by_update_id` on `updateId`.
+
+### `pos_settings` — v0.4 shipped *(owned by `settings/`)*
+Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0.5 extends with business config (booth name, receipt copy, etc.). **Read-time default:** `settings/public.getSettings` returns `founders_summary_enabled: true` when the row is absent — no seeded row required at startup. Prevents first-cron throw on a fresh deployment.
+
+> **v0.5 planned expansion:** business_name, booth_name, address, phone, email, npwp, is_pkp, header_copy, footer_copy, ig_qr_enabled, receipt_token_salt. None of those columns exist in v0.4.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_settings">` | One row only (singleton pattern) |
+| `founders_summary_enabled` | `boolean` | Controls whether shift-end summary is shared to Founders group. Read-time default `true` when row absent ([ADR-033](./ADR/033-founders-shift-summary-share.md)) |
 | `updated_at` | `number` | |
-| `updated_by` | `Id<"staff">` | |
+| `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
 ### `pos_settlements`
 Daily settlement records from Xendit ([strategic foundations §7](./ADR/000-strategic-foundations.md#7-settlement-as-a-second-stage-record), [ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)).
@@ -470,7 +520,7 @@ Append-only log of every state-changing action ([ADR-007](./ADR/007-audit-log-ap
 | `after_state` | `string?` | JSON snapshot after change |
 | `device_id` | `string?` | Where the action executed |
 | `mgr_approver_id` | `Id<"staff">?` | Manager who approved (for actions routed via WA approval) |
-| `source` | `"booth_inline" \| "wa_approval" \| "system" \| "reaper"` | Routing path for the action ([ADR-030](./ADR/030-approval-audit-captures-full-context.md)) |
+| `source` | `"booth_inline" \| "wa_approval" \| "telegram_approval" \| "system" \| "reaper"` | Routing path for the action ([ADR-030](./ADR/030-approval-audit-captures-full-context.md)). `telegram_approval` added in v0.4; `wa_approval` retained for back-compat |
 | `reason` | `string?` | For overrides, refunds, adjustments |
 | `metadata` | `string?` | JSON: e.g. `{ approval_request_id, token_consumed_at }` |
 | `created_at` | `number` | |

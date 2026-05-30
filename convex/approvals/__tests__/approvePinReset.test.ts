@@ -65,8 +65,10 @@ describe("approvals/actions.approveStaffPinReset", () => {
     expect(req?.status).toBe("resolved");
     expect(req?.resolved_by_manager_id).toBe(mgrId);
 
-    // The off-booth reset must record source=wa_approval on the staff.pin_reset
+    // The off-booth reset must record the off-booth source on the staff.pin_reset
     // audit row (Fix I-1) — booth_inline would be factually wrong here.
+    // v0.4: shipped path always delivered via Telegram; legacy "wa_approval"
+    // literal updated to "telegram_approval".
     const resetAudit = await t.run((ctx) =>
       ctx.db
         .query("audit_log")
@@ -74,7 +76,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
         .collect(),
     );
     expect(resetAudit.length).toBe(1);
-    expect(resetAudit[0].source).toBe("wa_approval");
+    expect(resetAudit[0].source).toBe("telegram_approval");
   });
 
   it("rejects expired token", async () => {
@@ -172,5 +174,80 @@ describe("approvals/actions.approveStaffPinReset", () => {
         .first(),
     );
     expect(reqRow?.status).toBe("pending");
+  });
+
+  // ── denyRequest on staff_pin_reset ─────────────────────────────────────────
+  // denyRequest is intentionally kind-agnostic (no WRONG_KIND guard) — the staff
+  // PIN reset flow needs decline as much as the manual_payment_override flow.
+  // Covers Reviewer #2 [CQ-8]: prior tests only exercised denyRequest on
+  // manual_payment_override.
+
+  it("denyRequest on staff_pin_reset marks the request denied + emits staff.pin_reset_denied audit row", async () => {
+    const t = convexTest(schema);
+
+    const mgrId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Lucas", pin: "9999", role: "manager",
+    });
+    const lucyId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Lucy", pin: "1234", role: "staff",
+    });
+    const MGR_CODE = "S-0001";
+    await t.run(async (ctx) => {
+      await ctx.db.patch(mgrId, { code: MGR_CODE });
+    });
+
+    const rawToken = "deny-pin-tok";
+    const { requestId } = await t.mutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "staff_pin_reset",
+        subject_staff_id: lucyId,
+        triggered_by_event: "auth_lockout",
+        triggered_at: Date.now(),
+        token_hash: sha256Hex(rawToken),
+        token_expires_at: Date.now() + 3_600_000,
+      },
+    );
+
+    const res = await t.action(api.approvals.actions.denyRequest, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: "9999",
+      denyReason: "suspicious lockout",
+      idempotencyKey: "deny-pin-1",
+    });
+    expect(res.denied).toBe(true);
+
+    // Request transitions to denied with the manager + reason recorded.
+    const req = await t.run((ctx) => ctx.db.get(requestId));
+    expect(req?.status).toBe("denied");
+    expect(req?.denied_by_manager_id).toBe(mgrId);
+    expect(req?.deny_reason).toBe("suspicious lockout");
+
+    // Lucy's PIN must NOT have changed — deny never resets. Verified by login
+    // with her original PIN. (Direct hash compare doesn't work — argon2 salts.)
+    const login = await t.action(api.auth.actions.loginWithPin, {
+      idempotencyKey: "post-deny-login",
+      staffId: lucyId,
+      pin: "1234",
+      deviceId: "d",
+    });
+    expect(login.sessionId).toBeDefined();
+
+    // Audit row routes through KIND_AUDIT[req.kind].denied (today both kinds
+    // happen to map to the same "approval.denied" string — see kinds.ts; the
+    // registry is in place for v0.5 when refund/void kinds need distinct
+    // strings) and threads source="telegram_approval" per the off-booth deny
+    // path (Fix I-5 + ADR-035).
+    const audits = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .filter((q) => q.eq(q.field("entity_id"), requestId))
+        .collect(),
+    );
+    const denyRow = audits.find((a) => a.action === "approval.denied");
+    expect(denyRow).toBeDefined();
+    expect(denyRow!.source).toBe("telegram_approval");
+    expect(denyRow!.mgr_approver_id).toBe(mgrId);
   });
 });

@@ -174,3 +174,79 @@ export const _bootstrapCommit_internal = internalMutation({
     return { staffId, staffCode };
   },
 });
+
+/**
+ * DEV-ONLY: mint a one-shot device setup code without a manager session.
+ * Solves the first-device chicken-and-egg on a fresh deployment after
+ * bootstrap/reset (no devices registered yet, so no way to start a session,
+ * so no way to call the manager-gated `staff:public:generateDeviceSetupCode`).
+ *
+ * Guards: (1) any active manager must already exist; (2) at least one
+ * non-prod-shaped check — refuses if any active registered_devices row
+ * exists (i.e., a real device is in use, so the chicken-and-egg has already
+ * been broken — go through the UI instead).
+ *
+ * Invoke: `npx convex run seed/internal:_devMintSetupCode_internal`
+ */
+export const _devMintSetupCode_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ code: string; expiresAt: number; issuedByCode: string | undefined }> => {
+    // Dev-only helper: deliberately permissive. If you can `convex run` this,
+    // you already have admin access to the deployment, so the only guard
+    // worth enforcing is "a manager exists" (otherwise the code can't be
+    // attributed to anyone).
+    const managers = (await ctx.db.query("staff").collect()).filter(
+      (s) => s.role === "manager" && s.active,
+    );
+    if (managers.length === 0) {
+      throw new Error("_devMintSetupCode_internal: no active manager exists. Run `seed:actions:bootstrap` or `seed:actions:reset` first.");
+    }
+    const issuer = managers[0];
+
+    // Inline a minimal 6-digit code generator. The real one
+    // (`staff:public:generateSecureSetupCode`) lives in a `mutation` file
+    // and we don't want a cross-module import for a dev helper.
+    function mintCode(): string {
+      const buf = new Uint32Array(1);
+      crypto.getRandomValues(buf);
+      return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
+    }
+
+    const now = Date.now();
+    const expiresAt = now + 60 * 60 * 1000; // 1h TTL, matches strategic-foundations §6
+
+    // Collision-retry (very unlikely with 900_000 codespace and ~0 live rows)
+    let code: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const candidate = mintCode();
+      const collision = await ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", candidate))
+        .filter((q) => q.eq(q.field("consumed_at"), null))
+        .filter((q) => q.gt(q.field("expires_at"), now))
+        .unique();
+      if (!collision) {
+        code = candidate;
+        break;
+      }
+    }
+    if (!code) throw new Error("CODE_COLLISION");
+
+    await ctx.db.insert("pending_device_setups", {
+      setup_code: code,
+      issued_by: issuer._id,
+      expires_at: expiresAt,
+      consumed_at: null,
+    });
+
+    await logAudit(ctx, {
+      actor_id: issuer._id,
+      action: "device.setup_code_issued",
+      entity_type: "device",
+      source: "system",
+      metadata: { dev_first_device_path: true },
+    });
+
+    return { code, expiresAt, issuedByCode: issuer.code };
+  },
+});

@@ -3,6 +3,7 @@
 import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { internal, api } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import { argon2Verify } from "hash-wasm";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
@@ -12,6 +13,16 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
  * Sentinel device id for off-booth actions taken via the /approve/:token link,
  * which have no registered-device context. Recorded on failed-attempt rows so an
  * audit query can tell a booth PIN probe from an off-booth one (m-3).
+ *
+ * KNOWN SECURITY (deferred to v0.5): all three approve* actions verify the
+ * manager PIN per-code with NO per-token failed-attempt cap. An attacker who
+ * holds a live token can iterate manager codes (low-cardinality, predictable
+ * like S-0001) and burn 3 wrong PINs against each — locking out every manager
+ * in sequence. Each lockout fires notifyStaffLockout, which posts a fresh
+ * PIN-reset link to the same Telegram group, amplifying the loop. Mitigation:
+ * track failed attempts per token (or per token+manager pair) and invalidate
+ * the token after N misses across any code. Tracked in PROGRESS.md v0.5
+ * stabilization + Risks under watch.
  */
 const OFF_BOOTH_DEVICE_ID = "approve-route";
 
@@ -76,6 +87,7 @@ export const notifyStaffLockout = internalAction({
     const requestUrl = `${baseUrl}/approve/${rawToken}`;
     try {
       await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
         kind: "staff_pin_reset",
         payload: {
           staff_name: staffInfo.name,
@@ -83,6 +95,7 @@ export const notifyStaffLockout = internalAction({
           locked_at_iso: new Date(now).toISOString(),
           request_url: requestUrl,
         },
+        idempotencyKey: `notifyLockout:${requestId}`,
       });
     } catch (err) {
       // Telegram send failed (network / 5xx). The request row is already pending
@@ -175,9 +188,14 @@ export const approveStaffPinReset = action({
         idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
       });
       throw new Error("INVALID_PIN");
     }
+
+    // subject_staff_id is always present for staff_pin_reset; guard for TS (schema
+    // made it optional in v0.4 to support other kinds like manual_payment_override).
+    if (!req.subject_staff_id) throw new Error("REQUEST_MISSING_SUBJECT");
 
     const newPinHash: string = await ctx.runAction(
       internal.auth.actions._hashPin_internal,
@@ -187,15 +205,346 @@ export const approveStaffPinReset = action({
       staffId: req.subject_staff_id,
       newPinHash,
       actor: { kind: "manager_reset", mgr_approver_id: manager._id },
-      // Off-booth Telegram path: record the audit origin as wa_approval, not the
-      // booth_inline default (this reset did not happen at the booth).
-      source: "wa_approval",
+      // Off-booth Telegram path: record the audit origin as telegram_approval,
+      // not the booth_inline default (this reset did not happen at the booth).
+      // v0.4 (Task 21): shipped delivery is always Telegram; the legacy
+      // "wa_approval" literal is replaced by "telegram_approval" for consistency.
+      source: "telegram_approval",
     });
     // Mark resolved + write the idempotency cache row in the SAME transaction (I6).
     return await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
       idempotencyKey: args.idempotencyKey,
       requestId: req._id,
       resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
+    });
+  },
+});
+
+/**
+ * Staff-initiated off-booth manual-payment approval request. Called from the
+ * charge screen when no manager is present at the booth to confirm payment.
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. Resolve session → staffId (auth module boundary, ADR-034).
+ *   3. Fetch txn summary via transactions module (ADR-034). Reject if not awaiting_payment.
+ *   4. Dedup: one live pending request per txn — return existing if found.
+ *   5. Mint 32-byte URL-safe token; persist only its SHA-256 hash (ADR-029).
+ *   6. Create the approval request row via _createRequest_internal.
+ *   7. Send Telegram card to managers group. On failure, delete the request row
+ *      (recovery pattern mirrors notifyStaffLockout) and rethrow.
+ *   8. Mark notified + best-effort link telegram_message_id.
+ *   9. Write action-level idempotency cache.
+ */
+export const requestManualPaymentApproval = action({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ requestId: Id<"pos_approval_requests"> }> => {
+    // Step 1: idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> };
+
+    // Step 2: resolve session
+    const requester = await ctx.runQuery(
+      internal.auth.internal._resolveSession_internal,
+      { sessionId: args.sessionId },
+    );
+    if (!requester) throw new Error("NO_SESSION");
+
+    const requesterInfo = await ctx.runQuery(
+      internal.auth.internal._getStaffNameCode_internal,
+      { staffId: requester.staffId },
+    );
+
+    // Step 3: validate txn state
+    const txn = await ctx.runQuery(
+      internal.transactions.internal._getTxnSummary_internal,
+      { txnId: args.txnId },
+    );
+    if (!txn || txn.status !== "awaiting_payment") {
+      throw new Error("TXN_NOT_AWAITING");
+    }
+
+    // Step 4: dedup — one live request per txn
+    const existing = await ctx.runQuery(
+      internal.approvals.internal._listPendingByKind_internal,
+      { kind: "manual_payment_override", entityId: args.txnId as unknown as string },
+    );
+    if (existing.length > 0) return { requestId: existing[0]._id };
+
+    const baseUrl = process.env.POS_BASE_URL;
+    if (!baseUrl) throw new Error("POS_BASE_URL not set");
+
+    // Step 5: mint token (only hash persisted — ADR-029)
+    const rawToken = randomBytes(32).toString("base64url");
+    const tokenHash = sha256Hex(rawToken);
+    const now = Date.now();
+
+    // Step 6: create request row
+    const { requestId } = await ctx.runMutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "manual_payment_override",
+        requester_staff_id: requester.staffId,
+        entity_type: "pos_transactions",
+        entity_id: args.txnId as unknown as string,
+        context: {
+          txn_id: args.txnId as unknown as string,
+          amount_idr: txn.total,
+          reason: args.reason,
+        },
+        reason: args.reason,
+        triggered_by_event: "manual_payment_request",
+        triggered_at: now,
+        token_hash: tokenHash,
+        token_expires_at: now + TOKEN_TTL_MS,
+      },
+    );
+
+    // Step 7: send Telegram card — delete request on failure (recovery mirrors notifyStaffLockout)
+    let messageId: number | undefined;
+    try {
+      const sendRes = await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
+        kind: "manual_payment_override",
+        payload: {
+          amount_idr: txn.total,
+          reason: args.reason,
+          requester_name: requesterInfo?.name ?? "Staff",
+          approve_url: `${baseUrl}/approve/${rawToken}`,
+        },
+        idempotencyKey: `${args.idempotencyKey}:send`,
+      });
+      messageId = sendRes.message_id;
+    } catch (err) {
+      await ctx.runMutation(internal.approvals.internal._deleteRequest_internal, {
+        requestId,
+      });
+      throw err;
+    }
+
+    // Step 8: mark notified + best-effort link message id
+    await ctx.runMutation(internal.approvals.internal._markNotified_internal, { requestId });
+    try {
+      await ctx.runMutation(internal.approvals.internal._linkTelegramMessage_internal, {
+        requestId,
+        messageId,
+        chatId: undefined,
+      });
+    } catch {
+      // best-effort — never fail the request over a missing message link
+    }
+
+    // Step 9: cache the response (action-level idempotency)
+    const out = { requestId };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.requestManualPaymentApproval",
+      response: JSON.stringify(out),
+    });
+
+    return out;
+  },
+});
+
+/**
+ * Off-booth manual-payment approval via the Telegram link. Spec §"approveManualPayment".
+ * Mirrors approveStaffPinReset's envelope so the security story is identical:
+ *
+ *   1. Action-level idempotency pre-check (ADR-013) — same key replay returns
+ *      the cached resolve response without re-firing the funnel.
+ *   2. sha256 the raw token, lookup the request by token hash, then do a
+ *      constant-time compare (defense-in-depth even though the index already matched).
+ *   3. Status === pending, token not expired, kind === "manual_payment_override".
+ *   4. Resolve approving manager by staff code (active manager only).
+ *   5. argon2-verify managerPin against the MANAGER's hash. On fail, record a
+ *      failed attempt against the manager and throw INVALID_PIN.
+ *   6. Run the payment funnel via _onPaidManual_internal (idempotency-keyed with
+ *      a :onpaid suffix so it doesn't collide with the action-level cache).
+ *      Thread source="telegram_approval" so the payment.confirmed audit row
+ *      records the real origin (not booth_inline).
+ *   7. Mark the request resolved with the TOP-LEVEL idempotencyKey — same as
+ *      approveStaffPinReset, this row's cache write is what the action-level
+ *      _lookup_internal pre-check replays.
+ *
+ * Locked-out manager self-approve (mirrors approveStaffPinReset Improvement #6):
+ * INTENTIONAL. argon2Verify only consults the manager's pin_hash; lockout is not
+ * checked. Token + correct PIN are sufficient authority.
+ *
+ * Never logs PIN or token values.
+ */
+export const approveManualPayment = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ resolved: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { resolved: true };
+
+    // Step 2: token lookup + constant-time compare
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // Step 3: state guards
+    if (req.kind !== "manual_payment_override") throw new Error("WRONG_KIND");
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Extract txnId from the validated context (set by requestManualPaymentApproval).
+    const ctxBag = (req.context ?? {}) as { txn_id?: string };
+    if (!ctxBag.txn_id) throw new Error("REQUEST_MISSING_TXN");
+    const txnId = ctxBag.txn_id as unknown as Id<"pos_transactions">;
+
+    // Step 4: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 5: argon2-verify manager PIN; record failed attempt on miss
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
+      });
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 6: run the payment funnel. The :onpaid suffix gives the funnel its
+    // own idempotency key — same top-level retry replays both this mutation
+    // (existing cache row) AND step 7 (the cached resolve response).
+    await ctx.runMutation(internal.payments.internal._onPaidManual_internal, {
+      idempotencyKey: `${args.idempotencyKey}:onpaid`,
+      txnId,
+      reason: req.reason ?? "Manual payment (off-booth approval)",
+      mgr_approver_id: manager._id,
+      source: "telegram_approval",
+    });
+
+    // Step 7: mark resolved + cache action response in ONE transaction (I6).
+    // The TOP-LEVEL idempotencyKey is intentionally reused here so the action's
+    // _lookup_internal pre-check sees the cached resolve blob on retry.
+    return await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: args.idempotencyKey,
+      requestId: req._id,
+      resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
+    });
+  },
+});
+
+/**
+ * Off-booth deny — kind-agnostic. Works for any pending approval request
+ * (staff_pin_reset, manual_payment_override, and any future kind). There is
+ * intentionally NO `kind` guard here: a manager can deny any pending request
+ * via the /approve/:token link, regardless of what triggered it.
+ *
+ * Mirrors approveManualPayment's security envelope exactly except for the
+ * commit step: instead of confirming payment, it commits _markDenied_internal.
+ * The denied request row is terminal — the transaction (if any) stays in its
+ * pre-denial state (e.g., awaiting_payment remains awaiting_payment).
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. sha256 the raw token, look up the request by token hash, constant-time compare.
+ *   3. Status === pending, token not expired.
+ *   4. Resolve approving manager by staff code (active manager only).
+ *   5. argon2-verify managerPin. On fail, record failed attempt + throw INVALID_PIN.
+ *   6. Commit _markDenied_internal under the TOP-LEVEL idempotencyKey — same key
+ *      the action-level pre-check replays, so concurrent retries get the cached blob.
+ *
+ * Never logs PIN or token values.
+ */
+export const denyRequest = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    denyReason: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ denied: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { denied: true };
+
+    // Step 2: token lookup + constant-time compare
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // Step 3: state guards (kind-agnostic — no kind check)
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Step 4: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 5: argon2-verify manager PIN; record failed attempt on miss.
+    // Lockout state intentionally NOT checked (mirrors approveManualPayment Improvement #6):
+    // a locked-out manager can still deny via the /approve/:token link.
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
+      });
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 6: commit deny + write idempotency cache row in ONE transaction (I6).
+    // The TOP-LEVEL idempotencyKey is reused so the action-level pre-check (step 1)
+    // replays the cached { denied: true } on any subsequent retry.
+    return await ctx.runMutation(internal.approvals.internal._markDenied_internal, {
+      idempotencyKey: args.idempotencyKey,
+      requestId: req._id,
+      denied_by_manager_id: manager._id,
+      deny_reason: args.denyReason,
+      source: "telegram_approval",
     });
   },
 });

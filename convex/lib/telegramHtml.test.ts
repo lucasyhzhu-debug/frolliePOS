@@ -2,9 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
   escapeHtml,
   formatIdr,
-  renderApproval,
-  renderShiftSummary,
-  renderCustom,
+  renderManualPaymentApproval,
+  renderFoundersSummary,
   renderStaffPinReset,
   makeNonce,
 } from "./telegramHtml";
@@ -44,80 +43,64 @@ describe("formatIdr", () => {
   });
 });
 
-describe("renderApproval", () => {
-  test("includes escaped reason and Approve/Deny buttons with shared nonce", () => {
-    const result = renderApproval(
-      { action_type: "refund", amount_idr: 50000, reason: "<bad> & evil" },
-      "deadbeef",
-    );
-    expect(result.text).toContain("Refund approval");
+describe("renderManualPaymentApproval", () => {
+  test("renders amount, requester, reason with URL button", () => {
+    const result = renderManualPaymentApproval({
+      amount_idr: 50000,
+      reason: "<bad> & evil",
+      requester_name: "Lucy",
+      approve_url: "https://pos.dev/approve/tok",
+    });
+    expect(result.text).toContain("Manual payment approval");
     expect(result.text).toContain("Rp 50.000");
+    expect(result.text).toContain("Lucy");
     expect(result.text).toContain("&lt;bad&gt; &amp; evil");
     expect(result.inline_keyboard).toEqual([
-      [
-        { text: "Approve ✅", callback_data: "approve:deadbeef" },
-        { text: "Deny ❌", callback_data: "deny:deadbeef" },
-      ],
+      [{ text: "Open approval →", url: "https://pos.dev/approve/tok" }],
     ]);
   });
 
-  test("uses correct action label for manual_pay and neg_stock", () => {
-    expect(
-      renderApproval({ action_type: "manual_pay", amount_idr: 1, reason: "x" }, "n").text,
-    ).toContain("Manual payment override");
-    expect(
-      renderApproval({ action_type: "neg_stock", amount_idr: 1, reason: "x" }, "n").text,
-    ).toContain("Negative stock acknowledgment");
+  test("escapes requester name", () => {
+    const result = renderManualPaymentApproval({
+      amount_idr: 1,
+      reason: "x",
+      requester_name: "<hacker>",
+      approve_url: "https://x",
+    });
+    expect(result.text).toContain("&lt;hacker&gt;");
+    expect(result.text).not.toContain("<hacker>");
   });
 });
 
-describe("renderShiftSummary", () => {
-  test("produces formatted text and NO inline_keyboard (one-way)", () => {
-    const result = renderShiftSummary({
-      staff_name: "Citra",
-      sales_idr: 4275000,
-      txn_count: 42,
-      hours: 8,
+describe("renderFoundersSummary", () => {
+  test("produces formatted text with sales, txn count, flagged", () => {
+    const result = renderFoundersSummary({
+      dateLabel: "Selasa, 27 Mei",
+      totalSalesIdr: 4275000,
+      txnCount: 42,
+      flaggedCount: 3,
     });
-    expect(result.text).toContain("Citra · shift closed");
+    expect(result.text).toContain("Selasa, 27 Mei");
     expect(result.text).toContain("Rp 4.275.000");
     expect(result.text).toContain("42");
-    expect(result.text).toContain("8.0");
+    expect(result.text).toContain("3");
     expect(result.inline_keyboard).toBeUndefined();
   });
 
-  test("escapes the staff name", () => {
-    const result = renderShiftSummary({
-      staff_name: "<bobby>",
-      sales_idr: 1,
-      txn_count: 1,
-      hours: 1,
+  test("escapes the dateLabel", () => {
+    const result = renderFoundersSummary({
+      dateLabel: "<test>",
+      totalSalesIdr: 1,
+      txnCount: 1,
+      flaggedCount: 0,
     });
-    expect(result.text).toContain("&lt;bobby&gt;");
-    expect(result.text).not.toContain("<bobby>");
-  });
-});
-
-describe("renderCustom", () => {
-  test("escapes text and omits buttons when include_buttons is false", () => {
-    const result = renderCustom({ text: "<x>", include_buttons: false }, "n");
-    expect(result.text).toBe("&lt;x&gt;");
-    expect(result.inline_keyboard).toBeUndefined();
-  });
-
-  test("attaches test buttons when include_buttons is true", () => {
-    const result = renderCustom({ text: "hi", include_buttons: true }, "abc");
-    expect(result.inline_keyboard).toEqual([
-      [
-        { text: "Test A", callback_data: "test_a:abc" },
-        { text: "Test B", callback_data: "test_b:abc" },
-      ],
-    ]);
+    expect(result.text).toContain("&lt;test&gt;");
+    expect(result.text).not.toContain("<test>");
   });
 });
 
 describe("renderStaffPinReset", () => {
-  test("renders HTML with staff name, code, locked-at, link", () => {
+  test("renders HTML body + URL button to the request_url (v0.4: URL button, not inline <a>)", () => {
     const r = renderStaffPinReset({
       staff_name: "Lucy",
       staff_code: "S-0042",
@@ -126,9 +109,13 @@ describe("renderStaffPinReset", () => {
     });
     expect(r.text).toContain("Lucy");
     expect(r.text).toContain("S-0042");
-    expect(r.text).toContain("Tap to reset PIN");
-    expect(r.text).toContain("https://pos.dev/approve/abc123");
     expect(r.text).toContain("60 minutes");
+    // URL no longer embedded in text body — it lives on an inline_keyboard URL button
+    expect(r.text).not.toContain("https://pos.dev");
+    expect(r.text).not.toContain("<a href");
+    expect(r.inline_keyboard).toEqual([
+      [{ text: "Tap to reset PIN →", url: "https://pos.dev/approve/abc123" }],
+    ]);
   });
 
   test("HTML-escapes staff name to prevent injection", () => {

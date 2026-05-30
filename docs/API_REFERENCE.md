@@ -113,17 +113,31 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | m | `createDiscount` | `{ name, type, value, requiresManager, idempotencyKey }` | `Discount` | Manager-only |
 | m | `editDiscount` | `{ id, patch, idempotencyKey }` | `Discount` | Manager-only |
 
-## `approvals.ts` *(new in v0.5 — central WA approval surface)*
+## `approvals.ts` *(v0.3 + v0.4 — Telegram approval surface)*
+
+> **v0.4 generalization:** `pos_approval_requests` now supports multiple kinds (`staff_pin_reset`, `manual_payment_override`). The `kind` field in all return types is a discriminant. `getByToken` returns a discriminated union.
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| m | `create_internal` | `{ kind, requesterStaffId, entityId, payload, reason? }` | `{ requestId, token, waShareUrl }` | Called by the action that needs approval (refund.initiate, payment.confirmByManualOverride, stock.adjust, stock.recordSpoilage, transactions.voidTransaction post-payment). Creates `pos_approval_requests` + `pos_approval_tokens`; returns the pre-filled `wa.me/?text=...` URL for the staff's share sheet |
-| q | `getByToken` | `{ token }` | `{ status, request?: ApprovalRequest, expired?: boolean, consumed?: boolean }` | PUBLIC. Powers the `/approve/:token` landing page. No auth |
-| m | `approve` | `{ token, mgrPin }` | `{ ok: true, executedAt: number } \| { ok: false, reason: string }` | PUBLIC. Verifies token (unused, unexpired) + verifies PIN belongs to manager-role staff ([ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)); consumes token; executes the action (per `request.kind`); writes audit row with `source: "wa_approval"`, `mgr_approver_id` ([ADR-030](./ADR/030-approval-audit-captures-full-context.md)) |
-| m | `deny` | `{ token, mgrPin, reason? }` | `void` | Same verification path; sets status to `denied`; logs `approval.denied` |
-| m | `cancel` | `{ requestId, sessionId, idempotencyKey }` | `void` | Staff can cancel their own pending request from `/wait/:requestId`. Invalidates token |
-| q | `listPending` | `{ sessionId }` | `ApprovalRequest[]` | Manager home shows pending approvals |
-| a | `expireScheduled` | `{}` | `{ expired: number }` | Scheduled; marks expired requests + tokens |
+| q | `approvals.public.getByToken` | `{ rawToken: string }` | `StaffPinResetResult \| ManualPaymentOverrideResult \| null` | PUBLIC. Powers `/approve/:token` landing page. Discriminated by `kind`. Computes effective status (`pending \| resolved \| denied \| expired`) without mutating the DB. Token authorises VIEW only (ADR-029). |
+| q | `approvals.public.getRequestStatus` | `{ requestId: Id<"pos_approval_requests"> }` | `{ status: "pending" \| "resolved" \| "denied" \| "expired" } \| null` | Reactive. Used by `useApproval` hook. Returns effective status by ID (no token required — caller already has the ID from `requestManualPaymentApproval`). |
+| a | `approvals.actions.requestManualPaymentApproval` | `{ sessionId, txnId, reason, idempotencyKey }` | `{ requestId }` | Action (Node). Creates `manual_payment_override` approval request + sends Telegram card to `managers` role. Dedups on one live pending request per txnId. Requires txn in `awaiting_payment` state. Deletes request row on Telegram send failure (recovery pattern). |
+| a | `approvals.actions.approveManualPayment` | `{ token, managerStaffCode, managerPin, idempotencyKey }` | `{ resolved: true }` | Action (Node). Validates token (constant-time compare) + argon2 manager PIN. Runs `_onPaidManual_internal` (confirms payment) then `_markResolved_internal`. Source: `telegram_approval`. Locked-out managers can still approve (same authority model as `approveStaffPinReset`). |
+| a | `approvals.actions.denyRequest` | `{ token, managerStaffCode, managerPin, denyReason, idempotencyKey }` | `{ denied: true }` | Action (Node). Kind-agnostic deny — works for any pending request. Validates token + argon2 manager PIN. Commits `_markDenied_internal`. The denied transaction (if any) stays in its pre-denial state. |
+| a | `approvals.actions.approveStaffPinReset` | `{ token, managerStaffCode, managerPin, newPin, idempotencyKey }` | `{ resolved: true }` | Action (Node). Off-booth PIN reset via Telegram link. Validates token + argon2 manager PIN + hashes new PIN. Commits via `_changePinCommit_internal` (source: `telegram_approval`). |
+| a | `approvals.actions.notifyStaffLockout` | `{ staffId }` | `{}` | InternalAction. Fires on 3-strike lockout (scheduled by `_recordFailedAttempt_internal`). Mints token, creates `staff_pin_reset` request, sends Telegram card. Deduped — skips if a live pending request already exists. |
+
+## `telegram.chatRegistry` *(v0.4 — manager admin surface)*
+
+The `mgr*` functions are the **public** manager-session-gated surface. They live at `api.telegram.chatRegistry.mgr*` — NOT at `api.telegram.mgrAdmin.*`.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `mgrListChats` | `{ sessionId, includeArchived?: boolean }` | `Doc<"telegramChats">[]` | Manager-only query. Lists all registered Telegram chats. `includeArchived` defaults to `false`. |
+| m | `mgrAssignRole` | `{ idempotencyKey, sessionId, chatId, role?: string \| null, forceReassign?, restoreIfArchived? }` | `{ ok: true }` | Manager-only. Assigns a role (`"managers"` or `"founders"`) to a registered chat. Pass `role: null` to clear. `forceReassign: true` moves the role from a prior holder. `restoreIfArchived: true` un-archives the chat during assignment. |
+| m | `mgrArchiveChat` | `{ idempotencyKey, sessionId, chatId }` | `{ ok: true }` | Manager-only. Archives the chat (removes from active role routing, clears its role). Archived rows remain visible with `includeArchived: true`. |
+| m | `mgrRestoreChat` | `{ idempotencyKey, sessionId, chatId }` | `{ ok: true }` | Manager-only. Restores an archived chat (does not re-assign a role; use `mgrAssignRole` next). |
+| a | `mgrSendTest` | `{ sessionId, chatId }` | `void` | Action (Node). Manager-only. Sends a test message to the specified chat. Writes `lastError` on failure, clears it on success. Auth gated via `_requireManagerSession_internal` (actions cannot call `ctx.db` directly). |
 
 ## `audit.ts`
 
@@ -153,12 +167,12 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | a | `pollDaily_scheduled` | `{}` | `{ count }` | Scheduled 06:00 Jakarta |
 | q | `list` | `{ range }` | `Settlement[]` | Visible to staff + managers ([ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)) |
 
-## `settings.ts` *(new in v0.5)*
+## `settings.ts` *(v0.4)*
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `get` | `{}` | `PosSettings` | Public-readable singleton (used by receipt rendering) |
-| m | `update` | `{ patch, idempotencyKey }` | `PosSettings` | Manager-only; logs `settings.updated`; on-device edit routes through approvals ([ADR-005](./ADR/005-manager-pin-one-off.md)) |
+| q | `settings.public.getSettings` | `{}` | `{ founders_summary_enabled: boolean }` | Public-readable. Returns `true` if the `pos_settings` row is absent (default-on). |
+| m | `settings.public.setFoundersSummaryEnabled` | `{ sessionId, enabled }` | `{ ok: true }` | Manager-only. Upserts the `pos_settings` singleton. Logs `settings.founders_summary_toggled`. |
 
 ## `idempotency.ts` *(new in v0.5 — mutation harness)*
 

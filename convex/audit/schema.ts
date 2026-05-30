@@ -14,6 +14,7 @@ export const auditTables = {
     source: v.union(
       v.literal("booth_inline"),
       v.literal("wa_approval"),
+      v.literal("telegram_approval"),
       v.literal("system"),
       v.literal("reaper"),
     ),

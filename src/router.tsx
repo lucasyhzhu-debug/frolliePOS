@@ -24,8 +24,8 @@ import { RootLayout } from "@/components/layout/RootLayout";
  *   /mgr/receipt                 — ReceiptConfig
  *
  *   /wait/:requestId             — StaffWaitingApproval (the requester's screen)
- *   /approve/:token              — WA approve landing (PUBLIC — no auth)
- *   /approve/:token/pin          — PIN sheet continuation
+ *   /approve/:token              — Telegram approve landing (PUBLIC — no auth)
+ *                                  Handles staff_pin_reset + manual_payment_override variants
  *
  *   /r/:receiptNumber            — public receipt page (no auth, signed URL)
  *
@@ -51,23 +51,19 @@ const MgrHome = lazy(() => import("@/routes/mgr/home"));
 const MgrDashboard = lazy(() => import("@/routes/mgr/dashboard"));
 const MgrProducts = lazy(() => import("@/routes/mgr/products"));
 const MgrReceipt = lazy(() => import("@/routes/mgr/receipt"));
+const MgrTelegramChats = lazy(() => import("@/routes/mgr/telegram-chats"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
-const ApprovePin = lazy(() => import("@/routes/approve/pin"));
 
 const Receipt = lazy(() => import("@/routes/receipt"));
 const Activate = lazy(() => import("@/routes/activate"));
-
-const DevTelegram = lazy(() => import("@/routes/dev/telegram"));
 
 const routes: RouteObject[] = [
   // Public routes — no auth, no app shell
   { path: "/activate", element: <Activate /> },
   { path: "/approve/:token", element: <Approve /> },
-  { path: "/approve/:token/pin", element: <ApprovePin /> },
   { path: "/r/:receiptNumber", element: <Receipt /> },
-  { path: "/dev/telegram", element: <DevTelegram /> },
 
   // App shell — RootLayout handles session gate + redirects unauthenticated traffic to /login
   {
@@ -92,6 +88,7 @@ const routes: RouteObject[] = [
       { path: "mgr/dashboard", element: <MgrDashboard /> },
       { path: "mgr/products", element: <MgrProducts /> },
       { path: "mgr/receipt", element: <MgrReceipt /> },
+      { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
     ],
   },
 

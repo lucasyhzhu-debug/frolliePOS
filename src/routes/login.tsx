@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -24,10 +24,41 @@ export default function LoginRoute() {
   const [pinReset, setPinReset] = useState(0);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
+  // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
+  // every wrong-PIN attempt re-uses the same key and the server's
+  // `_recordFailedAttempt_internal` dedupes them, freezing fail_count at 1 and
+  // silently preventing lockout (and the v0.4 off-booth notifyStaffLockout fan-out).
   const intentKey = stage.kind === "pin"
-    ? `login:${stage.staff._id}:${deviceId ?? "pending"}`
+    ? `login:${stage.staff._id}:${deviceId ?? "pending"}:${pinReset}`
     : "login:none";
   const idempotencyKey = useIdempotency(intentKey);
+
+  // Reactive notification when the manager declines a pending PIN-reset for
+  // this staff. The query returns the most recent staff_pin_reset request for
+  // the selected staff (within a 10-min window). When it flips to "denied" the
+  // useRef-guarded effect fires a one-time toast naming the manager + reason
+  // so the staff knows their reset was rejected and they should wait the
+  // natural lockout cycle out instead of waiting for a new PIN.
+  const recentPinReset = useQuery(
+    api.approvals.public.getRecentPinResetForStaff,
+    stage.kind === "pin" ? { staffId: stage.staff._id } : "skip",
+  );
+  const shownDenialRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!recentPinReset || recentPinReset.status !== "denied") return;
+    if (shownDenialRef.current.has(recentPinReset.requestId)) return;
+    shownDenialRef.current.add(recentPinReset.requestId);
+    const name = recentPinReset.denied_by_manager_name ?? "manager";
+    const code = recentPinReset.denied_by_manager_code;
+    const denierLabel = code ? `${name} (${code})` : name;
+    const reason = recentPinReset.deny_reason;
+    toast.error(
+      reason
+        ? `PIN reset declined by ${denierLabel} — "${reason}". Wait for the 60-second lockout to expire and try again.`
+        : `PIN reset declined by ${denierLabel}. Wait for the 60-second lockout to expire and try again.`,
+      { duration: 10_000 },
+    );
+  }, [recentPinReset]);
 
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
@@ -43,9 +74,10 @@ export default function LoginRoute() {
       const msg = err instanceof Error ? err.message : "Login failed";
       const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
       const friendly =
-        lockedMatch ? `Too many tries. Wait ${lockedMatch[1]} seconds.` :
-        msg.includes("INVALID_PIN") ? "Wrong PIN." :
-        msg;
+        lockedMatch
+          ? `Locked out. A manager has been notified to reset your PIN. Wait ${lockedMatch[1]}s to retry, or use the new PIN once it lands.`
+          : msg.includes("INVALID_PIN") ? "Wrong PIN." :
+            msg;
       toast.error(friendly);
       setPinReset((n) => n + 1);
     }

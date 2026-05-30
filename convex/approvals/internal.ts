@@ -3,40 +3,68 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+import { validateContext, KIND_AUDIT } from "./kinds";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
  * Token fields (token_hash, token_expires_at) are supplied by the caller —
  * raw token generation happens in the action layer (ADR-029: token authorises VIEW).
+ *
+ * INVARIANT: every insert goes through validateContext — context is validated
+ * per-kind before the row is written. Adding a kind requires extending kinds.ts.
+ * v0.3 behavior preserved: staff_pin_reset passes no context; validateContext
+ * returns {} so the context field is stored as an empty object.
  */
 export const _createRequest_internal = internalMutation({
   args: {
-    kind: v.union(v.literal("staff_pin_reset")),
-    subject_staff_id: v.id("staff"),
+    kind: v.union(
+      v.literal("staff_pin_reset"),
+      v.literal("manual_payment_override"),
+    ),
+    requester_staff_id: v.optional(v.id("staff")),
+    entity_type: v.optional(v.string()),
+    entity_id: v.optional(v.string()),
+    subject_staff_id: v.optional(v.id("staff")),
+    context: v.optional(v.any()),
+    reason: v.optional(v.string()),
     triggered_by_event: v.string(),
     triggered_at: v.number(),
     token_hash: v.string(),
     token_expires_at: v.number(),
   },
   handler: async (ctx, args) => {
+    // INVARIANT: every writer validates context here — no bypass path.
+    const validatedContext = validateContext(args.kind, args.context);
+
     const requestId = await ctx.db.insert("pos_approval_requests", {
       kind: args.kind,
+      requester_staff_id: args.requester_staff_id,
+      entity_type: args.entity_type,
+      entity_id: args.entity_id,
       subject_staff_id: args.subject_staff_id,
+      context: validatedContext,
+      reason: args.reason,
       triggered_by_event: args.triggered_by_event,
       triggered_at: args.triggered_at,
       token_hash: args.token_hash,
       token_expires_at: args.token_expires_at,
       status: "pending",
+      notification_channel: "telegram",
     });
 
     await logAudit(ctx, {
-      actor_id: "system",
-      action: "approval.created",
+      actor_id: args.requester_staff_id ?? "system",
+      action: KIND_AUDIT[args.kind].requested,
       entity_type: "pos_approval_requests",
       entity_id: requestId,
       source: "system",
+      // approval_request_id surfaced explicitly in metadata per ADR-030 amendment —
+      // the `by_entity` index already covers entity_id lookups, but keeping the
+      // id in metadata matches the convention used by approval.resolved/denied rows.
       metadata: {
+        approval_request_id: requestId,
         kind: args.kind,
+        entity_id: args.entity_id,
         subject_staff_id: args.subject_staff_id,
       },
     });
@@ -113,12 +141,18 @@ export const _markResolved_internal = internalMutation({
     idempotencyKey: v.string(),
     requestId: v.id("pos_approval_requests"),
     resolved_by_manager_id: v.id("staff"),
+    // v0.4 (Task 21): origin of the resolve. The action layer threads
+    // "telegram_approval" for both shipped kinds (staff_pin_reset, manual_payment_override).
+    // Kept as a parameter (not hardcoded) so future kinds can record a different
+    // origin (e.g. booth_inline if a manager ever resolves at the booth).
+    source: v.union(v.literal("wa_approval"), v.literal("telegram_approval")),
   },
   handler: withIdempotency<
     {
       idempotencyKey: string;
       requestId: Id<"pos_approval_requests">;
       resolved_by_manager_id: Id<"staff">;
+      source: "wa_approval" | "telegram_approval";
     },
     { resolved: true }
   >(
@@ -130,20 +164,29 @@ export const _markResolved_internal = internalMutation({
       // Same-key retries never reach here — withIdempotency short-circuits first.
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
-      if (req.status !== "pending") throw new Error("REQUEST_ALREADY_RESOLVED");
+      // Same error code as the action-layer pre-check (actions.ts), so the
+// frontend mapError needs only one branch. Fires only on a concurrent
+// second manager racing to commit; same-key retries short-circuit
+// at the withIdempotency cache lookup above.
+if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "resolved",
         resolved_at: Date.now(),
         resolved_by_manager_id: args.resolved_by_manager_id,
       });
 
+      // Audit action string comes from KIND_AUDIT (ADR-030 + business rule #20):
+      // route via the registry so per-kind divergence stays in one place. Metadata
+      // carries approval_request_id + kind so dashboards can filter "all resolved
+      // manual_payment approvals" without joining back to pos_approval_requests.
       await logAudit(ctx, {
         actor_id: args.resolved_by_manager_id,
-        action: "approval.resolved",
+        action: KIND_AUDIT[req.kind].resolved,
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
-        source: "wa_approval",
+        source: args.source,
         mgr_approver_id: args.resolved_by_manager_id,
+        metadata: { approval_request_id: args.requestId, kind: req.kind },
       });
 
       return { resolved: true as const };
@@ -185,5 +228,112 @@ export const _getByTokenHash_internal = internalQuery({
       .query("pos_approval_requests")
       .withIndex("by_token_hash", (q) => q.eq("token_hash", args.tokenHash))
       .first();
+  },
+});
+
+/**
+ * Deny a pending approval request. Terminal — mirrors _markResolved_internal
+ * but sets status="denied". withIdempotency-wrapped so concurrent manager
+ * retries or double-taps don't double-write the deny lifecycle.
+ */
+export const _markDenied_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    requestId: v.id("pos_approval_requests"),
+    denied_by_manager_id: v.id("staff"),
+    deny_reason: v.string(),
+    // Origin of the deny — symmetric to _markResolved_internal so a future
+    // booth-inline deny path (any kind) can record source factually.
+    source: v.union(v.literal("wa_approval"), v.literal("telegram_approval")),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      requestId: Id<"pos_approval_requests">;
+      denied_by_manager_id: Id<"staff">;
+      deny_reason: string;
+      source: "wa_approval" | "telegram_approval";
+    },
+    { denied: true }
+  >(
+    "approvals.denyRequest",
+    async (ctx, args) => {
+      const req = await ctx.db.get(args.requestId);
+      if (!req) throw new Error("REQUEST_NOT_FOUND");
+      // Same error code as the action-layer pre-check (actions.ts), so the
+// frontend mapError needs only one branch. Fires only on a concurrent
+// second manager racing to commit; same-key retries short-circuit
+// at the withIdempotency cache lookup above.
+if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+      await ctx.db.patch(args.requestId, {
+        status: "denied",
+        denied_at: Date.now(),
+        denied_by_manager_id: args.denied_by_manager_id,
+        deny_reason: args.deny_reason,
+      });
+      await logAudit(ctx, {
+        actor_id: args.denied_by_manager_id,
+        action: KIND_AUDIT[req.kind].denied,
+        entity_type: "pos_approval_requests",
+        entity_id: args.requestId,
+        source: args.source,
+        mgr_approver_id: args.denied_by_manager_id,
+        reason: args.deny_reason,
+        metadata: { approval_request_id: args.requestId, kind: req.kind },
+      });
+      return { denied: true as const };
+    },
+  ),
+});
+
+/**
+ * Dedup guard for non-staff kinds: list live pending rows for (kind, entity_id).
+ * Used by the v0.4 notify actions to skip a second notification while a live
+ * pending request already exists for the same entity.
+ *
+ * `kind` is a literal union (not v.string()) so Convex runtime-validates the
+ * arg — without this, a typo'd kind would silently return [] via the
+ * `by_kind_status` index (no matching rows for "manual_paymet_override").
+ * The single-writer invariant on _createRequest_internal still enforces
+ * `validateContext`; this validator catches caller-side typos at the read path.
+ */
+export const _listPendingByKind_internal = internalQuery({
+  args: {
+    kind: v.union(
+      v.literal("staff_pin_reset"),
+      v.literal("manual_payment_override"),
+    ),
+    entityId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_kind_status", (q) =>
+        q.eq("kind", args.kind).eq("status", "pending"),
+      )
+      .collect();
+    const now = Date.now();
+    return rows.filter(
+      (r) => r.entity_id === args.entityId && r.token_expires_at > now,
+    );
+  },
+});
+
+/**
+ * Best-effort patch of the sent Telegram message id + chat id onto the request
+ * row (called after a successful Telegram send so we can later edit/delete the
+ * message). Never throws on missing row — best-effort by design.
+ */
+export const _linkTelegramMessage_internal = internalMutation({
+  args: {
+    requestId: v.id("pos_approval_requests"),
+    messageId: v.optional(v.number()),
+    chatId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.requestId, {
+      telegram_message_id: args.messageId,
+      telegram_chat_id: args.chatId,
+    });
   },
 });

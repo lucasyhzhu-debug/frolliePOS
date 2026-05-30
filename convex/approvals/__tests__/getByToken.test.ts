@@ -51,6 +51,34 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("getByToken — manual_payment_override", () => {
+  it("getByToken returns manual_payment display fields", async () => {
+    const t = convexTest(schema);
+    const { rawToken } = await t.run(async (ctx) => {
+      const token_hash = sha256HexNode("tok-1");
+      await ctx.db.insert("pos_approval_requests", {
+        kind: "manual_payment_override",
+        entity_type: "pos_transactions",
+        entity_id: "t1",
+        context: { txn_id: "t1", amount_idr: 50000, reason: "BCA cleared" },
+        reason: "BCA cleared",
+        triggered_by_event: "manual_payment_request",
+        triggered_at: Date.now(),
+        token_hash,
+        token_expires_at: Date.now() + 3600_000,
+        status: "pending",
+      });
+      return { rawToken: "tok-1" };
+    });
+
+    const res = await t.query(api.approvals.public.getByToken, { rawToken });
+    expect(res?.kind).toBe("manual_payment_override");
+    // Narrow to manual_payment_override branch before accessing `display`
+    if (res?.kind !== "manual_payment_override") throw new Error("expected manual_payment_override");
+    expect(res.display).toMatchObject({ amount_idr: 50000, reason: "BCA cleared" });
+  });
+});
+
 describe("getByToken", () => {
   it("returns request projection by raw token", async () => {
     const t = convexTest(schema);
@@ -62,9 +90,11 @@ describe("getByToken", () => {
 
     expect(r).not.toBeNull();
     expect(r!.kind).toBe("staff_pin_reset");
-    expect(r!.subject_staff_name).toBe("Lucy");
-    expect(r!.subject_staff_code).toBe("S-0042");
-    expect(r!.status).toBe("pending");
+    // Narrow to staff_pin_reset branch before accessing its fields
+    if (r?.kind !== "staff_pin_reset") throw new Error("expected staff_pin_reset");
+    expect(r.subject_staff_name).toBe("Lucy");
+    expect(r.subject_staff_code).toBe("S-0042");
+    expect(r.status).toBe("pending");
 
     // token_hash MUST NOT be leaked
     expect((r as any).token_hash).toBeUndefined();

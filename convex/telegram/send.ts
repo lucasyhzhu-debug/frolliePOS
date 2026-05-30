@@ -1,109 +1,158 @@
+"use node";
+
 import { v } from "convex/values";
-import { action, internalMutation } from "../_generated/server";
+import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
-  renderApproval,
-  renderShiftSummary,
-  renderCustom,
+  renderManualPaymentApproval,
+  renderFoundersSummary,
   renderStaffPinReset,
-  makeNonce,
   type RenderedMessage,
 } from "../lib/telegramHtml";
 
-// Convex actions run in a Node-like runtime and can make external HTTP calls
-// via the standard fetch API. Mutations cannot — that's why this is an action.
+// ─── sendTemplate ─────────────────────────────────────────────────────────────
 //
-// POC: idempotency-key wrapping intentionally omitted per spec §Out of scope
-// (docs/superpowers/specs/2026-05-25-telegram-poc-design.md). Will be added
-// when the POC graduates and replaces ADR-027.
+// Role-routed, per-kind typed payload, action-level idempotency, audited send
+// failures. Replaces the POC v.any() / hardcoded TELEGRAM_CHAT_ID version.
+//
+// Mutations (_auditSendFailed_internal, logOutbound) live in telegram/internal.ts
+// because "use node" files may only export actions.
 
 export const sendTemplate = action({
   args: {
+    role: v.string(),
     kind: v.union(
-      v.literal("approval"),
-      v.literal("shift_summary"),
-      v.literal("custom"),
       v.literal("staff_pin_reset"),
+      v.literal("manual_payment_override"),
+      v.literal("shift_summary"),
     ),
-    payload: v.any(),
+    payload: v.union(
+      // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
+      v.object({
+        staff_name: v.string(),
+        staff_code: v.string(),
+        locked_at_iso: v.string(),
+        request_url: v.string(),
+      }),
+      // manual_payment_override — matches ManualPaymentApprovalPayload
+      v.object({
+        amount_idr: v.number(),
+        reason: v.string(),
+        requester_name: v.string(),
+        approve_url: v.string(),
+      }),
+      // shift_summary — matches FoundersSummaryPayload
+      v.object({
+        dateLabel: v.string(),
+        totalSalesIdr: v.number(),
+        txnCount: v.number(),
+        flaggedCount: v.number(),
+      }),
+    ),
+    idempotencyKey: v.string(),
   },
-  handler: async (ctx, args) => {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) {
-      throw new Error(
-        "Telegram env vars missing. Run `npx convex env set TELEGRAM_BOT_TOKEN ...` and `... TELEGRAM_CHAT_ID -- ...`.",
-      );
-    }
+  handler: async (ctx, args): Promise<{ message_id: number; ok: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { message_id: number; ok: true };
 
+    // Step 2: resolve chat id by role — throws if no chat assigned
+    const chatId = await ctx.runQuery(
+      internal.telegram.chatRegistry.getChatIdByRole,
+      { role: args.role },
+    );
+
+    // Step 3: render the message
     let rendered: RenderedMessage;
-    const nonce = makeNonce();
     switch (args.kind) {
-      case "approval":
-        rendered = renderApproval(args.payload, nonce);
+      case "staff_pin_reset":
+        rendered = renderStaffPinReset(
+          args.payload as {
+            staff_name: string;
+            staff_code: string;
+            locked_at_iso: string;
+            request_url: string;
+          },
+        );
+        break;
+      case "manual_payment_override":
+        rendered = renderManualPaymentApproval(
+          args.payload as {
+            amount_idr: number;
+            reason: string;
+            requester_name: string;
+            approve_url: string;
+          },
+        );
         break;
       case "shift_summary":
-        rendered = renderShiftSummary(args.payload);
+        rendered = renderFoundersSummary(
+          args.payload as {
+            dateLabel: string;
+            totalSalesIdr: number;
+            txnCount: number;
+            flaggedCount: number;
+          },
+        );
         break;
-      case "custom":
-        rendered = renderCustom(args.payload, nonce);
-        break;
-      case "staff_pin_reset":
-        rendered = renderStaffPinReset(args.payload);
-        break;
+    }
+
+    // Step 4: send to Telegram
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      throw new Error("TELEGRAM_BOT_TOKEN env var missing");
     }
 
     const body: Record<string, unknown> = {
       chat_id: chatId,
       text: rendered.text,
       parse_mode: "HTML",
+      disable_web_page_preview: true,
     };
     if (rendered.inline_keyboard) {
       body.reply_markup = { inline_keyboard: rendered.inline_keyboard };
     }
 
-    const response = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     const responseJson = await response.json();
 
-    // Capture message_id so a later editMessageText (from the webhook) can target it.
+    // Capture message_id for the debug trail
     const messageId: number | undefined = responseJson?.result?.message_id;
 
-    await ctx.runMutation(internal.telegram.send.logOutbound, {
+    // Step 5: on failure — audit + throw
+    if (!response.ok || !responseJson?.ok) {
+      await ctx.runMutation(internal.telegram.internal._auditSendFailed_internal, {
+        role: args.role,
+        kind: args.kind,
+        status: String(responseJson?.description ?? response.status),
+      });
+      throw new Error(
+        `TELEGRAM_SEND_FAILED: ${responseJson?.description ?? response.status}`,
+      );
+    }
+
+    // Step 6: keep the outbound debug trail
+    await ctx.runMutation(internal.telegram.internal.logOutbound, {
       template_kind: args.kind,
       payload_json: JSON.stringify({ request: body, response: responseJson }),
       message_id: messageId,
     });
 
-    if (!response.ok || !responseJson?.ok) {
-      throw new Error(
-        `Telegram sendMessage failed: ${response.status} ${JSON.stringify(responseJson)}`,
-      );
-    }
-
-    return { message_id: messageId, ok: true };
-  },
-});
-
-export const logOutbound = internalMutation({
-  args: {
-    template_kind: v.string(),
-    payload_json: v.string(),
-    message_id: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.insert("telegram_log", {
-      direction: "out",
-      template_kind: args.template_kind,
-      payload_json: args.payload_json,
-      message_id: args.message_id,
-      created_at: Date.now(),
+    // Step 7: cache the result
+    const result = { message_id: messageId as number, ok: true as const };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "telegram.sendTemplate",
+      response: JSON.stringify(result),
     });
+
+    // Step 8: return
+    return result;
   },
 });
