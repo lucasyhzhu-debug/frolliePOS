@@ -176,6 +176,10 @@ export default function SaleCharge() {
   const [overrideError, setOverrideError] = useState<string | undefined>(
     undefined,
   );
+  // Wave 4 Task 18 will replace this with a manager-picker dropdown.
+  // For now the caller must supply a code via the PinSheet title/UI; this
+  // placeholder satisfies the type until the picker is wired up.
+  const [overrideManagerCode, setOverrideManagerCode] = useState("");
 
   const handleOverrideSubmit = async (pin: string) => {
     if (session.status !== "active" || !txnId) return;
@@ -184,12 +188,17 @@ export default function SaleCharge() {
       setOverrideError("Reason is required");
       return;
     }
+    if (!overrideManagerCode.trim()) {
+      setOverrideError("Manager code is required");
+      return;
+    }
     setOverridePending(true);
     setOverrideError(undefined);
     try {
       await manuallyConfirmPayment({
         sessionId: session.sessionId,
         txnId,
+        managerStaffCode: overrideManagerCode.trim(),
         managerPin: pin,
         reason,
         idempotencyKey: crypto.randomUUID(),
@@ -203,8 +212,8 @@ export default function SaleCharge() {
       setOverrideError(
         msg.includes("INVALID_PIN")
           ? "Wrong PIN"
-          : msg.includes("NOT_MANAGER")
-            ? "Not a manager account"
+          : msg.includes("MANAGER_NOT_FOUND")
+            ? "Manager not found or not active"
             : msg,
       );
     } finally {
@@ -560,27 +569,53 @@ export default function SaleCharge() {
           if (!overridePending) setOverrideOpen(false);
         }}
         extraField={
-          <div className="space-y-1.5">
-            <label
-              htmlFor="override-reason"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Reason (required)
-            </label>
-            <textarea
-              id="override-reason"
-              value={overrideReason}
-              onChange={(e) => {
-                setOverrideReason(e.target.value);
-                if (overrideError === "Reason is required") {
-                  setOverrideError(undefined);
-                }
-              }}
-              placeholder="Why is a manual override needed?"
-              rows={2}
-              disabled={overridePending}
-              className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            />
+          <div className="space-y-3">
+            {/* Wave 4 Task 18 replaces this text input with a manager-picker
+                dropdown populated from _listActiveManagers_internal. */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="override-mgr-code"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Manager code (required)
+              </label>
+              <input
+                id="override-mgr-code"
+                type="text"
+                value={overrideManagerCode}
+                onChange={(e) => {
+                  setOverrideManagerCode(e.target.value);
+                  if (overrideError === "Manager code is required") {
+                    setOverrideError(undefined);
+                  }
+                }}
+                placeholder="e.g. M-0001"
+                disabled={overridePending}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="override-reason"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Reason (required)
+              </label>
+              <textarea
+                id="override-reason"
+                value={overrideReason}
+                onChange={(e) => {
+                  setOverrideReason(e.target.value);
+                  if (overrideError === "Reason is required") {
+                    setOverrideError(undefined);
+                  }
+                }}
+                placeholder="Why is a manual override needed?"
+                rows={2}
+                disabled={overridePending}
+                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
           </div>
         }
       />

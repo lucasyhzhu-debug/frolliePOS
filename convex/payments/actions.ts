@@ -138,11 +138,24 @@ export const retryWithFreshInvoice = action({
  * Xendit per spec §"actions.ts → manuallyConfirmPayment → Security trade-off".
  * Fraud surface mitigated via audit-log surveillance — v0.5 dashboard widget
  * surfaces manual-override count per staff per day.
+ *
+ * v0.5.0 (Task 12 — v050-be-mgr-picker-override): `managerStaffCode` makes the
+ * approving manager an EXPLICIT argument. Any active manager's code can be used
+ * at the booth — not just the session-bound staff. The session only establishes
+ * "someone is logged in and at the POS"; the manager identity is independently
+ * supplied and independently verified. Wrong PIN counts toward THAT manager's
+ * ADR-002 lockout (not the session staff's). The UI picker lands in Wave 4 Task 18.
+ *
+ * Previous behaviour: session staff had to be a manager themselves (NOT_MANAGER
+ * guard). New behaviour: session staff can be any role; a manager hands the
+ * device to perform the override. The NOT_MANAGER guard is replaced by the
+ * MANAGER_NOT_FOUND guard on the explicitly supplied code.
  */
 export const manuallyConfirmPayment = action({
   args: {
     sessionId: v.id("staff_sessions"),
     txnId: v.id("pos_transactions"),
+    managerStaffCode: v.string(),
     managerPin: v.string(),
     reason: v.string(),
     idempotencyKey: v.string(),
@@ -153,34 +166,41 @@ export const manuallyConfirmPayment = action({
     });
     if (cached) return JSON.parse(cached);
 
+    // Auth: a valid (non-ended) session is required to initiate a manual override.
     const session = await ctx.runQuery(api.auth.public.getSession, { sessionId: args.sessionId });
     if (!session) throw new Error("SESSION_INVALID");
 
-    // Resolve manager (the actor must be a manager OR provide a manager PIN
-    // for any staff. v0.3: require sessionStaff.role==="manager" — booth has
-    // a manager present. v0.4 will route through approvals/ for off-booth.)
-    const actor = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
-      staffId: session.staff._id,
+    // Resolve manager by the explicitly supplied staff code. Reject if: no such
+    // code, wrong role, or inactive. Single branch — all three cases are the same
+    // error to the caller (don't leak which condition failed).
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
     });
-    if (!actor || actor.role !== "manager") throw new Error("NOT_MANAGER");
+    if (!manager || manager.role !== "manager" || !manager.active) {
+      throw new Error("MANAGER_NOT_FOUND");
+    }
 
     // Lockout pre-check + argon2 verify (manager's own PIN) + failed-attempt
-    // recording (shared funnel — same lockout discipline as the auth PIN paths).
+    // recording (shared funnel — same lockout discipline as all PIN paths).
+    // _recordFailedAttempt_internal targets manager._id — wrong PIN counts
+    // toward THAT manager's ADR-002 lockout, not the session staff's.
     await verifyPinOrThrow(ctx, {
-      staffId: session.staff._id,
+      staffId: manager._id,
       deviceId: session.deviceId,
-      pinHash: actor.pin_hash,
+      pinHash: manager.pin_hash,
       pin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
 
     // Commit funnel + cache atomically (I6) and guard against a false success on a
     // non-awaiting txn (C4) — both live inside the withIdempotency-wrapped mutation.
+    // mgr_approver_id is manager._id (the actual approver), not session.staff._id.
     return await ctx.runMutation(internal.payments.internal._onPaidManual_internal, {
       idempotencyKey: args.idempotencyKey,
       txnId: args.txnId,
       reason: args.reason,
-      mgr_approver_id: session.staff._id,
+      mgr_approver_id: manager._id,
+      source: "booth_inline",
     });
   },
 });

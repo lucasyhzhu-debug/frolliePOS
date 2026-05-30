@@ -237,24 +237,137 @@ describe("payments/actions.manuallyConfirmPayment", () => {
   it("argon2id-verifies manager PIN and funnels to _confirmPaid with source=manual", async () => {
     const t = convexTest(schema);
     const s = await seedAwaiting(t);
-    // Need a real hash on staff for this test, and that staff must own the
-    // session used by manuallyConfirmPayment (the actor is resolved from the
-    // session, not from the seeded "L" staff). Seed a manager with a real
-    // argon2id hash, then point the session at that staff.
-    const realStaffId = await t.action(
+    // v0.5.0 (Task 12): manager is now identified by managerStaffCode, not by
+    // session ownership. Seed a manager with a real argon2id hash and a code;
+    // the session-bound staff can be anyone (no role constraint on session).
+    const managerId = await t.action(
       internal.auth.actions._seedHashedStaff_internal,
       { name: "Lucas", pin: "9999", role: "manager" },
     );
     await t.run(async (ctx) => {
-      await ctx.db.patch(s.session, { staff_id: realStaffId });
+      await ctx.db.patch(managerId, { code: "M-0001" });
     });
     const r = await t.action(api.payments.actions.manuallyConfirmPayment, {
-      sessionId: s.session, txnId: s.txn, managerPin: "9999",
-      reason: "Customer showed BCA app paid screen", idempotencyKey: "k-mc",
+      sessionId: s.session,
+      txnId: s.txn,
+      managerStaffCode: "M-0001",
+      managerPin: "9999",
+      reason: "Customer showed BCA app paid screen",
+      idempotencyKey: "k-mc",
     });
     expect(r.confirmed).toBe(true);
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.confirmed_via).toBe("manual");
-    expect(txn?.confirmed_mgr_approver_id).toBe(realStaffId);
+    expect(txn?.confirmed_mgr_approver_id).toBe(managerId);
+  });
+
+  it("(Task 12) accepts any active manager's code — session staff need not be a manager", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    // Session is bound to the seeded "L" staff who has role="manager" from
+    // seedAwaiting, but we re-verify the path also works when the session staff
+    // is role="staff" — that's the new behavioral guarantee (NOT_MANAGER guard lifted).
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.staff, { role: "staff" });
+    });
+    const managerId = await t.action(
+      internal.auth.actions._seedHashedStaff_internal,
+      { name: "Manager Budi", pin: "1234", role: "manager" },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(managerId, { code: "S-0002" });
+    });
+    const r = await t.action(api.payments.actions.manuallyConfirmPayment, {
+      sessionId: s.session,
+      txnId: s.txn,
+      managerStaffCode: "S-0002",
+      managerPin: "1234",
+      reason: "test override",
+      idempotencyKey: "k-task12-any-mgr",
+    });
+    expect(r.confirmed).toBe(true);
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    // Approver is the explicitly-picked manager, not the session staff.
+    expect(txn?.confirmed_mgr_approver_id).toBe(managerId);
+  });
+
+  it("(Task 12) wrong managerPin counts toward THAT manager's lockout, not the session staff's", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    const managerId = await t.action(
+      internal.auth.actions._seedHashedStaff_internal,
+      { name: "Manager Citra", pin: "5678", role: "manager" },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(managerId, { code: "M-0099" });
+    });
+    await expect(
+      t.action(api.payments.actions.manuallyConfirmPayment, {
+        sessionId: s.session,
+        txnId: s.txn,
+        managerStaffCode: "M-0099",
+        managerPin: "0000",  // wrong
+        reason: "test",
+        idempotencyKey: `k-wrong-pin-${Date.now()}`,
+      }),
+    ).rejects.toThrow("INVALID_PIN");
+
+    // Lockout attempt row must be for the manager, not the session staff.
+    const attempts = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("pos_auth_attempts")
+        .withIndex("by_staff", (q) => q.eq("staff_id", managerId))
+        .collect();
+    });
+    expect(attempts.length).toBeGreaterThan(0);
+    expect(attempts[0].fail_count).toBeGreaterThanOrEqual(1);
+
+    // No attempt row for the session-bound staff.
+    const sessionStaffAttempts = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("pos_auth_attempts")
+        .withIndex("by_staff", (q) => q.eq("staff_id", s.staff))
+        .collect();
+    });
+    expect(sessionStaffAttempts.length).toBe(0);
+  });
+
+  it("(Task 12) throws MANAGER_NOT_FOUND for unknown code", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await expect(
+      t.action(api.payments.actions.manuallyConfirmPayment, {
+        sessionId: s.session,
+        txnId: s.txn,
+        managerStaffCode: "X-9999",
+        managerPin: "0000",
+        reason: "test",
+        idempotencyKey: "k-no-mgr",
+      }),
+    ).rejects.toThrow("MANAGER_NOT_FOUND");
+  });
+
+  it("(Task 12) throws MANAGER_NOT_FOUND when code belongs to a staff (not manager) role", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.run(async (ctx) => {
+      // Give the session-bound staff a code; they have role="manager" by default
+      // from seedAwaiting, but we'll use a fresh staff-role member.
+      await ctx.db.insert("staff", {
+        name: "NotAMgr", pin_hash: "x", role: "staff",
+        active: true, created_at: Date.now(), code: "STF-001",
+      });
+    });
+    await expect(
+      t.action(api.payments.actions.manuallyConfirmPayment, {
+        sessionId: s.session,
+        txnId: s.txn,
+        managerStaffCode: "STF-001",
+        managerPin: "0000",
+        reason: "test",
+        idempotencyKey: "k-not-mgr",
+      }),
+    ).rejects.toThrow("MANAGER_NOT_FOUND");
   });
 });
