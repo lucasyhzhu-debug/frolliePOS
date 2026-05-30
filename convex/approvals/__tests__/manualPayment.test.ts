@@ -337,3 +337,84 @@ it("idempotency replay: same key returns cached result without firing twice", as
   const req = await t.run((ctx) => ctx.db.get(requestId));
   expect(req?.status).toBe("resolved");
 });
+
+// ─── denyRequest (Task 22) ───────────────────────────────────────────────────
+// Kind-agnostic off-booth deny. Works for any pending request
+// (staff_pin_reset, manual_payment_override, any future kind — NO kind guard).
+
+it("denies: request goes to denied, txn stays awaiting_payment", async () => {
+  const t = convexTest(schema);
+  const { txnId, requestId, rawToken } = await seedApprovable(t);
+
+  const res = await t.action(api.approvals.actions.denyRequest, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    denyReason: "looks wrong",
+    idempotencyKey: "deny-1",
+  });
+  expect(res.denied).toBe(true);
+
+  // Transaction must remain untouched (deny doesn't confirm payment).
+  const txn = await t.run((ctx) => ctx.db.get(txnId));
+  expect(txn?.status).toBe("awaiting_payment");
+
+  // Request must be in denied status.
+  const req = await t.run((ctx) => ctx.db.get(requestId));
+  expect(req?.status).toBe("denied");
+});
+
+it("denyRequest wrong PIN throws INVALID_PIN and records a failed attempt against the manager", async () => {
+  const t = convexTest(schema);
+  const { rawToken, mgrId } = await seedApprovable(t);
+
+  await expect(
+    t.action(api.approvals.actions.denyRequest, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: "0000", // wrong
+      denyReason: "rejected",
+      idempotencyKey: "deny-wrong",
+    }),
+  ).rejects.toThrow("INVALID_PIN");
+
+  const attempt = await t.run((ctx) =>
+    ctx.db
+      .query("pos_auth_attempts")
+      .withIndex("by_staff", (q) => q.eq("staff_id", mgrId))
+      .first(),
+  );
+  expect(attempt?.fail_count).toBe(1);
+});
+
+it("denyRequest idempotency replay: same key returns same {denied:true} without re-executing", async () => {
+  const t = convexTest(schema);
+  const { requestId, rawToken } = await seedApprovable(t);
+
+  const r1 = await t.action(api.approvals.actions.denyRequest, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    denyReason: "looks wrong",
+    idempotencyKey: "deny-replay",
+  });
+  const r2 = await t.action(api.approvals.actions.denyRequest, {
+    token: rawToken,
+    managerStaffCode: MGR_CODE,
+    managerPin: MGR_PIN,
+    denyReason: "looks wrong",
+    idempotencyKey: "deny-replay",
+  });
+  expect(r2).toEqual(r1);
+
+  // Request status is denied exactly once — the row's denied_at is present once.
+  const req = await t.run((ctx) => ctx.db.get(requestId));
+  expect(req?.status).toBe("denied");
+  expect(req?.denied_at).toBeDefined();
+
+  // No pos_auth_attempts written (PIN was correct on first call, replay never re-verifies).
+  const attempts = await t.run((ctx) =>
+    ctx.db.query("pos_auth_attempts").collect(),
+  );
+  expect(attempts.length).toBe(0);
+});

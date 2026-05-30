@@ -447,3 +447,90 @@ export const approveManualPayment = action({
     });
   },
 });
+
+/**
+ * Off-booth deny — kind-agnostic. Works for any pending approval request
+ * (staff_pin_reset, manual_payment_override, and any future kind). There is
+ * intentionally NO `kind` guard here: a manager can deny any pending request
+ * via the /approve/:token link, regardless of what triggered it.
+ *
+ * Mirrors approveManualPayment's security envelope exactly except for the
+ * commit step: instead of confirming payment, it commits _markDenied_internal.
+ * The denied request row is terminal — the transaction (if any) stays in its
+ * pre-denial state (e.g., awaiting_payment remains awaiting_payment).
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. sha256 the raw token, look up the request by token hash, constant-time compare.
+ *   3. Status === pending, token not expired.
+ *   4. Resolve approving manager by staff code (active manager only).
+ *   5. argon2-verify managerPin. On fail, record failed attempt + throw INVALID_PIN.
+ *   6. Commit _markDenied_internal under the TOP-LEVEL idempotencyKey — same key
+ *      the action-level pre-check replays, so concurrent retries get the cached blob.
+ *
+ * Never logs PIN or token values.
+ */
+export const denyRequest = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    denyReason: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ denied: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { denied: true };
+
+    // Step 2: token lookup + constant-time compare
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // Step 3: state guards (kind-agnostic — no kind check)
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Step 4: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 5: argon2-verify manager PIN; record failed attempt on miss.
+    // Lockout state intentionally NOT checked (mirrors approveManualPayment Improvement #6):
+    // a locked-out manager can still deny via the /approve/:token link.
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+      });
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 6: commit deny + write idempotency cache row in ONE transaction (I6).
+    // The TOP-LEVEL idempotencyKey is reused so the action-level pre-check (step 1)
+    // replays the cached { denied: true } on any subsequent retry.
+    return await ctx.runMutation(internal.approvals.internal._markDenied_internal, {
+      idempotencyKey: args.idempotencyKey,
+      requestId: req._id,
+      denied_by_manager_id: manager._id,
+      deny_reason: args.denyReason,
+    });
+  },
+});
