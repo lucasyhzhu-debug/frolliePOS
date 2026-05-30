@@ -9,6 +9,10 @@ import { internal, api } from "../_generated/api";
  * (staffreview T2):
  *   - Guard: txn.status must be "awaiting_payment".
  *   - runMutation _cancelCommit_internal flips status + logs transaction.cancelled.
+ *   - After the commit, cascade-denies any live pending manual_payment_override
+ *     approvals for this txn via _cancelPendingApprovalsForTxn_internal (Task 11 /
+ *     v050-be-cancel-cancels-approval). The cascade fires AFTER the terminal commit
+ *     so if it fails the txn cancel is already landed (txn is source of truth).
  *
  * The prior best-effort Xendit expire! call has been removed (Decision E):
  * dedicated QR Codes / FVA APIs have no invoice "expire" endpoint, and a pay-
@@ -23,6 +27,7 @@ import { internal, api } from "../_generated/api";
  *
  * Actions have no ctx.db, so all audit happens inside the mutations:
  *   - _cancelCommit_internal logs "transaction.cancelled".
+ *   - _cancelPendingApprovalsForTxn_internal logs approval.denied for each cascaded row.
  */
 export const cancelTransaction = action({
   args: {
@@ -54,12 +59,23 @@ export const cancelTransaction = action({
     // Dedicated APIs have no invoice "expire" call; the prior QR/VA is superseded
     // locally and the funnel's terminal-state alert handles a pay-after-cancel
     // (Decision E). Just commit the local cancel.
-    return await ctx.runMutation(internal.transactions.internal._cancelCommit_internal, {
+    const result = await ctx.runMutation(internal.transactions.internal._cancelCommit_internal, {
       idempotencyKey: args.idempotencyKey,
       txnId: args.txnId,
       reason: args.reason,
       actor_staff_id: session.staff._id,
       device_id: session.deviceId,
     });
+
+    // 5. Cascade-deny any live pending manual_payment_override approvals for this
+    //    txn. Fires AFTER the terminal commit so if the cascade fails the txn
+    //    cancel is already landed (txn is source of truth). Best-effort: the helper
+    //    is a no-op when no pending rows exist (Task 11 / v050-be-cancel-cancels-approval).
+    await ctx.runMutation(
+      internal.approvals.internal._cancelPendingApprovalsForTxn_internal,
+      { txnId: args.txnId, reason: "txn_cancelled" },
+    );
+
+    return result;
   },
 });

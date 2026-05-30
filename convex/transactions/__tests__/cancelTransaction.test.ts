@@ -74,6 +74,59 @@ describe("transactions/actions.cancelTransaction", () => {
     expect(audit.length).toBe(0);
   });
 
+  it("v050-be-cancel-cancels-approval: cascade-denies live pending manual_payment_override on cancel", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaitingWithSession(t);
+
+    // Seed a pending manual_payment_override approval row for this txn.
+    const approvalId = await t.run(async (ctx) => {
+      return await ctx.db.insert("pos_approval_requests", {
+        kind: "manual_payment_override",
+        entity_type: "pos_transactions",
+        entity_id: s.txn,
+        status: "pending",
+        notification_channel: "telegram",
+        triggered_by_event: "payment_stalled",
+        triggered_at: Date.now(),
+        token_hash: "deadbeef".repeat(8),        // 64 hex chars — any non-empty string
+        token_expires_at: Date.now() + 60 * 60 * 1000, // 60-min future TTL
+        context: {},
+      });
+    });
+
+    await t.action(api.transactions.actions.cancelTransaction, {
+      sessionId: s.session, txnId: s.txn,
+      reason: "cascade test", idempotencyKey: "k-cascade1",
+    });
+
+    // Txn should be cancelled.
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("cancelled");
+
+    // Approval row should be cascade-denied with system actor.
+    const approval = await t.run((ctx) => ctx.db.get(approvalId));
+    expect(approval?.status).toBe("denied");
+    expect(approval?.denied_by_manager_id).toBe("system");
+    expect(approval?.deny_reason).toBe("txn_cancelled");
+
+    // Audit log should have a denial row with source "system" and cascaded_from_txn.
+    // KIND_AUDIT["manual_payment_override"].denied === "approval.denied"
+    // Note: audit_log.metadata is stored as a JSON string by logAudit — parse before inspect.
+    const auditRows = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "approval.denied"))
+        .collect(),
+    );
+    const txnIdStr = s.txn as unknown as string;
+    const cascadeRow = auditRows.find((r) => {
+      if (!r.metadata) return false;
+      const meta = JSON.parse(r.metadata as unknown as string) as Record<string, unknown>;
+      return String(meta.cascaded_from_txn) === txnIdStr;
+    });
+    expect(cascadeRow).toBeDefined();
+    expect(cascadeRow?.source).toBe("system");
+  });
+
   it("rejects cancelling a paid txn", async () => {
     const t = convexTest(schema);
     const s = await seedAwaitingWithSession(t);
