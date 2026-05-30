@@ -52,3 +52,44 @@ The wa.me share-intent pattern of ADR-027 and the founders shift-summary share o
 - [ADR-034](./034-deep-modules-surface-apis.md) — module boundaries / foundational allow-list
 - `convex/telegram/` — current POC code (graduates to `convex/approvals/telegram/` in v0.4)
 - `docs/MEMORY.md` — Telegram POC current state and artifact paths
+
+---
+
+## Amendment 2026-05-30 — v0.4 graduation
+
+### Role routing supersedes hardcoded chat id
+
+The original decision described Telegram as requiring `TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID` — a single chat target. v0.4 supersedes this with a self-registration registry and role-based routing; see [ADR-037](./037-telegram-self-registration-role-indirection.md) for the full decision.
+
+The routing primitive is `getChatIdByRole(role)` (internalQuery in `convex/telegram/chatRegistry.ts`). Every outbound send goes through `sendTemplate(role, kind, payload, idempotencyKey)` which calls `getChatIdByRole` to resolve the chat id at send time. No callsite hardcodes a chat id.
+
+`TELEGRAM_CHAT_ID` is honored as a backward-compat fallback until the `managers` role is bound in the `telegramChats` registry (zero-downtime cutover per ADR-037 Decision F). After binding, the env var is inert.
+
+### Telegram code stays at `convex/telegram/`
+
+The original decision anticipated graduating the Telegram module to `convex/approvals/telegram/` in v0.4. **This move did not happen.** The code remains at `convex/telegram/` as a foundational shared boundary per [ADR-034](./034-deep-modules-surface-apis.md) §"Implementation notes — Module-boundary lint". Keeping it shared is correct because multiple modules (`approvals`, future `inventory`, `settlements`) will route notifications through the same bot infrastructure. A move to `convex/approvals/telegram/` would create an import from a non-foundational module.
+
+The original Consequences bullet "wa.me code can be removed in v0.4" stands — the share-intent front-end helpers are dead code from v0.3 forward.
+
+The original Consequences bullet "*`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` must be set*" is updated: `TELEGRAM_BOT_TOKEN` remains a hard requirement; `TELEGRAM_CHAT_ID` is now optional (fallback only — see ADR-037).
+
+### Canonical audit `source` for off-booth approvals
+
+The original decision named `"wa_approval"` as the audit source. v0.4 adds `"telegram_approval"` to `audit_log.source` (additive — no breaking change). The canonical literal emitted by all post-v0.4 off-booth approval paths is `"telegram_approval"`. `"wa_approval"` is retained in the schema and validator for historical rows; no production code emits it post-v0.4.
+
+Queries filtering on `source = "wa_approval"` remain valid for pre-v0.4 history. New dashboards or filters should include both literals if spanning the migration date (2026-05-30).
+
+### Approval delivery via URL button (no callback_data)
+
+The v0.4 approval messages use Telegram inline keyboard URL buttons. The approve URL opens `/approve/:token` in the manager's browser (the POS web UI). The manager then enters their PIN on the landing page to act. No `callback_data` is used — the bot does not receive a callback query for approval execution.
+
+This preserves the [ADR-029](./029-token-authorizes-view-pin-authorizes-act.md) token-VIEW / PIN-ACT invariant: PIN verification always happens server-side on the POS backend, never in the Telegram thread. `renderManualPaymentApproval` in `convex/lib/telegramHtml.ts` implements the URL-button pattern for the `manual_payment_override` kind.
+
+### References
+
+- [ADR-037](./037-telegram-self-registration-role-indirection.md) — self-registration + role routing (new in v0.4)
+- [ADR-029](./029-token-authorizes-view-pin-authorizes-act.md) — token-VIEW / PIN-ACT; unchanged; URL-button delivery is consistent with this model
+- [ADR-030](./030-approval-audit-captures-full-context.md) — approval schema generalization; amendment records `"telegram_approval"` source literal
+- `convex/telegram/send.ts` — `sendTemplate` with role routing
+- `convex/telegram/chatRegistry.ts` — `getChatIdByRole` routing primitive + `mgr*` admin surface
+- `convex/audit/schema.ts` — `audit_log.source` union including `"telegram_approval"`
