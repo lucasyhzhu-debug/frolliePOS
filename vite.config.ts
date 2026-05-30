@@ -52,5 +52,16 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Allow public tunnel domains so dev sessions reachable via ngrok / localtunnel /
+    // cloudflared can pass Vite's host-header check (DNS-rebinding guard). The leading
+    // dot is Vite's subdomain-wildcard sigil. Dev-only; production builds don't read this.
+    allowedHosts: [
+      ".ngrok-free.dev",
+      ".ngrok-free.app",
+      ".ngrok.io",
+      ".ngrok.app",
+      ".loca.lt",
+      ".trycloudflare.com",
+    ],
   },
 });
