@@ -61,17 +61,6 @@ export const listDrafts = query({
   },
 });
 
-const commitCartArgs = {
-  sessionId: v.id("staff_sessions"),
-  idempotencyKey: v.string(),
-  intent: v.union(v.literal("draft"), v.literal("charge")),
-  lines: v.array(v.object({
-    productId: v.id("pos_products"),
-    qty: v.number(),
-  })),
-  voucherCode: v.optional(v.string()),
-};
-
 /**
  * Commit a built cart to the server. Single mutation — no per-line server
  * calls (Zustand cart on client). intent="draft" → status=draft; intent="charge"
@@ -88,7 +77,16 @@ const commitCartArgs = {
  *   pos_stock_levels (projection) → transactions._projectedNegStockFlag_internal
  */
 export const commitCart = mutation({
-  args: commitCartArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    intent: v.union(v.literal("draft"), v.literal("charge")),
+    lines: v.array(v.object({
+      productId: v.id("pos_products"),
+      qty: v.number(),
+    })),
+    voucherCode: v.optional(v.string()),
+  },
   handler: withIdempotency<
     {
       sessionId: Id<"staff_sessions">;
@@ -218,6 +216,9 @@ export const commitCart = mutation({
         totals: { subtotal, discount: voucherDiscount, total },
         flags,
       };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
     },
   ),
 });
