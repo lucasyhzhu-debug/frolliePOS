@@ -223,12 +223,6 @@ export const commitCart = mutation({
   ),
 });
 
-const draftArgs = {
-  sessionId: v.id("staff_sessions"),
-  draftId: v.id("pos_transactions"),
-  idempotencyKey: v.string(),
-};
-
 /**
  * Resume a draft: returns its lines + voucherCode, then DELETES the row.
  *
@@ -237,7 +231,11 @@ const draftArgs = {
  * loser re-reads the now-deleted draft and throws DRAFT_ALREADY_RESUMED.
  */
 export const resumeDraft = mutation({
-  args: draftArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    draftId: v.id("pos_transactions"),
+  },
   handler: withIdempotency<
     { sessionId: Id<"staff_sessions">; draftId: Id<"pos_transactions">; idempotencyKey: string },
     {
@@ -287,6 +285,9 @@ export const resumeDraft = mutation({
 
       return result;
     },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
   ),
 });
 
@@ -326,7 +327,11 @@ export const listRecentAwaitingPayment = query({
 });
 
 export const deleteDraft = mutation({
-  args: draftArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    draftId: v.id("pos_transactions"),
+  },
   handler: withIdempotency<
     { sessionId: Id<"staff_sessions">; draftId: Id<"pos_transactions">; idempotencyKey: string },
     { deleted: true }
