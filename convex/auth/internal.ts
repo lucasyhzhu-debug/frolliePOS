@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
+import { requireManagerSession } from "./sessions";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -378,5 +379,21 @@ export const _seedStaffCommit_internal = internalMutation({
       active: true,
       created_at: Date.now(),
     });
+  },
+});
+
+/**
+ * Action-callable wrapper for `requireManagerSession`. Actions cannot read
+ * `ctx.db` directly, so callers (e.g. telegram.chatRegistry.mgrSendTest) reach
+ * the session gate via `ctx.runQuery(internal.auth.internal._requireManagerSession_internal, ...)`.
+ * Throws `MANAGER_ONLY` / `NO_SESSION` per requireManagerSession.
+ */
+export const _requireManagerSession_internal = internalQuery({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ staffId: Id<"staff">; deviceId: string }> => {
+    return await requireManagerSession(ctx, args.sessionId);
   },
 });
