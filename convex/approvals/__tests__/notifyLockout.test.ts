@@ -33,6 +33,17 @@ describe("approvals/actions.notifyStaffLockout", () => {
       return realFetch(url as RequestInfo);
     }) as typeof fetch;
 
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100managers",
+        chatType: "supergroup",
+        title: "Frollie · Managers",
+        role: "managers",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
+
     const staffId = await t.run((ctx) =>
       ctx.db.insert("staff", {
         name: "Lucy",
@@ -71,6 +82,17 @@ describe("approvals/actions.notifyStaffLockout", () => {
         json: async () => ({ ok: true, result: { message_id: 1 } }),
         text: async () => "{}",
       }) as unknown as Response) as typeof fetch;
+
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100managers",
+        chatType: "supergroup",
+        title: "Frollie · Managers",
+        role: "managers",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
 
     const staffId = await t.run((ctx) =>
       ctx.db.insert("staff", {
@@ -112,6 +134,17 @@ describe("approvals/actions.notifyStaffLockout", () => {
       }
       return realFetch(url as RequestInfo);
     }) as typeof fetch;
+
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100managers",
+        chatType: "supergroup",
+        title: "Frollie · Managers",
+        role: "managers",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
 
     const staffId = await t.run((ctx) =>
       ctx.db.insert("staff", {

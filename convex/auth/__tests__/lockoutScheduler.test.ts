@@ -36,6 +36,19 @@ async function seedStaff(t: ReturnType<typeof convexTest>): Promise<Id<"staff">>
   });
 }
 
+async function seedManagersChat(t: ReturnType<typeof convexTest>): Promise<void> {
+  await t.run((ctx) =>
+    ctx.db.insert("telegramChats", {
+      chatId: "-100managers",
+      chatType: "supergroup",
+      title: "Frollie · Managers",
+      role: "managers",
+      registeredAt: Date.now(),
+      lastSeenAt: Date.now(),
+    }),
+  );
+}
+
 async function countApprovalRows(
   t: ReturnType<typeof convexTest>,
   staffId: Id<"staff">,
@@ -49,6 +62,7 @@ async function countApprovalRows(
 describe("auth lockout → scheduler trigger (Task 18)", () => {
   it("3rd failed attempt schedules notifyStaffLockout → an approval row is created", async () => {
     const t = convexTest(schema);
+    await seedManagersChat(t);
     const staffId = await seedStaff(t);
 
     // Three wrong-PIN logins. The 3rd trips the lockout and schedules notify.
