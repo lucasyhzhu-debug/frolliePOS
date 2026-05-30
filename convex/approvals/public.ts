@@ -106,7 +106,7 @@ export const getByToken = query({
     if (effectiveStatus === "denied") {
       if (req.denied_at !== undefined) denyDetails.denied_at = req.denied_at;
       if (req.deny_reason !== undefined) denyDetails.deny_reason = req.deny_reason;
-      if (req.denied_by_manager_id) {
+      if (req.denied_by_manager_id && req.denied_by_manager_id !== "system") {
         const m = await ctx.runQuery(
           internal.auth.internal._getStaffNameCode_internal,
           { staffId: req.denied_by_manager_id },
@@ -255,7 +255,7 @@ export const getRecentPinResetForStaff = query({
 
     let denied_by_manager_name: string | undefined;
     let denied_by_manager_code: string | undefined;
-    if (status === "denied" && req.denied_by_manager_id) {
+    if (status === "denied" && req.denied_by_manager_id && req.denied_by_manager_id !== "system") {
       const m = await ctx.runQuery(
         internal.auth.internal._getStaffNameCode_internal,
         { staffId: req.denied_by_manager_id },
