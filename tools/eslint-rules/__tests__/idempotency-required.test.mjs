@@ -40,5 +40,10 @@ tester.run("idempotency-required", rule, {
       code: fix("missing-authcheck.ts"),
       errors: [{ messageId: "missingAuthCheck" }],
     },
+    {
+      filename: "/x/convex/foo/bar/public.ts",
+      code: fix("nested-public.ts"),
+      errors: [{ messageId: "missingAuthCheck" }],
+    },
   ],
 });

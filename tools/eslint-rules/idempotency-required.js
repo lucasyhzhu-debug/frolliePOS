@@ -13,7 +13,7 @@
 
 "use strict";
 
-const PUBLIC_TS_REGEX = /[\\/]convex[\\/][^\\/]+[\\/]public\.ts$/;
+const PUBLIC_TS_REGEX = /[\\/]convex[\\/](?:[^\\/]+[\\/])+public\.ts$/;
 
 /** @type {import("eslint").Rule.RuleModule} */
 const rule = {
