@@ -22,6 +22,16 @@ async function sha256Hex(s: string): Promise<string> {
 
 type EffectiveStatus = "pending" | "resolved" | "denied" | "expired";
 
+// Shared "decision details" populated when status === "denied". Set per-kind so
+// the already-resolved/denied surfaces can render informative copy ("Declined by
+// Lucas — 'suspicious lockout'") instead of a generic ✓-ish acknowledgement.
+type DenyDetails = {
+  denied_at?: number;
+  deny_reason?: string;
+  denied_by_manager_name?: string;
+  denied_by_manager_code?: string;
+};
+
 type StaffPinResetResult = {
   kind: "staff_pin_reset";
   subject_staff_name: string;
@@ -30,7 +40,7 @@ type StaffPinResetResult = {
   triggered_at: number;
   token_expires_at: number;
   resolved_at?: number;
-};
+} & DenyDetails;
 
 type ManualPaymentOverrideResult = {
   kind: "manual_payment_override";
@@ -44,7 +54,7 @@ type ManualPaymentOverrideResult = {
   triggered_at: number;
   token_expires_at: number;
   resolved_at?: number;
-};
+} & DenyDetails;
 
 type GetByTokenResult = StaffPinResetResult | ManualPaymentOverrideResult;
 
@@ -89,6 +99,25 @@ export const getByToken = query({
       ...(req.resolved_at !== undefined ? { resolved_at: req.resolved_at } : {}),
     };
 
+    // Populate denier details (reason + manager name/code) when the row is denied,
+    // so the "already denied" surfaces can render informative copy instead of a
+    // generic message. Cross-module read goes via auth/internal per ADR-034.
+    const denyDetails: DenyDetails = {};
+    if (effectiveStatus === "denied") {
+      if (req.denied_at !== undefined) denyDetails.denied_at = req.denied_at;
+      if (req.deny_reason !== undefined) denyDetails.deny_reason = req.deny_reason;
+      if (req.denied_by_manager_id) {
+        const m = await ctx.runQuery(
+          internal.auth.internal._getStaffNameCode_internal,
+          { staffId: req.denied_by_manager_id },
+        );
+        if (m) {
+          denyDetails.denied_by_manager_name = m.name;
+          if (m.code) denyDetails.denied_by_manager_code = m.code;
+        }
+      }
+    }
+
     if (req.kind === "staff_pin_reset") {
       if (!req.subject_staff_id) return null;
 
@@ -105,6 +134,7 @@ export const getByToken = query({
         subject_staff_name: staffInfo.name,
         subject_staff_code: staffInfo.code,
         ...base,
+        ...denyDetails,
       };
     }
 
@@ -137,6 +167,7 @@ export const getByToken = query({
           ...(requester_name !== undefined ? { requester_name } : {}),
         },
         ...base,
+        ...denyDetails,
       };
     }
 

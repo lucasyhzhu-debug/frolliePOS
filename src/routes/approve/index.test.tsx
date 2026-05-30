@@ -491,15 +491,22 @@ describe("Approve route — manual_payment_override variant", () => {
     expect(screen.getByText(/already approved/i)).toBeInTheDocument();
   });
 
-  it("shows already-denied screen when status is denied", () => {
+  it("shows already-denied screen when status is denied (with denier + reason)", () => {
     mockQueryReturn = {
       ...pendingPaymentRequest,
       status: "denied",
       resolved_at: Date.now() - 2 * 60 * 1000,
+      deny_reason: "looks fraudulent",
+      denied_by_manager_name: "Lucy",
+      denied_by_manager_code: "MGR01",
+      denied_at: Date.now() - 60_000,
     };
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt();
 
-    expect(screen.getByText(/payment request was declined/i)).toBeInTheDocument();
+    // v0.4 enrichment: the already-denied surface names the denier + reason
+    expect(screen.getByText(/was declined by/i)).toBeInTheDocument();
+    expect(screen.getByText(/Lucy/)).toBeInTheDocument();
+    expect(screen.getByText(/looks fraudulent/)).toBeInTheDocument();
   });
 });

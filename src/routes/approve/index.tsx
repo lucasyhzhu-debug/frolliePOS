@@ -74,6 +74,11 @@ interface PinResetProps {
     subject_staff_code?: string;
     status: string;
     token_expires_at: number;
+    // Populated when status is "denied" (getByToken backend fills these)
+    deny_reason?: string;
+    denied_by_manager_name?: string;
+    denied_by_manager_code?: string;
+    denied_at?: number;
   };
 }
 
@@ -461,6 +466,11 @@ interface ManualPaymentProps {
     };
     status: string;
     token_expires_at: number;
+    // Populated when status is "denied" (getByToken backend fills these)
+    deny_reason?: string;
+    denied_by_manager_name?: string;
+    denied_by_manager_code?: string;
+    denied_at?: number;
   };
 }
 
@@ -825,8 +835,8 @@ export default function Approve() {
     );
   }
 
-  // ── Already resolved (resolved/denied) ───────────────────────────────────
-  if (request.status === "resolved" || request.status === "denied") {
+  // ── Already RESOLVED (terminal: approved + committed) ───────────────────
+  if (request.status === "resolved") {
     if (request.kind === "staff_pin_reset") {
       return (
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
@@ -838,21 +848,56 @@ export default function Approve() {
       );
     }
     if (request.kind === "manual_payment_override") {
-      const wasApproved = request.status === "resolved";
       return (
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          {wasApproved ? (
-            <>
-              <CheckCircle2 className="h-8 w-8 text-teal-600" />
-              <p className="text-sm font-medium">
-                ✓ Payment of {rp(request.display.amount_idr)} already approved.
-              </p>
-            </>
-          ) : (
-            <>
-              <XCircle className="h-8 w-8 text-destructive" />
-              <p className="text-sm font-medium">This payment request was declined.</p>
-            </>
+          <CheckCircle2 className="h-8 w-8 text-teal-600" />
+          <p className="text-sm font-medium">
+            ✓ Payment of {rp(request.display.amount_idr)} already approved.
+          </p>
+        </main>
+      );
+    }
+  }
+
+  // ── Already DENIED (terminal: declined, includes reason + manager) ──────
+  if (request.status === "denied") {
+    const denierName = request.denied_by_manager_name;
+    const denierCode = request.denied_by_manager_code;
+    const denierLabel =
+      denierName && denierCode
+        ? `${denierName} (${denierCode})`
+        : denierName ?? denierCode ?? "a manager";
+    const reason = request.deny_reason;
+
+    if (request.kind === "staff_pin_reset") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <XCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm font-medium">
+            PIN reset for {request.subject_staff_name} was declined by {denierLabel}.
+          </p>
+          {reason && (
+            <p className="text-sm text-muted-foreground italic">
+              &ldquo;{reason}&rdquo;
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {request.subject_staff_name} stays locked until the natural lockout cycle expires.
+          </p>
+        </main>
+      );
+    }
+    if (request.kind === "manual_payment_override") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <XCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm font-medium">
+            Payment of {rp(request.display.amount_idr)} was declined by {denierLabel}.
+          </p>
+          {reason && (
+            <p className="text-sm text-muted-foreground italic">
+              &ldquo;{reason}&rdquo;
+            </p>
           )}
         </main>
       );
