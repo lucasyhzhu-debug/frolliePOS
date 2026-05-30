@@ -1,4 +1,9 @@
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import Stub from "@/components/layout/Stub";
 export default function Settlements() {
-  return <Stub name="Settlements" />;
+  return (
+    <SpokeLayout title="Settlements">
+      <Stub name="Settlements" />
+    </SpokeLayout>
+  );
 }

@@ -1,4 +1,9 @@
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import Stub from "@/components/layout/Stub";
 export default function StockIn() {
-  return <Stub name="Stock in" />;
+  return (
+    <SpokeLayout title="Stock in">
+      <Stub name="Stock in" />
+    </SpokeLayout>
+  );
 }
