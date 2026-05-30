@@ -100,6 +100,38 @@ async function seedSession(
 }
 
 describe("getChatIdByRole lookup chain", () => {
+  it("returns active chat (archivedAt === undefined), skips archived — prod gotcha regression", async () => {
+    // Regression for the Convex optional-field filter gotcha: .eq("archivedAt", undefined)
+    // can pass in convex-test but diverge in prod. The safe pattern is broader index +
+    // JS post-filter on r.archivedAt === undefined. This test seeds both archived and
+    // active rows for the same role to assert only the active one is returned.
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("telegramChats", {
+        chatId: "-1000",
+        chatType: "supergroup" as const,
+        title: "Old Managers",
+        role: "managers",
+        registeredAt: Date.now() - 10 * 86_400_000,
+        lastSeenAt: Date.now() - 10 * 86_400_000,
+        archivedAt: Date.now() - 5 * 86_400_000,
+      });
+      await ctx.db.insert("telegramChats", {
+        chatId: "-2000",
+        chatType: "supergroup" as const,
+        title: "Current Managers",
+        role: "managers",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
+    });
+    const chatId = await t.query(
+      internal.telegram.chatRegistry.internal.getChatIdByRole,
+      { role: "managers" },
+    );
+    expect(chatId).toBe("-2000");
+  });
+
   it("returns chatId of an active row matching the role", async () => {
     const t = convexTest(schema);
     await seedRow(t, { chatId: "-100111", role: "managers" });

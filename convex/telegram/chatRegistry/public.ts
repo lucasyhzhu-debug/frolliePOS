@@ -80,12 +80,12 @@ export const mgrAssignRole = mutation({
     const previousRole = target?.role ?? null;
     let displacedFromChatId: string | undefined;
     if (args.role !== null) {
-      const holder = await ctx.db
+      // Broader index + JS post-filter on archivedAt === undefined (prod gotcha pattern).
+      const roleRows = await ctx.db
         .query("telegramChats")
-        .withIndex("by_role_archived", (q) =>
-          q.eq("role", args.role!).eq("archivedAt", undefined),
-        )
-        .first();
+        .withIndex("by_role", (q) => q.eq("role", args.role!))
+        .collect();
+      const holder = roleRows.filter((r) => r.archivedAt === undefined)[0];
       if (holder && holder.chatId !== args.chatId) displacedFromChatId = holder.chatId;
     }
 

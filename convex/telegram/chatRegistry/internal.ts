@@ -96,12 +96,12 @@ export async function assignRoleImpl(
     );
   }
 
-  const currentHolder = await ctx.db
+  // Broader index + JS post-filter on archivedAt === undefined (prod gotcha pattern).
+  const roleRows = await ctx.db
     .query("telegramChats")
-    .withIndex("by_role_archived", (q) =>
-      q.eq("role", args.role!).eq("archivedAt", undefined),
-    )
-    .first();
+    .withIndex("by_role", (q) => q.eq("role", args.role!))
+    .collect();
+  const currentHolder = roleRows.filter((r) => r.archivedAt === undefined)[0] ?? null;
   if (currentHolder && currentHolder._id !== target._id) {
     if (!args.forceReassign) {
       throw new ConvexError(
@@ -161,18 +161,16 @@ export type SeedResult =
 export const getChatIdByRole = internalQuery({
   args: { role: v.string() },
   handler: async (ctx, args): Promise<string> => {
-    // KNOWN: `.eq("archivedAt", undefined)` works in convex-test but is a
-    // documented prod-divergence gotcha (see memory: convex-optional-field-
-    // filter-gotcha). The Telegram POC ran live with this pattern, so the
-    // assumption holds for now — but a safer rewrite (post-filter in JS for
-    // archivedAt === undefined) is tracked in PROGRESS.md v0.5 stabilization.
-    // Same idiom also used in mgrAssignRole's displaced-holder lookup.
-    const row = await ctx.db
+    // Use broader by_role index then post-filter in JS on archivedAt === undefined.
+    // .eq("archivedAt", undefined) works in convex-test but diverges in prod
+    // (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
+    // the proven-safe pattern; by_role_archived kept in schema for other uses.
+    const rows = await ctx.db
       .query("telegramChats")
-      .withIndex("by_role_archived", (q) =>
-        q.eq("role", args.role).eq("archivedAt", undefined),
-      )
-      .first();
+      .withIndex("by_role", (q) => q.eq("role", args.role))
+      .collect();
+    const active = rows.filter((r) => r.archivedAt === undefined);
+    const row = active[0];
     if (row) return row.chatId;
 
     if (
