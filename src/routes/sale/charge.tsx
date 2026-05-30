@@ -486,8 +486,16 @@ export default function SaleCharge() {
                     // The paid effect handles navigation; clear id to avoid stale state.
                     setApprovalRequestId(null);
                   }}
-                  onDenied={() => setApprovalRequestId(null)}
-                  onExpired={() => setApprovalRequestId(null)}
+                  onDenied={() => {
+                    setApprovalRequestId(null);
+                    toast.error(
+                      "Approval denied by manager — try again or contact them directly.",
+                    );
+                  }}
+                  onExpired={() => {
+                    setApprovalRequestId(null);
+                    toast.error("Approval request expired — please try again.");
+                  }}
                 />
               </div>
             ) : !ceilingReached ? (
