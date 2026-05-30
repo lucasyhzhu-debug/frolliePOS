@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router";
 import { useQuery, useAction } from "convex/react";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
@@ -8,6 +8,13 @@ import { NumericKeypad } from "@/components/pos/NumericKeypad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { rp } from "@/lib/format";
 
 /*
@@ -82,6 +89,16 @@ function PinResetVariant({ token, request }: PinResetProps) {
   const idempotencyIntent = `approve-pin-reset:${token}`;
   const idempotencyKey = useIdempotency(idempotencyIntent);
   const approveAction = useAction(api.approvals.actions.approveStaffPinReset);
+
+  // Token-gated active-managers list for the picker (replaces the v0.4 text input)
+  const managers = useQuery(api.approvals.public.listActiveManagers, { token });
+
+  // Auto-advance: once the manager PIN reaches 4 digits, move focus to new PIN
+  useEffect(() => {
+    if (activeField === "managerPin" && managerPin.length === 4) {
+      setActiveField("newPin");
+    }
+  }, [managerPin, activeField]);
 
   function handleKeyPress(key: string) {
     setError(undefined);
@@ -171,23 +188,38 @@ function PinResetVariant({ token, request }: PinResetProps) {
         className="flex w-full max-w-sm flex-col gap-5"
         aria-label="PIN reset form"
       >
-        {/* Manager staff code */}
+        {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="staff-code">Your manager staff code</Label>
-          <Input
-            id="staff-code"
-            type="text"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
+          <Label htmlFor="staff-code">Your manager identity</Label>
+          <Select
             value={staffCode}
-            onChange={(e) => {
-              setStaffCode(e.target.value);
+            onValueChange={(value) => {
+              setStaffCode(value);
               setError(undefined);
             }}
-            placeholder="e.g. MGR01"
-            disabled={pending}
-          />
+            disabled={pending || managers === undefined || managers === null}
+          >
+            <SelectTrigger id="staff-code">
+              <SelectValue
+                placeholder={
+                  managers === undefined
+                    ? "Loading…"
+                    : managers === null
+                      ? "Link expired"
+                      : managers.length === 0
+                        ? "No managers configured"
+                        : "Select a manager"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {managers?.map((m) => (
+                <SelectItem key={m._id} value={m.code}>
+                  {m.code} — {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Manager PIN entry */}
@@ -319,6 +351,9 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
 
   const approveAction = useAction(api.approvals.actions.approveManualPayment);
   const denyAction = useAction(api.approvals.actions.denyRequest);
+
+  // Token-gated active-managers list for the picker (replaces v0.4 text input)
+  const managers = useQuery(api.approvals.public.listActiveManagers, { token });
 
   function handleKeyPress(key: string) {
     setError(undefined);
@@ -462,23 +497,38 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
         className="flex w-full max-w-sm flex-col gap-5"
         aria-label="Manual payment approval form"
       >
-        {/* Manager staff code */}
+        {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="mgr-staff-code">Your staff code (e.g. S-0001)</Label>
-          <Input
-            id="mgr-staff-code"
-            type="text"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
+          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Select
             value={staffCode}
-            onChange={(e) => {
-              setStaffCode(e.target.value);
+            onValueChange={(value) => {
+              setStaffCode(value);
               setError(undefined);
             }}
-            placeholder="e.g. MGR01"
-            disabled={pending || denyPending}
-          />
+            disabled={pending || denyPending || managers === undefined || managers === null}
+          >
+            <SelectTrigger id="mgr-staff-code">
+              <SelectValue
+                placeholder={
+                  managers === undefined
+                    ? "Loading…"
+                    : managers === null
+                      ? "Link expired"
+                      : managers.length === 0
+                        ? "No managers configured"
+                        : "Select a manager"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {managers?.map((m) => (
+                <SelectItem key={m._id} value={m.code}>
+                  {m.code} — {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Manager PIN entry */}

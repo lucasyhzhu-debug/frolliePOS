@@ -31,6 +31,46 @@ import { __resetForTests } from "@/hooks/useIdempotency";
 // ---------- mocks ------------------------------------------------------------
 
 let mockQueryReturn: unknown = undefined;
+// Default managers returned by the second useQuery call (listActiveManagers).
+// Tests don't assert on the dropdown contents — they just need a valid array
+// so the Select renders without crashing on `.map`.
+const DEFAULT_MANAGERS = [
+  { _id: "m1", name: "Lucy", code: "MGR01" },
+  { _id: "m2", name: "Marco", code: "MGR02" },
+];
+
+// jsdom doesn't implement these; Radix UI Select calls them when opening
+// the dropdown. Polyfill before any Select renders.
+if (typeof window !== "undefined") {
+  if (!window.HTMLElement.prototype.scrollIntoView) {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  }
+  if (!window.HTMLElement.prototype.hasPointerCapture) {
+    window.HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+  }
+  if (!window.HTMLElement.prototype.releasePointerCapture) {
+    window.HTMLElement.prototype.releasePointerCapture = vi.fn();
+  }
+}
+
+// Helper: click the manager-identity Select and pick the option whose code text matches.
+// Uses role="option" to target the dropdown list item specifically (avoids
+// "multiple elements" errors when Radix duplicates text in trigger + portal).
+async function selectManager(code: string) {
+  const { fireEvent, screen, waitFor } = await import("@testing-library/react");
+  const trigger = screen.getByLabelText(/your manager identity/i);
+  fireEvent.click(trigger);
+  await waitFor(() =>
+    expect(screen.getByRole("option", { name: new RegExp(`^${code}\\b`) }))
+      .toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${code}\\b`) }));
+}
+let mockManagersReturn: unknown = DEFAULT_MANAGERS;
+// Per-render useQuery slot counter: slot 0 = getByToken, slot 1 = listActiveManagers.
+// Reset to 0 in beforeEach. Same modulo-cycling trick as the useAction slots so
+// re-renders map back to the same stubs.
+let queryCounter = 0;
 
 let mockApproveStaffPinReset: ReturnType<typeof vi.fn>;
 let mockApproveManualPayment: ReturnType<typeof vi.fn>;
@@ -49,7 +89,15 @@ vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   return {
     ...actual,
-    useQuery: () => mockQueryReturn,
+    useQuery: (_query: unknown, args: unknown) => {
+      // Dispatch by args shape — getByToken takes { rawToken }, listActiveManagers
+      // takes { token }. Convex FunctionReferences can't be safely string-coerced
+      // (Symbol.toPrimitive throws), so we can't dispatch by query identity.
+      if (args && typeof args === "object" && "token" in args && !("rawToken" in args)) {
+        return mockManagersReturn;
+      }
+      return mockQueryReturn;
+    },
     // Each call to useAction() assigns the next slot index to a closure.
     // Re-renders of the same component will call useAction() again — React
     // 19 doesn't guarantee hook call deduplication. To handle this, we use
@@ -91,6 +139,7 @@ function stageActions(...stubs: Array<ReturnType<typeof vi.fn>>) {
   actionSlots.length = 0;
   actionSlots.push(...stubs);
   slotCounter = 0;
+  queryCounter = 0;
 }
 
 function renderAt(token = "test-token-abc") {
@@ -118,6 +167,8 @@ describe("Approve route (/approve/:token) — public PIN-reset page", () => {
     __resetForTests();
     actionSlots.length = 0;
     slotCounter = 0;
+    queryCounter = 0;
+    mockManagersReturn = DEFAULT_MANAGERS;
     mockQueryReturn = undefined;
     mockApproveStaffPinReset = vi.fn().mockResolvedValue({ resolved: true });
     mockApproveManualPayment = vi.fn().mockResolvedValue({ resolved: true });
@@ -183,7 +234,7 @@ describe("Approve route (/approve/:token) — public PIN-reset page", () => {
 
     expect(screen.getByRole("heading", { name: /PIN Reset/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Andi/).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(/your manager staff code/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/your manager identity/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Reset PIN/i })).toBeInTheDocument();
   });
 
@@ -223,6 +274,8 @@ describe("Approve route — manual_payment_override variant", () => {
     __resetForTests();
     actionSlots.length = 0;
     slotCounter = 0;
+    queryCounter = 0;
+    mockManagersReturn = DEFAULT_MANAGERS;
     mockQueryReturn = pendingPaymentRequest;
     mockApproveStaffPinReset = vi.fn().mockResolvedValue({ resolved: true });
     mockApproveManualPayment = vi.fn().mockResolvedValue({ resolved: true });
@@ -262,9 +315,7 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt("my-test-token");
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "MGR01" },
-    });
+    await selectManager("MGR01");
 
     // Enter 4-digit PIN via keyboard events (NumericKeypad binds to document.keydown)
     fireEvent.keyDown(document, { key: "1" });
@@ -293,9 +344,7 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt();
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "MGR01" },
-    });
+    await selectManager("MGR01");
     fireEvent.keyDown(document, { key: "1" });
     fireEvent.keyDown(document, { key: "2" });
     fireEvent.keyDown(document, { key: "3" });
@@ -333,9 +382,7 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt("deny-test-token");
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "MGR02" },
-    });
+    await selectManager("MGR02");
     fireEvent.keyDown(document, { key: "5" });
     fireEvent.keyDown(document, { key: "6" });
     fireEvent.keyDown(document, { key: "7" });
@@ -366,9 +413,7 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt();
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "MGR01" },
-    });
+    await selectManager("MGR01");
     fireEvent.keyDown(document, { key: "1" });
     fireEvent.keyDown(document, { key: "2" });
     fireEvent.keyDown(document, { key: "3" });
@@ -394,9 +439,7 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt();
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "MGR01" },
-    });
+    await selectManager("MGR01");
     fireEvent.keyDown(document, { key: "9" });
     fireEvent.keyDown(document, { key: "9" });
     fireEvent.keyDown(document, { key: "9" });
@@ -417,9 +460,11 @@ describe("Approve route — manual_payment_override variant", () => {
     stageActions(mockApproveManualPayment, mockDenyRequest);
     renderAt();
 
-    fireEvent.change(screen.getByLabelText(/Your staff code/i), {
-      target: { value: "STF01" },
-    });
+    // Pre-dropdown UX let the user type any staff code (incl. non-managers); the
+    // v0.4 dropdown only lists active managers. The NOT_MANAGER error path now
+    // only triggers as a defense-in-depth on the backend — the action stub will
+    // throw it regardless of what the UI selected.
+    await selectManager("MGR01");
     fireEvent.keyDown(document, { key: "1" });
     fireEvent.keyDown(document, { key: "2" });
     fireEvent.keyDown(document, { key: "3" });

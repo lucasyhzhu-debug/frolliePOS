@@ -165,3 +165,34 @@ export const getRequestStatus = query({
     return { status };
   },
 });
+
+/**
+ * List active managers for the /approve page's manager picker.
+ * Token-gated per ADR-029 ("token authorizes VIEW"): a valid approval token
+ * is required, so this isn't a public staff-roster leak. Returns null when
+ * the token is invalid/expired so the UI can surface "Link expired".
+ */
+export const listActiveManagers = query({
+  // Arg name intentionally differs from getByToken (`rawToken`) so test mocks
+  // can dispatch the two queries by args-shape — Convex FunctionReferences
+  // don't safely coerce to strings, so we can't dispatch by query identity.
+  args: { token: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ _id: string; name: string; code: string }> | null> => {
+    const hash = await sha256Hex(args.token);
+    const req = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_token_hash", (q) => q.eq("token_hash", hash))
+      .unique();
+    if (!req || req.token_expires_at <= Date.now()) return null;
+
+    const all = await ctx.db.query("staff").collect();
+    return all
+      .filter((s) => s.active && s.role === "manager")
+      .map((s) => ({ _id: s._id as unknown as string, name: s.name, code: s.code ?? "" }))
+      .filter((m) => m.code !== "") // a manager with no code can't authenticate via this flow
+      .sort((a, b) => a.code.localeCompare(b.code));
+  },
+});
