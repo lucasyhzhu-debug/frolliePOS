@@ -32,6 +32,7 @@ const TILES: Tile[] = [
   { id: "sett", group: "you", label: "Settlements", hint: "payouts (v0.5)", to: "/settlements", glyph: "$" },
   { id: "lock", group: "you", label: "Lock + handoff", hint: "end your shift (v0.5)", to: "/lock", glyph: "◎" },
   { id: "mgr", group: "mgr", label: "Manager home", hint: "live + approvals (v0.4)", to: "/mgr", mgrOnly: true, glyph: "★" },
+  { id: "telegram-chats", group: "mgr", label: "Telegram chats", hint: "bot registry + roles", to: "/mgr/telegram-chats", mgrOnly: true, glyph: "✈" },
 ];
 
 const GROUP_LABELS = { sell: "SELL", stock: "STOCK", you: "YOU", mgr: "MANAGER" } as const;
