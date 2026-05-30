@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { validateContext, KIND_AUDIT } from "./kinds";
+import { TOKEN_PIN_ATTEMPT_CAP } from "./lib";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
@@ -335,5 +336,110 @@ export const _linkTelegramMessage_internal = internalMutation({
       telegram_message_id: args.messageId,
       telegram_chat_id: args.chatId,
     });
+  },
+});
+
+/**
+ * Shared system-deny patch. Three v0.5.0 callers: (1) token PIN-cap trip,
+ * (2) manager-initiated cancelPendingRequest, (3) cancelAwaitingPayment cascade.
+ * Returns { denied: true } on success, { denied: false } no-op if already terminal.
+ */
+export const _markDeniedBySystem_internal = internalMutation({
+  args: {
+    requestId: v.id("pos_approval_requests"),
+    deny_reason: v.string(),
+    cancelled_by_manager_id: v.optional(v.id("staff")),
+  },
+  handler: async (ctx, args) => {
+    const req = await ctx.db.get(args.requestId);
+    if (!req) throw new Error("REQUEST_NOT_FOUND");
+    if (req.status !== "pending") return { denied: false };
+    await ctx.db.patch(args.requestId, {
+      status: "denied",
+      denied_at: Date.now(),
+      denied_by_manager_id: args.cancelled_by_manager_id ?? "system",
+      deny_reason: args.deny_reason,
+    });
+    await logAudit(ctx, {
+      actor_id: args.cancelled_by_manager_id ?? "system",
+      action: KIND_AUDIT[req.kind].denied,
+      entity_type: "pos_approval_requests",
+      entity_id: args.requestId,
+      source: args.cancelled_by_manager_id ? "booth_inline" : "system",
+      reason: args.deny_reason,
+      metadata: { approval_request_id: args.requestId, kind: req.kind },
+    });
+    return { denied: true };
+  },
+});
+
+/**
+ * Cascade-deny all live pending approvals for a given txn. Used when a sale is
+ * cancelled mid-payment so managers can't approve a request whose underlying
+ * txn already moved on.
+ */
+export const _cancelPendingApprovalsForTxn_internal = internalMutation({
+  args: { txnId: v.id("pos_transactions"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
+      .collect();
+    const now = Date.now();
+    for (const req of rows) {
+      if (req.entity_id !== args.txnId) continue;
+      if (req.token_expires_at <= now) continue;
+      await ctx.db.patch(req._id, {
+        status: "denied",
+        denied_at: now,
+        denied_by_manager_id: "system",
+        deny_reason: args.reason,
+      });
+      await logAudit(ctx, {
+        actor_id: "system",
+        action: KIND_AUDIT[req.kind].denied,
+        entity_type: "pos_approval_requests",
+        entity_id: req._id,
+        source: "system",
+        reason: args.reason,
+        metadata: { approval_request_id: req._id, kind: req.kind, cascaded_from_txn: args.txnId },
+      });
+    }
+  },
+});
+
+/**
+ * Increment failed_pin_attempts and auto-deny on cap-trip. Called from action
+ * sites after argon2id PIN verify fails. Returns { capped: true } if the 5th
+ * miss tripped the cap so the caller can throw REQUEST_REVOKED instead of
+ * INVALID_PIN.
+ */
+export const _recordTokenPinFailure_internal = internalMutation({
+  args: { requestId: v.id("pos_approval_requests") },
+  handler: async (ctx, args) => {
+    const req = await ctx.db.get(args.requestId);
+    if (!req) throw new Error("REQUEST_NOT_FOUND");
+    if (req.status !== "pending") return { capped: false };
+    const next = (req.failed_pin_attempts ?? 0) + 1;
+    await ctx.db.patch(args.requestId, { failed_pin_attempts: next });
+    if (next >= TOKEN_PIN_ATTEMPT_CAP) {
+      await ctx.db.patch(args.requestId, {
+        status: "denied",
+        denied_at: Date.now(),
+        denied_by_manager_id: "system",
+        deny_reason: "too_many_pin_attempts",
+      });
+      await logAudit(ctx, {
+        actor_id: "system",
+        action: KIND_AUDIT[req.kind].denied,
+        entity_type: "pos_approval_requests",
+        entity_id: args.requestId,
+        source: "system",
+        reason: "too_many_pin_attempts",
+        metadata: { approval_request_id: args.requestId, kind: req.kind, failed_pin_attempts: next },
+      });
+      return { capped: true };
+    }
+    return { capped: false };
   },
 });
