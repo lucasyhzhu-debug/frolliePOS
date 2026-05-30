@@ -185,6 +185,35 @@ export const _replaceInvoiceCommit_internal = internalMutation({
 });
 
 /**
+ * Cancel the active (no `cancelled_at` stamp) Xendit invoice for a given txn,
+ * if one exists. Called by transactions.cancelAwaitingPayment when a staff
+ * member abandons a payment in progress.
+ *
+ * "Active" is inferred from the absence of `cancelled_at` — pos_xendit_invoices
+ * has no live status field (ADR-036). If no active invoice exists, this is a
+ * no-op. payments owns pos_xendit_invoices so this write lives here (ADR-034).
+ */
+export const _cancelActiveInvoiceForTxn_internal = internalMutation({
+  args: {
+    txnId: v.id("pos_transactions"),
+    cancel_reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const active = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .filter((q) => q.eq(q.field("cancelled_at"), undefined))
+      .first();
+    if (!active) return { cancelled: false };
+    await ctx.db.patch(active._id, {
+      cancelled_at: Date.now(),
+      cancelled_reason: args.cancel_reason,
+    });
+    return { cancelled: true };
+  },
+});
+
+/**
  * Resolve a Xendit provider id (QR id / FVA id) → invoice row → txn, record the
  * reconciliation fields on the payments-owned invoice row, then funnel to
  * _confirmPaid_internal threading paid_amount for the mismatch flag. Unknown id

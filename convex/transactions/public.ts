@@ -326,6 +326,82 @@ export const listRecentAwaitingPayment = query({
   },
 });
 
+/**
+ * Cancel a transaction that is sitting in `awaiting_payment` (staff at
+ * /sale/charge hits "Abandon"). Three atomic side effects:
+ *
+ *   1. Transition txn → `cancelled`.
+ *   2. Mark any active Xendit invoice for the txn as locally cancelled
+ *      (QR codes can't be remotely cancelled — we stop processing them per
+ *      ADR-036; invoice is "active" if it has no `cancelled_at` yet).
+ *   3. Cascade-deny any live `manual_payment_override` approval requests
+ *      for the txn via `_cancelPendingApprovalsForTxn_internal` (Task 9).
+ *
+ * State guard: only works when txn.status === "awaiting_payment". Throws
+ * TXN_NOT_AWAITING if the webhook already confirmed payment (race — caller
+ * should redirect to charge-success instead of showing the abandon dialog).
+ *
+ * Born under the strict ESLint rule (Task 6): idempotencyKey + withIdempotency
+ * + authCheck are wired from day one. requireSession (NOT requireManagerSession)
+ * — any active staff session at the booth can abandon a pending payment.
+ */
+export const cancelAwaitingPayment = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+  },
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; txnId: Id<"pos_transactions">; idempotencyKey: string },
+    { cancelled: true }
+  >(
+    "transactions.cancelAwaitingPayment",
+    async (ctx, args): Promise<{ cancelled: true }> => {
+      const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
+
+      const txn = await ctx.db.get(args.txnId);
+      if (!txn) throw new Error("TXN_NOT_FOUND");
+      if (txn.status !== "awaiting_payment") throw new Error("TXN_NOT_AWAITING");
+
+      await ctx.db.patch(args.txnId, {
+        status: "cancelled",
+        cancelled_at: Date.now(),
+        cancelled_reason: "user_cancelled_at_payment",
+      });
+
+      // Mark the active invoice as locally cancelled. Route through
+      // payments._cancelActiveInvoiceForTxn_internal — payments owns
+      // pos_xendit_invoices (ADR-034); transactions must not touch it directly.
+      await ctx.runMutation(
+        internal.payments.internal._cancelActiveInvoiceForTxn_internal,
+        { txnId: args.txnId, cancel_reason: "txn_cancelled" },
+      );
+
+      // Cascade-deny any live pending manual_payment_override approvals for
+      // this txn so managers can't approve a stale request.
+      await ctx.runMutation(
+        internal.approvals.internal._cancelPendingApprovalsForTxn_internal,
+        { txnId: args.txnId, reason: "txn_cancelled" },
+      );
+
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "transaction.cancelled",
+        entity_type: "pos_transactions",
+        entity_id: args.txnId,
+        source: "booth_inline",
+        device_id: deviceId,
+        reason: "user_cancelled_at_payment",
+      });
+
+      return { cancelled: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
+  ),
+});
+
 export const deleteDraft = mutation({
   args: {
     idempotencyKey: v.string(),
