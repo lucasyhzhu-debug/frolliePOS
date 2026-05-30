@@ -281,6 +281,21 @@ export const _confirmPaid_internal = internalMutation({
 });
 
 /**
+ * Return the status + total of a transaction for approval gating.
+ * Called by approvals.actions.requestManualPaymentApproval to verify the txn is
+ * awaiting_payment before minting an approval request. Cross-module read kept
+ * here so approvals does not read pos_transactions directly (ADR-034).
+ */
+export const _getTxnSummary_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<{ status: string; total: number } | null> => {
+    const t = await ctx.db.get(args.txnId);
+    if (!t) return null;
+    return { status: t.status, total: t.total }; // field name confirmed: `total` (schema.ts:21)
+  },
+});
+
+/**
  * Internal commit for transactions.actions.cancelTransaction. Separate
  * function so the action can call it via runMutation after Xendit cancel.
  * Only valid on awaiting_payment transactions — throws INVALID_STATE_FOR_CANCEL

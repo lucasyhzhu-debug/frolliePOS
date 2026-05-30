@@ -3,6 +3,7 @@
 import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { internal, api } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import { argon2Verify } from "hash-wasm";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
@@ -203,5 +204,137 @@ export const approveStaffPinReset = action({
       requestId: req._id,
       resolved_by_manager_id: manager._id,
     });
+  },
+});
+
+/**
+ * Staff-initiated off-booth manual-payment approval request. Called from the
+ * charge screen when no manager is present at the booth to confirm payment.
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. Resolve session → staffId (auth module boundary, ADR-034).
+ *   3. Fetch txn summary via transactions module (ADR-034). Reject if not awaiting_payment.
+ *   4. Dedup: one live pending request per txn — return existing if found.
+ *   5. Mint 32-byte URL-safe token; persist only its SHA-256 hash (ADR-029).
+ *   6. Create the approval request row via _createRequest_internal.
+ *   7. Send Telegram card to managers group. On failure, delete the request row
+ *      (recovery pattern mirrors notifyStaffLockout) and rethrow.
+ *   8. Mark notified + best-effort link telegram_message_id.
+ *   9. Write action-level idempotency cache.
+ */
+export const requestManualPaymentApproval = action({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ requestId: Id<"pos_approval_requests"> }> => {
+    // Step 1: idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> };
+
+    // Step 2: resolve session
+    const requester = await ctx.runQuery(
+      internal.auth.internal._resolveSession_internal,
+      { sessionId: args.sessionId },
+    );
+    if (!requester) throw new Error("NO_SESSION");
+
+    const requesterInfo = await ctx.runQuery(
+      internal.auth.internal._getStaffNameCode_internal,
+      { staffId: requester.staffId },
+    );
+
+    // Step 3: validate txn state
+    const txn = await ctx.runQuery(
+      internal.transactions.internal._getTxnSummary_internal,
+      { txnId: args.txnId },
+    );
+    if (!txn || txn.status !== "awaiting_payment") {
+      throw new Error("TXN_NOT_AWAITING");
+    }
+
+    // Step 4: dedup — one live request per txn
+    const existing = await ctx.runQuery(
+      internal.approvals.internal._listPendingByKind_internal,
+      { kind: "manual_payment_override", entityId: args.txnId as unknown as string },
+    );
+    if (existing.length > 0) return { requestId: existing[0]._id };
+
+    const baseUrl = process.env.POS_BASE_URL;
+    if (!baseUrl) throw new Error("POS_BASE_URL not set");
+
+    // Step 5: mint token (only hash persisted — ADR-029)
+    const rawToken = randomBytes(32).toString("base64url");
+    const tokenHash = sha256Hex(rawToken);
+    const now = Date.now();
+
+    // Step 6: create request row
+    const { requestId } = await ctx.runMutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "manual_payment_override",
+        requester_staff_id: requester.staffId,
+        entity_type: "pos_transactions",
+        entity_id: args.txnId as unknown as string,
+        context: {
+          txn_id: args.txnId as unknown as string,
+          amount_idr: txn.total,
+          reason: args.reason,
+        },
+        reason: args.reason,
+        triggered_by_event: "manual_payment_request",
+        triggered_at: now,
+        token_hash: tokenHash,
+        token_expires_at: now + TOKEN_TTL_MS,
+      },
+    );
+
+    // Step 7: send Telegram card — delete request on failure (recovery mirrors notifyStaffLockout)
+    let messageId: number | undefined;
+    try {
+      const sendRes = await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
+        kind: "manual_payment_override",
+        payload: {
+          amount_idr: txn.total,
+          reason: args.reason,
+          requester_name: requesterInfo?.name ?? "Staff",
+          approve_url: `${baseUrl}/approve/${rawToken}`,
+        },
+        idempotencyKey: `${args.idempotencyKey}:send`,
+      });
+      messageId = sendRes.message_id;
+    } catch (err) {
+      await ctx.runMutation(internal.approvals.internal._deleteRequest_internal, {
+        requestId,
+      });
+      throw err;
+    }
+
+    // Step 8: mark notified + best-effort link message id
+    await ctx.runMutation(internal.approvals.internal._markNotified_internal, { requestId });
+    try {
+      await ctx.runMutation(internal.approvals.internal._linkTelegramMessage_internal, {
+        requestId,
+        messageId,
+        chatId: undefined,
+      });
+    } catch {
+      // best-effort — never fail the request over a missing message link
+    }
+
+    // Step 9: cache the response (action-level idempotency)
+    const out = { requestId };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.requestManualPaymentApproval",
+      response: JSON.stringify(out),
+    });
+
+    return out;
   },
 });
