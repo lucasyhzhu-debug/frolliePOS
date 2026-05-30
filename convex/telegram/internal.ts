@@ -31,6 +31,29 @@ export const _auditSendFailed_internal = internalMutation({
 });
 
 /**
+ * Audit a founders shift-summary skip. Written when the daily cron fires but
+ * the send is intentionally skipped (founders_summary_enabled: false) or the
+ * send fails with a non-transient error.
+ *
+ * Kept here alongside the other internal mutations because this file is not
+ * "use node" — internalMutation cannot live in a "use node" file.
+ */
+export const _auditSkip_internal = internalMutation({
+  args: {
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "founders.summary_skipped",
+      entity_type: "telegram",
+      source: "system",
+      metadata: { reason: args.reason },
+    });
+  },
+});
+
+/**
  * Append a row to telegram_log (outbound debug trail). Kept here alongside
  * _auditSendFailed_internal so both mutations share the same non-node file.
  */
