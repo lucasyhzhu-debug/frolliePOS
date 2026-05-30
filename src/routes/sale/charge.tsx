@@ -470,6 +470,12 @@ export default function SaleCharge() {
                 </Button>
                 <Button
                   variant="secondary"
+                  disabled={session.staff.role !== "manager"}
+                  title={
+                    session.staff.role !== "manager"
+                      ? "Sign in as a manager to use this, or use 'Request manager approval' below"
+                      : undefined
+                  }
                   onClick={() => {
                     setOverrideReason("");
                     setOverrideError(undefined);
@@ -546,7 +552,7 @@ export default function SaleCharge() {
       <PinSheet
         open={overrideOpen}
         title="Manager override"
-        label="Enter manager PIN to confirm payment"
+        label={`Enter your PIN, ${session.staff.name} — confirms payment`}
         pending={overridePending}
         error={overrideError}
         onSubmit={handleOverrideSubmit}
