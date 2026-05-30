@@ -41,7 +41,7 @@ export const approvalsTables = {
     // getRequestStatus, getRecentPinResetForStaff). No mutation writes "expired",
     // so it is intentionally absent from this union — preventing a future
     // contributor from inserting a row in a state the lifecycle mutations would
-    // refuse to act on (they would throw REQUEST_ALREADY_RESOLVED instead of
+    // refuse to act on (they would throw REQUEST_RESOLVED instead of
     // the user-expected TOKEN_EXPIRED). v0.4 adds "denied" for manager reject.
     status: v.union(
       v.literal("pending"),

@@ -315,25 +315,20 @@ export const _dailySalesSummary_internal = internalQuery({
     ctx,
     args,
   ): Promise<{ totalSalesIdr: number; txnCount: number; flaggedCount: number }> => {
-    // Use by_status_created (["status", "created_at"]) to bound the scan to
-    // "paid" rows in the [dayStartMs, dayEndMs) window. paid_at vs created_at:
-    // for paid rows these are usually within seconds of each other (Xendit
-    // webhook latency); the post-filter on paid_at ?? created_at handles the
-    // rare edge case where paid_at falls in the window but created_at does not
-    // (cart was opened just before WIB midnight, paid just after).
-    const candidates = await ctx.db
+    // by_status_paid_at indexes paid rows by the timestamp the summary cares
+    // about (paid_at). Earlier versions used by_status_created with a 1h
+    // backstop, which silently dropped cross-midnight late-paid sales (cart
+    // opened day N, paid >1h into day N+1). paid_at is server-set inside
+    // _confirmPaid (ADR-031), so for status="paid" rows it is always present.
+    const paid = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_created", (q) =>
+      .withIndex("by_status_paid_at", (q) =>
         q
           .eq("status", "paid")
-          .gte("created_at", args.dayStartMs - 60 * 60 * 1000) // 1h backstop for cross-window paid rows
-          .lt("created_at", args.dayEndMs),
+          .gte("paid_at", args.dayStartMs)
+          .lt("paid_at", args.dayEndMs),
       )
       .collect();
-    const paid = candidates.filter((x) => {
-      const ts = x.paid_at ?? x.created_at;
-      return ts >= args.dayStartMs && ts < args.dayEndMs;
-    });
     const totalSalesIdr = paid.reduce((s, x) => s + (x.total ?? 0), 0);
     const flaggedCount = paid.filter((x) => (x.flags ?? 0) !== 0).length;
     return { totalSalesIdr, txnCount: paid.length, flaggedCount };

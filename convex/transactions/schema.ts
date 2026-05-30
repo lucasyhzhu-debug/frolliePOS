@@ -43,6 +43,11 @@ export const transactionsTables = {
     confirmed_manual_reason: v.optional(v.string()),
   })
     .index("by_status_created", ["status", "created_at"])   // ADR-026 reconciliation
+    // by_status_paid_at scopes the founders shift-summary aggregate to paid rows
+    // by paid_at (the field the summary is actually about). Replaces the prior
+    // by_status_created + 1h-backstop approach, which silently dropped cross-
+    // midnight late-paid sales (cart at 21:00 WIB N, paid 02:30 WIB N+1).
+    .index("by_status_paid_at", ["status", "paid_at"])
     .index("by_receipt_number", ["receipt_number"])
     .index("by_staff_created", ["staff_id", "created_at"]),
 

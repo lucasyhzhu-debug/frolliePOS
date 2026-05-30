@@ -224,13 +224,8 @@ describe("approvals/actions.approveStaffPinReset", () => {
     expect(req?.denied_by_manager_id).toBe(mgrId);
     expect(req?.deny_reason).toBe("suspicious lockout");
 
-    // Lucy's PIN must NOT have changed — deny never resets.
-    const lucy = await t.run((ctx) => ctx.db.get(lucyId));
-    const originalLucy = await t.action(internal.auth.actions._hashPin_internal, { pin: "1234" });
-    // Hashes for the same PIN aren't equal due to salt; the right check is that
-    // logging in with the original PIN still works.
-    expect(lucy?.pin_hash).toBeDefined();
-    expect(originalLucy).toBeDefined();
+    // Lucy's PIN must NOT have changed — deny never resets. Verified by login
+    // with her original PIN. (Direct hash compare doesn't work — argon2 salts.)
     const login = await t.action(api.auth.actions.loginWithPin, {
       idempotencyKey: "post-deny-login",
       staffId: lucyId,

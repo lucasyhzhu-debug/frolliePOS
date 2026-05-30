@@ -337,6 +337,7 @@ export const mgrAssignRole = mutation({
     },
     MgrOpResult
   >("telegram.mgrAssignRole", async (ctx, args) => {
+    // authCheck below has already validated; re-read for typed staffId on audit.
     const { staffId } = await requireManagerSession(ctx, args.sessionId);
     if (args.role !== null && !isKnownTelegramRole(args.role)) {
       throw new ConvexError(
@@ -385,6 +386,10 @@ export const mgrAssignRole = mutation({
       },
     });
     return { ok: true as const };
+  }, {
+    authCheck: async (ctx, args) => {
+      await requireManagerSession(ctx, args.sessionId);
+    },
   }),
 });
 
@@ -407,6 +412,13 @@ export const mgrArchiveChat = mutation({
       .query("telegramChats")
       .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
       .unique();
+    // Idempotent re-archive: if already archived, return without re-patching
+    // archivedAt or emitting a false-transition audit row. archiveChatImpl
+    // would otherwise overwrite archivedAt with a fresh Date.now() and the
+    // audit would claim archived:false → true even when no transition happened.
+    if (target?.archivedAt !== undefined) {
+      return { ok: true as const };
+    }
     const previousRole = target?.role ?? null;
     await archiveChatImpl(ctx, args.chatId);
     await logAudit(ctx, {
@@ -419,6 +431,10 @@ export const mgrArchiveChat = mutation({
       source: "booth_inline",
     });
     return { ok: true as const };
+  }, {
+    authCheck: async (ctx, args) => {
+      await requireManagerSession(ctx, args.sessionId);
+    },
   }),
 });
 
@@ -437,6 +453,15 @@ export const mgrRestoreChat = mutation({
     MgrOpResult
   >("telegram.mgrRestoreChat", async (ctx, args) => {
     const { staffId } = await requireManagerSession(ctx, args.sessionId);
+    const target = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
+      .unique();
+    // Idempotent re-restore: if already not-archived, return without emitting
+    // a false-transition audit row (mirror of mgrArchiveChat).
+    if (target === null || target.archivedAt === undefined) {
+      return { ok: true as const };
+    }
     await restoreChatImpl(ctx, args.chatId);
     await logAudit(ctx, {
       actor_id: staffId,
@@ -448,6 +473,10 @@ export const mgrRestoreChat = mutation({
       source: "booth_inline",
     });
     return { ok: true as const };
+  }, {
+    authCheck: async (ctx, args) => {
+      await requireManagerSession(ctx, args.sessionId);
+    },
   }),
 });
 

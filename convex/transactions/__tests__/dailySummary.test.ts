@@ -83,3 +83,32 @@ it("returns zeros when no paid txns in the window", async () => {
   expect(res.txnCount).toBe(0);
   expect(res.flaggedCount).toBe(0);
 });
+
+it("includes cross-midnight late-paid sales (created day N, paid day N+1)", async () => {
+  // Regression test: the prior by_status_created + 1h-backstop implementation
+  // silently dropped rows where created_at was >1h before dayStartMs even when
+  // paid_at fell inside the window. by_status_paid_at scopes on paid_at directly.
+  const t = convexTest(schema);
+  const dayStart = 1_700_000_000_000;
+  const dayEnd = dayStart + 86_400_000;
+  const created = dayStart - 6 * 60 * 60 * 1000; // 6h BEFORE the day starts
+  const paid = dayStart + 30 * 60 * 1000;        // 30m INTO the day
+
+  await t.run(async (ctx) => {
+    const staffId = await ctx.db.insert("staff", {
+      name: "L", pin_hash: "x", role: "staff", active: true, created_at: created,
+    });
+    await ctx.db.insert("pos_transactions", {
+      subtotal: 80_000, voucher_discount: 0, total: 80_000,
+      staff_id: staffId, status: "paid", flags: 0,
+      created_at: created, paid_at: paid,
+    });
+  });
+
+  const res = await t.query(
+    internal.transactions.internal._dailySalesSummary_internal,
+    { dayStartMs: dayStart, dayEndMs: dayEnd },
+  );
+  expect(res.txnCount).toBe(1);
+  expect(res.totalSalesIdr).toBe(80_000);
+});

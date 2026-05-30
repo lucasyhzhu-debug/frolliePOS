@@ -32,10 +32,9 @@ function mapError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes("TOKEN_INVALID")) return "Invalid link";
   if (msg.includes("TOKEN_EXPIRED")) return "Link expired";
-  // REQUEST_ALREADY_RESOLVED comes from _markResolved_internal / _markDenied_internal
-  // when a concurrent second manager races to act on the same request. The action layer
-  // throws REQUEST_RESOLVED for its own pre-checks; both paths collapse to one user message.
-  if (msg.includes("REQUEST_ALREADY_RESOLVED")) return "Already resolved";
+  // REQUEST_RESOLVED is emitted by BOTH the action-layer pre-check (actions.ts)
+  // AND the internal-layer race guard (_markResolved/_markDenied_internal).
+  // Single code, single mapping — see Simplify finding ALTITUDE-2.
   if (msg.includes("REQUEST_RESOLVED")) return "Already resolved";
   if (msg.includes("NOT_MANAGER")) return "That staff code is not a manager";
   if (msg.includes("INVALID_PIN")) return "Wrong manager PIN";

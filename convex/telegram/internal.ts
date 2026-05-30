@@ -6,6 +6,7 @@
 
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 
 /**
@@ -99,6 +100,17 @@ export const _purgeOldTelegramUpdates_internal = internalMutation({
     for (const row of old) {
       await ctx.db.delete(row._id);
     }
+    // If we filled the batch, more eligible rows likely remain — chain the
+    // next batch immediately so a high-volume backlog converges in minutes
+    // instead of days. The daily cron alone could not catch up to sustained
+    // rates above PURGE_BATCH/day.
+    if (old.length === PURGE_BATCH) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.telegram.internal._purgeOldTelegramUpdates_internal,
+        {},
+      );
+    }
     return { deleted: old.length };
   },
 });
@@ -119,6 +131,14 @@ export const _purgeOldTelegramLog_internal = internalMutation({
       .take(PURGE_BATCH);
     for (const row of old) {
       await ctx.db.delete(row._id);
+    }
+    // Chain next batch on a full tick — see _purgeOldTelegramUpdates_internal.
+    if (old.length === PURGE_BATCH) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.telegram.internal._purgeOldTelegramLog_internal,
+        {},
+      );
     }
     return { deleted: old.length };
   },

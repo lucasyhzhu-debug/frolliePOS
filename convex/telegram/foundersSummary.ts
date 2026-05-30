@@ -71,15 +71,24 @@ export const sendFoundersSummary = internalAction({
     // Step 1b: pre-check the founders role binding so an unbound role is audited
     // as "role_unbound" — not "send_failed" (which would conflate config errors
     // with real Telegram 5xx). CLAUDE.md rule #12 + audit operational hygiene.
+    //
+    // Narrow the catch to the EXACT message getChatIdByRole throws on missing
+    // binding. A bare catch would also swallow transient Convex platform errors
+    // and audit them as role_unbound — suppressing the resilient retry path and
+    // silently losing the day's summary on a temporary hiccup.
     try {
       await ctx.runQuery(internal.telegram.chatRegistry.getChatIdByRole, {
         role: "founders",
       });
-    } catch {
-      await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
-        reason: "role_unbound",
-      });
-      return { skipped: "role_unbound" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("No Telegram chat assigned to role")) {
+        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+          reason: "role_unbound",
+        });
+        return { skipped: "role_unbound" };
+      }
+      throw err; // transient / unknown — let the resilient wrapper retry
     }
 
     // Step 2: WIB day window

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
-import { validateContext, KIND_AUDIT, type ApprovalKind } from "./kinds";
+import { validateContext, KIND_AUDIT } from "./kinds";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
@@ -34,7 +34,7 @@ export const _createRequest_internal = internalMutation({
   },
   handler: async (ctx, args) => {
     // INVARIANT: every writer validates context here — no bypass path.
-    const validatedContext = validateContext(args.kind as ApprovalKind, args.context);
+    const validatedContext = validateContext(args.kind, args.context);
 
     const requestId = await ctx.db.insert("pos_approval_requests", {
       kind: args.kind,
@@ -54,7 +54,7 @@ export const _createRequest_internal = internalMutation({
 
     await logAudit(ctx, {
       actor_id: args.requester_staff_id ?? "system",
-      action: KIND_AUDIT[args.kind as ApprovalKind].requested,
+      action: KIND_AUDIT[args.kind].requested,
       entity_type: "pos_approval_requests",
       entity_id: requestId,
       source: "system",
@@ -164,7 +164,11 @@ export const _markResolved_internal = internalMutation({
       // Same-key retries never reach here — withIdempotency short-circuits first.
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
-      if (req.status !== "pending") throw new Error("REQUEST_ALREADY_RESOLVED");
+      // Same error code as the action-layer pre-check (actions.ts), so the
+// frontend mapError needs only one branch. Fires only on a concurrent
+// second manager racing to commit; same-key retries short-circuit
+// at the withIdempotency cache lookup above.
+if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "resolved",
         resolved_at: Date.now(),
@@ -177,7 +181,7 @@ export const _markResolved_internal = internalMutation({
       // manual_payment approvals" without joining back to pos_approval_requests.
       await logAudit(ctx, {
         actor_id: args.resolved_by_manager_id,
-        action: KIND_AUDIT[req.kind as ApprovalKind].resolved,
+        action: KIND_AUDIT[req.kind].resolved,
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
         source: args.source,
@@ -256,7 +260,11 @@ export const _markDenied_internal = internalMutation({
     async (ctx, args) => {
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
-      if (req.status !== "pending") throw new Error("REQUEST_ALREADY_RESOLVED");
+      // Same error code as the action-layer pre-check (actions.ts), so the
+// frontend mapError needs only one branch. Fires only on a concurrent
+// second manager racing to commit; same-key retries short-circuit
+// at the withIdempotency cache lookup above.
+if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "denied",
         denied_at: Date.now(),
@@ -265,7 +273,7 @@ export const _markDenied_internal = internalMutation({
       });
       await logAudit(ctx, {
         actor_id: args.denied_by_manager_id,
-        action: KIND_AUDIT[req.kind as ApprovalKind].denied,
+        action: KIND_AUDIT[req.kind].denied,
         entity_type: "pos_approval_requests",
         entity_id: args.requestId,
         source: args.source,
