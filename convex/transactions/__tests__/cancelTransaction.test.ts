@@ -110,11 +110,11 @@ describe("transactions/actions.cancelTransaction", () => {
     expect(approval?.deny_reason).toBe("txn_cancelled");
 
     // Audit log should have a denial row with source "system" and cascaded_from_txn.
-    // KIND_AUDIT["manual_payment_override"].denied === "approval.denied"
+    // KIND_AUDIT["manual_payment_override"].denied === "manual_payment_override.denied" (per-kind verbs, v0.5.0)
     // Note: audit_log.metadata is stored as a JSON string by logAudit — parse before inspect.
     const auditRows = await t.run((ctx) =>
       ctx.db.query("audit_log")
-        .withIndex("by_action_date", (q) => q.eq("action", "approval.denied"))
+        .withIndex("by_action_date", (q) => q.eq("action", "manual_payment_override.denied"))
         .collect(),
     );
     const txnIdStr = s.txn as unknown as string;

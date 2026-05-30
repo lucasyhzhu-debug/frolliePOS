@@ -33,14 +33,13 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
   }
 }
 
-// KNOWN: today both kinds map to identical strings. The registry exists for
-// v0.5+ when refund/void kinds will want kind-distinguishing audit verbs
-// (e.g. "refund.resolved"). Until then, kind-distinguishing dashboards must
-// filter on metadata.kind (set in _markResolved_internal / _markDenied_internal),
-// not on audit.action. Tracked in PROGRESS.md v0.5 (Surfaced 2026-05-30 by simplify).
+// Per-kind audit verbs — v0.5.0. Dashboard queries (v0.5.3+) can filter by kind
+// directly on audit.action without parsing metadata.kind. Pre-v0.5.0 rows that
+// carry the generic "approval.*" strings stay as-is (ADR-007 append-only); the
+// dashboard read layer must accept both shapes.
 export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: string; denied: string }> = {
-  staff_pin_reset:         { requested: "approval.created", resolved: "approval.resolved", denied: "approval.denied" },
-  manual_payment_override: { requested: "approval.created", resolved: "approval.resolved", denied: "approval.denied" },
+  staff_pin_reset:         { requested: "staff_pin_reset.requested",         resolved: "staff_pin_reset.resolved",         denied: "staff_pin_reset.denied" },
+  manual_payment_override: { requested: "manual_payment_override.requested", resolved: "manual_payment_override.resolved", denied: "manual_payment_override.denied" },
 };
 
 /** Maps kind → telegram template id (send.ts) AND → /approve UI variant id. */

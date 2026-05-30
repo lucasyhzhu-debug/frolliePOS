@@ -35,7 +35,7 @@ it("_markDenied_internal sets denied lifecycle + audits", async () => {
     ctx.db
       .query("audit_log")
       .filter((q) => q.eq(q.field("entity_id"), req))
-      .filter((q) => q.eq(q.field("action"), "approval.denied"))
+      .filter((q) => q.eq(q.field("action"), "manual_payment_override.denied"))
       .first(),
   );
   expect(denyAudit?.source).toBe("telegram_approval");

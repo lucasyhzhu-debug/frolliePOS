@@ -123,11 +123,11 @@ describe("cancelPendingRequest", () => {
 
     expect(r2).toEqual(r1);
 
-    // Only one approval.denied audit row — no double-execution.
+    // Only one manual_payment_override.denied audit row — no double-execution.
     const deniedAudits = await t.run(async (ctx) =>
       ctx.db
         .query("audit_log")
-        .filter((q) => q.eq(q.field("action"), "approval.denied"))
+        .filter((q) => q.eq(q.field("action"), "manual_payment_override.denied"))
         .collect(),
     );
     expect(deniedAudits.length).toBe(1);
