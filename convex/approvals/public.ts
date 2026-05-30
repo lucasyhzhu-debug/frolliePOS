@@ -198,6 +198,75 @@ export const getRequestStatus = query({
 });
 
 /**
+ * Most recent staff_pin_reset request for a given staff, within a recency
+ * window so stale terminal-state rows don't keep firing the login-screen
+ * "your reset was declined" toast on every session. v0.4 surface: the
+ * locked-out staff sits on the PIN screen waiting for the manager — if the
+ * manager declines via Telegram, the login screen needs to surface that.
+ *
+ * Returns null when there's no recent pin_reset for this staff. Otherwise
+ * returns the row's effective status + denier details when denied. NOT
+ * token-gated — staff identity is already public on the login picker, so
+ * this isn't a fresh info leak.
+ */
+export const getRecentPinResetForStaff = query({
+  args: { staffId: v.id("staff") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    requestId: string;
+    status: "pending" | "resolved" | "denied" | "expired";
+    triggered_at: number;
+    deny_reason?: string;
+    denied_by_manager_name?: string;
+    denied_by_manager_code?: string;
+    denied_at?: number;
+  } | null> => {
+    const RECENCY_MS = 10 * 60 * 1000;
+    const cutoff = Date.now() - RECENCY_MS;
+
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
+      .collect();
+
+    const pinResets = rows
+      .filter((r) => r.kind === "staff_pin_reset" && r.triggered_at > cutoff)
+      .sort((a, b) => b.triggered_at - a.triggered_at);
+
+    if (pinResets.length === 0) return null;
+    const req = pinResets[0];
+
+    const status: "pending" | "resolved" | "denied" | "expired" =
+      req.status === "pending" && req.token_expires_at <= Date.now() ? "expired" : req.status;
+
+    let denied_by_manager_name: string | undefined;
+    let denied_by_manager_code: string | undefined;
+    if (status === "denied" && req.denied_by_manager_id) {
+      const m = await ctx.runQuery(
+        internal.auth.internal._getStaffNameCode_internal,
+        { staffId: req.denied_by_manager_id },
+      );
+      if (m) {
+        denied_by_manager_name = m.name;
+        denied_by_manager_code = m.code;
+      }
+    }
+
+    return {
+      requestId: req._id as unknown as string,
+      status,
+      triggered_at: req.triggered_at,
+      ...(req.deny_reason !== undefined ? { deny_reason: req.deny_reason } : {}),
+      ...(denied_by_manager_name !== undefined ? { denied_by_manager_name } : {}),
+      ...(denied_by_manager_code !== undefined ? { denied_by_manager_code } : {}),
+      ...(req.denied_at !== undefined ? { denied_at: req.denied_at } : {}),
+    };
+  },
+});
+
+/**
  * List active managers for the /approve page's manager picker.
  * Token-gated per ADR-029 ("token authorizes VIEW"): a valid approval token
  * is required, so this isn't a public staff-roster leak. Returns null when
