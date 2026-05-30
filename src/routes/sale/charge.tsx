@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useNavigate, useParams } from "react-router";
-import { useAction } from "convex/react";
+import { useNavigate, useParams, useBlocker } from "react-router";
+import { useAction, useMutation } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConnDot } from "@/components/layout/ConnDot";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { toast } from "sonner";
@@ -71,6 +72,38 @@ export default function SaleCharge() {
   const requestManualPaymentApproval = useAction(
     api.approvals.actions.requestManualPaymentApproval,
   );
+  const cancelAwaitingPayment = useMutation(
+    api.transactions.public.cancelAwaitingPayment,
+  );
+
+  // ---- navigation guard ----
+  // Block route transitions while the transaction is awaiting payment so staff
+  // can explicitly cancel (invalidating the active QR/VA) before leaving.
+  const shouldBlock = txn?.status === "awaiting_payment";
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      shouldBlock && currentLocation.pathname !== nextLocation.pathname,
+  );
+
+  // Cancel-payment handler used by the AbandonCartDialog payment variant.
+  // Swallows TXN_NOT_AWAITING races — if the webhook confirmed while the dialog
+  // was open, the txn is already paid; treat as success (let blocker proceed).
+  const onCancelPaymentForBlocker = async () => {
+    if (session.status !== "active" || !txnId) return;
+    try {
+      await cancelAwaitingPayment({
+        sessionId: session.sessionId,
+        txnId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+    } catch (e) {
+      if ((e as Error).message.includes("TXN_NOT_AWAITING")) {
+        // Race with successful webhook — txn already paid; proceed silently.
+        return;
+      }
+      throw e;
+    }
+  };
 
   // ---- ceiling timer ----
   // Wall-clock elapsed since the current invoice started showing. Resets on a
@@ -349,13 +382,7 @@ export default function SaleCharge() {
   const invoiceMatches = invoice != null && invoice.method === selectedMethod;
 
   return (
-    <main className="flex flex-1 flex-col gap-0 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <h1 className="text-base font-semibold">Charge</h1>
-        <ConnDot />
-      </header>
-
+    <SpokeLayout title="Payment">
       <section className="flex flex-1 flex-col items-center gap-4 overflow-y-auto p-4">
         {phase.kind === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
@@ -557,6 +584,15 @@ export default function SaleCharge() {
         )}
       </section>
 
+      {/* Navigation guard: fires while txn is awaiting_payment */}
+      <AbandonCartDialog
+        variant="payment"
+        open={blocker.state === "blocked"}
+        onCancel={() => blocker.reset?.()}
+        onProceed={() => blocker.proceed?.()}
+        onCancelPayment={onCancelPaymentForBlocker}
+      />
+
       {/* Manager override PIN sheet — reason is REQUIRED before confirm fires. */}
       <PinSheet
         open={overrideOpen}
@@ -619,6 +655,6 @@ export default function SaleCharge() {
           </div>
         }
       />
-    </main>
+    </SpokeLayout>
   );
 }
