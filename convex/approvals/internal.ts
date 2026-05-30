@@ -61,7 +61,7 @@ export const _createRequest_internal = internalMutation({
       source: "system",
       // approval_request_id surfaced explicitly in metadata per ADR-030 amendment —
       // the `by_entity` index already covers entity_id lookups, but keeping the
-      // id in metadata matches the convention used by approval.resolved/denied rows.
+      // id in metadata matches the convention used by <kind>.resolved/<kind>.denied rows.
       metadata: {
         approval_request_id: requestId,
         kind: args.kind,
@@ -89,8 +89,8 @@ export const _deleteRequest_internal = internalMutation({
   },
   handler: async (ctx, args) => {
     // Emit a compensating audit row BEFORE deleting so the trail self-documents:
-    // approval.created → approval.notification_failed (no notified, no resolved),
-    // rather than an orphaned approval.created with no follow-up (m-6).
+    // <kind>.requested → approval.notification_failed (no notified, no resolved),
+    // rather than an orphaned <kind>.requested with no follow-up (m-6).
     await logAudit(ctx, {
       actor_id: "system",
       action: "approval.notification_failed",

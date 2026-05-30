@@ -10,6 +10,7 @@ it("accepts both wa_approval (legacy) and telegram_approval (new) sources", asyn
   }));
   for (const source of ["wa_approval", "telegram_approval"] as const) {
     await t.mutation(internal.audit.internal.__test_log, {
+      // legacy action string — pre-v0.5.0 rows use "approval.*"; kept here intentionally (ADR-007)
       actor_id: staff, action: "approval.resolved",
       entity_type: "pos_approval_requests", entity_id: "r1", source,
     });

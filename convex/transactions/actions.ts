@@ -27,7 +27,7 @@ import { internal, api } from "../_generated/api";
  *
  * Actions have no ctx.db, so all audit happens inside the mutations:
  *   - _cancelCommit_internal logs "transaction.cancelled".
- *   - _cancelPendingApprovalsForTxn_internal logs approval.denied for each cascaded row.
+ *   - _cancelPendingApprovalsForTxn_internal logs manual_payment_override.denied for each cascaded row.
  */
 export const cancelTransaction = action({
   args: {
