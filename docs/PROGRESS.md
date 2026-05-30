@@ -787,6 +787,7 @@ Plan not yet written. Largest phase. Scope per WORKFLOW.md.
 - 🗂️ `dashboard.ts` — full manager dashboard queries
 - 🗂️ `receipt.ts` — receipt token generation, public lookup
 - 🗂️ `settlements.ts` — full reconciliation (Xendit settlement webhook + nightly recon)
+- 🗂️ Manager cancel-pending-approval action — `approvals.public.cancelPendingRequest({ sessionId, requestId, reason? })` lets a manager invalidate a still-pending `pos_approval_requests` row from a manager-only UI surface (e.g. an "Active requests" panel on `/mgr/telegram-chats` or a new `/mgr/approvals`). Today the dedup guard in `notifyStaffLockout`/`requestManualPaymentApproval` correctly blocks retries while a request is pending, but if its URL goes stale (POS_BASE_URL changes, the manager loses the Telegram message, dev tunnel rotates), the only recovery is a Convex `run` against `_deleteRequest_internal`. _Surfaced 2026-05-30 by v0.4 E2E: tunnel rotation left a pending lockout request pointing at a dead URL; the dedup guard correctly blocked lockout retries with no UI path to clear._
 
 ### Frontend (`src/`)
 - 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
