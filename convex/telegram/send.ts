@@ -50,6 +50,12 @@ export const sendTemplate = action({
       }),
     ),
     idempotencyKey: v.string(),
+    // Optional: caller-supplied chatId that skips the role-resolve query.
+    // Use when the caller has already resolved the chatId (e.g. a cron that
+    // checks role-binding first and wants to avoid a second lookup between
+    // the binding check and the send — eliminating the unbind race window).
+    // `role` is still required for audit logging even when this is set.
+    chatIdOverride: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ message_id: number; ok: true }> => {
     // Step 1: action-level idempotency pre-check
@@ -58,11 +64,14 @@ export const sendTemplate = action({
     });
     if (cached) return JSON.parse(cached) as { message_id: number; ok: true };
 
-    // Step 2: resolve chat id by role — throws if no chat assigned
-    const chatId = await ctx.runQuery(
-      internal.telegram.chatRegistry.internal.getChatIdByRole,
-      { role: args.role },
-    );
+    // Step 2: resolve chat id — prefer chatIdOverride if provided (race-safe
+    // path), otherwise resolve from role (standard path).
+    const chatId = args.chatIdOverride
+      ? args.chatIdOverride
+      : await ctx.runQuery(
+          internal.telegram.chatRegistry.internal.getChatIdByRole,
+          { role: args.role },
+        );
 
     // Step 3: render the message
     let rendered: RenderedMessage;
