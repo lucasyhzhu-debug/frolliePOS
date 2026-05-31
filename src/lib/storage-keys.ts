@@ -5,3 +5,4 @@
  */
 export const SESSION_KEY = "frollie-session-id";
 export const LAST_STAFF_KEY = "frollie-last-staff";
+export const DEVICE_ID_KEY = "frollie-device-id";
