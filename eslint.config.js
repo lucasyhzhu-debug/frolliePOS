@@ -41,6 +41,8 @@ const OWNERSHIP = {
   pos_receipt_counters: "transactions",
   // payments module
   pos_xendit_invoices: "payments",
+  // receipts module
+  pos_receipt_html_cache: "receipts",
   // vouchers module
   pos_vouchers: "vouchers",
   pos_voucher_redemptions: "vouchers",

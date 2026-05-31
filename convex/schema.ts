@@ -5,6 +5,7 @@ import { idempotencyTables } from "./idempotency/schema";
 import { auditTables } from "./audit/schema";
 import { telegramTables } from "./telegram/schema";
 import { transactionsTables } from "./transactions/schema";
+import { receiptsTables } from "./receipts/schema";
 import { paymentsTables } from "./payments/schema";
 import { inventoryTables } from "./inventory/schema";
 import { vouchersTables } from "./vouchers/schema";
@@ -18,6 +19,7 @@ export default defineSchema({
   ...auditTables,
   ...telegramTables,
   ...transactionsTables,
+  ...receiptsTables,
   ...paymentsTables,
   ...inventoryTables,
   ...vouchersTables,

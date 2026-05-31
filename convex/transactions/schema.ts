@@ -5,6 +5,7 @@ export const transactionsTables = {
   pos_transactions: defineTable({
     // Identity
     receipt_number: v.optional(v.string()),     // "R-YYYY-NNNN" — allocated at _confirmPaid only
+    receipt_token: v.optional(v.string()),      // 32-byte URL-safe random; allocated at _confirmPaid; capability per ADR-021
 
     // Status (v0.3 states; v0.5 adds "voided" via refund row presence per ADR-008)
     status: v.union(
@@ -49,6 +50,7 @@ export const transactionsTables = {
     // midnight late-paid sales (cart at 21:00 WIB N, paid 02:30 WIB N+1).
     .index("by_status_paid_at", ["status", "paid_at"])
     .index("by_receipt_number", ["receipt_number"])
+    .index("by_receipt_token", ["receipt_token"])
     .index("by_staff_created", ["staff_id", "created_at"]),
 
   pos_transaction_lines: defineTable({
