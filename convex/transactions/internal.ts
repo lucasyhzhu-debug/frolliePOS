@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
+import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
 
 /**
@@ -262,10 +263,11 @@ export const _confirmPaid_internal = internalMutation({
       }
     }
 
-    // 7. Patch txn → paid
+    // 7. Patch txn → paid (mint receipt_token here per ADR-021; V8-safe via tokens.ts Web Crypto)
     await ctx.db.patch(args.txnId, {
       status: "paid",
       receipt_number: receiptNumber,
+      receipt_token: mintUrlSafeToken(),
       paid_at: Date.now(),
       confirmed_via: args.source,
       confirmed_mgr_approver_id: args.mgr_approver_id,
