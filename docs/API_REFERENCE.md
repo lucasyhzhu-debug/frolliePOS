@@ -212,12 +212,12 @@ Routed via `pathPrefix: "/r/"` in `convex/http.ts`; handler is `handleReceiptRou
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| internal q | `_buildViewModel_internal` | `{ transactionId }` | `ReceiptViewModel \| null` | Builds the view model from `pos_transactions` + `pos_transaction_lines`. Returns null if txn missing, not paid, or missing `receipt_number`. PR A returns `refunds: []`; PR B populates from `refunds/internal._listForTransaction_internal`. |
-| internal q | `_renderReceiptByToken_internal` | `{ token }` | `{ html } \| null` | Looks up txn by `by_receipt_token` index, builds view model, calls `renderReceipt`. |
-| internal q | `_getCachedReceipt_internal` | `{ token }` | `{ html, expires_at } \| null` | Returns cached HTML row if present and not expired, else null. |
+| internal q | `_buildViewModel_internal` | `{ transactionId }` | `ReceiptViewModel \| null` | Builds the view model by routing through `transactions/internal._getPaidTxnWithLinesForReceipt_internal` + `payments/internal._getPaidInvoiceForTxn_internal` (ADR-034). Returns null if txn missing or not paid; throws `PAID_TXN_MISSING_PAID_AT` on data-corruption case. PR A returns `refunds: []`; PR B populates from `refunds/internal._listForTransaction_internal`. |
+| internal q | `_renderReceiptByToken_internal` | `{ token }` | `{ html } \| null` | Routes through `transactions/internal._getPaidTxnWithLinesByToken_internal` (single txn+lines aggregate read) + payments invoice helper, then renders inline. |
+| internal q | `_getCachedReceipt_internal` | `{ token }` | `{ html } \| null` | Returns cached HTML row if present and not expired, else null. (`expires_at` filter applied internally; not part of the response shape.) |
 | internal m | `_writeCacheEntry_internal` | `{ token, html }` | `void` | Idempotent upsert; sets `expires_at = now + 24h`. |
-| internal m | `_purgeReceiptCache_internal` | `{ transactionId }` | `void` | PR A stub (no-op). PR B replaces with assertion-throw + cache delete. |
-| internal m | `_lazyMintReceiptToken_internal` | `{ transactionId, actor }` | `{ token } \| null` | Dormant in v0.5.1. Mints a token for tokenless paid txns (pre-v0.5.1 rows). Idempotent. Audit-logs `receipt.token_minted` (source: `booth_inline`, metadata: `{ lazy: true }`). |
+| internal m | `_purgeReceiptCache_internal` | `{ transactionId }` | `void` | PR A: throws `"PR A stub — PR B replaces"`. No callers in PR A. PR B replaces with real cache delete by txn lookup. The throw catches premature wire-up in CI rather than leaving stale "LUNAS" receipts cached for 24h post-refund. |
+| internal m | `_lazyMintReceiptToken_internal` | `{ transactionId, actor }` | `{ token }` | Dormant in v0.5.1. Mints a token for tokenless paid txns (pre-v0.5.1 rows). Idempotent (returns existing token if set, no audit row on idempotent path). Throws `TXN_NOT_FOUND` / `TXN_NOT_PAID`. Routes the patch through `transactions/internal._ensureReceiptTokenForPaidTxn_internal` (ADR-034). Audit-logs `receipt.token_minted` (source: `booth_inline`, metadata: `{ lazy: true }`) on fresh mint only. |
 
 ## `convex/xendit/` internal helpers
 

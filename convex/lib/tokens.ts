@@ -44,7 +44,15 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return out;
 }
 
+// Convex V8's globalThis.crypto is a CSPRNG (same primitive as
+// node:crypto.randomBytes). Do not "optimize" to Math.random — that is NOT
+// cryptographically secure and would compromise approval and receipt tokens.
 export function mintUrlSafeToken(bytes = 32): string {
+  // Sandbox-regression defense: surface a clear error on first mint rather
+  // than a confusing TypeError if globalThis.crypto is ever stripped.
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error("CSPRNG_UNAVAILABLE: globalThis.crypto.getRandomValues missing");
+  }
   const buf = new Uint8Array(bytes);
   // Web Crypto is exposed as `globalThis.crypto` in Convex V8 + Node 19+.
   globalThis.crypto.getRandomValues(buf);

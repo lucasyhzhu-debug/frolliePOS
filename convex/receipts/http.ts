@@ -1,6 +1,13 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 
+// Browser cache hint — short enough that refunds (PR B) reflect within minutes
+// of a manager action, long enough to make the customer's "refresh to re-show
+// receipt" snappy. Server-side cache row (24h) is the source of truth for
+// invalidation; this header is just a hint.
+const BROWSER_CACHE_MAX_AGE_SEC = 300;
+const CACHE_CONTROL_VALUE = `private, max-age=${BROWSER_CACHE_MAX_AGE_SEC}`;
+
 /**
  * GET /r/:token — serves the receipt HTML to the public. Token IS the capability
  * per ADR-021. 24h HTML cache per ADR-022; lazy regenerate on miss.
@@ -9,8 +16,9 @@ import { internal } from "../_generated/api";
  *   200 text/html — receipt rendered
  *   404 text/html — token missing, txn not paid, or backing data unavailable
  *
- * Cache-Control: private, max-age=300 — let the browser short-cache for refresh
- * snappiness, but invalidation is server-side (cache row), not HTTP.
+ * Cache-Control: private, max-age=BROWSER_CACHE_MAX_AGE_SEC — let the browser
+ * short-cache for refresh snappiness, but invalidation is server-side (cache
+ * row), not HTTP.
  */
 export const handleReceiptRoute = httpAction(async (ctx, req) => {
   const url = new URL(req.url);
@@ -31,7 +39,7 @@ export const handleReceiptRoute = httpAction(async (ctx, req) => {
       status: 200,
       headers: {
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "private, max-age=300",
+        "cache-control": CACHE_CONTROL_VALUE,
       },
     });
   }

@@ -5,6 +5,7 @@
 // block + status header added.
 
 import { formatWibDateTime } from "../lib/time";
+import { escapeHtml } from "../lib/html";
 
 // Hardcoded business identity until v0.5.3 receipt-config UI; pulled from
 // pos_settings in the render caller.
@@ -69,15 +70,6 @@ function rp(amount: number): string {
   const abs = Math.abs(amount);
   const parts = String(abs).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return `${sign}Rp ${parts}`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /** Render the receipt HTML page. Returns a complete document. */
