@@ -23,7 +23,12 @@ const CACHE_CONTROL_VALUE = `private, max-age=${BROWSER_CACHE_MAX_AGE_SEC}`;
 export const handleReceiptRoute = httpAction(async (ctx, req) => {
   const url = new URL(req.url);
   // Route registered as pathPrefix "/r/" — token is the trailing segment.
-  const token = url.pathname.split("/").pop() ?? "";
+  // Strip a trailing slash so /r/abc/ resolves to "abc" rather than "" — common
+  // when share-intent helpers (Telegram, iOS Share Sheet) append a slash.
+  const pathname = url.pathname.endsWith("/") && url.pathname !== "/"
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
+  const token = pathname.split("/").pop() ?? "";
 
   if (!token || token.length < 10) {
     return new Response(notFoundHtml(), {
@@ -53,17 +58,23 @@ export const handleReceiptRoute = httpAction(async (ctx, req) => {
     });
   }
 
-  // Write to cache for next time.
-  await ctx.runMutation(internal.receipts.internal._writeCacheEntry_internal, {
-    token,
-    html: rendered.html,
-  });
+  // Write to cache for next time. The render is already in hand — a transient
+  // cache-write failure (OCC contention, etc.) must not turn a renderable
+  // receipt into a 500. Log and serve.
+  try {
+    await ctx.runMutation(internal.receipts.internal._writeCacheEntry_internal, {
+      token,
+      html: rendered.html,
+    });
+  } catch (e) {
+    console.error("Receipt cache write failed (non-fatal):", e);
+  }
 
   return new Response(rendered.html, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "cache-control": "private, max-age=300",
+      "cache-control": CACHE_CONTROL_VALUE,
     },
   });
 });

@@ -95,6 +95,47 @@ describe("GET /r/:token httpAction", () => {
     expect(res.status).toBe(404);
   });
 
+  it("receipt still shows payment method + RRN when paying invoice was later cancelled (refund scenario)", async () => {
+    const t = convexTest(schema);
+    const token = "tok-cancelled-invoice-1";
+    const txnId = await seedPaidTxnWithToken(t, token);
+    // Seed an invoice that has been cancelled (PR B refund scenario) — receipt
+    // must still surface the method + RRN.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_xendit_invoices", {
+        transaction_id: txnId,
+        xendit_invoice_id: "qr_test_cancelled_1",
+        xendit_idempotency_key: "idemp_test_cancelled_1",
+        method: "QRIS",
+        qr_string: "00020101...",
+        receipt_id: "RRN1234567",
+        payment_source: "GoPay",
+        status_at_create: "ACTIVE",
+        created_at: Date.now() - 1000,
+        cancelled_at: Date.now(),
+        cancelled_reason: "refund",
+      });
+    });
+    const res = await t.fetch(`/r/${token}`, { method: "GET" });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // method label survives invoice cancellation
+    expect(body).toContain("QRIS");
+    // RRN surfaces
+    expect(body).toContain("RRN1234567");
+    // sanity: no em-dash placeholder for the method line
+    expect(body).not.toContain("Dibayar via —");
+  });
+
+  it("returns 200 for token with trailing slash (/r/tok-valid-12345/)", async () => {
+    const t = convexTest(schema);
+    await seedPaidTxnWithToken(t, "tok-trailing-slash");
+    const res = await t.fetch("/r/tok-trailing-slash/", { method: "GET" });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("LUNAS");
+  });
+
   it("cache hit on second call returns identical bytes", async () => {
     const t = convexTest(schema);
     await seedPaidTxnWithToken(t, "tok-cache-hit-001");

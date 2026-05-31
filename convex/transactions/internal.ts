@@ -398,6 +398,12 @@ export const _getPaidTxnWithLinesForReceipt_internal = internalQuery({
  * pos_transactions via by_receipt_token, then lines. Used by the public
  * /r/:token httpAction so receipts can dispatch end-to-end without ever
  * touching pos_transactions or pos_transaction_lines directly.
+ *
+ * Uses `.first()` rather than `.unique()`: token collisions are corruption-
+ * grade events (32 bytes of entropy makes them astronomically unlikely), and
+ * a public route should serve the matching receipt rather than 500 on the
+ * theoretical collision. "Serve the receipt that matches the token" stays
+ * consistent with the capability semantics.
  */
 export const _getPaidTxnWithLinesByToken_internal = internalQuery({
   args: { token: v.string() },
@@ -405,7 +411,7 @@ export const _getPaidTxnWithLinesByToken_internal = internalQuery({
     const txn = await ctx.db
       .query("pos_transactions")
       .withIndex("by_receipt_token", (q) => q.eq("receipt_token", args.token))
-      .unique();
+      .first();
     if (!txn) return null;
     if (txn.status !== "paid") return null;
     const lines = await ctx.db

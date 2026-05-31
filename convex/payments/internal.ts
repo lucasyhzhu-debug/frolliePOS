@@ -349,24 +349,24 @@ export const _onPaidManual_internal = internalMutation({
 });
 
 /**
- * Active (non-cancelled) Xendit invoice for a txn. Used by receipts to render
- * the real payment method ("QRIS" vs "BCA VA") and the bank RRN instead of
- * hardcoding.
+ * Paying invoice for a txn — the invoice that carries the payment_method + RRN
+ * receipts needs to render. Independent of whether the invoice was later
+ * cancelled (e.g. PR B's refund flow may stamp `cancelled_at` on the paying
+ * invoice; the receipt still needs the original method + RRN).
  *
- * "Active" = no `cancelled_at` stamp — this is the same invariant
- * _cancelActiveInvoiceForTxn_internal uses. For a paid txn this is the invoice
- * that was confirmed; webhook-confirmed invoices carry the bank `receipt_id`
- * (RRN), manually-confirmed invoices don't. Receipts surfaces RRN only if
- * present.
+ * Selection: among all invoices for this txn, return the one with the latest
+ * `paid_at` (the most recently paid). Rows without `paid_at` are skipped —
+ * they never carry a real RRN and would only be selected when no paying
+ * invoice exists, which is the same as "no invoice" for receipts purposes.
  *
- * Returns null when no active invoice exists (e.g. manual override paths where
- * no Xendit row was ever created); receipts callers fall back to a dash for
- * the payment method in that case.
+ * Webhook-confirmed invoices carry the bank `receipt_id` (RRN); manually
+ * confirmed invoices don't. Receipts surfaces RRN only if present.
  *
- * Index `by_transaction` exists on pos_xendit_invoices (payments/schema.ts);
- * one row per active invoice expected, but we sort by created_at desc and take
- * first to be defensive against the F10 "cancel-all" path that could leave
- * multiple actives mid-divergence.
+ * Returns null when no paid invoice exists (e.g. pure manual-override paths
+ * where no Xendit row was ever created); receipts callers fall back to a dash
+ * for the payment method in that case.
+ *
+ * Index `by_transaction` exists on pos_xendit_invoices (payments/schema.ts).
  */
 export const _getPaidInvoiceForTxn_internal = internalQuery({
   args: { transactionId: v.id("pos_transactions") },
@@ -375,9 +375,12 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
       .query("pos_xendit_invoices")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
       .collect();
-    const active = invoices
-      .filter((i) => i.cancelled_at === undefined)
-      .sort((a, b) => b.created_at - a.created_at);
-    return active[0] ?? null;
+    // Sort by created_at desc — pos_xendit_invoices has no `paid_at` field
+    // (webhook confirmation timestamp lives on pos_transactions). The most
+    // recently created invoice for the txn is the paying invoice. cancelled_at
+    // is NOT filtered out: PR B's refund flow may stamp cancelled_at on the
+    // paying invoice, but the receipt still needs the original method + RRN.
+    const sorted = invoices.slice().sort((a, b) => b.created_at - a.created_at);
+    return sorted[0] ?? null;
   },
 });
