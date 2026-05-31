@@ -380,7 +380,7 @@ export const cancelAwaitingPayment = mutation({
       // Cascade-deny any live pending manual_payment_override approvals for
       // this txn so managers can't approve a stale request.
       await ctx.runMutation(
-        internal.approvals.internal._cancelPendingApprovalsForTxn_internal,
+        internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
         { txnId: args.txnId, reason: "txn_cancelled" },
       );
 

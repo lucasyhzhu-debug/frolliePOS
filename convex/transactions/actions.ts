@@ -10,7 +10,7 @@ import { internal, api } from "../_generated/api";
  *   - Guard: txn.status must be "awaiting_payment".
  *   - runMutation _cancelCommit_internal flips status + logs transaction.cancelled.
  *   - After the commit, cascade-denies any live pending manual_payment_override
- *     approvals for this txn via _cancelPendingApprovalsForTxn_internal (Task 11 /
+ *     approvals for this txn via _cancelPendingManualPaymentForTxn_internal (Task 11 /
  *     v050-be-cancel-cancels-approval). The cascade fires AFTER the terminal commit
  *     so if it fails the txn cancel is already landed (txn is source of truth).
  *
@@ -27,7 +27,7 @@ import { internal, api } from "../_generated/api";
  *
  * Actions have no ctx.db, so all audit happens inside the mutations:
  *   - _cancelCommit_internal logs "transaction.cancelled".
- *   - _cancelPendingApprovalsForTxn_internal logs manual_payment_override.denied for each cascaded row.
+ *   - _cancelPendingManualPaymentForTxn_internal logs manual_payment_override.denied for each cascaded row.
  */
 export const cancelTransaction = action({
   args: {
@@ -80,7 +80,7 @@ export const cancelTransaction = action({
     //    cancel is already landed (txn is source of truth). Best-effort: the helper
     //    is a no-op when no pending rows exist (Task 11 / v050-be-cancel-cancels-approval).
     await ctx.runMutation(
-      internal.approvals.internal._cancelPendingApprovalsForTxn_internal,
+      internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
       { txnId: args.txnId, reason: "txn_cancelled" },
     );
 

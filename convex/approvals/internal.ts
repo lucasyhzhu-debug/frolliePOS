@@ -399,11 +399,16 @@ export const _markDeniedBySystem_internal = internalMutation({
 });
 
 /**
- * Cascade-deny all live pending approvals for a given txn. Used when a sale is
- * cancelled mid-payment so managers can't approve a request whose underlying
- * txn already moved on.
+ * Cascade-deny all live pending manual_payment_override approvals for a given txn.
+ * Used when a sale is cancelled mid-payment so managers can't approve a request
+ * whose underlying txn already moved on.
+ *
+ * M5 rename: was _cancelPendingApprovalsForTxn_internal — that name implied
+ * kind-agnostic behaviour but the implementation hardcodes kind==="manual_payment_override".
+ * Renamed to match actual scope. Future kinds requiring cascade should parameterize kind
+ * at that point.
  */
-export const _cancelPendingApprovalsForTxn_internal = internalMutation({
+export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
   args: { txnId: v.id("pos_transactions"), reason: v.string() },
   handler: async (ctx, args) => {
     const rows = await ctx.db
