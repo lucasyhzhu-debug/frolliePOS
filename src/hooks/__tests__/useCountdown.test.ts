@@ -96,4 +96,12 @@ describe("useCountdown", () => {
     expect(clearIntervalSpy).toHaveBeenCalled();
     clearIntervalSpy.mockRestore();
   });
+
+  it("pctRemaining is clamped to 1 when targetEpoch is beyond now + totalLifetimeMs (over-1 case)", () => {
+    // targetEpoch = now + 2 * totalLifetimeMs → raw fraction would be 2.0 without clamp
+    const target = Date.now() + 2 * DEFAULT_LIFETIME_MS;
+    const { result } = renderHook(() => useCountdown(target));
+    expect(result.current.pctRemaining).toBe(1);
+    expect(result.current.expired).toBe(false);
+  });
 });

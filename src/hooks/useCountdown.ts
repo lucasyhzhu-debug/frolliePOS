@@ -36,7 +36,7 @@ export function useCountdown(
 
   return {
     mmss: `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`,
-    pctRemaining: remaining / totalLifetimeMs,
+    pctRemaining: Math.min(1, Math.max(0, remaining / totalLifetimeMs)),
     expired: remaining === 0,
   };
 }

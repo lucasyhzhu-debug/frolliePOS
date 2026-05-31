@@ -35,6 +35,7 @@ export default function LoginRoute() {
     if (!lastId) return;
     const match = staff.find((s) => s._id === lastId);
     if (match) setStage({ kind: "pin", staff: match });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only fires when staff resolves; re-runs after stage transition are no-ops via the guard
   }, [staff]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
