@@ -18,4 +18,10 @@ describe("mintUrlSafeToken", () => {
   it("supports custom byte counts", () => {
     expect(mintUrlSafeToken(16).length).toBe(22);
   });
+
+  it("throws on non-positive or non-integer byte counts", () => {
+    expect(() => mintUrlSafeToken(0)).toThrow(/invalid byte count/);
+    expect(() => mintUrlSafeToken(-1)).toThrow(/invalid byte count/);
+    expect(() => mintUrlSafeToken(1.5)).toThrow(/invalid byte count/);
+  });
 });

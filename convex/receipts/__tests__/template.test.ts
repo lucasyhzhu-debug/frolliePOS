@@ -44,6 +44,26 @@ describe("renderReceipt — paid-only (PR A)", () => {
     expect(html).toContain("Rp 150.000");
   });
 
+  it("renders voucher row when discount > 0 even if voucher_code is missing (defensive — silent gap is worse than placeholder)", () => {
+    const html = renderReceipt({
+      ...baseVm(),
+      voucher_code: undefined,
+      voucher_discount: 20000,
+      total: 130000,
+    });
+    expect(html).toContain("Voucher");
+    expect(html).toContain("-Rp 20.000");
+  });
+
+  it("formats non-finite money as 'Rp —' rather than 'Rp NaN'", () => {
+    const html = renderReceipt({
+      ...baseVm(),
+      total: Number.NaN,
+    });
+    expect(html).toContain("Rp —");
+    expect(html).not.toContain("Rp NaN");
+  });
+
   it("renders voucher line only when voucher applied", () => {
     const noVoucher = renderReceipt(baseVm());
     expect(noVoucher).not.toContain("Voucher");

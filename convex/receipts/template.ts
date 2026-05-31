@@ -66,6 +66,10 @@ export function computeReceiptStatus(vm: ReceiptViewModel): ReceiptStatus {
 
 /** Indonesian-locale integer rupiah formatter (dot-separated thousands). */
 function rp(amount: number): string {
+  // Defensive: NaN / ±Infinity → "Rp —". A non-finite money value reaching the
+  // renderer is a bug upstream, but printing "Rp NaN" to a customer-facing
+  // receipt is worse than printing a dash.
+  if (!Number.isFinite(amount)) return "Rp —";
   const sign = amount < 0 ? "-" : "";
   const abs = Math.abs(amount);
   const parts = String(abs).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -93,8 +97,12 @@ export function renderReceipt(vm: ReceiptViewModel): string {
     })
     .join("");
 
-  const voucherHtml = vm.voucher_code
-    ? `<div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#dc2626"><span>Voucher (${escapeHtml(vm.voucher_code)})</span><span>${rp(-vm.voucher_discount)}</span></div>`
+  // Render the voucher row whenever a discount was applied, even if voucher_code
+  // is missing/empty — otherwise the discount silently vanishes from the receipt
+  // and the subtotal-to-total gap becomes unexplained. Fall back to an em-dash
+  // placeholder for the code when absent.
+  const voucherHtml = vm.voucher_discount > 0
+    ? `<div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#dc2626"><span>Voucher (${vm.voucher_code ? escapeHtml(vm.voucher_code) : "—"})</span><span>${rp(-vm.voucher_discount)}</span></div>`
     : "";
 
   const refundsBlock = vm.refunds.length === 0

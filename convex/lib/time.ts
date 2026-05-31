@@ -71,6 +71,10 @@ export function wibDayWindow(now: number): {
  * The middle dot is U+00B7 (·) — preserve it byte-exact, the receipt test asserts it.
  */
 export function formatWibDateTime(epochMs: number): string {
+  // Defensive: NaN / ±Infinity → "—". An invalid timestamp reaching the
+  // renderer is a bug upstream, but printing "NaN NaN NaN" to a customer-facing
+  // receipt is worse than printing a dash.
+  if (!Number.isFinite(epochMs)) return "—";
   const wib = new Date(epochMs + WIB_OFFSET_MS);
   const dd = String(wib.getUTCDate()).padStart(2, "0");
   const mm = ID_MONTHS[wib.getUTCMonth()];

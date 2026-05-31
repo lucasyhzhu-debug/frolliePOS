@@ -48,6 +48,12 @@ function bytesToBase64Url(bytes: Uint8Array): string {
 // node:crypto.randomBytes). Do not "optimize" to Math.random — that is NOT
 // cryptographically secure and would compromise approval and receipt tokens.
 export function mintUrlSafeToken(bytes = 32): string {
+  // Argument guard: 0 → empty string (silent capability bug); -1 → cryptic
+  // RangeError from Uint8Array; 1.5 → truncated unsigned int. Surface a clear
+  // error rather than mint a degenerate token.
+  if (!Number.isInteger(bytes) || bytes < 1) {
+    throw new Error(`mintUrlSafeToken: invalid byte count ${bytes}; must be a positive integer`);
+  }
   // Sandbox-regression defense: surface a clear error on first mint rather
   // than a confusing TypeError if globalThis.crypto is ever stripped.
   if (!globalThis.crypto?.getRandomValues) {
