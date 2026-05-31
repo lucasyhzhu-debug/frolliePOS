@@ -2,7 +2,9 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
-## v0.5.1 — Housekeeping (unreleased)
+## v0.5.0.1 — Housekeeping hotfix (2026-05-31)
+
+> The squash commit for this work landed on `main` titled `v0.5.1 — Housekeeping (#7)`. Renumbered here to `v0.5.0.1` so `v0.5.1` can refer to the **Refunds + customer receipts** feature phase (the canonical use in `docs/PROGRESS.md`, ADR-038, ADR-039). The git history is fixed; this header is the source of truth for the version label.
 
 ### Security
 - `_resolveSession_internal` now also rejects sessions whose underlying staff record is deactivated, matching `requireSession()` semantics. Closes a parity gap where a deactivated staff with an open session row could still authorise cross-module mutations (cart commit, awaiting-payment list, approvals). Cross-module callers (transactions, approvals) get the same authorisation surface as in-module callers. Dedicated unit tests cover all three rejection branches (missing/ended session, missing/inactive staff).
