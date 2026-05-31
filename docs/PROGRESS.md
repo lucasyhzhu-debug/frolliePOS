@@ -847,7 +847,7 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 - ✅ `v05-be-receipt-internal` — render + cache get/write + `_lazyMintReceiptToken_internal` (dormant) [`bfc16ef`]
 - ✅ `v05-be-receipt-token-mint` — `_confirmPaid` mints `receipt_token` internally [`963628c`]
 - ✅ `v05-be-receipt-http` — `GET /r/:token` httpAction (24h cache, status guard, 404 page) [`97e0e92`]
-- ✅ `v05-doc-pr-a` — PR A CHANGELOG + SCHEMA + CLAUDE + API_REFERENCE + PROGRESS [<this-commit-sha>]
+- ✅ `v05-doc-pr-a` — PR A CHANGELOG + SCHEMA + CLAUDE + API_REFERENCE + PROGRESS [`5d2de88`]
 
 ### PR B — refund subsystem + settlement surface (planned)
 
