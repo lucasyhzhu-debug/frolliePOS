@@ -197,6 +197,11 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
   args: {
     txnId: v.id("pos_transactions"),
     cancel_reason: v.string(),
+    // F6: Optional — when the caller has a real staff context (cancelAwaitingPayment,
+    // cancelTransaction via _cancelCommit_internal), thread actor + source so forensic
+    // queries filtering by staff or device_id surface the invoice-cancel half too.
+    actor_id: v.optional(v.union(v.id("staff"), v.literal("system"))),
+    source: v.optional(v.union(v.literal("booth_inline"), v.literal("system"))),
   },
   handler: async (ctx, args) => {
     // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
@@ -205,23 +210,31 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
       .query("pos_xendit_invoices")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
       .collect();
-    const active = candidates.find((r) => r.cancelled_at === undefined);
-    if (!active) return { cancelled: false };
-    await ctx.db.patch(active._id, {
-      cancelled_at: Date.now(),
-      cancelled_reason: args.cancel_reason,
-    });
-    // I1: emit audit row for forensic queries — matches _replaceInvoiceCommit_internal's
-    // audit shape on the structurally identical retry-supersede path.
-    await logAudit(ctx, {
-      actor_id: "system",
-      action: "payment.invoice_cancelled",
-      entity_type: "pos_xendit_invoices",
-      entity_id: active._id,
-      source: "system",
-      reason: args.cancel_reason,
-      metadata: { txn_id: args.txnId },
-    });
+    // F10: Cancel ALL active (no cancelled_at stamp) invoices, not just the first.
+    // Invariant: at most one active invoice per txn at any time. If more exist,
+    // cancel them all to converge state — the divergence is visible in forensic
+    // queries because each invoice gets its own audit row.
+    const active = candidates.filter((r) => r.cancelled_at === undefined);
+    if (active.length === 0) return { cancelled: false };
+    const auditActorId = args.actor_id ?? "system";
+    const auditSource = args.source ?? "system";
+    for (const invoice of active) {
+      await ctx.db.patch(invoice._id, {
+        cancelled_at: Date.now(),
+        cancelled_reason: args.cancel_reason,
+      });
+      // I1: emit audit row for forensic queries — matches _replaceInvoiceCommit_internal's
+      // audit shape on the structurally identical retry-supersede path.
+      await logAudit(ctx, {
+        actor_id: auditActorId,
+        action: "payment.invoice_cancelled",
+        entity_type: "pos_xendit_invoices",
+        entity_id: invoice._id,
+        source: auditSource,
+        reason: args.cancel_reason,
+        metadata: { txn_id: args.txnId },
+      });
+    }
     return { cancelled: true };
   },
 });

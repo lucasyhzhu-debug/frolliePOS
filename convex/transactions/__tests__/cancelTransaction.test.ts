@@ -77,7 +77,8 @@ describe("transactions/actions.cancelTransaction", () => {
     expect(audit.length).toBe(1);
     const auditRow = audit[0];
     expect(auditRow.entity_id).toBe(invoiceId);
-    expect(auditRow.source).toBe("system");
+    // F6: cancelTransaction threads real staff context → source="booth_inline"
+    expect(auditRow.source).toBe("booth_inline");
     const meta = JSON.parse(auditRow.metadata as unknown as string) as Record<string, unknown>;
     expect(String(meta.txn_id)).toBe(String(s.txn));
   });
@@ -133,6 +134,73 @@ describe("transactions/actions.cancelTransaction", () => {
     });
     expect(cascadeRow).toBeDefined();
     expect(cascadeRow?.source).toBe("system");
+  });
+
+  it("F1 idempotency replay: same-key retry still sees invoice cancelled + approval denied (no double-write)", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaitingWithSession(t);
+
+    // Seed active invoice
+    const invoiceId = await t.run((ctx) =>
+      ctx.db.insert("pos_xendit_invoices", {
+        transaction_id: s.txn, xendit_invoice_id: "xnd-f1",
+        xendit_idempotency_key: "k-f1", method: "QRIS",
+        qr_string: "qr", status_at_create: "PENDING", created_at: Date.now(),
+      }),
+    );
+    // Seed pending approval
+    const approvalId = await t.run((ctx) =>
+      ctx.db.insert("pos_approval_requests", {
+        kind: "manual_payment_override",
+        entity_type: "pos_transactions",
+        entity_id: s.txn,
+        status: "pending",
+        notification_channel: "telegram",
+        triggered_by_event: "payment_stalled",
+        triggered_at: Date.now(),
+        token_hash: "f1hash".repeat(10),
+        token_expires_at: Date.now() + 60 * 60 * 1000,
+        context: {},
+      }),
+    );
+
+    // First call — succeeds
+    await t.action(api.transactions.actions.cancelTransaction, {
+      sessionId: s.session, txnId: s.txn,
+      reason: "f1-test", idempotencyKey: "k-f1-idem",
+    });
+
+    // Second call — same idempotencyKey (retry replay)
+    const r2 = await t.action(api.transactions.actions.cancelTransaction, {
+      sessionId: s.session, txnId: s.txn,
+      reason: "f1-test", idempotencyKey: "k-f1-idem",
+    });
+    expect(r2).toEqual({ cancelled: true });
+
+    // Invoice still in single cancelled state (no duplicate patch)
+    const invoice = await t.run((ctx) => ctx.db.get(invoiceId));
+    expect(invoice?.cancelled_at).toBeDefined();
+    expect(invoice?.cancelled_reason).toBe("txn_cancelled");
+
+    // Approval still in single denied state
+    const approval = await t.run((ctx) => ctx.db.get(approvalId));
+    expect(approval?.status).toBe("denied");
+
+    // No duplicate invoice_cancelled audit rows
+    const invoiceAudits = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "payment.invoice_cancelled"))
+        .collect(),
+    );
+    expect(invoiceAudits.length).toBe(1);
+
+    // No duplicate approval-denied audit rows
+    const approvalAudits = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "manual_payment_override.denied"))
+        .collect(),
+    );
+    expect(approvalAudits.length).toBe(1);
   });
 
   it("rejects cancelling a paid txn", async () => {

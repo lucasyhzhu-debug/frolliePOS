@@ -372,9 +372,11 @@ export const cancelAwaitingPayment = mutation({
       // Mark the active invoice as locally cancelled. Route through
       // payments._cancelActiveInvoiceForTxn_internal — payments owns
       // pos_xendit_invoices (ADR-034); transactions must not touch it directly.
+      // F6: thread real staff context so forensic queries by actor_id / source
+      // surface the invoice-cancel half of the operation.
       await ctx.runMutation(
         internal.payments.internal._cancelActiveInvoiceForTxn_internal,
-        { txnId: args.txnId, cancel_reason: "txn_cancelled" },
+        { txnId: args.txnId, cancel_reason: "txn_cancelled", actor_id: staffId, source: "booth_inline" },
       );
 
       // Cascade-deny any live pending manual_payment_override approvals for
