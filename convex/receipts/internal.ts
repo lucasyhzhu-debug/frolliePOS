@@ -18,7 +18,7 @@ export const _buildViewModel_internal = internalQuery({
   handler: async (ctx, args): Promise<ReceiptViewModel | null> => {
     const txn = await ctx.db.get(args.transactionId);
     if (!txn) return null;
-    if (txn.status !== "paid") return null;        // status guard (I2)
+    if (txn.status !== "paid") return null;        // status guard: only paid txns get receipts
     if (!txn.receipt_number) return null;          // shouldn't happen for paid txns
 
     const lines = await ctx.db
@@ -71,7 +71,7 @@ export const _renderReceiptByToken_internal = internalQuery({
       .withIndex("by_receipt_token", (q) => q.eq("receipt_token", args.token))
       .unique();
     if (!txn) return null;
-    if (txn.status !== "paid") return null;        // status guard (I2)
+    if (txn.status !== "paid") return null;        // status guard: only paid txns get receipts
 
     const vm = await ctx.runQuery(internal.receipts.internal._buildViewModel_internal, {
       transactionId: txn._id,
@@ -123,8 +123,10 @@ export const _writeCacheEntry_internal = internalMutation({
 export const _purgeReceiptCache_internal = internalMutation({
   args: { transactionId: v.id("pos_transactions") },
   handler: async () => {
-    // PR A stub — no callers. PR B replaces.
-    return;
+    // PR A stub. PR B replaces with real cache-purge by txn lookup. Throwing
+    // ensures any premature wire-up from refunds/internal fails CI loud rather
+    // than leaving a stale "LUNAS" receipt cached for 24h post-refund.
+    throw new Error("_purgeReceiptCache_internal: PR A stub — PR B replaces");
   },
 });
 
@@ -137,6 +139,12 @@ export const _purgeReceiptCache_internal = internalMutation({
  * before invoking and pass the resolved staffId as `actor` so the audit row
  * captures provenance.
  *
+ * STATUS-GATE CONTRACT: minting a receipt token for a non-paid txn would leak
+ * a viewable receipt URL for a sale that hasn't actually completed (draft /
+ * awaiting_payment / cancelled). The helper throws TXN_NOT_PAID rather than
+ * minting; callers (v0.5.3+ "resend receipt" surfaces) must ensure the txn is
+ * paid before invoking.
+ *
  * V8-safe: `mintUrlSafeToken` is implemented with Web Crypto so this mutation
  * can mint + patch + audit in a single transaction (no internalAction hop).
  */
@@ -145,6 +153,7 @@ export const _lazyMintReceiptToken_internal = internalMutation({
   handler: async (ctx, args): Promise<{ token: string }> => {
     const txn = await ctx.db.get(args.transactionId);
     if (!txn) throw new Error("TXN_NOT_FOUND");
+    if (txn.status !== "paid") throw new Error("TXN_NOT_PAID");
     if (txn.receipt_token) {
       // Already minted — return existing (idempotent).
       return { token: txn.receipt_token };

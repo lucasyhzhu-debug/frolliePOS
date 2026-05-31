@@ -37,6 +37,47 @@ describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 r
     });
   });
 
+  it("rejects with TXN_NOT_PAID when called on a non-paid txn", async () => {
+    const t = convexTest(schema);
+    const { staffId, txnId } = await t.run(async (ctx) => {
+      const staffId = await ctx.db.insert("staff", {
+        code: "S-NP", name: "N", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
+      });
+      const txnId = await ctx.db.insert("pos_transactions", {
+        status: "awaiting_payment",
+        subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: staffId,
+        created_at: Date.now(),
+      });
+      return { staffId, txnId };
+    });
+    await expect(
+      t.mutation(internal.receipts.internal._lazyMintReceiptToken_internal, {
+        transactionId: txnId, actor: staffId,
+      }),
+    ).rejects.toThrow("TXN_NOT_PAID");
+  });
+
+  it("rejects with TXN_NOT_FOUND for a non-existent transaction id", async () => {
+    const t = convexTest(schema);
+    const { staffId, fakeId } = await t.run(async (ctx) => {
+      // create then delete a txn to get a valid-shaped but non-existent id
+      const staffId = await ctx.db.insert("staff", {
+        code: "S-DD", name: "D", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
+      });
+      const id = await ctx.db.insert("pos_transactions", {
+        status: "paid", subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: staffId,
+        created_at: Date.now(), paid_at: Date.now(),
+      });
+      await ctx.db.delete(id);
+      return { staffId, fakeId: id };
+    });
+    await expect(
+      t.mutation(internal.receipts.internal._lazyMintReceiptToken_internal, {
+        transactionId: fakeId, actor: staffId,
+      }),
+    ).rejects.toThrow("TXN_NOT_FOUND");
+  });
+
   it("is idempotent — second call returns the same token", async () => {
     const t = convexTest(schema);
     const { staffId, txnId } = await t.run(async (ctx) => {
