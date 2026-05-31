@@ -135,11 +135,14 @@ export const sendTemplate = action({
     const messageId: number | undefined = responseJson?.result?.message_id;
 
     // Step 5: on failure — audit + throw
+    // I4: include resolved chatId so operators can tell from the audit row
+    // whether chatIdOverride or role-resolve was the failing endpoint.
     if (!response.ok || !responseJson?.ok) {
       await ctx.runMutation(internal.telegram.internal._auditSendFailed_internal, {
         role: args.role,
         kind: args.kind,
         status: String(responseJson?.description ?? response.status),
+        chat_id: typeof chatId === "string" ? chatId : undefined,
       });
       throw new Error(
         `TELEGRAM_SEND_FAILED: ${responseJson?.description ?? response.status}`,
