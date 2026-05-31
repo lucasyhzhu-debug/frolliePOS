@@ -20,15 +20,20 @@ export const myMutation = mutation({
     idempotencyKey: v.string(),
     // ... domain args
   },
-  handler: async (ctx, args) => {
-    return withIdempotency(ctx, args, async (ctx, args) => {
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; idempotencyKey: string; /* ... */ },
+    ReturnType,
+  >(
+    "module.myMutation",  // mutation_name for the idempotency cache key
+    async (ctx, args) => {
       // Re-call inside the handler — this is intentional and load-bearing
       const session = await requireSession(ctx, args.sessionId);
       // ... domain logic
-    }, {
-      authCheck: (ctx, args) => requireSession(ctx, args.sessionId),
-    });
-  },
+    },
+    {
+      authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); },
+    },
+  ),
 });
 ```
 
@@ -74,16 +79,21 @@ export const newMutation = mutation({
     idempotencyKey: v.string(),
     myArg: v.string(),
   },
-  handler: async (ctx, args) => {
-    return withIdempotency(ctx, args, async (ctx, args) => {
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; idempotencyKey: string; myArg: string },
+    { ok: true },
+  >(
+    "module.newMutation",
+    async (ctx, args) => {
       const session = await requireSession(ctx, args.sessionId); // <-- inline re-call
       // domain logic here
       await logAudit(ctx, { ... });
-      return { ok: true };
-    }, {
-      authCheck: (ctx, args) => requireSession(ctx, args.sessionId), // <-- authCheck
-    });
-  },
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); }, // <-- authCheck
+    },
+  ),
 });
 ```
 
