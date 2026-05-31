@@ -436,16 +436,19 @@ export const _requireManagerSession_internal = internalQuery({
  */
 export const _listActiveManagers_internal = internalQuery({
   args: {},
+  // I2: return code+name only — per ADR-034 §Stable string identifiers, the
+  // external surface uses staff_code not Convex _id. manuallyConfirmPayment
+  // consumes the code; _id was never used by any consumer.
   handler: async (
     ctx,
-  ): Promise<Array<{ _id: string; name: string; code: string }>> => {
+  ): Promise<Array<{ name: string; code: string }>> => {
     const managers = await ctx.db
       .query("staff")
       .withIndex("by_role", (q) => q.eq("role", "manager"))
       .collect();
     return managers
       .filter((s) => s.active && s.code)
-      .map((s) => ({ _id: s._id as unknown as string, name: s.name, code: s.code ?? "" }))
+      .map((s) => ({ name: s.name, code: s.code ?? "" }))
       .filter((m) => m.code !== "")
       .sort((a, b) => a.code.localeCompare(b.code));
   },

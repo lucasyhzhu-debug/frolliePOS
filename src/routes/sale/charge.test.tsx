@@ -590,8 +590,8 @@ describe("SaleCharge route — countdown panel", () => {
 // ─── Tier 2c: manager picker ──────────────────────────────────────────────────
 
 const MOCK_MANAGERS = [
-  { _id: "staff-mgr-1", name: "Alice", code: "M-001" },
-  { _id: "staff-mgr-2", name: "Bob", code: "M-002" },
+  { name: "Alice", code: "M-001" },
+  { name: "Bob", code: "M-002" },
 ];
 
 describe("SaleCharge route — manager picker", () => {

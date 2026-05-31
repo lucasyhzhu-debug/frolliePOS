@@ -46,7 +46,7 @@ export const listActiveManagers = query({
   handler: async (
     ctx,
     args,
-  ): Promise<Array<{ _id: string; name: string; code: string }>> => {
+  ): Promise<Array<{ name: string; code: string }>> => {
     await requireSession(ctx, args.sessionId);
     return ctx.runQuery(internal.auth.internal._listActiveManagers_internal, {});
   },

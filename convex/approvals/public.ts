@@ -285,7 +285,7 @@ export const listActiveManagers = query({
   handler: async (
     ctx,
     args,
-  ): Promise<Array<{ _id: string; name: string; code: string }> | null> => {
+  ): Promise<Array<{ name: string; code: string }> | null> => {
     const hash = await sha256Hex(args.token);
     const req = await ctx.db
       .query("pos_approval_requests")

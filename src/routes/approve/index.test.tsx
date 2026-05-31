@@ -35,8 +35,8 @@ let mockQueryReturn: unknown = undefined;
 // Tests don't assert on the dropdown contents — they just need a valid array
 // so the Select renders without crashing on `.map`.
 const DEFAULT_MANAGERS = [
-  { _id: "m1", name: "Lucy", code: "MGR01" },
-  { _id: "m2", name: "Marco", code: "MGR02" },
+  { name: "Lucy", code: "MGR01" },
+  { name: "Marco", code: "MGR02" },
 ];
 
 // jsdom doesn't implement these; Radix UI Select calls them when opening

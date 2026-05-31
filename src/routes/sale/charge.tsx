@@ -224,7 +224,6 @@ export default function SaleCharge() {
   );
   // Picker state: null = show picker, non-null = manager selected → show PIN form.
   const [pickedManager, setPickedManager] = useState<{
-    _id: string;
     name: string;
     code: string;
   } | null>(null);
@@ -665,7 +664,7 @@ export default function SaleCharge() {
               <div className="flex flex-col gap-2">
                 {managers.map((m) => (
                   <Button
-                    key={m._id}
+                    key={m.code}
                     variant="outline"
                     className="justify-between"
                     data-testid={`pick-manager-${m.code}`}

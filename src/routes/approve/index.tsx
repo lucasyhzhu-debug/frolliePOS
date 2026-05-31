@@ -280,7 +280,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
             </SelectTrigger>
             <SelectContent>
               {managers?.map((m) => (
-                <SelectItem key={m._id} value={m.code}>
+                <SelectItem key={m.code} value={m.code}>
                   {m.code} — {m.name}
                 </SelectItem>
               ))}
@@ -671,7 +671,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
             </SelectTrigger>
             <SelectContent>
               {managers?.map((m) => (
-                <SelectItem key={m._id} value={m.code}>
+                <SelectItem key={m.code} value={m.code}>
                   {m.code} — {m.name}
                 </SelectItem>
               ))}
