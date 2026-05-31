@@ -2,8 +2,7 @@ import { describe, test, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
-
-const TOKEN_PIN_ATTEMPT_CAP = 5;
+import { TOKEN_PIN_ATTEMPT_CAP } from "../lib";
 
 async function seedPendingManualPayment(t: any) {
   return await t.run(async (ctx: any) => {
@@ -84,6 +83,10 @@ describe("token PIN cap", () => {
 
   test("concurrent approve-vs-cap-trip race — one wins cleanly", async () => {
     const t = convexTest(schema);
+    // convex-test serializes mutations sequentially against the same row;
+    // this verifies the serialization invariant: the second writer observes
+    // the terminal state set by the first and throws cleanly. Not a true
+    // concurrency test (convex-test can't simulate that) — see commit notes.
     // Create a real staff ID so the _markResolved_internal validator accepts it.
     const managerId = await t.run(async (ctx: any) =>
       ctx.db.insert("staff", {
