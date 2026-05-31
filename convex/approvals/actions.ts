@@ -5,7 +5,8 @@ import { v } from "convex/values";
 import { internal, api } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { argon2Verify } from "hash-wasm";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { mintUrlSafeToken } from "../lib/tokens";
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
 
@@ -68,7 +69,7 @@ export const notifyStaffLockout = internalAction({
     if (!baseUrl) throw new Error("POS_BASE_URL not set");
 
     // Generate a high-entropy URL-safe token; only the hash is persisted.
-    const rawToken = randomBytes(32).toString("base64url");
+    const rawToken = mintUrlSafeToken();
     const tokenHash = sha256Hex(rawToken);
     const now = Date.now();
 
@@ -287,7 +288,7 @@ export const requestManualPaymentApproval = action({
     if (!baseUrl) throw new Error("POS_BASE_URL not set");
 
     // Step 5: mint token (only hash persisted — ADR-029)
-    const rawToken = randomBytes(32).toString("base64url");
+    const rawToken = mintUrlSafeToken();
     const tokenHash = sha256Hex(rawToken);
     const now = Date.now();
 
