@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams, useBlocker } from "react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -82,10 +82,12 @@ export default function SaleCharge() {
   // Block route transitions while the transaction is awaiting payment so staff
   // can explicitly cancel (invalidating the active QR/VA) before leaving.
   const shouldBlock = txn?.status === "awaiting_payment";
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
+  const blockPredicate = useCallback(
+    ({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
       shouldBlock && currentLocation.pathname !== nextLocation.pathname,
+    [shouldBlock],
   );
+  const blocker = useBlocker(blockPredicate);
 
   // Cancel-payment handler used by the AbandonCartDialog payment variant.
   // Swallows TXN_NOT_AWAITING races — if the webhook confirmed while the dialog

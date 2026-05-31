@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useNavigate, useBlocker } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -45,10 +45,12 @@ export default function Sale() {
   // ---- navigation guard ----
   // Block route transitions when the cart has items so the user can save or
   // discard before leaving. Does not fire when navigating within the same path.
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
+  const blockPredicate = useCallback(
+    ({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
       !isEmpty && currentLocation.pathname !== nextLocation.pathname,
+    [isEmpty],
   );
+  const blocker = useBlocker(blockPredicate);
 
   // Secondary guard for hard page-leave (tab close / browser refresh). The
   // beforeunload handler is the only mechanism available for those cases.
