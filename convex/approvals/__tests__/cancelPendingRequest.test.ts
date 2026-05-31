@@ -85,6 +85,14 @@ describe("cancelPendingRequest", () => {
     expect(row?.status).toBe("denied");
     expect(row?.denied_by_manager_id).toBe(managerId);
     expect(row?.deny_reason).toBe("test-cancel");
+
+    // Verify audit row records source: "booth_inline" (manager UI), not "system" (auto-deny)
+    const audits = await t.run(async (ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("entity_id"), requestId)).collect()
+    );
+    const denyAudit = audits.find((a) => a.action.endsWith(".denied"));
+    expect(denyAudit?.source).toBe("booth_inline");
+    expect(denyAudit?.actor_id).toBe(managerId);
   });
 
   test("non-manager session is rejected with MANAGER_ONLY", async () => {
