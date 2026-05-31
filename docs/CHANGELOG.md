@@ -5,7 +5,8 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 ## v0.5.1 — Housekeeping (unreleased)
 
 ### Internals
-- (filled in as tasks land)
+- Scoped out the proposed `useEffectOnce` extraction — the three `useRef(false)` call sites (`useCatalogCache.liveSeenRef`, `login.hasPreStaged`, `ApprovalPending.called`) implement three different patterns (race-guard between two effects / conditional-once-with-retry / once-on-terminal-status). A single hook would hide their conditions. See MEMORY.md lesson #10.
+- (more bullets filled in as tasks land)
 
 ## v0.5.0 — App shell + session ergonomics + v0.4 stabilizers (2026-05-31)
 
