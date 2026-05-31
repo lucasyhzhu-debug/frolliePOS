@@ -20,6 +20,11 @@ export const _buildViewModel_internal = internalQuery({
     if (!txn) return null;
     if (txn.status !== "paid") return null;        // status guard: only paid txns get receipts
     if (!txn.receipt_number) return null;          // shouldn't happen for paid txns
+    // Status guard above ensures status === "paid"; ADR-031 (server time wins)
+    // + _confirmPaid_internal always set paid_at on the paid transition. A paid
+    // row without paid_at = data corruption; throw rather than mask with
+    // created_at and silently misdate the receipt.
+    if (!txn.paid_at) throw new Error("PAID_TXN_MISSING_PAID_AT");
 
     const lines = await ctx.db
       .query("pos_transaction_lines")
@@ -44,7 +49,7 @@ export const _buildViewModel_internal = internalQuery({
 
     return {
       receipt_number: txn.receipt_number,
-      paid_at: txn.paid_at ?? txn.created_at,
+      paid_at: txn.paid_at,
       subtotal: txn.subtotal,
       voucher_code: txn.voucher_code_snapshot,
       voucher_discount: txn.voucher_discount,
