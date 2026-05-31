@@ -469,7 +469,11 @@ export const _recordTokenPinFailure_internal = internalMutation({
       // C3: delegate to _markDeniedBySystem_internal instead of inlining the
       // deny-write block. Keeps the two-writer invariant at one callsite.
       // extra_metadata carries failed_pin_attempts for dashboard disambiguation (M4).
-      const result = await ctx.runMutation(
+      // F4: explicit type annotation breaks the circular-inference chain that
+      // arises from two internalMutations in the same file calling each other.
+      // Propagate denied:false when the row was already terminal (concurrent
+      // resolve raced ahead) so the caller throws INVALID_PIN, not REQUEST_REVOKED.
+      const result: { denied: boolean } = await ctx.runMutation(
         internal.approvals.internal._markDeniedBySystem_internal,
         {
           requestId: args.requestId,
@@ -478,10 +482,6 @@ export const _recordTokenPinFailure_internal = internalMutation({
           extra_metadata: { failed_pin_attempts: next },
         },
       );
-      // F4: if the delegate found the row already terminal (concurrent resolve
-      // raced ahead), do NOT report capped — the caller's action site will
-      // throw INVALID_PIN instead, which is correct: the PIN was wrong, but
-      // the request's terminal state is what matters.
       return { capped: result.denied };
     }
     return { capped: false };
