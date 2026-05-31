@@ -17,6 +17,16 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 - Refactor: `_confirmPaid_internal` mints `receipt_token` inline via the shared helper rather than threading a caller-minted token through every call site (the V8-safe tokens.ts unblocked this simpler design vs. the plan's original arg-threading approach).
 - Refactor (in response to triple-review): receipts module no longer reaches into `pos_transactions` / `pos_transaction_lines` / `pos_xendit_invoices` directly. Reads route through `transactions/internal._getPaidTxnWithLinesForReceipt_internal`, `transactions/internal._getPaidTxnWithLinesByToken_internal`, and `payments/internal._getPaidInvoiceForTxn_internal` per ADR-034. The lazy-mint patch routes through `transactions/internal._ensureReceiptTokenForPaidTxn_internal`. ESLint ALLOWLIST `receipts` entry removed. `payment_method` is now read from `pos_xendit_invoices.method` (mapped `"QRIS"` → `"QRIS"`, `"BCA_VA"` → `"BCA VA"`) instead of hardcoded `"QRIS"` — BCA VA receipts now display correctly. RRN (`receipt_id`) is surfaced when present.
 
+### Post-triple-review simplify pass
+
+- `/r/<token>` httpAction: trailing-slash tolerance (`/r/abc/` resolves to `"abc"` — Telegram + iOS Share Sheet commonly append trailing slashes); cache-write failure no longer escalates a renderable receipt into a 500 (try/catch + log); inline `"private, max-age=300"` replaced with the named `CACHE_CONTROL_VALUE` constant.
+- `_getPaidInvoiceForTxn_internal`: dropped the `cancelled_at === undefined` filter so a paying invoice cancelled by PR B's refund flow still surfaces its `method` + RRN on the receipt. Sort by `created_at` desc — most recently created invoice wins.
+- `_getPaidTxnWithLinesByToken_internal`: `.unique()` → `.first()`. 32 bytes of entropy makes token collisions corruption-grade, and a public route should serve the matching receipt rather than 500 on a theoretical duplicate.
+- Defensive guards: `template.rp()` returns `"Rp —"` for non-finite money (no `"Rp NaN"` on a customer receipt); `lib/time.formatWibDateTime()` returns `"—"` for non-finite ms; `mintUrlSafeToken()` throws on non-integer or zero/negative byte counts.
+- Voucher row in `template.ts` now renders whenever `voucher_discount > 0`, even if `voucher_code` is missing — silent gap between subtotal and total is worse than an em-dash code placeholder.
+- Receipt-token mint funnel consolidation: `_ensureReceiptTokenForPaidTxn_internal` now owns existing-token check, CSPRNG mint, patch, AND audit emit. The lazy wrapper in `receipts/internal.ts` collapses to a thin facade. Any future direct caller (v0.5.3 "resend receipt") gets the audit row automatically. CSPRNG bytes are no longer minted on the existing-token branch.
+- Tests: +7 (`/r/<token>` trailing slash, paying-invoice survives cancellation, voucher with missing code, NaN money render, NaN/Inf timestamp format + happy-path datetime, `mintUrlSafeToken` positive-byte guard).
+
 ### Rollback caveat (PR A)
 
 Reverting PR A leaves orphan `receipt_token` values on already-confirmed transactions; the public route 404s for them. Tokens are stable (field is optional, immutable when set) so re-deploying PR A restores access without migration.
