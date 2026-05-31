@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.1 — Housekeeping (unreleased)
+
+### Internals
+- (filled in as tasks land)
+
 ## v0.5.0 — App shell + session ergonomics + v0.4 stabilizers (2026-05-31)
 
 ### App shell
@@ -35,7 +40,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 ### Known follow-ups (deferred to v0.5.1)
 - `useDeviceId.ts` `LS_KEY` constant should migrate to `src/lib/storage-keys.ts`
 - 4 sale-route tests still use the bare `"frollie-session-id"` literal; should import `SESSION_KEY`
-- `pos_xendit_invoices` `by_role_archived` index is now unused — drop in next schema pass
+- `telegramChats` `by_role_archived` index is now unused — drop in next schema pass
 - `_resolveSession_internal` should add `staff.active` check to match `requireSession` semantics
 
 ## 2026-05-29 — Tooling: CEO Progress Report cutover
