@@ -32,11 +32,15 @@ export default function LoginRoute() {
   useEffect(() => {
     if (hasPreStaged.current) return;
     if (staff === undefined) return;
-    hasPreStaged.current = true;
     const lastId = getLastStaff();
     if (!lastId) return;
     const match = staff.find((s) => s._id === lastId);
-    if (match) setStage({ kind: "pin", staff: match });
+    if (!match) return;
+    // Only flip the ref after a successful pre-stage. Failed attempts (no lastId,
+    // no match, staff=[]) leave the door open for retry on the next Convex
+    // reactivity tick or localStorage sync (F2 fix — was set unconditionally).
+    hasPreStaged.current = true;
+    setStage({ kind: "pin", staff: match });
   }, [staff]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
