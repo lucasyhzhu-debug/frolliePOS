@@ -4,9 +4,16 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 ## v0.5.1 — Housekeeping (unreleased)
 
+### Security
+- `_resolveSession_internal` now also rejects sessions whose underlying staff record is deactivated, matching `requireSession()` semantics. Closes a parity gap where a deactivated staff with an open session row could still authorise cross-module mutations (cart commit, awaiting-payment list, approvals). Cross-module callers (transactions, approvals) get the same authorisation surface as in-module callers.
+
 ### Internals
+- `useDeviceId.ts` `LS_KEY` migrated to `DEVICE_ID_KEY` in `src/lib/storage-keys.ts`; the literal `"frollie-device-id"` now appears exactly once in the source tree.
+- 4 sale-route test files (`charge.test.tsx`, `index.test.tsx`, `drafts.test.tsx`, `voucher.test.tsx`) now import `SESSION_KEY` instead of the bare `"frollie-session-id"` literal — storage-keys convention fully consistent across tests and production.
+- Dropped unused `by_role_archived` compound index from `telegramChats`. The schema test was first rewritten to mirror the production bare-`by_role` + JS-post-filter pattern (Convex optional-field filter gotcha workaround). One stale test-description string referencing the index also renamed.
+- Extracted `usePathChangeBlocker(when: boolean)` hook (`src/hooks/usePathChangeBlocker.ts`); collapsed two duplicated `useBlocker` + `useCallback` predicate blocks in `/sale` and `/sale/charge` to one-liner call sites. Wraps the predicate in `useCallback` so the Blocker stays referentially stable (v0.5.0 LESSON 4).
+- `eslint-plugin-react-hooks@5.1.0` now wired in `eslint.config.js` for `src/**/*.{ts,tsx}` — `rules-of-hooks: error`, `exhaustive-deps: warn`. Existing code passes cleanly with zero findings.
 - Scoped out the proposed `useEffectOnce` extraction — the three `useRef(false)` call sites (`useCatalogCache.liveSeenRef`, `login.hasPreStaged`, `ApprovalPending.called`) implement three different patterns (race-guard between two effects / conditional-once-with-retry / once-on-terminal-status). A single hook would hide their conditions. See MEMORY.md lesson #10.
-- (more bullets filled in as tasks land)
 
 ## v0.5.0 — App shell + session ergonomics + v0.4 stabilizers (2026-05-31)
 
@@ -37,12 +44,6 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 - `effectiveStatus(row)` helper centralises the four-state lifecycle derivation
 - `chatRegistry.ts` split into `chatRegistry/public.ts` + `internal.ts` per ADR-034
 - localStorage keys centralised in `src/lib/storage-keys.ts`; `storeSession(sessionId, staffId)` writes both atomically
-
-### Known follow-ups (deferred to v0.5.1)
-- `useDeviceId.ts` `LS_KEY` constant should migrate to `src/lib/storage-keys.ts`
-- 4 sale-route tests still use the bare `"frollie-session-id"` literal; should import `SESSION_KEY`
-- `telegramChats` `by_role_archived` index is now unused — drop in next schema pass
-- `_resolveSession_internal` should add `staff.active` check to match `requireSession` semantics
 
 ## 2026-05-29 — Tooling: CEO Progress Report cutover
 
