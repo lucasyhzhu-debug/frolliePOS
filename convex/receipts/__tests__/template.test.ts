@@ -88,3 +88,19 @@ describe("computeReceiptStatus", () => {
     expect(computeReceiptStatus(baseVm())).toBe("paid");
   });
 });
+
+describe("computeReceiptStatus refund branches", () => {
+  it("returns partial_refund when some but not all line qty refunded", () => {
+    const vm = baseVm();
+    vm.lines[0].refunded_qty = 1; // refund 1 of 3
+    vm.refunds = [{ refund_amount: 50000, refunded_at: Date.parse("2026-05-31T08:00:00Z") }];
+    expect(computeReceiptStatus(vm)).toBe("partial_refund");
+  });
+
+  it("returns refunded when all line qty refunded", () => {
+    const vm = baseVm();
+    vm.lines[0].refunded_qty = 3; // refund all 3
+    vm.refunds = [{ refund_amount: 150000, refunded_at: Date.parse("2026-05-31T08:00:00Z") }];
+    expect(computeReceiptStatus(vm)).toBe("refunded");
+  });
+});

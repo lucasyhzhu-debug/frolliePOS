@@ -83,6 +83,18 @@ describe("GET /r/:token httpAction", () => {
     expect(res.status).toBe(404);
   });
 
+  it("returns 404 for tokens shorter than 10 chars (fast path)", async () => {
+    const t = convexTest(schema);
+    const res = await t.fetch("/r/abc", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for empty token segment", async () => {
+    const t = convexTest(schema);
+    const res = await t.fetch("/r/", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
   it("cache hit on second call returns identical bytes", async () => {
     const t = convexTest(schema);
     await seedPaidTxnWithToken(t, "tok-cache-hit-001");
