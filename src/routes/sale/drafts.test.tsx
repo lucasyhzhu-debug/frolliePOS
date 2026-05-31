@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { SESSION_KEY } from "@/lib/storage-keys";
 import { __resetCartForTests } from "@/hooks/useCart";
 import SaleDrafts from "./drafts";
 
@@ -33,7 +34,7 @@ describe("SaleDrafts route", () => {
   });
 
   it("renders loading state while session is loading (sessionId in storage, query pending)", () => {
-    localStorage.setItem("frollie-session-id", "fake-session-id");
+    localStorage.setItem(SESSION_KEY, "fake-session-id");
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
