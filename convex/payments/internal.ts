@@ -1,4 +1,4 @@
-import { internalMutation, MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
@@ -346,4 +346,38 @@ export const _onPaidManual_internal = internalMutation({
       return { confirmed: true as const, receiptNumber: txn.receipt_number };
     },
   ),
+});
+
+/**
+ * Active (non-cancelled) Xendit invoice for a txn. Used by receipts to render
+ * the real payment method ("QRIS" vs "BCA VA") and the bank RRN instead of
+ * hardcoding.
+ *
+ * "Active" = no `cancelled_at` stamp — this is the same invariant
+ * _cancelActiveInvoiceForTxn_internal uses. For a paid txn this is the invoice
+ * that was confirmed; webhook-confirmed invoices carry the bank `receipt_id`
+ * (RRN), manually-confirmed invoices don't. Receipts surfaces RRN only if
+ * present.
+ *
+ * Returns null when no active invoice exists (e.g. manual override paths where
+ * no Xendit row was ever created); receipts callers fall back to a dash for
+ * the payment method in that case.
+ *
+ * Index `by_transaction` exists on pos_xendit_invoices (payments/schema.ts);
+ * one row per active invoice expected, but we sort by created_at desc and take
+ * first to be defensive against the F10 "cancel-all" path that could leave
+ * multiple actives mid-divergence.
+ */
+export const _getPaidInvoiceForTxn_internal = internalQuery({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .collect();
+    const active = invoices
+      .filter((i) => i.cancelled_at === undefined)
+      .sort((a, b) => b.created_at - a.created_at);
+    return active[0] ?? null;
+  },
 });

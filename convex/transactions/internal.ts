@@ -338,6 +338,85 @@ export const _dailySalesSummary_internal = internalQuery({
 });
 
 /**
+ * Capability check + write for the receipts module's lazy-mint flow.
+ * Returns the existing receipt_token if one is already set on a paid txn
+ * (idempotent), or patches a freshly-minted token onto the row and returns it.
+ *
+ * Returns:
+ *   { status: "exists", token } — txn already had a token
+ *   { status: "minted", token } — fresh patch applied
+ *
+ * Throws TXN_NOT_FOUND / TXN_NOT_PAID; the receipts wrapper translates these
+ * into the same errors it has always thrown so external surfaces are stable.
+ * Boundary (ADR-034): pos_transactions is transactions-owned, so receipts
+ * routes the patch through here rather than calling ctx.db.patch directly.
+ */
+export const _ensureReceiptTokenForPaidTxn_internal = internalMutation({
+  args: {
+    transactionId: v.id("pos_transactions"),
+    newToken: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ status: "exists" | "minted"; token: string }> => {
+    const txn = await ctx.db.get(args.transactionId);
+    if (!txn) throw new Error("TXN_NOT_FOUND");
+    if (txn.status !== "paid") throw new Error("TXN_NOT_PAID");
+    if (txn.receipt_token) {
+      return { status: "exists" as const, token: txn.receipt_token };
+    }
+    await ctx.db.patch(args.transactionId, { receipt_token: args.newToken });
+    return { status: "minted" as const, token: args.newToken };
+  },
+});
+
+/**
+ * Aggregate read for the receipts module: fetch the paid transaction + its
+ * lines in one cross-module call. Returns null if the txn is missing or not
+ * paid (receipts module callers expect to no-op on those cases).
+ *
+ * This consolidates what would otherwise be a cross-module ALLOWLIST bypass
+ * into the canonical "owning module exposes the aggregate" pattern per ADR-034.
+ */
+export const _getPaidTxnWithLinesForReceipt_internal = internalQuery({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const txn = await ctx.db.get(args.transactionId);
+    if (!txn) return null;
+    if (txn.status !== "paid") return null;
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .collect();
+    return { txn, lines };
+  },
+});
+
+/**
+ * Same aggregate but keyed by the receipt_token capability. Single read of
+ * pos_transactions via by_receipt_token, then lines. Used by the public
+ * /r/:token httpAction so receipts can dispatch end-to-end without ever
+ * touching pos_transactions or pos_transaction_lines directly.
+ */
+export const _getPaidTxnWithLinesByToken_internal = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const txn = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_receipt_token", (q) => q.eq("receipt_token", args.token))
+      .unique();
+    if (!txn) return null;
+    if (txn.status !== "paid") return null;
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", txn._id))
+      .collect();
+    return { txn, lines };
+  },
+});
+
+/**
  * Return the status + total of a transaction for approval gating.
  * Called by approvals.actions.requestManualPaymentApproval to verify the txn is
  * awaiting_payment before minting an approval request. Cross-module read kept
