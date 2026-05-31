@@ -67,7 +67,15 @@ export const cancelTransaction = action({
       device_id: session.deviceId,
     });
 
-    // 5. Cascade-deny any live pending manual_payment_override approvals for this
+    // 5. C1: Cancel the active Xendit invoice for this txn (parity with cancelAwaitingPayment).
+    //    Fires AFTER the terminal commit so if this step fails the txn cancel is already
+    //    landed. No-op when no active invoice exists.
+    await ctx.runMutation(
+      internal.payments.internal._cancelActiveInvoiceForTxn_internal,
+      { txnId: args.txnId, cancel_reason: "txn_cancelled" },
+    );
+
+    // 6. Cascade-deny any live pending manual_payment_override approvals for this
     //    txn. Fires AFTER the terminal commit so if the cascade fails the txn
     //    cancel is already landed (txn is source of truth). Best-effort: the helper
     //    is a no-op when no pending rows exist (Task 11 / v050-be-cancel-cancels-approval).

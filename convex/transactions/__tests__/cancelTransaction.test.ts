@@ -50,7 +50,7 @@ describe("transactions/actions.cancelTransaction", () => {
     await t.run((ctx) =>
       ctx.db.patch(s.txn, { xendit_invoice_id_current: "xnd-cancel" }),
     );
-    await t.run((ctx) =>
+    const invoiceId = await t.run((ctx) =>
       ctx.db.insert("pos_xendit_invoices", {
         transaction_id: s.txn, xendit_invoice_id: "xnd-cancel",
         xendit_idempotency_key: "k", method: "QRIS",
@@ -65,13 +65,21 @@ describe("transactions/actions.cancelTransaction", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("cancelled");
     expect(txn?.cancelled_reason).toBe("cancel with existing invoice");
-    // No payment.invoice_cancelled audit row (that path no longer exists for cancel).
+    // C1 + I1: active invoice must now be cancelled and have an audit row.
+    const invoice = await t.run((ctx) => ctx.db.get(invoiceId));
+    expect(invoice?.cancelled_at).toBeDefined();
+    expect(invoice?.cancelled_reason).toBe("txn_cancelled");
     const audit = await t.run((ctx) =>
       ctx.db.query("audit_log")
         .withIndex("by_action_date", (q) => q.eq("action", "payment.invoice_cancelled"))
         .collect(),
     );
-    expect(audit.length).toBe(0);
+    expect(audit.length).toBe(1);
+    const auditRow = audit[0];
+    expect(auditRow.entity_id).toBe(invoiceId);
+    expect(auditRow.source).toBe("system");
+    const meta = JSON.parse(auditRow.metadata as unknown as string) as Record<string, unknown>;
+    expect(String(meta.txn_id)).toBe(String(s.txn));
   });
 
   it("v050-be-cancel-cancels-approval: cascade-denies live pending manual_payment_override on cancel", async () => {

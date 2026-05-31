@@ -199,15 +199,28 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
     cancel_reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const active = await ctx.db
+    // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
+    // absent optional fields (own MEMORY: convex-optional-field-filter-gotcha).
+    const candidates = await ctx.db
       .query("pos_xendit_invoices")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-      .filter((q) => q.eq(q.field("cancelled_at"), undefined))
-      .first();
+      .collect();
+    const active = candidates.find((r) => r.cancelled_at === undefined);
     if (!active) return { cancelled: false };
     await ctx.db.patch(active._id, {
       cancelled_at: Date.now(),
       cancelled_reason: args.cancel_reason,
+    });
+    // I1: emit audit row for forensic queries — matches _replaceInvoiceCommit_internal's
+    // audit shape on the structurally identical retry-supersede path.
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "payment.invoice_cancelled",
+      entity_type: "pos_xendit_invoices",
+      entity_id: active._id,
+      source: "system",
+      reason: args.cancel_reason,
+      metadata: { txn_id: args.txnId },
     });
     return { cancelled: true };
   },
