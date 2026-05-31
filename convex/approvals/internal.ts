@@ -341,13 +341,16 @@ export const _linkTelegramMessage_internal = internalMutation({
 });
 
 /**
- * Shared system-deny patch. Three v0.5.0 callers:
- *   (1) Token PIN-cap auto-deny (_recordTokenPinFailure_internal inlines this
- *       for the extra `failed_pin_attempts` metadata field) — source: "system".
+ * Shared system-deny patch. Three v0.5.0 callers — all now DELEGATE here
+ * (none inline their own deny-write block):
+ *   (1) Token PIN-cap auto-deny (_recordTokenPinFailure_internal) — source: "system",
+ *       extra_metadata: { failed_pin_attempts }.
  *   (2) Manager-initiated cancelPendingRequest (Task 10) — source: "telegram_approval"
  *       when actioned from the off-booth Telegram UI, or "booth_inline" when from
- *       the in-booth manager panel.
- *   (3) cancelAwaitingPayment cascade (Task 11) — source: "system".
+ *       the in-booth manager panel. Carries cancelled_by_manager_id for mgr_approver_id.
+ *   (3) cancelAwaitingPayment / cancelTransaction cascade (Task 11) via
+ *       _cancelPendingManualPaymentForTxn_internal — source: "system",
+ *       extra_metadata: { cascaded_from_txn }.
  * Caller supplies `source` explicitly so audit data is semantically correct for
  * each context — mirrors the _markResolved_internal / _markDenied_internal pattern.
  * Returns { denied: true } on success, { denied: false } no-op if already terminal.

@@ -25,7 +25,7 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
 | q | `listStaff` | `{ sessionId }` | `Staff[]` | Manager-only |
-| q | `staff.public.listActiveManagers` | `{ sessionId }` | `{ _id, name, staffCode }[]` | *(v0.5.0)* Session-gated (any role). Returns all active managers. Used by the booth manager-picker on the charge screen for manager-PIN override flows. Does not expose pin_hash. |
+| q | `staff.public.listActiveManagers` | `{ sessionId }` | `{ name, code }[]` | *(v0.5.0)* Session-gated (any role). Returns all active managers. Used by the booth manager-picker on the charge screen for manager-PIN override flows. Does not expose pin_hash. |
 | m | `createStaff` | `{ name, role, pin, idempotencyKey }` | `Staff` | Manager-only; hashes PIN via internal action; logs |
 | m | `updateStaff` | `{ id, patch, idempotencyKey }` | `Staff` | Manager-only; PIN reset uses `resetPin` separately |
 | m | `resetPin` | `{ id, newPin, idempotencyKey }` | `void` | Manager-only; logs `staff.pin_reset` |
@@ -57,7 +57,7 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | m | `removeDiscount` | `{ txId, idempotencyKey }` | `Transaction` | Logs |
 | m | `setCustomerInfo` | `{ txId, phone?, name?, idempotencyKey }` | `Transaction` | Optional |
 | m | `voidTransaction` | `{ txId, reason?, idempotencyKey }` | `void` | Pre-payment: inline. Post-payment: routes via approvals ([ADR-005](./ADR/005-manager-pin-one-off.md)). Logs `transaction.voided` |
-| m | `transactions.public.cancelAwaitingPayment` | `{ sessionId, txnId, idempotencyKey }` | `{ ok: true }` | *(v0.5.0)* Cancels an `awaiting_payment` transaction. Calls `_cancelPendingApprovalsForTxn_internal` to mark any outstanding `manual_payment_override` approval as denied (system). Logs `transaction.cancelled`. The charge screen calls this when the staff taps "Cancel payment". Staff session required (no manager gate). |
+| m | `transactions.public.cancelAwaitingPayment` | `{ sessionId, txnId, idempotencyKey }` | `{ cancelled: true }` | *(v0.5.0)* Cancels an `awaiting_payment` transaction. Calls `_cancelPendingManualPaymentForTxn_internal` to mark any outstanding `manual_payment_override` approval as denied (system). Also cancels the active Xendit invoice locally. Logs `transaction.cancelled`. The charge screen calls this when the staff taps "Cancel payment". Staff session required (no manager gate). |
 | q | `getTransaction` | `{ txId }` | `Transaction & lines[]` | Full record |
 | q | `getByNumber` | `{ receiptNumber }` | `Transaction \| null` | For internal lookup; receipt page uses token, not number |
 

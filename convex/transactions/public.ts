@@ -335,7 +335,7 @@ export const listRecentAwaitingPayment = query({
  *      (QR codes can't be remotely cancelled — we stop processing them per
  *      ADR-036; invoice is "active" if it has no `cancelled_at` yet).
  *   3. Cascade-deny any live `manual_payment_override` approval requests
- *      for the txn via `_cancelPendingApprovalsForTxn_internal` (Task 9).
+ *      for the txn via `_cancelPendingManualPaymentForTxn_internal` (Task 9).
  *
  * State guard: only works when txn.status === "awaiting_payment". Throws
  * TXN_NOT_AWAITING if the webhook already confirmed payment (race — caller

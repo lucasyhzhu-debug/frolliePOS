@@ -8,7 +8,7 @@
 Every public mutation in `convex/<module>/public.ts` must:
 
 1. Accept `idempotencyKey: v.string()` in its args validator.
-2. Wrap its handler in `withIdempotency(ctx, args, handler, options)`.
+2. Wrap its handler in `withIdempotency(mutationName, handler, options)` (curried form — see `convex/idempotency/internal.ts`).
 3. Pass an `authCheck` function in the `options` object.
 4. RE-CALL `require*Session(ctx, args.sessionId)` (or the appropriate auth helper) **inside the handler body** to obtain the typed session.
 

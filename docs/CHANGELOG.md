@@ -18,7 +18,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 ### Stabilizers
 - ApprovalPending overlay auto-flips on denied status
-- Cancel-sale cancels any pending Telegram approval for the txn (via shared `_cancelPendingApprovalsForTxn_internal` helper)
+- Cancel-sale cancels any pending Telegram approval for the txn (via shared `_cancelPendingManualPaymentForTxn_internal` helper)
 - Booth manager-PIN override accepts any active manager's code (not just the logged-in session)
 - Awaiting-payment countdown on /sale/charge driven by invoice expiry
 - New `cancelPendingRequest` manager mutation for cleaning up stuck approvals
