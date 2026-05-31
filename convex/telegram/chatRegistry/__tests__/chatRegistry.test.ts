@@ -166,7 +166,7 @@ describe("getChatIdByRole lookup chain", () => {
     }
   });
 
-  it("prefers an active table row over the env fallback (by_role_archived skips archived)", async () => {
+  it("prefers an active table row over the env fallback (JS post-filter skips archived)", async () => {
     vi.stubEnv("TELEGRAM_FALLBACK_ROLE", "managers");
     vi.stubEnv("TELEGRAM_CHAT_ID", "-100999");
     try {

@@ -452,7 +452,7 @@ Self-registration registry. One row per Telegram chat that has sent `/register@<
 | `archivedAt` | `number?` | Set when the chat is deregistered; non-null = archived |
 | `lastError` | `{ at: number, message: string }?` | Last send error for this chat; cleared on next success |
 
-Indexes: `by_chatId` on `chatId`, `by_role_archived` on `[role, archivedAt]`.
+Indexes: `by_chatId` on `chatId`, `by_role` on `[role]`. The active-only filter on `archivedAt === undefined` happens in JS post-collect — the Convex optional-field filter gotcha (see MEMORY.md) means `.eq("archivedAt", undefined)` diverges between convex-test and prod, so the bare-`by_role` + JS-post-filter pattern is the proven-safe lookup. A compound `by_role_archived` index existed pre-v0.5.1 but was dropped once the test was rewritten to mirror prod.
 
 ### `telegramUpdates` — v0.4 shipped *(owned by `telegram/`)*
 Webhook dedupe table. One row per processed Telegram update ID. Prevents double-processing Telegram retries before the bot responds 200. Insert-before-process; row persists forever (low volume, no reap needed for v1).

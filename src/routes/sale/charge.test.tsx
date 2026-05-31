@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { __resetForTests } from "@/hooks/useIdempotency";
+import { SESSION_KEY } from "@/lib/storage-keys";
 import SaleCharge from "./charge";
 
 /**
@@ -256,7 +257,7 @@ describe("SaleCharge route — smoke", () => {
 
 describe("SaleCharge route — off-booth approval affordance", () => {
   beforeEach(() => {
-    localStorage.setItem("frollie-session-id", "session-1");
+    localStorage.setItem(SESSION_KEY, "session-1");
     __resetForTests();
     vi.clearAllMocks();
     chargeBlockerState = "unblocked";
@@ -526,7 +527,7 @@ describe("SaleCharge route — off-booth approval affordance", () => {
 
 describe("SaleCharge route — countdown panel", () => {
   beforeEach(() => {
-    localStorage.setItem("frollie-session-id", "session-1");
+    localStorage.setItem(SESSION_KEY, "session-1");
     __resetForTests();
     vi.clearAllMocks();
     chargeBlockerState = "unblocked";
@@ -596,7 +597,7 @@ const MOCK_MANAGERS = [
 
 describe("SaleCharge route — manager picker", () => {
   beforeEach(() => {
-    localStorage.setItem("frollie-session-id", "session-1");
+    localStorage.setItem(SESSION_KEY, "session-1");
     __resetForTests();
     vi.clearAllMocks();
     chargeBlockerState = "unblocked";
@@ -800,7 +801,7 @@ describe("SaleCharge route — manager picker", () => {
 
 describe("SaleCharge route — useBlocker payment guard", () => {
   beforeEach(() => {
-    localStorage.setItem("frollie-session-id", "session-1");
+    localStorage.setItem(SESSION_KEY, "session-1");
     __resetForTests();
     vi.clearAllMocks();
     chargeBlockerState = "unblocked";

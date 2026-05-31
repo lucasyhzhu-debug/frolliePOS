@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { SESSION_KEY } from "@/lib/storage-keys";
 import { __resetCartForTests } from "@/hooks/useCart";
 import SaleRoute from "./index";
 
@@ -123,7 +124,7 @@ describe("Sale route — smoke", () => {
   });
 
   it("renders loading state while session is loading (sessionId in storage, query pending)", () => {
-    localStorage.setItem("frollie-session-id", "fake-session-id");
+    localStorage.setItem(SESSION_KEY, "fake-session-id");
     vi.mocked(useSessionModule.useSession).mockReturnValue({
       status: "loading",
       sessionId: null,

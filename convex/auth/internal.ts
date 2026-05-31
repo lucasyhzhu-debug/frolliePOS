@@ -302,8 +302,15 @@ export const _auditLockProbe_internal = internalMutation({
 /**
  * Resolve an active session to its staff + device. Exposed so other modules
  * (e.g. transactions) can authorise a sessionId without reading the auth-owned
- * staff_sessions table directly (ADR-034 module boundary). Returns null if the
- * session does not exist or has been ended (Locked).
+ * staff_sessions table directly (ADR-034 module boundary).
+ *
+ * Returns null when:
+ *   - the session does not exist
+ *   - the session has ended (Locked)
+ *   - the underlying staff record is missing or inactive (matches
+ *     requireSession() semantics in auth/sessions.ts so cross-module callers
+ *     get the same authorisation surface as in-module callers — closes the
+ *     v0.5.0 parity gap fixed in v0.5.1)
  */
 export const _resolveSession_internal = internalQuery({
   args: { sessionId: v.id("staff_sessions") },
@@ -313,6 +320,8 @@ export const _resolveSession_internal = internalQuery({
   ): Promise<{ staffId: Id<"staff">; deviceId: string } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
+    const staff = await ctx.db.get(session.staff_id);
+    if (!staff || !staff.active) return null;
     return { staffId: session.staff_id, deviceId: session.device_id };
   },
 });

@@ -38,7 +38,7 @@ telegramChats {
 }
 ```
 
-Indexes: `by_chatId` (unique lookup), `by_role_archived` (active role lookup — filters `archivedAt == undefined`).
+Indexes: `by_chatId` (unique lookup), `by_role` (role scan — JS post-filters `archivedAt === undefined` for active rows). *v0.5.1 update:* the compound `by_role_archived` index was dropped after the Convex optional-field filter gotcha (see MEMORY.md) forced production code to use the bare `by_role` index + JS post-filter. The compound index was unreferenced once tests were rewritten to mirror prod.
 
 ### Decision B — `telegramUpdates` dedup table
 
@@ -69,7 +69,7 @@ Role assignment is a separate, manager-gated step (see Decision D).
 
 `getChatIdByRole(role: string): Promise<string>` (internalQuery) is the single routing call used by every component that needs to post a Telegram message. It:
 
-1. Queries `telegramChats` by the `by_role_archived` index for a non-archived row matching `role`.
+1. Queries `telegramChats` by the `by_role` index for rows matching `role`, then JS-post-filters on `archivedAt === undefined` to find the active one (Convex optional-field filter gotcha workaround — see MEMORY.md).
 2. If found, returns `chatId`.
 3. If not found and `TELEGRAM_FALLBACK_ROLE == role` and `TELEGRAM_CHAT_ID` is set, returns the env-var value (backward-compat — see Decision F).
 4. Otherwise **throws** with a descriptive error (`No Telegram chat assigned to role '<role>'`).

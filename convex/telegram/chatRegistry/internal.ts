@@ -161,10 +161,11 @@ export type SeedResult =
 export const getChatIdByRole = internalQuery({
   args: { role: v.string() },
   handler: async (ctx, args): Promise<string> => {
-    // Use broader by_role index then post-filter in JS on archivedAt === undefined.
-    // .eq("archivedAt", undefined) works in convex-test but diverges in prod
-    // (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
-    // the proven-safe pattern; by_role_archived kept in schema for other uses.
+    // Use the bare by_role index then post-filter in JS on archivedAt === undefined.
+    // .eq("archivedAt", undefined) appears to work in convex-test but diverges in
+    // prod (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
+    // the proven-safe pattern; the historical by_role_archived compound index was
+    // dropped in v0.5.1 once the test was rewritten to match this same pattern.
     const rows = await ctx.db
       .query("telegramChats")
       .withIndex("by_role", (q) => q.eq("role", args.role))

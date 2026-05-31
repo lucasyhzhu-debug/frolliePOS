@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { openDB } from "idb";
+import { DEVICE_ID_KEY } from "@/lib/storage-keys";
 import { useDeviceId } from "./useDeviceId";
 
 const DB = "frollie-device";
@@ -32,7 +33,7 @@ describe("useDeviceId", () => {
     const { result, unmount } = renderHook(() => useDeviceId());
     await waitFor(() => expect(result.current).toMatch(/^[0-9a-f-]{36}$/));
     const id1 = result.current as string;
-    expect(localStorage.getItem("frollie-device-id")).toBe(id1);
+    expect(localStorage.getItem(DEVICE_ID_KEY)).toBe(id1);
 
     const db = await openDB(DB, 1);
     expect(await db.get(STORE, "device-id")).toBe(id1);
