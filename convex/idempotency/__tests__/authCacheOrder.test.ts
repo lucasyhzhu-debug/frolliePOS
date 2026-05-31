@@ -37,7 +37,7 @@ describe("withIdempotency authCheck ordering", () => {
         device_id: "dev-attack",
         started_at: Date.now() - 120_000,
         ended_at: Date.now() - 60_000,   // session was ended — revoked
-        end_reason: "locked",
+        end_reason: "manual_lock",
       });
       return { revokedSessionId };
     });

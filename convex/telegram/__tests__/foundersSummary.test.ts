@@ -126,12 +126,12 @@ it("race window closed: chatId resolved once — send uses captured chatId even 
   // as chat_id in the request body. This proves sendTemplate used the pre-resolved
   // chatId, not a second live lookup (which could diverge under race conditions).
   const seededChatId = "-100founders-race";
-  let capturedBody: Record<string, unknown> | null = null;
+  let capturedBody: { chat_id?: unknown } | null = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, options?: RequestInit) => {
       if (options?.body) {
-        capturedBody = JSON.parse(options.body as string) as Record<string, unknown>;
+        capturedBody = JSON.parse(options.body as string) as { chat_id?: unknown };
       }
       return {
         ok: true,
@@ -159,7 +159,10 @@ it("race window closed: chatId resolved once — send uses captured chatId even 
   expect((res as { ok: boolean }).ok).toBe(true);
   // The fetch body's chat_id must match the seeded chatId, confirming
   // chatIdOverride was used (not a second getChatIdByRole call).
-  expect(capturedBody?.chat_id).toBe(seededChatId);
+  // Cast at usage: TS's flow analysis narrows capturedBody to `null` because
+  // the only reassignment happens inside the fetch-mock closure (not linear flow).
+  const body = capturedBody as { chat_id?: unknown } | null;
+  expect(body?.chat_id).toBe(seededChatId);
 });
 
 // ─── sendFoundersSummaryResilient ─────────────────────────────────────────────
