@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { openDB, type IDBPDatabase } from "idb";
 import { DEVICE_ID_KEY } from "@/lib/storage-keys";
 
-
 const DB_NAME = "frollie-device";
 const DB_VERSION = 1;
 const STORE = "kv";
