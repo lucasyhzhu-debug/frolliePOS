@@ -117,9 +117,17 @@ describe("token PIN cap", () => {
 
     const [a, b] = await Promise.allSettled([denyAttempt, resolveAttempt]);
     const errored = [a, b].filter((r) => r.status === "rejected");
-    expect(errored.length).toBe(1);
-    const errMsg = (errored[0] as PromiseRejectedResult).reason.message;
-    expect(errMsg).toMatch(/REQUEST_RESOLVED|REQUEST_NOT_FOUND/);
+    // F11: convex-test serializes mutations sequentially. Which one "wins" is an
+    // implementation detail; what we verify is that at most one terminal transition
+    // lands (no double-write) and the other observes a terminal state cleanly
+    // (no throw OR a known terminal-error). With F4, the deny path may return
+    // {capped:false} instead of throwing when the resolve wins first — so
+    // errored.length can be 0 (resolve wins, deny silently returns capped:false)
+    // OR 1 (deny wins first, resolve throws REQUEST_RESOLVED).
+    expect(errored.length).toBeLessThanOrEqual(1);
+    if (errored.length === 1) {
+      expect((errored[0] as PromiseRejectedResult).reason.message).toMatch(/REQUEST_RESOLVED|REQUEST_NOT_FOUND/);
+    }
   });
 
   test("F4: cap-trip on already-resolved row returns {capped:false} (does not throw REQUEST_REVOKED)", async () => {
