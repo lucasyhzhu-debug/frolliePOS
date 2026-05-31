@@ -64,7 +64,14 @@ const OWNERSHIP = {
 // `_codes` is exempt because its conformance tests deliberately read every
 // table that owns a stable `code` identifier (staff, pos_inventory_skus,
 // pos_products) to assert format invariants per ADR-034.
-const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes"];
+// `receipts` is exempt because the receipts module is an aggregate-read
+// consumer (ADR-039): it builds a ReceiptViewModel that spans
+// pos_transactions + pos_transaction_lines (owned by transactions) and
+// pos_xendit_invoices (owned by payments). Per ADR-034 guidance, aggregate
+// read patterns live in the consuming module. PR B may swap the direct
+// reads for transactions/internal + payments/internal helpers if those
+// surfaces grow; until then, receipts joins primary records here.
+const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes", "receipts"];
 
 export default [
   {
