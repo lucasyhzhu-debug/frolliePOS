@@ -12,6 +12,9 @@
 
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+// Enforces React hook call-site rules (rules-of-hooks) and dep-array hygiene
+// (exhaustive-deps) across all src/ components and hooks.
+import reactHooks from "eslint-plugin-react-hooks";
 
 import noCrossModuleDbAccess from "./tools/eslint-rules/no-cross-module-db-access.js";
 import idempotencyRequired from "./tools/eslint-rules/idempotency-required.js";
@@ -99,6 +102,19 @@ export default [
         "error",
         { skipStrings: true, skipComments: true, skipRegExps: true },
       ],
+    },
+  },
+
+  {
+    // React hooks hygiene — scoped to src/ where React components/hooks live.
+    // rules-of-hooks: error — conditional/loop hook calls are real bugs.
+    // exhaustive-deps: warn — surface stale-closure risks; existing intentional
+    // single-shot effects with useRef guards carry focused disable comments.
+    files: ["src/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
 
