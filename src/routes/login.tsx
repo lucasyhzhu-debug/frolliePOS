@@ -28,14 +28,15 @@ export default function LoginRoute() {
   // auth bypass; PIN is still required). Runs once when the active-staff list
   // first resolves. Silently falls back to the list if the stored id is absent
   // from the active list (deactivated, removed, or never set).
+  const hasPreStaged = useRef(false);
   useEffect(() => {
+    if (hasPreStaged.current) return;
     if (staff === undefined) return;
-    if (stage.kind !== "list") return;
+    hasPreStaged.current = true;
     const lastId = getLastStaff();
     if (!lastId) return;
     const match = staff.find((s) => s._id === lastId);
     if (match) setStage({ kind: "pin", staff: match });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only fires when staff resolves; re-runs after stage transition are no-ops via the guard
   }, [staff]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
