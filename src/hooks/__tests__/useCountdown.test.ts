@@ -104,4 +104,18 @@ describe("useCountdown", () => {
     expect(result.current.pctRemaining).toBe(1);
     expect(result.current.expired).toBe(false);
   });
+
+  it("F7: returns safe defaults when totalLifetimeMs is 0 (NaN guard)", () => {
+    const { result } = renderHook(() => useCountdown(Date.now() + 60_000, 0));
+    expect(result.current.pctRemaining).toBe(0);
+    expect(Number.isFinite(result.current.pctRemaining)).toBe(true);
+    expect(result.current.mmss).toBe("--:--");
+    expect(result.current.expired).toBe(false);
+  });
+
+  it("F7: returns safe defaults when totalLifetimeMs is negative", () => {
+    const { result } = renderHook(() => useCountdown(Date.now() + 60_000, -1000));
+    expect(result.current.pctRemaining).toBe(0);
+    expect(Number.isFinite(result.current.pctRemaining)).toBe(true);
+  });
 });

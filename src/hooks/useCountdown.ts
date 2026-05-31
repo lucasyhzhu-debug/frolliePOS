@@ -30,6 +30,13 @@ export function useCountdown(
 
   if (!targetEpoch) return { mmss: "--:--", pctRemaining: 0, expired: false };
 
+  // F7: guard against NaN propagation if totalLifetimeMs is 0 or non-finite.
+  // Math.min/Math.max chain propagates NaN silently → broken ARIA values in
+  // progress components. Return safe defaults early.
+  if (!Number.isFinite(targetEpoch) || totalLifetimeMs <= 0) {
+    return { mmss: "--:--", pctRemaining: 0, expired: false };
+  }
+
   const remaining = Math.max(0, targetEpoch - now);
   const mins = Math.floor(remaining / 60_000);
   const secs = Math.floor((remaining % 60_000) / 1_000);
