@@ -2,8 +2,6 @@ import { internalMutation, internalQuery, QueryCtx } from "../_generated/server"
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { renderReceipt, type ReceiptViewModel } from "./template";
-import { mintUrlSafeToken } from "../lib/tokens";
-import { logAudit } from "../audit/internal";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // ADR-022
 
@@ -194,34 +192,23 @@ export const _purgeReceiptCache_internal = internalMutation({
  * paid before invoking.
  *
  * Cross-module write boundary (ADR-034): pos_transactions is transactions-owned,
- * so the existence check + patch are routed through
- * transactions._ensureReceiptTokenForPaidTxn_internal. Token generation stays
- * here (caller-side) so the audit row + idempotency check on existing tokens
- * both live in the same mutation as the caller's audit emit.
- *
- * V8-safe: `mintUrlSafeToken` is implemented with Web Crypto so this mutation
- * can mint + patch + audit in a single transaction (no internalAction hop).
+ * so existence check + CSPRNG mint + patch + audit all live in
+ * transactions._ensureReceiptTokenForPaidTxn_internal. This wrapper is a thin
+ * facade so future direct callers of the owning-module helper get identical
+ * behaviour without re-implementing the mint decision.
  */
 export const _lazyMintReceiptToken_internal = internalMutation({
   args: { transactionId: v.id("pos_transactions"), actor: v.id("staff") },
   handler: async (ctx, args): Promise<{ token: string }> => {
-    const candidate = mintUrlSafeToken();
+    // Thin facade — the owning module (transactions) handles existing-token
+    // check, CSPRNG mint, patch, AND audit emit in one mutation. Keeps the
+    // ADR-034 boundary clean (pos_transactions writes stay in transactions/)
+    // and ensures every direct caller of _ensureReceiptTokenForPaidTxn_internal
+    // gets a consistent audit row on mint without re-implementing it.
     const result = await ctx.runMutation(
       internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
-      { transactionId: args.transactionId, newToken: candidate },
+      { transactionId: args.transactionId, actor: args.actor, isLazy: true },
     );
-    if (result.status === "exists") {
-      // Already minted — return existing (idempotent, no audit row).
-      return { token: result.token };
-    }
-    await logAudit(ctx, {
-      actor_id: args.actor,
-      action: "receipt.token_minted",
-      entity_type: "pos_transactions",
-      entity_id: args.transactionId,
-      source: "booth_inline",
-      metadata: { lazy: true },
-    });
     return { token: result.token };
   },
 });

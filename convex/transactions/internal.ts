@@ -338,23 +338,31 @@ export const _dailySalesSummary_internal = internalQuery({
 });
 
 /**
- * Capability check + write for the receipts module's lazy-mint flow.
- * Returns the existing receipt_token if one is already set on a paid txn
- * (idempotent), or patches a freshly-minted token onto the row and returns it.
+ * Capability check + write + audit for the receipts module's lazy-mint flow.
+ * Owns the entire mint decision so any caller (receipts wrapper today, future
+ * "resend receipt" surfaces) gets identical behaviour without re-implementing
+ * the existing-token check, the CSPRNG hop, or the audit emit.
  *
  * Returns:
- *   { status: "exists", token } — txn already had a token
- *   { status: "minted", token } — fresh patch applied
+ *   { status: "exists", token } — txn already had a token (no audit row, no
+ *                                  wasted CSPRNG bytes; idempotent re-call safe)
+ *   { status: "minted", token } — fresh mint + patch + audit
  *
- * Throws TXN_NOT_FOUND / TXN_NOT_PAID; the receipts wrapper translates these
+ * Throws TXN_NOT_FOUND / TXN_NOT_PAID. The receipts wrapper translates these
  * into the same errors it has always thrown so external surfaces are stable.
  * Boundary (ADR-034): pos_transactions is transactions-owned, so receipts
  * routes the patch through here rather than calling ctx.db.patch directly.
+ *
+ * `actor` carries provenance for the audit row. `isLazy` controls the audit
+ * metadata flag (lazy=true via _lazyMintReceiptToken_internal; lazy=false
+ * reserved for an inline mint path if one is ever added — _confirmPaid mints
+ * directly and audits via "payment.confirmed", so this stays unused for now).
  */
 export const _ensureReceiptTokenForPaidTxn_internal = internalMutation({
   args: {
     transactionId: v.id("pos_transactions"),
-    newToken: v.string(),
+    actor: v.id("staff"),
+    isLazy: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -364,10 +372,22 @@ export const _ensureReceiptTokenForPaidTxn_internal = internalMutation({
     if (!txn) throw new Error("TXN_NOT_FOUND");
     if (txn.status !== "paid") throw new Error("TXN_NOT_PAID");
     if (txn.receipt_token) {
+      // Idempotent: no audit, no CSPRNG bytes wasted.
       return { status: "exists" as const, token: txn.receipt_token };
     }
-    await ctx.db.patch(args.transactionId, { receipt_token: args.newToken });
-    return { status: "minted" as const, token: args.newToken };
+    // Fresh mint: generate token AFTER the existing-token check so a same-row
+    // retry doesn't burn entropy. CSPRNG (Web Crypto) is V8-safe.
+    const token = mintUrlSafeToken();
+    await ctx.db.patch(args.transactionId, { receipt_token: token });
+    await logAudit(ctx, {
+      actor_id: args.actor,
+      action: "receipt.token_minted",
+      entity_type: "pos_transactions",
+      entity_id: args.transactionId,
+      source: "booth_inline",
+      metadata: { lazy: args.isLazy ?? true },
+    });
+    return { status: "minted" as const, token };
   },
 });
 
