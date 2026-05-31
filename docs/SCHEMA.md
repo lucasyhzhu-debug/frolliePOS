@@ -396,8 +396,9 @@ Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-
 | `resolved_at` | `number?` | |
 | `resolved_by_manager_id` | `Id<"staff">?` | Manager who approved (PIN authorises ACT per [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)) |
 | `denied_at` | `number?` | Set when manager denies the request *(v0.4)* |
-| `denied_by_manager_id` | `Id<"staff">?` | Manager who denied *(v0.4)* |
+| `denied_by_manager_id` | `Id<"staff"> \| "system" \| undefined` | Manager who denied *(v0.4)*; `"system"` sentinel used for auto-denies (PIN-cap trip, txn cascade) *(v0.5.0)* |
 | `deny_reason` | `string?` | Required denial reason *(v0.4)* |
+| `failed_pin_attempts` | `number?` | Per-token PIN attempt counter; absent = 0. Request is auto-denied when value reaches `TOKEN_PIN_ATTEMPT_CAP` (5). Counts ALL manager PIN failures on this token — legitimate fumbles included. *(v0.5.0)* |
 | `notification_channel` | `"telegram"?` | Notification path used; `"telegram"` is the only supported literal *(v0.4)* |
 | `telegram_message_id` | `number?` | Telegram message ID of the approval notification; patched after send *(v0.4)* |
 | `telegram_chat_id` | `string?` | Telegram chat the notification was sent to; patched after send *(v0.4)* |

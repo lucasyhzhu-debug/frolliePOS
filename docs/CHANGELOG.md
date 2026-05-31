@@ -2,6 +2,42 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.0 — App shell + session ergonomics + v0.4 stabilizers (2026-05-31)
+
+### App shell
+- Sticky header chrome on every spoke route with back-to-home affordance
+- Cart-abandon dialog on /sale (Save as draft / Discard / Cancel)
+- Cancel-payment dialog on /sale/charge (Cancel payment / Keep waiting); cancels via new `cancelAwaitingPayment` mutation
+- Navigation interception via React Router's `useBlocker` catches header back, browser back, and Android gesture-back uniformly
+- Lock route + lock-resume UX: /login pre-stages to the previous staffer's PIN; silent fallback to staff list if deactivated
+
+### Security hardening
+- Per-token PIN attempt cap (5 attempts) on /approve/:token actions. **Operator note:** the cap counts ALL failures — legitimate manager fumbles count too. A revoked approval requires retry from scratch (mints a fresh token).
+- ESLint rule `idempotency-required` enforces `idempotencyKey` + `withIdempotency` + `authCheck` on every public mutation
+- All existing public mutations refactored to canonical authCheck-in-options pattern; auth now runs BEFORE the idempotency cache lookup
+
+### Stabilizers
+- ApprovalPending overlay auto-flips on denied status
+- Cancel-sale cancels any pending Telegram approval for the txn (via shared `_cancelPendingManualPaymentForTxn_internal` helper)
+- Booth manager-PIN override accepts any active manager's code (not just the logged-in session)
+- Awaiting-payment countdown on /sale/charge driven by invoice expiry
+- New `cancelPendingRequest` manager mutation for cleaning up stuck approvals
+- `getRecentPinResetForStaff` no longer re-fires success toast on fresh sessions
+- Founders summary cron eliminates role-rebind race window
+- KIND_AUDIT verbs are now per-kind (`staff_pin_reset.resolved`, `manual_payment_override.resolved`). **Audit cutover:** pre-v0.5.0 rows use the old generic verbs; v0.5.0+ rows use per-kind verbs. Dashboard queries in v0.5.3 read the new shape; historical queries need both.
+- `telegramChats` archived-filter rewritten to JS post-filter (closes documented prod gotcha)
+
+### Internals
+- `effectiveStatus(row)` helper centralises the four-state lifecycle derivation
+- `chatRegistry.ts` split into `chatRegistry/public.ts` + `internal.ts` per ADR-034
+- localStorage keys centralised in `src/lib/storage-keys.ts`; `storeSession(sessionId, staffId)` writes both atomically
+
+### Known follow-ups (deferred to v0.5.1)
+- `useDeviceId.ts` `LS_KEY` constant should migrate to `src/lib/storage-keys.ts`
+- 4 sale-route tests still use the bare `"frollie-session-id"` literal; should import `SESSION_KEY`
+- `pos_xendit_invoices` `by_role_archived` index is now unused — drop in next schema pass
+- `_resolveSession_internal` should add `staff.active` check to match `requireSession` semantics
+
 ## 2026-05-29 — Tooling: CEO Progress Report cutover
 
 - Retired the in-tree `scripts/build-progress-html.mjs`; the rendered board is now built by the published `ceo-progress-report` npm package (added to devDependencies).
@@ -44,7 +80,7 @@ Telegram graduation: the v0.3 Telegram POC becomes the primary off-booth approva
 - **Off-booth manual-payment approval flow** (`manual_payment_override` kind). Staff on the charge screen can request off-booth manager approval when no manager is present. The flow: `requestManualPaymentApproval` → Telegram card with URL button to `/approve/:token` → manager opens link (VIEW) + enters PIN (ACT) → `approveManualPayment` resolves the request and confirms the transaction, or `denyRequest` (kind-agnostic deny) closes it. The charge screen subscribes reactively via `useApproval` + `ApprovalPending`.
 - **`APPROVAL_KINDS` registry** (`convex/approvals/kinds.ts`) — `ApprovalKind` union, `validateContext` (single-writer invariant for per-kind context payloads, enforces ADR-015 integer rupiah), `KIND_AUDIT`, `KIND_TEMPLATE`. The canonical mechanism for adding a new approval kind (see "How to add a feature" #8 in CLAUDE.md).
 - **Telegram self-registration** — `telegramChats` + `telegramUpdates` tables; `/register` and `/start` bot commands wired via `buildRegistryCommands`; `getChatIdByRole` routes `sendTemplate` to the bound role chat with `TELEGRAM_CHAT_ID` as env-fallback during initial setup; `seedChatFromEnv` one-shot migration bootstrap.
-- **Manager-gated `/mgr/telegram-chats` admin route** — lists registered chats, lets a manager assign/reassign roles (`managers` / `founders`), archive/restore chats, send test messages, and toggle the founders-summary setting. Calls `api.telegram.chatRegistry.mgrListChats` / `mgrAssignRole` / `mgrArchiveChat` / `mgrRestoreChat` / `mgrSendTest`.
+- **Manager-gated `/mgr/telegram-chats` admin route** — lists registered chats, lets a manager assign/reassign roles (`managers` / `founders`), archive/restore chats, send test messages, and toggle the founders-summary setting. Calls `api.telegram.chatRegistry.public.mgrListChats` / `mgrAssignRole` / `mgrArchiveChat` / `mgrRestoreChat` / `mgrSendTest`. *(updated to reflect v0.5.0 chatRegistry split)*
 - **Founders daily shift-summary cron** (22:00 WIB / 15:00 UTC) — `sendFoundersSummaryResilient` wraps `sendFoundersSummary` with linear back-off retry (up to `RESILIENT_MAX_ATTEMPTS`). Non-transient errors and unbound `founders` role produce an audited skip (`founders.summary_skipped`), not a retry storm. Registered in `convex/crons.ts`.
 - **`useApproval` reactive hook** (`src/hooks/useApproval.ts`) — wraps `approvals.public.getRequestStatus` reactive subscription + `requestManualPaymentApproval` action dispatch + IDB-backed idempotency key lifecycle. Used by `ApprovalPending` and the charge screen.
 - **`ApprovalPending` reusable component** (`src/components/pos/ApprovalPending.tsx`) — approval-pending overlay that renders pending / resolved / denied / expired states reactively, with per-state CTA.

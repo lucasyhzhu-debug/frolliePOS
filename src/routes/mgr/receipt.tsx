@@ -1,4 +1,9 @@
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import Stub from "@/components/layout/Stub";
 export default function MgrReceipt() {
-  return <Stub name="Receipt settings" />;
+  return (
+    <SpokeLayout title="Receipt settings">
+      <Stub name="Receipt settings" />
+    </SpokeLayout>
+  );
 }

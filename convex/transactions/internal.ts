@@ -401,6 +401,23 @@ export const _cancelCommit_internal = internalMutation({
         device_id: args.device_id,
         reason: args.reason,
       });
+      // C1 atomicity: cancel-invoice + cascade-deny share this mutation's
+      // Convex transaction so a transient failure on either step can't
+      // strand an uncancelled invoice or live approvals against a cancelled
+      // txn. Matches the cancelAwaitingPayment shape.
+      await ctx.runMutation(
+        internal.payments.internal._cancelActiveInvoiceForTxn_internal,
+        {
+          txnId: args.txnId,
+          cancel_reason: "txn_cancelled",
+          actor_id: args.actor_staff_id,
+          source: "booth_inline",
+        },
+      );
+      await ctx.runMutation(
+        internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
+        { txnId: args.txnId, reason: "txn_cancelled" },
+      );
       return { cancelled: true as const };
     },
   ),

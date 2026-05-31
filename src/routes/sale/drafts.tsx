@@ -7,7 +7,7 @@ import { useCatalogCache } from "@/hooks/useCatalogCache";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ConnDot } from "@/components/layout/ConnDot";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
 
 /**
@@ -100,24 +100,7 @@ export default function SaleDrafts() {
   if (session.status !== "active") return null;
 
   return (
-    <main className="flex flex-1 flex-col gap-0 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
-            onClick={() => navigate("/sale")}
-          >
-            ← New sale
-          </button>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-base font-semibold">Saved drafts</h1>
-        </div>
-        <ConnDot />
-      </header>
-
-      {/* Draft list */}
+    <SpokeLayout title="Saved drafts" backTo="/sale">
       <section className="flex-1 overflow-y-auto p-4">
         {drafts == null ? (
           <div className="text-sm text-muted-foreground">Loading drafts…</div>
@@ -175,6 +158,6 @@ export default function SaleDrafts() {
           </ul>
         )}
       </section>
-    </main>
+    </SpokeLayout>
   );
 }

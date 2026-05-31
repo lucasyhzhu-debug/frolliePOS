@@ -18,7 +18,7 @@ export function buildRegistryCommands(scheduler: Scheduler): CommandRegistration
     {
       name: "register",
       dispatch: async (msg) => {
-        await scheduler.runAfter(0, internal.telegram.chatRegistry.registerChat, {
+        await scheduler.runAfter(0, internal.telegram.chatRegistry.internal.registerChat, {
           chatId: msg.chatId,
           chatType: msg.chatType,
           title: msg.title,
@@ -29,7 +29,7 @@ export function buildRegistryCommands(scheduler: Scheduler): CommandRegistration
     {
       name: "start",
       dispatch: async (msg) => {
-        await scheduler.runAfter(0, internal.telegram.chatRegistry.replyStartHelp, {
+        await scheduler.runAfter(0, internal.telegram.chatRegistry.internal.replyStartHelp, {
           chatId: msg.chatId,
         });
       },

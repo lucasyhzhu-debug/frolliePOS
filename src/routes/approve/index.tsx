@@ -36,6 +36,7 @@ function mapError(err: unknown): string {
   // AND the internal-layer race guard (_markResolved/_markDenied_internal).
   // Single code, single mapping — see Simplify finding ALTITUDE-2.
   if (msg.includes("REQUEST_RESOLVED")) return "Already resolved";
+  if (msg.includes("REQUEST_REVOKED")) return "Approval revoked — too many wrong PIN attempts. Ask the staffer to retry.";
   if (msg.includes("NOT_MANAGER")) return "That staff code is not a manager";
   if (msg.includes("INVALID_PIN")) return "Wrong manager PIN";
   if (msg.includes("NEW_PIN_INVALID")) return "New PIN must be 4 digits";
@@ -279,7 +280,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
             </SelectTrigger>
             <SelectContent>
               {managers?.map((m) => (
-                <SelectItem key={m._id} value={m.code}>
+                <SelectItem key={m.code} value={m.code}>
                   {m.code} — {m.name}
                 </SelectItem>
               ))}
@@ -670,7 +671,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
             </SelectTrigger>
             <SelectContent>
               {managers?.map((m) => (
-                <SelectItem key={m._id} value={m.code}>
+                <SelectItem key={m.code} value={m.code}>
                   {m.code} — {m.name}
                 </SelectItem>
               ))}
@@ -864,6 +865,19 @@ export default function Approve() {
 
   // ── Already DENIED (terminal: declined, includes reason + manager) ──────
   if (request.status === "denied") {
+    // System auto-revoke due to too many wrong PIN attempts — show a distinct
+    // "ask for a fresh approval" message rather than the manager-deny copy.
+    if (request.deny_reason === "too_many_pin_attempts") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <XCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm font-medium">
+            Approval revoked — too many wrong PIN attempts. Ask the staffer to retry.
+          </p>
+        </main>
+      );
+    }
+
     const denierName = request.denied_by_manager_name;
     const denierCode = request.denied_by_manager_code;
     const denierLabel =

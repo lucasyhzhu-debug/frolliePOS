@@ -758,69 +758,151 @@ Merged 2026-05-26.
 
 ---
 
-## v0.5 — refunds + receipts + history + dashboard + stock 🗂️ BACKLOG
-**Outcome:** Staff issue refunds, share receipts, and reconcile stock; managers see the daily dashboard.
+## v0.5.0 — App shell + session ergonomics + v0.4 stabilizers 📋 PLANNED (next up)
+**Outcome:** Every screen has consistent navigation, locking and resuming a shift is smoother, and the small stack of v0.4 follow-up bugs is cleared — the foundation every v0.5.1–v0.5.3 screen will sit on.
 **Target:** TBD
-Plan not yet written. Largest phase. Scope per WORKFLOW.md.
+Decomposition rationale: [staffreview 2026-05-30](./reviews/staffreview-v0.5-split-2026-05-30.md). v0.5 was split into four sub-phases (v0.5.0 → v0.5.3) because the original scope (refunds + receipts + history + stock + dashboard + settlements + in-app admin) was three times v0.4's size. This slice is the plumbing prereq for the other three.
 
 **You'll be able to:**
-- Issue refunds end-to-end — staff initiate, manager approves via Telegram, refund logged as a new row (the original sale is never mutated)
-- Share signed-URL receipts — customer scans/clicks, gets an itemized receipt
-- View transaction history (staff: own + today; manager: everything)
-- Log stock-in by SKU through the app, every change tracked as a logged movement with a reason
-- Reconcile Xendit settlements (what they owe vs what they've paid out)
-- Use the manager dashboard (laptop-first) for daily sales, top SKUs, flagged transactions, staff activity
-- Manage staff + products fully in-app — the Convex dashboard is no longer required for day-to-day ops
-- End-of-shift handoff via the Lock screen
+- Navigate from any screen back to home without using browser-back
+- Lock the device and resume by entering the previous staff member's PIN (one tap to switch)
+- Trust that off-booth approval links can't be brute-forced (per-token PIN attempt cap)
+- See an awaiting-payment countdown on the charge screen so you know when the QR expires
+- Cancel a sale and have any pending manager approval cancelled at the same time
+- Call any active manager by name from the booth override picker (not just the logged-in one)
 
 **Still not yet:**
-- Use vouchers / promo codes (v0.6)
-- Track spoilage / wasted stock (v0.6)
-- Rely on nightly auto-reconciliation of stock counts (v0.6)
-- Launch in production with full operational polish (v1.0)
+- Issue refunds end-to-end (v0.5.1)
+- Share public receipts to customers (v0.5.1)
+- Log stock-in or run stock checks in-app (v0.5.2)
+- View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
+- Manage staff or products in-app — still via the Convex dashboard (v0.5.3)
 
 ### Backend (`convex/`)
-- 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status
-- 🗂️ `stock.ts` — `pos_stock_movements` table, stock-in mutations, reconciliation, nightly job
-- 🗂️ `settings.ts` — `pos_settings` singleton CRUD
-- 🗂️ `staff.ts` updates — `resetPin`, `deactivateStaff`, `updateStaff` + strip pin_hash from `listStaff` response (v0.2 follow-up)
-- 🗂️ `dashboard.ts` — full manager dashboard queries
-- 🗂️ `receipt.ts` — receipt token generation, public lookup
-- 🗂️ `settlements.ts` — full reconciliation (Xendit settlement webhook + nightly recon)
-- 🗂️ Charge-screen deny doesn't auto-flip back to ceiling CTAs (v0.4 stabilization) — when a manager denies an off-booth manual-payment request, the audit row `approval.denied` commits cleanly server-side but the staff's `ApprovalPending` component apparently doesn't observe the status flip + fire `onDenied`. The reactive `useQuery(getRequestStatus)` should push the new status; investigate whether the service worker intercepts the WebSocket, whether the useRef-guarded effect mis-fires, or whether the parent's `setApprovalRequestId(null)` is observed but the next render doesn't unmount fast enough. Workaround today: staff can cancel the sale manually. _Surfaced 2026-05-30 by v0.4 E2E._
-- 🗂️ Cancel-sale should also cancel any pending approval request for the txn — otherwise a manager can approve a request whose txn already moved to `cancelled`, hitting `_onPaidManual_internal`'s status guard mid-flight. Bundle with the cancel-pending-approval action below. _Surfaced 2026-05-30 by v0.4 E2E._
-- 🗂️ Booth "Manager override" multi-manager picker — extend `payments.actions.manuallyConfirmPayment` to take `managerStaffCode` (today it only verifies the *current session's* PIN, so a logged-in staff can't call a manager over without the manager taking over the session first). Mirror the v0.4 `/approve` pattern: dropdown of active managers + their PIN + reason. Audits the picked manager as `mgr_approver_id`. _Surfaced 2026-05-30 by v0.4 E2E._
-- 🗂️ Awaiting-payment countdown timer — the QR/VA invoice has an `expires_at` on `pos_xendit_invoices`; the charge screen currently shows just a spinner ("Waiting for payment…"). Add a setInterval-driven countdown (mm:ss) + a thin progress bar so staff know how much time is left before the invoice expires and a fresh QR is needed. _Surfaced 2026-05-30 by v0.4 E2E._
-- 🗂️ Manager cancel-pending-approval action — `approvals.public.cancelPendingRequest({ sessionId, requestId, reason? })` lets a manager invalidate a still-pending `pos_approval_requests` row from a manager-only UI surface (e.g. an "Active requests" panel on `/mgr/telegram-chats` or a new `/mgr/approvals`). Today the dedup guard in `notifyStaffLockout`/`requestManualPaymentApproval` correctly blocks retries while a request is pending, but if its URL goes stale (POS_BASE_URL changes, the manager loses the Telegram message, dev tunnel rotates), the only recovery is a Convex `run` against `_deleteRequest_internal`. _Surfaced 2026-05-30 by v0.4 E2E: tunnel rotation left a pending lockout request pointing at a dead URL; the dedup guard correctly blocked lockout retries with no UI path to clear._
-- 🗂️ **Per-token failed-PIN cap on `/approve` actions** — `approveStaffPinReset`, `approveManualPayment`, and `denyRequest` all argon2-verify a manager PIN looked up by the staff code the form supplies, with no per-token attempt cap. An attacker who holds a live token (60-min TTL) can iterate manager codes (low-cardinality, predictable like `S-0001`) and burn 3 wrong PINs against each — locking out every manager in sequence; each lockout fires `notifyStaffLockout` and posts a fresh PIN-reset link to the same Telegram group, amplifying the loop. Fix: track failed attempts per token (new field on `pos_approval_requests` or sibling table) and invalidate the token after N misses across any code. Code comment at `convex/approvals/actions.ts:OFF_BOOTH_DEVICE_ID`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
-- 🗂️ **`getRecentPinResetForStaff` status filter** — `convex/approvals/public.ts:getRecentPinResetForStaff` returns the latest row in a 10-min window regardless of status. `src/routes/login.tsx` is the only consumer; verify it branches on `status === "denied"` before toasting, otherwise a "your reset was resolved" toast may re-fire on every fresh session after a successful resolve. Either tighten the query to filter `status !== "resolved"` or audit the login.tsx guard. Code comment in `public.ts`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
-- 🗂️ **Founders summary pre-check+send race window** — `convex/telegram/foundersSummary.ts` pre-checks `getChatIdByRole` then calls `sendTemplate`, which itself re-reads `getChatIdByRole` to route. If an admin unbinds the founders role between the two reads (millisecond window), pre-check passes, real send throws non-transient, audit lands in `send_failed` — re-introducing the conflation the pre-check was meant to fix. Deeper fix: `sendTemplate` accepts an optional `chatIdOverride` so the cron captures the chat id once and passes it forward. Code comment in `foundersSummary.ts`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
-- 🗂️ **KIND_AUDIT per-kind distinct verbs** — `convex/approvals/kinds.ts` currently maps both kinds to identical action strings (`approval.created` / `.resolved` / `.denied`). The registry exists for v0.5+ when refund/void kinds need kind-distinguishing verbs. Pick concrete strings (e.g. `refund.resolved`, `void.resolved`) at the same time the new kinds land and update any dashboard queries that filtered on `action == "approval.resolved"`. Code comment in `kinds.ts`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
-- 🗂️ **`telegramChats.archivedAt === undefined` filter rewrite** — `getChatIdByRole` and `mgrAssignRole`'s displaced-holder lookup both use `q.eq("archivedAt", undefined)` on the `by_role_archived` index. Works in convex-test; a documented prod gotcha (memory: `convex-optional-field-filter-gotcha`) warns this can silently return `[]` in production. The Telegram POC ran live so the assumption has empirical support, but a safer rewrite is to drop the `.eq("archivedAt", ...)` from the index narrow and post-filter `r.archivedAt === undefined` in JS. Confirm prod behavior before deciding. Code comment in `chatRegistry.ts:getChatIdByRole`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
+- 📋 **[v050-be-deny-autoflip]** Charge-screen deny doesn't auto-flip back to ceiling CTAs — `ApprovalPending` should observe the `approval.denied` status change and fire `onDenied`. Surfaced 2026-05-30 by v0.4 E2E.
+- 📋 **[v050-be-cancel-cancels-approval]** Cancel-sale should also cancel any pending approval request for the txn — otherwise a manager can approve a request whose txn already moved to `cancelled`. Bundle with [v050-be-cancel-pending-approval].
+- 📋 **[v050-be-mgr-picker-override]** Booth "Manager override" multi-manager picker — extend `payments.actions.manuallyConfirmPayment` to take `managerStaffCode`. Today it only verifies the current session's PIN, so a logged-in staff can't call a manager over without the manager taking the session. Mirror the `/approve` pattern: manager picker + their PIN + reason.
+- 📋 **[v050-be-awaiting-countdown]** Awaiting-payment countdown timer driven by `pos_xendit_invoices.expires_at` — setInterval-driven mm:ss + thin progress bar so staff know how much time is left before a fresh QR is needed.
+- 📋 **[v050-be-cancel-pending-approval]** `approvals.public.cancelPendingRequest({ sessionId, requestId, reason? })` — let a manager invalidate a still-pending request from a manager-only UI. Today recovery requires a Convex `run` against `_deleteRequest_internal`.
+- 📋 **[v050-be-token-pin-cap]** Per-token failed-PIN cap on `/approve` actions — security hardening. Today `approveStaffPinReset`/`approveManualPayment`/`denyRequest` have no per-token attempt cap; an attacker holding a live token can iterate manager codes and burn 3 wrong PINs against each. Track failed attempts per token; invalidate after N misses.
+- 📋 **[v050-be-recent-reset-filter]** `getRecentPinResetForStaff` status filter — tighten query to `status !== "resolved"` or audit `login.tsx` guard so success toasts don't re-fire on every fresh session post-resolve.
+- 📋 **[v050-be-founders-race]** Founders summary pre-check+send race window — `sendTemplate` accepts optional `chatIdOverride` so the cron captures the chat id once and passes it forward, avoiding the millisecond unbind window.
+- 📋 **[v050-be-kind-audit-verbs]** `KIND_AUDIT` per-kind distinct verbs — pick concrete strings (e.g. `refund.resolved`, `void.resolved`) so dashboard queries can filter by kind. Land alongside the first new kind in v0.5.1.
+- 📋 **[v050-be-archived-filter]** `telegramChats.archivedAt === undefined` filter rewrite — drop the index `.eq("archivedAt", ...)` narrow and post-filter in JS to dodge the documented prod gotcha.
+
+### Frontend (`src/`)
+- 📋 **[v050-fe-nav-shell]** Cohesive navigation strategy — app-wide nav shell / header chrome with consistent back/home affordances across spoke screens + cart-abandon semantics. Prereq for v0.5.1–v0.5.3 screen sets so they aren't each retrofitted.
+- 📋 **[v050-fe-lock-route]** `routes/lock.tsx` — full lock + handoff (end-of-shift). Moved here from v0.5.1 per staffreview Critical 1: this is a session/shell concern, not a sale-loop concern.
+- 📋 **[v050-fe-lock-resume]** Lock → resume UX: locking lands on the PREVIOUS person's PIN entry (open `/login` at the `pin` stage pre-set to the last-logged-in staff), NOT the full "Who's working?" list. Requires persisting last staff identity at lock time; PIN still required (no auth bypass).
+
+### Cross-cutting
+- 📋 **[v050-xc-eslint-idempotency]** ESLint rule: public mutations must have `idempotencyKey` + `withIdempotency` — sibling to `tools/eslint-rules/no-cross-module-db-access.js`. Scan `convex/**/public.ts` for `export const ... = mutation({ ... })` and assert (a) `idempotencyKey: v.string()` in args, (b) `withIdempotency<...>(...)` wrapping the handler. v0.4 shipped `setFoundersSummaryEnabled` without the wrapper because no mechanical guard enforces ADR-013 / business rule #15.
+- 📋 **[v050-xc-effective-status]** Effective-status helper for `pos_approval_requests` — single `effectiveStatus(row)` export from `convex/approvals/lib.ts`, used by all 5 reader sites (`getByToken`, `getRequestStatus`, `getRecentPinResetForStaff`, `/approve` UI, `ApprovalPending` overlay) so no reader forgets the virtual `"expired"` derivation.
+- 📋 **[v050-xc-spec]** Write `docs/superpowers/specs/2026-05-30-v0.5.0-foundation-design.md` (brainstorm → spec → plan flow); then per-task IDs above gain full metadata blocks (deps, subtasks, tests).
+
+---
+
+## v0.5.1 — Refunds + customer receipts 🗂️ BACKLOG
+**Outcome:** Staff issue refunds; customers get a shareable signed-URL receipt that correctly reflects refunded lines without ever mutating the original sale.
+**Target:** TBD
+Depends on v0.5.0 nav shell. Plan not yet written.
+
+**You'll be able to:**
+- Issue refunds end-to-end — staff initiate, manager approves via Telegram, refund logged as a new row
+- Share signed-URL receipts — customer scans or taps, gets an itemised receipt
+- See refunded lines clearly on the public receipt, with the original sale never mutated
+- Audit every refund with manager-approver, reason, and timestamp
+
+**Still not yet:**
+- Log stock-in or run stock checks in-app (v0.5.2)
+- View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
+- Configure the receipt template from the manager portal (v0.5.3 — v0.5.1 ships a hardcoded template)
+- Manage staff or products in-app (v0.5.3)
+
+### Backend (`convex/`)
+- 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8)
+- 🗂️ `receipt.ts` — receipt token generation + public lookup + 24h cache
+- 🗂️ Schema: `pos_refunds`, `pos_receipt_counters`
 
 ### Frontend (`src/`)
 - 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
 - 🗂️ `routes/receipt/[receiptNumber].tsx` — public receipt page `/r/:n` (signed URL)
-- 🗂️ `routes/history.tsx` — staff sees own + today
-- 🗂️ `routes/settlements.tsx` — payout reconciliation
-- 🗂️ `routes/stock.tsx` — stock check (inventory)
-- 🗂️ `routes/stock/in.tsx` — stock-in entry (with NumericKeypad qty input)
-- 🗂️ `routes/lock.tsx` — full lock + handoff (end-of-shift)
-- 🗂️ Lock → resume UX: locking should land on the PREVIOUS person's PIN entry (open `/login` at the `pin` stage pre-set to the last-logged-in staff), NOT the full "Who's working?" list — keeping the existing "← back" to switch staff for a real handoff. Requires persisting the last staff identity at lock time; PIN still required (no auth bypass). _Surfaced in v0.3 UAT 2026-05-29; part of the lock+handoff design above._
-- 🗂️ `routes/mgr/dashboard.tsx` — DashA wireframe (laptop-first)
-- 🗂️ `routes/mgr/products.tsx` — ProductsManager (taxonomy editor)
-- 🗂️ `routes/mgr/receipt.tsx` — ReceiptConfig
-- 🗂️ `lib/receipt-template.ts` — receipt HTML rendering
-- 🗂️ Cohesive navigation strategy — app-wide nav shell / header chrome with consistent back/home affordances across spoke screens + cart-abandon semantics. _Surfaced in v0.3 UAT (2026-05-29): `/sale` and other spokes have no in-app route back to Home; staff rely on browser-back. Define the shell here BEFORE building the v0.5 screen set so screens aren't each retrofitted. Deliberately deferred from v0.3 — a one-off back button was declined in favour of doing nav once, coherently._
+- 🗂️ `lib/receipt-template.ts` — hardcoded receipt HTML rendering (config UI deferred to v0.5.3)
+- 🗂️ `rp()` negative-amount handling (v0.2 follow-up)
 
 ### Cross-cutting
-- 🗂️ ADR-008 (refunds as new rows, status computed on read)
+- 🗂️ ADR-008 honoured (refunds as new rows, status computed on read)
+- 🗂️ NEW ADR (TBD number): receipt-after-refund display contract — MUST be locked in the v0.5.1 spec before code (per staffreview Critical 2: does refund mutate receipt? does it invalidate the cache? does the original token stay valid post-refund? partial-refund line display?)
+- 🗂️ SCHEMA.md audit enum: `refund.*`
+
+---
+
+## v0.5.2 — Stock-in + stock-check + neg-stock reconciliation 🗂️ BACKLOG
+**Outcome:** Staff log stock-in by SKU in-app, see current levels, and managers reconcile any negative-stock drift — every change a logged, reasoned movement.
+**Target:** TBD
+Builds on `pos_stock_movements` (already shipped v0.3). Plan not yet written.
+
+**You'll be able to:**
+- Log stock-in by SKU through the app, every change tracked as a logged movement with a reason
+- See current stock levels per SKU at a glance
+- Reconcile negative-stock-flagged transactions (ADR-018) from a manager view
+- Trust that every stock change has an audit trail — no silent number edits
+
+**Still not yet:**
+- View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
+- Manage staff or products in-app (v0.5.3)
+- Track spoilage / wasted stock (v0.6)
+- Rely on nightly auto-reconciliation of stock counts (v0.6)
+
+### Backend (`convex/`)
+- 🗂️ `inventory/public.ts` extensions — stock-in mutations against existing `pos_stock_movements`, reconciliation queries
+
+### Frontend (`src/`)
+- 🗂️ `routes/stock.tsx` — stock check (inventory view)
+- 🗂️ `routes/stock/in.tsx` — stock-in entry (with `NumericKeypad` qty input)
+
+### Cross-cutting
 - 🗂️ ADR-018 reconciliation tools (negative-stock manager workflow)
-- 🗂️ `rp()` negative-amount handling (v0.2 follow-up)
-- 🗂️ Schema additions: `pos_refunds`, `pos_stock_movements`, `pos_receipt_counters`, `pos_settings`
-- 🗂️ SCHEMA.md audit enum: `refund.*`, `stock.*`, `settings.*`, `settlement.*`
-- 🗂️ **ESLint rule: public mutations must have `idempotencyKey` + `withIdempotency`** — `setFoundersSummaryEnabled` shipped in v0.4 without the wrapper because no mechanical guard enforces ADR-013 / business rule #15. Sibling to the existing `tools/eslint-rules/no-cross-module-db-access.js` rule: scan `convex/**/public.ts` for `export const ... = mutation({ ... })` and assert (a) `idempotencyKey: v.string()` in args, (b) `withIdempotency<...>(...)` wrapping the handler. Optionally also assert `authCheck` is wired for any handler that calls `requireManagerSession` so the cache lookup is gated (see `staff/public.ts:issueDeviceSetupCode` for the pattern — the v0.4 fix had to retrofit this on 4 sites). _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
-- 🗂️ **Effective-status helper for `pos_approval_requests`** — `status` schema validator now stores `pending | resolved | denied` only, but `"expired"` is a virtual computed value derived at read time in 5 sites (`getByToken`, `getRequestStatus`, `getRecentPinResetForStaff`, plus the `/approve` UI and `ApprovalPending` overlay). Each reader re-implements the derivation (`row.status === "pending" && row.token_expires_at <= now → "expired"`). One reader will forget — likely a v0.5 dashboard counting expired-but-unresolved as live pending work. Fix: a single `effectiveStatus(row)` helper exported from `approvals/internal.ts` (or `approvals/lib.ts`), used by every read path. Optionally also document the contract on `EffectiveStatus` type. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
+- 🗂️ SCHEMA.md audit enum: `stock.*`
+
+---
+
+## v0.5.3 — Manager dashboard + in-app admin + Xendit settlements 🗂️ BACKLOG
+**Outcome:** Managers run daily ops from a laptop-first dashboard, edit staff/products in-app, configure the receipt template, view full transaction history, and reconcile Xendit settlements — closing the v1.0 settlement-risk register item.
+**Target:** TBD
+Plan not yet written. Closes the load-bearing "Xendit settlement timing" risk under watch (see Risks below).
+
+**You'll be able to:**
+- View transaction history (staff: own + today; manager: everything)
+- Use the manager dashboard (laptop-first) for daily sales, top SKUs, flagged transactions, staff activity
+- Add, edit, deactivate staff in-app — the Convex dashboard is no longer required
+- Add, edit, archive products in-app
+- Configure the receipt template (logo, footer text, contact info) from the manager portal
+- Reconcile Xendit settlements (what they owe vs what they've paid out)
+
+**Still not yet:**
+- Use vouchers / promo codes (v0.6)
+- Track spoilage / wasted stock (v0.6)
+- Launch in production with full operational polish (v1.0)
+
+### Backend (`convex/`)
+- 🗂️ `dashboard.ts` — full manager dashboard queries (reuse history queries — no duplication per staffreview)
+- 🗂️ `settings/public.ts` extensions — receipt config CRUD on existing `pos_settings`
+- 🗂️ `staff/public.ts` updates — `resetPin`, `deactivateStaff`, `updateStaff` + strip `pin_hash` from `listStaff` response (v0.2 follow-up)
+- 🗂️ `catalog/public.ts` admin mutations — products CRUD
+- 🗂️ `settlements.ts` — full reconciliation (Xendit settlement webhook + nightly recon) — load-bearing for v1.0 launch confidence per Risks under watch
+
+### Frontend (`src/`)
+- 🗂️ `routes/history.tsx` — staff sees own + today; manager sees everything
+- 🗂️ `routes/mgr/dashboard.tsx` — DashA wireframe (laptop-first)
+- 🗂️ `routes/mgr/products.tsx` — ProductsManager (taxonomy editor)
+- 🗂️ `routes/mgr/staff.tsx` — staff CRUD UI (sits on top of `staff/public.ts` admin mutations)
+- 🗂️ `routes/mgr/receipt.tsx` — ReceiptConfig (template config UI, deferred here from v0.5.1)
+- 🗂️ `routes/settlements.tsx` — payout reconciliation
+
+### Cross-cutting
+- 🗂️ Schema additions: `pos_settlements`
+- 🗂️ SCHEMA.md audit enum: `settings.*`, `settlement.*`, `staff.*` (admin actions)
 
 ---
 

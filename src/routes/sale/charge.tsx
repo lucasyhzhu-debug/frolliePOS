@@ -1,19 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useNavigate, useParams } from "react-router";
-import { useAction } from "convex/react";
+import { useNavigate, useParams, useBlocker } from "react-router";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
 import { useXenditPayment, PAYMENT_CEILING_MS } from "@/hooks/useXenditPayment";
 import { useIdempotency } from "@/hooks/useIdempotency";
+import { useCountdown, DEFAULT_LIFETIME_MS } from "@/hooks/useCountdown";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConnDot } from "@/components/layout/ConnDot";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { toast } from "sonner";
@@ -71,6 +74,40 @@ export default function SaleCharge() {
   const requestManualPaymentApproval = useAction(
     api.approvals.actions.requestManualPaymentApproval,
   );
+  const cancelAwaitingPayment = useMutation(
+    api.transactions.public.cancelAwaitingPayment,
+  );
+
+  // ---- navigation guard ----
+  // Block route transitions while the transaction is awaiting payment so staff
+  // can explicitly cancel (invalidating the active QR/VA) before leaving.
+  const shouldBlock = txn?.status === "awaiting_payment";
+  const blockPredicate = useCallback(
+    ({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
+      shouldBlock && currentLocation.pathname !== nextLocation.pathname,
+    [shouldBlock],
+  );
+  const blocker = useBlocker(blockPredicate);
+
+  // Cancel-payment handler used by the AbandonCartDialog payment variant.
+  // Swallows TXN_NOT_AWAITING races — if the webhook confirmed while the dialog
+  // was open, the txn is already paid; treat as success (let blocker proceed).
+  const onCancelPaymentForBlocker = async () => {
+    if (session.status !== "active" || !txnId) return;
+    try {
+      await cancelAwaitingPayment({
+        sessionId: session.sessionId,
+        txnId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+    } catch (e) {
+      if ((e as Error).message.includes("TXN_NOT_AWAITING")) {
+        // Race with successful webhook — txn already paid; proceed silently.
+        return;
+      }
+      throw e;
+    }
+  };
 
   // ---- ceiling timer ----
   // Wall-clock elapsed since the current invoice started showing. Resets on a
@@ -93,6 +130,17 @@ export default function SaleCharge() {
   }, [showingId]);
 
   const ceilingReached = elapsedMs >= PAYMENT_CEILING_MS;
+
+  // ---- countdown timer ----
+  // Target epoch = invoice creation time + default Xendit QR lifetime (15min).
+  // We derive this from the invoice rather than storing expires_at in the schema —
+  // Xendit's expiry is deterministic from creation time and adding the field would
+  // require a schema migration with no operational benefit over this derivation.
+  const countdownTarget =
+    invoice?.created_at != null
+      ? invoice.created_at + DEFAULT_LIFETIME_MS
+      : undefined;
+  const { mmss, pctRemaining, expired: qrExpired } = useCountdown(countdownTarget);
 
   // ---- initial-invoice creation guard ----
   // Tracks which methods we've already kicked off a create for, so an effect
@@ -176,6 +224,20 @@ export default function SaleCharge() {
   const [overrideError, setOverrideError] = useState<string | undefined>(
     undefined,
   );
+  // Picker state: null = show picker, non-null = manager selected → show PIN form.
+  const [pickedManager, setPickedManager] = useState<{
+    name: string;
+    code: string;
+  } | null>(null);
+
+  // Fetch active managers for the booth picker. Session must be active — the query
+  // is deferred until the sheet opens (but Convex will subscribe as soon as args resolve).
+  const managers = useQuery(
+    api.staff.public.listActiveManagers,
+    session.status === "active"
+      ? { sessionId: session.sessionId }
+      : "skip",
+  );
 
   const handleOverrideSubmit = async (pin: string) => {
     if (session.status !== "active" || !txnId) return;
@@ -184,12 +246,17 @@ export default function SaleCharge() {
       setOverrideError("Reason is required");
       return;
     }
+    if (!pickedManager) {
+      setOverrideError("Select a manager first");
+      return;
+    }
     setOverridePending(true);
     setOverrideError(undefined);
     try {
       await manuallyConfirmPayment({
         sessionId: session.sessionId,
         txnId,
+        managerStaffCode: pickedManager.code,
         managerPin: pin,
         reason,
         idempotencyKey: crypto.randomUUID(),
@@ -203,8 +270,8 @@ export default function SaleCharge() {
       setOverrideError(
         msg.includes("INVALID_PIN")
           ? "Wrong PIN"
-          : msg.includes("NOT_MANAGER")
-            ? "Not a manager account"
+          : msg.includes("MANAGER_NOT_FOUND")
+            ? "Manager not found or not active"
             : msg,
       );
     } finally {
@@ -340,13 +407,7 @@ export default function SaleCharge() {
   const invoiceMatches = invoice != null && invoice.method === selectedMethod;
 
   return (
-    <main className="flex flex-1 flex-col gap-0 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <h1 className="text-base font-semibold">Charge</h1>
-        <ConnDot />
-      </header>
-
+    <SpokeLayout title="Payment">
       <section className="flex flex-1 flex-col items-center gap-4 overflow-y-auto p-4">
         {phase.kind === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
@@ -434,6 +495,21 @@ export default function SaleCharge() {
               )}
             </Card>
 
+            {/* Countdown timer — shown only when an invoice is active */}
+            {invoiceMatches && (
+              <div className="w-full" data-testid="countdown-panel">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{selectedMethod === "QRIS" ? "QR" : "VA"} expires in {mmss}</span>
+                </div>
+                <Progress value={Math.min(pctRemaining * 100, 100)} className="mt-1 h-1" />
+                {qrExpired && (
+                  <p className="mt-2 text-sm text-amber-600" data-testid="countdown-expired-msg">
+                    {selectedMethod === "QRIS" ? "QR" : "VA"} expired — tap Retry for a fresh one.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Waiting / ceiling state */}
             {approvalRequestId ? (
               // Off-booth approval in progress — show the pending widget.
@@ -450,8 +526,16 @@ export default function SaleCharge() {
                     // The paid effect handles navigation; clear id to avoid stale state.
                     setApprovalRequestId(null);
                   }}
-                  onDenied={() => setApprovalRequestId(null)}
-                  onExpired={() => setApprovalRequestId(null)}
+                  onDenied={() => {
+                    setApprovalRequestId(null);
+                    toast.error(
+                      "Approval denied by manager — try again or contact them directly.",
+                    );
+                  }}
+                  onExpired={() => {
+                    setApprovalRequestId(null);
+                    toast.error("Approval request expired — please try again.");
+                  }}
                 />
               </div>
             ) : !ceilingReached ? (
@@ -479,6 +563,7 @@ export default function SaleCharge() {
                   onClick={() => {
                     setOverrideReason("");
                     setOverrideError(undefined);
+                    setPickedManager(null);
                     setOverrideOpen(true);
                   }}
                 >
@@ -548,42 +633,117 @@ export default function SaleCharge() {
         )}
       </section>
 
-      {/* Manager override PIN sheet — reason is REQUIRED before confirm fires. */}
+      {/* Navigation guard: fires while txn is awaiting_payment */}
+      <AbandonCartDialog
+        variant="payment"
+        open={blocker.state === "blocked"}
+        onCancel={() => blocker.reset?.()}
+        onProceed={() => blocker.proceed?.()}
+        onCancelPayment={onCancelPaymentForBlocker}
+      />
+
+      {/* Manager picker — shown before the PIN sheet when override is triggered.
+          Two-step: (1) pick which manager is at the booth, (2) enter their PIN. */}
+      {overrideOpen && !pickedManager && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+          data-testid="manager-picker"
+        >
+          <Card className="w-full max-w-sm p-5 pb-6">
+            <h3 className="mb-4 text-center text-base font-semibold">
+              Pick a manager
+            </h3>
+            {managers === undefined ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading managers…</span>
+              </div>
+            ) : managers.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No active managers found.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {managers.map((m) => (
+                  <Button
+                    key={m.code}
+                    variant="outline"
+                    className="justify-between"
+                    data-testid={`pick-manager-${m.code}`}
+                    onClick={() => {
+                      setPickedManager(m);
+                      setOverrideError(undefined);
+                    }}
+                  >
+                    <span>{m.name}</span>
+                    <span className="text-xs text-muted-foreground">{m.code}</span>
+                  </Button>
+                ))}
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              className="mt-4 w-full"
+              onClick={() => {
+                setOverrideOpen(false);
+                setPickedManager(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </Card>
+        </div>
+      )}
+
+      {/* Manager override PIN sheet — shown after a manager is picked.
+          Reason is REQUIRED before the PIN confirm fires. */}
       <PinSheet
-        open={overrideOpen}
+        open={overrideOpen && pickedManager !== null}
         title="Manager override"
-        label={`Enter your PIN, ${session.staff.name} — confirms payment`}
+        label={`Enter ${pickedManager?.name ?? "manager"}'s PIN to confirm payment`}
         pending={overridePending}
         error={overrideError}
         onSubmit={handleOverrideSubmit}
         onCancel={() => {
-          if (!overridePending) setOverrideOpen(false);
+          if (!overridePending) {
+            // Go back to picker step rather than closing entirely.
+            setPickedManager(null);
+            setOverrideError(undefined);
+          }
         }}
         extraField={
-          <div className="space-y-1.5">
-            <label
-              htmlFor="override-reason"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Reason (required)
-            </label>
-            <textarea
-              id="override-reason"
-              value={overrideReason}
-              onChange={(e) => {
-                setOverrideReason(e.target.value);
-                if (overrideError === "Reason is required") {
-                  setOverrideError(undefined);
-                }
-              }}
-              placeholder="Why is a manual override needed?"
-              rows={2}
-              disabled={overridePending}
-              className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            />
+          <div className="space-y-3">
+            {/* Selected manager badge */}
+            <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2">
+              <span className="text-sm font-medium">{pickedManager?.name}</span>
+              <span className="text-xs text-muted-foreground">{pickedManager?.code}</span>
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="override-reason"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Reason (required)
+              </label>
+              <textarea
+                id="override-reason"
+                data-testid="override-reason-input"
+                value={overrideReason}
+                onChange={(e) => {
+                  setOverrideReason(e.target.value);
+                  if (overrideError === "Reason is required") {
+                    setOverrideError(undefined);
+                  }
+                }}
+                placeholder="Why is a manual override needed?"
+                rows={2}
+                disabled={overridePending}
+                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
           </div>
         }
       />
-    </main>
+    </SpokeLayout>
   );
 }

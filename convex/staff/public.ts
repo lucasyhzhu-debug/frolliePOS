@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
-import { requireManagerSession } from "../auth/sessions";
+import { requireManagerSession, requireSession } from "../auth/sessions";
+import { internal } from "../_generated/api";
 
 const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
 const MAX_CODE_COLLISION_RETRIES = 5;
@@ -31,6 +32,23 @@ export const listStaff = query({
   handler: async (ctx, args) => {
     await requireManagerSession(ctx, args.sessionId);
     return ctx.db.query("staff").collect();
+  },
+});
+
+/**
+ * Returns active managers (with staff codes) for the booth manager-picker UI.
+ * Any active session may call this — the list is non-sensitive (names + codes)
+ * and is required for the manual-payment-override picker shown to all staff.
+ * Reads go via auth/internal per ADR-034 — this module does not query `staff` directly.
+ */
+export const listActiveManagers = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ name: string; code: string }>> => {
+    await requireSession(ctx, args.sessionId);
+    return ctx.runQuery(internal.auth.internal._listActiveManagers_internal, {});
   },
 });
 
@@ -172,6 +190,11 @@ export const activateDevice = mutation({
         label: args.deviceLabel,
         active: true,
       };
+    },
+    {
+      // intentional: activateDevice runs before any session exists. Device-setup
+      // codes are the auth mechanism; no requireSession is possible here.
+      authCheck: async () => {},
     },
   ),
 });

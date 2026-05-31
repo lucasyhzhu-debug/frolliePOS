@@ -24,12 +24,30 @@ import SaleCharge from "./charge";
 
 // ─── module mocks (hoisted) ──────────────────────────────────────────────────
 
+// Controllable blocker state for payment-guard tests.
+let chargeBlockerState: "unblocked" | "blocked" | "proceeding" = "unblocked";
+const chargeBlockerReset = vi.fn();
+const chargeBlockerProceed = vi.fn();
+
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: chargeBlockerState,
+      reset: chargeBlockerReset,
+      proceed: chargeBlockerProceed,
+    })),
+  };
+});
+
 vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   return {
     ...actual,
     useQuery: vi.fn(() => undefined),
     useAction: vi.fn(() => vi.fn()),
+    useMutation: vi.fn(() => vi.fn().mockResolvedValue({ cancelled: true })),
   };
 });
 
@@ -193,6 +211,9 @@ describe("SaleCharge route — smoke", () => {
     sessionStorage.clear();
     __resetForTests();
     vi.clearAllMocks();
+    chargeBlockerState = "unblocked";
+    chargeBlockerReset.mockReset();
+    chargeBlockerProceed.mockReset();
     mockApprovalPending.mockReset();
     mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
     // Reset mocks to their passive defaults for smoke tests.
@@ -238,6 +259,9 @@ describe("SaleCharge route — off-booth approval affordance", () => {
     localStorage.setItem("frollie-session-id", "session-1");
     __resetForTests();
     vi.clearAllMocks();
+    chargeBlockerState = "unblocked";
+    chargeBlockerReset.mockReset();
+    chargeBlockerProceed.mockReset();
     mockApprovalPending.mockReset();
     mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
   });
@@ -495,5 +519,335 @@ describe("SaleCharge route — off-booth approval affordance", () => {
         screen.getByText("Session expired — please sign in again"),
       ).toBeTruthy(),
     );
+  });
+});
+
+// ─── Tier 2b: countdown UI ───────────────────────────────────────────────────
+
+describe("SaleCharge route — countdown panel", () => {
+  beforeEach(() => {
+    localStorage.setItem("frollie-session-id", "session-1");
+    __resetForTests();
+    vi.clearAllMocks();
+    chargeBlockerState = "unblocked";
+    chargeBlockerReset.mockReset();
+    chargeBlockerProceed.mockReset();
+    mockApprovalPending.mockReset();
+    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+  });
+
+  it("countdown panel is shown when invoice is active (invoiceMatches)", async () => {
+    // Wire showing phase so invoiceMatches=true; include created_at for countdown.
+    vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
+    vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue({
+      ...SHOWING_PHASE,
+      invoice: {
+        ...SHOWING_PHASE.invoice,
+        created_at: Date.now(), // countdown starts from now
+      },
+    } as ReturnType<typeof useXenditPaymentModule.useXenditPayment>);
+    (vi.mocked(convexReact.useAction) as Mock).mockImplementation(
+      () => vi.fn().mockResolvedValue({}),
+    );
+
+    renderAt("txn-test-123");
+
+    // Countdown panel renders because invoiceMatches = true (method = QRIS, selectedMethod = QRIS).
+    await waitFor(() => {
+      expect(screen.getByTestId("countdown-panel")).toBeTruthy();
+    }, { timeout: 3000 });
+    // Panel shows mm:ss format text
+    const panel = screen.getByTestId("countdown-panel");
+    expect(panel.textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("countdown panel is not shown while invoice is loading (invoiceMatches=false)", async () => {
+    vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
+    vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue({
+      phase: { kind: "showing" },
+      // invoice for BCA_VA method but selectedMethod defaults to QRIS → invoiceMatches=false
+      invoice: {
+        ...SHOWING_PHASE.invoice,
+        method: "BCA_VA" as const,
+        created_at: Date.now(),
+      },
+      txn: SHOWING_PHASE.txn,
+    } as ReturnType<typeof useXenditPaymentModule.useXenditPayment>);
+    (vi.mocked(convexReact.useAction) as Mock).mockImplementation(
+      () => vi.fn().mockResolvedValue({}),
+    );
+
+    renderAt("txn-test-123");
+
+    await waitFor(() => {
+      // "Generating…" spinner should show because invoiceMatches = false
+      expect(screen.queryByText(/Generating/)).toBeTruthy();
+    }, { timeout: 3000 });
+    expect(screen.queryByTestId("countdown-panel")).toBeNull();
+  });
+});
+
+// ─── Tier 2c: manager picker ──────────────────────────────────────────────────
+
+const MOCK_MANAGERS = [
+  { name: "Alice", code: "M-001" },
+  { name: "Bob", code: "M-002" },
+];
+
+describe("SaleCharge route — manager picker", () => {
+  beforeEach(() => {
+    localStorage.setItem("frollie-session-id", "session-1");
+    __resetForTests();
+    vi.clearAllMocks();
+    chargeBlockerState = "unblocked";
+    chargeBlockerReset.mockReset();
+    chargeBlockerProceed.mockReset();
+    mockApprovalPending.mockReset();
+    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+  });
+
+  /**
+   * Wire: ceiling reached + active session (manager role so override button is enabled)
+   * + useQuery returns managers list.
+   */
+  function setupManagerPickerState() {
+    const managerSession = {
+      ...ACTIVE_SESSION,
+      staff: { ...ACTIVE_SESSION.staff, role: "manager" as const },
+    };
+    vi.mocked(useSessionModule.useSession).mockReturnValue(managerSession);
+    vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue(
+      SHOWING_PHASE as ReturnType<typeof useXenditPaymentModule.useXenditPayment>,
+    );
+
+    // useQuery slot: listActiveManagers → return MOCK_MANAGERS.
+    (vi.mocked(convexReact.useQuery) as Mock).mockReturnValue(MOCK_MANAGERS);
+
+    const manuallyConfirmPaymentSpy = vi.fn().mockResolvedValue({});
+    const spies = [
+      vi.fn().mockResolvedValue({}), // requestPayment
+      vi.fn().mockResolvedValue({}), // retryWithFreshInvoice
+      manuallyConfirmPaymentSpy,      // manuallyConfirmPayment
+      vi.fn().mockResolvedValue({}), // cancelTransaction
+      vi.fn().mockResolvedValue({}), // requestManualPaymentApproval
+    ];
+    let callCount = 0;
+    (vi.mocked(convexReact.useAction) as Mock).mockImplementation(() => {
+      const idx = callCount % 5;
+      callCount++;
+      return spies[idx];
+    });
+
+    return { manuallyConfirmPaymentSpy, managerSession };
+  }
+
+  it("picker shows all active managers when 'Manager override' is clicked", async () => {
+    setupManagerPickerState();
+    renderAt("txn-test-123");
+
+    // Wait for ceiling UI (PAYMENT_CEILING_MS = 0 in mock)
+    await waitFor(() =>
+      expect(screen.getByText("Manager override")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("Manager override"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("manager-picker")).toBeTruthy(),
+    );
+
+    // Both managers appear
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.getByText("Bob")).toBeTruthy();
+    expect(screen.getByTestId("pick-manager-M-001")).toBeTruthy();
+    expect(screen.getByTestId("pick-manager-M-002")).toBeTruthy();
+  });
+
+  it("selecting a manager transitions to PIN view (picker disappears, PinSheet opens)", async () => {
+    setupManagerPickerState();
+    renderAt("txn-test-123");
+
+    await waitFor(() =>
+      expect(screen.getByText("Manager override")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("Manager override"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("manager-picker")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByTestId("pick-manager-M-001"));
+
+    // Picker should disappear and PIN dialog should open.
+    await waitFor(() =>
+      expect(screen.queryByTestId("manager-picker")).toBeNull(),
+    );
+    // Selected manager name appears in the PinSheet label.
+    await waitFor(() =>
+      // The PinSheet label includes the manager name "Alice".
+      expect(screen.getByText(/Alice's PIN to confirm payment/)).toBeTruthy(),
+    );
+  });
+
+  it("shows 'No active managers' when managers list is empty", async () => {
+    vi.mocked(useSessionModule.useSession).mockReturnValue({
+      ...ACTIVE_SESSION,
+      staff: { ...ACTIVE_SESSION.staff, role: "manager" as const },
+    });
+    vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue(
+      SHOWING_PHASE as ReturnType<typeof useXenditPaymentModule.useXenditPayment>,
+    );
+    (vi.mocked(convexReact.useQuery) as Mock).mockReturnValue([]);
+    (vi.mocked(convexReact.useAction) as Mock).mockImplementation(
+      () => vi.fn().mockResolvedValue({}),
+    );
+
+    renderAt("txn-test-123");
+
+    await waitFor(() =>
+      expect(screen.getByText("Manager override")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("Manager override"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/No active managers/)).toBeTruthy(),
+    );
+  });
+
+  it("cancel in picker closes the picker without opening PIN sheet", async () => {
+    setupManagerPickerState();
+    renderAt("txn-test-123");
+
+    await waitFor(() =>
+      expect(screen.getByText("Manager override")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("Manager override"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("manager-picker")).toBeTruthy(),
+    );
+
+    // Click the Cancel button inside the picker
+    const cancelBtn = screen.getAllByRole("button", { name: /cancel/i }).find(
+      (btn) => btn.closest("[data-testid='manager-picker']"),
+    );
+    expect(cancelBtn).toBeTruthy();
+    fireEvent.click(cancelBtn!);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("manager-picker")).toBeNull(),
+    );
+  });
+
+  it("PIN submit calls manuallyConfirmPayment with the selected manager's code", async () => {
+    const { manuallyConfirmPaymentSpy } = setupManagerPickerState();
+    renderAt("txn-test-123");
+
+    // Open picker
+    await waitFor(() =>
+      expect(screen.getByText("Manager override")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("Manager override"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("manager-picker")).toBeTruthy(),
+    );
+
+    // Pick Alice (M-001)
+    fireEvent.click(screen.getByTestId("pick-manager-M-001"));
+
+    // Wait for PIN sheet
+    await waitFor(() =>
+      expect(screen.queryByTestId("manager-picker")).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("override-reason-input")).toBeTruthy(),
+    );
+
+    // Fill in reason
+    fireEvent.change(screen.getByTestId("override-reason-input"), {
+      target: { value: "Customer showed payment screenshot" },
+    });
+
+    // Enter PIN via keypad buttons (digits 1, 2, 3, 4)
+    const digitButtons = screen.getAllByRole("button").filter((btn) =>
+      /^[0-9]$/.test(btn.textContent?.trim() ?? ""),
+    );
+    // Press 1, 2, 3, 4
+    const byDigit = (d: string) =>
+      digitButtons.find((btn) => btn.textContent?.trim() === d)!;
+    fireEvent.click(byDigit("1"));
+    fireEvent.click(byDigit("2"));
+    fireEvent.click(byDigit("3"));
+    fireEvent.click(byDigit("4"));
+
+    await waitFor(() => {
+      expect(manuallyConfirmPaymentSpy).toHaveBeenCalledOnce();
+    });
+
+    const callArgs = manuallyConfirmPaymentSpy.mock.calls[0][0] as {
+      managerStaffCode: string;
+      managerPin: string;
+      reason: string;
+    };
+    expect(callArgs.managerStaffCode).toBe("M-001");
+    expect(callArgs.managerPin).toBe("1234");
+    expect(callArgs.reason).toBe("Customer showed payment screenshot");
+  });
+});
+
+// ─── Tier 3: useBlocker — payment-variant abandon dialog ─────────────────────
+
+describe("SaleCharge route — useBlocker payment guard", () => {
+  beforeEach(() => {
+    localStorage.setItem("frollie-session-id", "session-1");
+    __resetForTests();
+    vi.clearAllMocks();
+    chargeBlockerState = "unblocked";
+    chargeBlockerReset.mockReset();
+    chargeBlockerProceed.mockReset();
+    mockApprovalPending.mockReset();
+    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
+    vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue(
+      SHOWING_PHASE as ReturnType<typeof useXenditPaymentModule.useXenditPayment>,
+    );
+    (vi.mocked(convexReact.useAction) as Mock).mockImplementation(
+      () => vi.fn().mockResolvedValue({}),
+    );
+  });
+
+  it("blocker in blocked state: AbandonCartDialog (payment variant) renders", async () => {
+    chargeBlockerState = "blocked";
+    renderAt("txn-test-123");
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancel this payment?")).toBeTruthy();
+    });
+  });
+
+  it("dialog 'Keep waiting' button calls blocker.reset()", async () => {
+    chargeBlockerState = "blocked";
+    renderAt("txn-test-123");
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancel this payment?")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /keep waiting/i }));
+
+    expect(chargeBlockerReset).toHaveBeenCalledOnce();
+  });
+
+  it("blocker unblocked when txn is not awaiting_payment: dialog does not render", async () => {
+    // Even with blocker state "unblocked", confirm the dialog doesn't appear.
+    // The shouldBlock condition (txn.status === "awaiting_payment") is tested
+    // via the useBlocker mock — when unblocked the component renders normally.
+    chargeBlockerState = "unblocked";
+    renderAt("txn-test-123");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Cancel this payment?")).toBeNull();
+    });
   });
 });

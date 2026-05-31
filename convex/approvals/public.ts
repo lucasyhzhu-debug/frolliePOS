@@ -1,6 +1,10 @@
-import { query } from "../_generated/server";
+import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
+import { requireManagerSession } from "../auth/sessions";
+import { withIdempotency } from "../idempotency/internal";
+import { effectiveStatus, type EffectiveStatus } from "./lib";
 
 /**
  * Derive a SHA-256 hex digest from a string using Web Crypto (V8-compatible).
@@ -19,8 +23,6 @@ async function sha256Hex(s: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // Discriminated return type for getByToken
 // ---------------------------------------------------------------------------
-
-type EffectiveStatus = "pending" | "resolved" | "denied" | "expired";
 
 // Shared "decision details" populated when status === "denied". Set per-kind so
 // the already-resolved/denied surfaces can render informative copy ("Declined by
@@ -87,13 +89,10 @@ export const getByToken = query({
     if (!req) return null;
 
     // Compute effective status without mutating the DB row
-    const effectiveStatus: EffectiveStatus =
-      req.status === "pending" && req.token_expires_at <= Date.now()
-        ? "expired"
-        : req.status;
+    const eff: EffectiveStatus = effectiveStatus(req);
 
     const base = {
-      status: effectiveStatus,
+      status: eff,
       triggered_at: req.triggered_at,
       token_expires_at: req.token_expires_at,
       ...(req.resolved_at !== undefined ? { resolved_at: req.resolved_at } : {}),
@@ -103,10 +102,10 @@ export const getByToken = query({
     // so the "already denied" surfaces can render informative copy instead of a
     // generic message. Cross-module read goes via auth/internal per ADR-034.
     const denyDetails: DenyDetails = {};
-    if (effectiveStatus === "denied") {
+    if (eff === "denied") {
       if (req.denied_at !== undefined) denyDetails.denied_at = req.denied_at;
       if (req.deny_reason !== undefined) denyDetails.deny_reason = req.deny_reason;
-      if (req.denied_by_manager_id) {
+      if (req.denied_by_manager_id && req.denied_by_manager_id !== "system") {
         const m = await ctx.runQuery(
           internal.auth.internal._getStaffNameCode_internal,
           { staffId: req.denied_by_manager_id },
@@ -186,14 +185,10 @@ export const getRequestStatus = query({
   handler: async (
     ctx,
     args,
-  ): Promise<{ status: "pending" | "resolved" | "denied" | "expired" } | null> => {
+  ): Promise<{ status: EffectiveStatus } | null> => {
     const req = await ctx.db.get(args.requestId);
     if (!req) return null;
-    const status: "pending" | "resolved" | "denied" | "expired" =
-      req.status === "pending" && req.token_expires_at <= Date.now()
-        ? "expired"
-        : req.status;
-    return { status };
+    return { status: effectiveStatus(req) };
   },
 });
 
@@ -216,7 +211,7 @@ export const getRecentPinResetForStaff = query({
     args,
   ): Promise<{
     requestId: string;
-    status: "pending" | "resolved" | "denied" | "expired";
+    status: EffectiveStatus;
     triggered_at: number;
     deny_reason?: string;
     denied_by_manager_name?: string;
@@ -233,29 +228,23 @@ export const getRecentPinResetForStaff = query({
     // promote to a composite `["subject_staff_id", "triggered_at"]` index and
     // switch to `.gt("triggered_at", cutoff).order("desc").first()`.
     //
-    // KNOWN: returns the latest row regardless of status — includes "resolved"
-    // rows within the 10-min window, not just denied/pending. login.tsx is
-    // expected to branch on status before toasting; if it doesn't, a stale
-    // "your reset was resolved" toast can re-fire on every fresh session.
-    // Tracked in PROGRESS.md v0.5 stabilization (Surfaced 2026-05-30 by simplify).
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
       .collect();
 
     const pinResets = rows
-      .filter((r) => r.kind === "staff_pin_reset" && r.triggered_at > cutoff)
+      .filter((r) => r.kind === "staff_pin_reset" && r.status !== "resolved" && r.triggered_at > cutoff)
       .sort((a, b) => b.triggered_at - a.triggered_at);
 
     if (pinResets.length === 0) return null;
     const req = pinResets[0];
 
-    const status: "pending" | "resolved" | "denied" | "expired" =
-      req.status === "pending" && req.token_expires_at <= Date.now() ? "expired" : req.status;
+    const status: EffectiveStatus = effectiveStatus(req);
 
     let denied_by_manager_name: string | undefined;
     let denied_by_manager_code: string | undefined;
-    if (status === "denied" && req.denied_by_manager_id) {
+    if (status === "denied" && req.denied_by_manager_id && req.denied_by_manager_id !== "system") {
       const m = await ctx.runQuery(
         internal.auth.internal._getStaffNameCode_internal,
         { staffId: req.denied_by_manager_id },
@@ -296,7 +285,7 @@ export const listActiveManagers = query({
   handler: async (
     ctx,
     args,
-  ): Promise<Array<{ _id: string; name: string; code: string }> | null> => {
+  ): Promise<Array<{ name: string; code: string }> | null> => {
     const hash = await sha256Hex(args.token);
     const req = await ctx.db
       .query("pos_approval_requests")
@@ -309,4 +298,54 @@ export const listActiveManagers = query({
       {},
     );
   },
+});
+
+/**
+ * Cancel a pending approval request from the on-booth manager panel.
+ * ADR-005: manager-PIN gate is handled by requireManagerSession (session-based,
+ * not one-off PIN). The manager's staffId is recorded as cancelled_by_manager_id
+ * so the audit trail names who invalidated the request.
+ *
+ * Source is "booth_inline" — the manager invokes this from the in-booth UI
+ * (not from the off-booth Telegram approval link, which uses "telegram_approval").
+ *
+ * withIdempotency-wrapped per the strict ESLint idempotency-required rule (error
+ * severity since Task 6). Same-key replay returns { denied: boolean } from cache
+ * without re-patching the DB or re-emitting audit rows.
+ */
+export const cancelPendingRequest = mutation({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    requestId: v.id("pos_approval_requests"),
+    reason: v.optional(v.string()),
+    idempotencyKey: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      sessionId: Id<"staff_sessions">;
+      requestId: Id<"pos_approval_requests">;
+      reason?: string;
+      idempotencyKey: string;
+    },
+    { denied: boolean }
+  >(
+    "approvals.cancelPendingRequest",
+    async (ctx, args): Promise<{ denied: boolean }> => {
+      const session = await requireManagerSession(ctx, args.sessionId);
+      return await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: args.requestId,
+          deny_reason: args.reason ?? "manager_cancelled",
+          cancelled_by_manager_id: session.staffId,
+          source: "booth_inline",
+        },
+      );
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
 });

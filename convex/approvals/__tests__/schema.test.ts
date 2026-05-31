@@ -27,3 +27,41 @@ it("accepts a manual_payment_override request with entity + denied lifecycle fie
     expect(row?.entity_id).toBe("txn_123");
   });
 });
+
+it("failed_pin_attempts optional field round-trips", async () => {
+  const t = convexTest(schema);
+  const id = await t.run(async (ctx) => {
+    return await ctx.db.insert("pos_approval_requests", {
+      kind: "manual_payment_override",
+      triggered_by_event: "test",
+      triggered_at: Date.now(),
+      token_hash: "deadbeef",
+      token_expires_at: Date.now() + 60_000,
+      status: "pending",
+      notification_channel: "telegram",
+      failed_pin_attempts: 3,
+    });
+  });
+  const row = await t.run(async (ctx) => ctx.db.get(id));
+  expect(row?.failed_pin_attempts).toBe(3);
+});
+
+it("denied_by_manager_id accepts 'system' literal", async () => {
+  const t = convexTest(schema);
+  const id = await t.run(async (ctx) => {
+    return await ctx.db.insert("pos_approval_requests", {
+      kind: "staff_pin_reset",
+      triggered_by_event: "test",
+      triggered_at: Date.now(),
+      token_hash: "deadbeef2",
+      token_expires_at: Date.now() + 60_000,
+      status: "denied",
+      notification_channel: "telegram",
+      denied_at: Date.now(),
+      denied_by_manager_id: "system",
+      deny_reason: "too_many_pin_attempts",
+    });
+  });
+  const row = await t.run(async (ctx) => ctx.db.get(id));
+  expect(row?.denied_by_manager_id).toBe("system");
+});

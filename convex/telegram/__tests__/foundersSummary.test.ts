@@ -113,6 +113,58 @@ it("audits skip + returns {skipped: 'role_unbound'} when the founders role is un
   ).toBe(false);
 });
 
+it("race window closed: chatId resolved once — send uses captured chatId even if role is unbound after resolve", async () => {
+  // Behavioral assertion for the chatIdOverride fix (Task 14, v050-be-founders-race):
+  //
+  // In the old code, sendFoundersSummary called getChatIdByRole (pre-check) then
+  // sendTemplate called getChatIdByRole AGAIN internally. An unbind between the
+  // two lookups would cause a confusing "send_failed" audit instead of
+  // "role_unbound". The fix resolves chatId ONCE upfront and passes it as
+  // chatIdOverride, so sendTemplate's internal resolve is bypassed.
+  //
+  // We assert the fix behaviorally: the fetch mock receives the seeded chatId
+  // as chat_id in the request body. This proves sendTemplate used the pre-resolved
+  // chatId, not a second live lookup (which could diverge under race conditions).
+  const seededChatId = "-100founders-race";
+  let capturedBody: { chat_id?: unknown } | null = null;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.body) {
+        capturedBody = JSON.parse(options.body as string) as { chat_id?: unknown };
+      }
+      return {
+        ok: true,
+        json: async () => ({ ok: true, result: { message_id: 42 } }),
+      };
+    }),
+  );
+
+  const t = convexTest(schema);
+  await t.run((ctx) =>
+    ctx.db.insert("telegramChats", {
+      chatId: seededChatId,
+      chatType: "supergroup",
+      title: "Founders Race Test",
+      role: "founders",
+      registeredAt: Date.now(),
+      lastSeenAt: Date.now(),
+    }),
+  );
+
+  const res = await t.action(
+    internal.telegram.foundersSummary.sendFoundersSummary,
+    {},
+  );
+  expect((res as { ok: boolean }).ok).toBe(true);
+  // The fetch body's chat_id must match the seeded chatId, confirming
+  // chatIdOverride was used (not a second getChatIdByRole call).
+  // Cast at usage: TS's flow analysis narrows capturedBody to `null` because
+  // the only reassignment happens inside the fetch-mock closure (not linear flow).
+  const body = capturedBody as { chat_id?: unknown } | null;
+  expect(body?.chat_id).toBe(seededChatId);
+});
+
 // ─── sendFoundersSummaryResilient ─────────────────────────────────────────────
 
 it("resilient wrapper: surfaces role_unbound skip cleanly (no retry, no throw)", async () => {

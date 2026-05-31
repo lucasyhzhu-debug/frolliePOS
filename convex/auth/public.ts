@@ -54,5 +54,13 @@ export const logout = mutation({
       });
       return null;
     },
+    {
+      // intentional: logout is idempotent — a stale or already-ended session must
+      // remain a graceful no-op (handler body returns null without throwing). The
+      // idempotency key dedupes genuine double-taps of the Lock button. Strict
+      // authCheck would surface a NO_SESSION error to the PWA, breaking the UX
+      // contract that "Lock" is safe to retry.
+      authCheck: async () => {},
+    },
   ),
 });

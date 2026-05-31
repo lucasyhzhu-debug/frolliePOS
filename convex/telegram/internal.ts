@@ -19,6 +19,11 @@ export const _auditSendFailed_internal = internalMutation({
     role: v.string(),
     kind: v.string(),
     status: v.string(),
+    // I4: resolved chatId threaded through so operators can distinguish
+    // a chatIdOverride failure from a role-resolve failure without parsing
+    // other fields. Optional because if chatId resolution itself fails the
+    // value may not be available.
+    chat_id: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await logAudit(ctx, {
@@ -26,7 +31,7 @@ export const _auditSendFailed_internal = internalMutation({
       action: "telegram.send_failed",
       entity_type: "telegram",
       source: "system",
-      metadata: { role: args.role, kind: args.kind, status: args.status },
+      metadata: { role: args.role, kind: args.kind, status: args.status, chat_id: args.chat_id },
     });
   },
 });

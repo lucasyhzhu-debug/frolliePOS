@@ -6,7 +6,7 @@ import { useCart } from "@/hooks/useCart";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ConnDot } from "@/components/layout/ConnDot";
+import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
 
 const REASON_MESSAGES: Record<string, string> = {
@@ -41,23 +41,7 @@ export default function SaleVoucher() {
   };
 
   return (
-    <main className="flex flex-1 flex-col gap-0 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
-            onClick={() => navigate("/sale")}
-          >
-            ← New sale
-          </button>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-base font-semibold">Apply voucher</h1>
-        </div>
-        <ConnDot />
-      </header>
-
+    <SpokeLayout title="Apply voucher" backTo="/sale">
       <section className="flex flex-1 flex-col gap-4 p-4">
         {/* Code input */}
         <div className="flex gap-2">
@@ -119,6 +103,6 @@ export default function SaleVoucher() {
           Cancel
         </Button>
       </section>
-    </main>
+    </SpokeLayout>
   );
 }

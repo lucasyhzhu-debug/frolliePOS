@@ -52,8 +52,9 @@ export const approvalsTables = {
     resolved_at: v.optional(v.number()),
     resolved_by_manager_id: v.optional(v.id("staff")),
     denied_at: v.optional(v.number()),                 // NEW in v0.4
-    denied_by_manager_id: v.optional(v.id("staff")),   // NEW in v0.4
+    denied_by_manager_id: v.optional(v.union(v.id("staff"), v.literal("system"))),   // v0.5: widened to accept "system" for cap-trip auto-denies
     deny_reason: v.optional(v.string()),               // NEW in v0.4
+    failed_pin_attempts: v.optional(v.number()),       // v0.5: per-token PIN cap counter (absent = 0)
 
     // Telegram linkage (best-effort) — patched after notify
     notification_channel: v.optional(v.literal("telegram")),

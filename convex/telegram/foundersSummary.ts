@@ -68,25 +68,29 @@ export const sendFoundersSummary = internalAction({
       return { skipped: "disabled" };
     }
 
-    // Step 1b: pre-check the founders role binding so an unbound role is audited
-    // as "role_unbound" — not "send_failed" (which would conflate config errors
-    // with real Telegram 5xx). CLAUDE.md rule #12 + audit operational hygiene.
+    // Step 1b: resolve the founders chat id ONCE upfront.
+    //
+    // Resolving here (rather than letting sendTemplate resolve internally) closes
+    // the race window where:
+    //   pre-check passes → admin unbinds role → sendTemplate's internal resolve
+    //   throws → caught as "send_failed", conflating a config change with a real
+    //   Telegram error.
+    //
+    // By capturing chatId here and threading it via chatIdOverride, the cron's
+    // binding decision is authoritative for the entire execution. An unbind that
+    // races with this single resolve is negligible (sub-millisecond window, one
+    // cron tick). The KNOWN RACE comment from the pre-check pattern is now closed.
     //
     // Narrow the catch to the EXACT message getChatIdByRole throws on missing
     // binding. A bare catch would also swallow transient Convex platform errors
     // and audit them as role_unbound — suppressing the resilient retry path and
     // silently losing the day's summary on a temporary hiccup.
-    //
-    // KNOWN RACE: pre-check passes → admin unbinds role at the same moment →
-    // sendTemplate's internal getChatIdByRole throws (non-transient) → caught
-    // in the outer catch as send_failed, re-introducing the conflation the
-    // pre-check was meant to fix. Narrow window (millis), low impact (one
-    // cron tick). Tracked in PROGRESS.md v0.5 stabilization. Deeper fix:
-    // sendTemplate accepts an optional chatId override so we capture once.
+    let resolvedChatId: string;
     try {
-      await ctx.runQuery(internal.telegram.chatRegistry.getChatIdByRole, {
-        role: "founders",
-      });
+      resolvedChatId = await ctx.runQuery(
+        internal.telegram.chatRegistry.internal.getChatIdByRole,
+        { role: "founders" },
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("No Telegram chat assigned to role")) {
@@ -108,7 +112,8 @@ export const sendFoundersSummary = internalAction({
       { dayStartMs, dayEndMs },
     );
 
-    // Step 4: send via sendTemplate
+    // Step 4: send via sendTemplate — pass chatIdOverride so sendTemplate skips
+    // its own role-resolve (race window closed: chatId captured once above).
     try {
       await ctx.runAction(api.telegram.send.sendTemplate, {
         role: "founders",
@@ -120,6 +125,7 @@ export const sendFoundersSummary = internalAction({
           flaggedCount: summary.flaggedCount,
         },
         idempotencyKey: `founders:${dateLabel}`,
+        chatIdOverride: resolvedChatId,
       });
     } catch (err) {
       if (!isTransientError(err)) {

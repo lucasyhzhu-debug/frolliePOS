@@ -1,9 +1,11 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { validateContext, KIND_AUDIT } from "./kinds";
+import { TOKEN_PIN_ATTEMPT_CAP } from "./lib";
 
 /**
  * Insert a new pos_approval_requests row in "pending" status.
@@ -60,7 +62,7 @@ export const _createRequest_internal = internalMutation({
       source: "system",
       // approval_request_id surfaced explicitly in metadata per ADR-030 amendment —
       // the `by_entity` index already covers entity_id lookups, but keeping the
-      // id in metadata matches the convention used by approval.resolved/denied rows.
+      // id in metadata matches the convention used by <kind>.resolved/<kind>.denied rows.
       metadata: {
         approval_request_id: requestId,
         kind: args.kind,
@@ -88,8 +90,8 @@ export const _deleteRequest_internal = internalMutation({
   },
   handler: async (ctx, args) => {
     // Emit a compensating audit row BEFORE deleting so the trail self-documents:
-    // approval.created → approval.notification_failed (no notified, no resolved),
-    // rather than an orphaned approval.created with no follow-up (m-6).
+    // <kind>.requested → approval.notification_failed (no notified, no resolved),
+    // rather than an orphaned <kind>.requested with no follow-up (m-6).
     await logAudit(ctx, {
       actor_id: "system",
       action: "approval.notification_failed",
@@ -165,10 +167,10 @@ export const _markResolved_internal = internalMutation({
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
       // Same error code as the action-layer pre-check (actions.ts), so the
-// frontend mapError needs only one branch. Fires only on a concurrent
-// second manager racing to commit; same-key retries short-circuit
-// at the withIdempotency cache lookup above.
-if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+      // frontend mapError needs only one branch. Fires only on a concurrent
+      // second manager racing to commit; same-key retries short-circuit
+      // at the withIdempotency cache lookup above.
+      if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "resolved",
         resolved_at: Date.now(),
@@ -261,10 +263,10 @@ export const _markDenied_internal = internalMutation({
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
       // Same error code as the action-layer pre-check (actions.ts), so the
-// frontend mapError needs only one branch. Fires only on a concurrent
-// second manager racing to commit; same-key retries short-circuit
-// at the withIdempotency cache lookup above.
-if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+      // frontend mapError needs only one branch. Fires only on a concurrent
+      // second manager racing to commit; same-key retries short-circuit
+      // at the withIdempotency cache lookup above.
+      if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "denied",
         denied_at: Date.now(),
@@ -335,5 +337,153 @@ export const _linkTelegramMessage_internal = internalMutation({
       telegram_message_id: args.messageId,
       telegram_chat_id: args.chatId,
     });
+  },
+});
+
+/**
+ * Shared system-deny patch. Three v0.5.0 callers — all now DELEGATE here
+ * (none inline their own deny-write block):
+ *   (1) Token PIN-cap auto-deny (_recordTokenPinFailure_internal) — source: "system",
+ *       extra_metadata: { failed_pin_attempts }.
+ *   (2) Manager-initiated cancelPendingRequest (Task 10) — source: "telegram_approval"
+ *       when actioned from the off-booth Telegram UI, or "booth_inline" when from
+ *       the in-booth manager panel. Carries cancelled_by_manager_id for mgr_approver_id.
+ *   (3) cancelAwaitingPayment / cancelTransaction cascade (Task 11) via
+ *       _cancelPendingManualPaymentForTxn_internal — source: "system",
+ *       extra_metadata: { cascaded_from_txn }.
+ * Caller supplies `source` explicitly so audit data is semantically correct for
+ * each context — mirrors the _markResolved_internal / _markDenied_internal pattern.
+ * Returns { denied: true } on success, { denied: false } no-op if already terminal.
+ */
+export const _markDeniedBySystem_internal = internalMutation({
+  args: {
+    requestId: v.id("pos_approval_requests"),
+    deny_reason: v.string(),
+    cancelled_by_manager_id: v.optional(v.id("staff")),
+    source: v.union(
+      v.literal("booth_inline"),
+      v.literal("telegram_approval"),
+      v.literal("system"),
+    ),
+    // F3: constrained to the only current consumer shapes — rejects unknown
+    // scalars or keys that could silently overwrite canonical audit fields.
+    extra_metadata: v.optional(v.object({
+      failed_pin_attempts: v.optional(v.number()),
+      // F5: cascade-deny path threads cascaded_from_txn for dashboard filtering.
+      cascaded_from_txn: v.optional(v.id("pos_transactions")),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const req = await ctx.db.get(args.requestId);
+    if (!req) throw new Error("REQUEST_NOT_FOUND");
+    if (req.status !== "pending") return { denied: false };
+    await ctx.db.patch(args.requestId, {
+      status: "denied",
+      denied_at: Date.now(),
+      denied_by_manager_id: args.cancelled_by_manager_id ?? "system",
+      deny_reason: args.deny_reason,
+    });
+    // source column is the discriminator for system vs booth_inline vs
+    // telegram_approval. Do not duplicate as metadata.cancelled_via (F9).
+    // F3: spread extra_metadata FIRST so canonical keys win over any caller-
+    // supplied overrides (safe because the validator now constrains the shape).
+    await logAudit(ctx, {
+      actor_id: args.cancelled_by_manager_id ?? "system",
+      action: KIND_AUDIT[req.kind].denied,
+      entity_type: "pos_approval_requests",
+      entity_id: args.requestId,
+      source: args.source,
+      // F8: thread mgr_approver_id when present (booth_inline cancel path) so
+      // dashboards filtering by mgr_approver_id surface booth cancels too.
+      mgr_approver_id: args.cancelled_by_manager_id,
+      reason: args.deny_reason,
+      metadata: {
+        ...(args.extra_metadata ?? {}),
+        approval_request_id: args.requestId,
+        kind: req.kind,
+      },
+    });
+    return { denied: true };
+  },
+});
+
+/**
+ * Cascade-deny all live pending manual_payment_override approvals for a given txn.
+ * Used when a sale is cancelled mid-payment so managers can't approve a request
+ * whose underlying txn already moved on.
+ *
+ * M5 rename: was _cancelPendingApprovalsForTxn_internal — that name implied
+ * kind-agnostic behaviour but the implementation hardcodes kind==="manual_payment_override".
+ * Renamed to match actual scope. Future kinds requiring cascade should parameterize kind
+ * at that point.
+ */
+export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
+  args: { txnId: v.id("pos_transactions"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
+      .collect();
+    const now = Date.now();
+    for (const req of rows) {
+      if (req.entity_id !== args.txnId) continue;
+      // Skip already-expired rows — they're user-visible as "expired" via effectiveStatus;
+      // re-patching to "denied" would change audit shape without changing UX.
+      if (req.token_expires_at <= now) continue;
+      // F5: delegate to _markDeniedBySystem_internal instead of inlining the deny-write.
+      // The cascade-specific metadata (cascaded_from_txn) is passed via extra_metadata
+      // so the shared helper emits a consistent audit row (including cancelled_by_manager_id
+      // and source discriminator) without duplicate code. Cascade-specific pre-filter
+      // (entity_id + expiry skip) stays here before the delegate call.
+      await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: req._id,
+          deny_reason: args.reason,
+          source: "system",
+          extra_metadata: { cascaded_from_txn: args.txnId },
+        },
+      );
+    }
+  },
+});
+
+/**
+ * Increment failed_pin_attempts and auto-deny on cap-trip. Called from action
+ * sites after argon2id PIN verify fails. Returns { capped: true } if the 5th
+ * miss tripped the cap so the caller can throw REQUEST_REVOKED instead of
+ * INVALID_PIN.
+ */
+// NOTE: _recordTokenPinFailure_internal imports internal to delegate to
+// _markDeniedBySystem_internal via ctx.runMutation. The import is already at
+// the top of this file (convex/_generated/api).
+export const _recordTokenPinFailure_internal = internalMutation({
+  args: { requestId: v.id("pos_approval_requests") },
+  handler: async (ctx, args) => {
+    const req = await ctx.db.get(args.requestId);
+    if (!req) throw new Error("REQUEST_NOT_FOUND");
+    if (req.status !== "pending") return { capped: false };
+    const next = (req.failed_pin_attempts ?? 0) + 1;
+    await ctx.db.patch(args.requestId, { failed_pin_attempts: next });
+    if (next >= TOKEN_PIN_ATTEMPT_CAP) {
+      // C3: delegate to _markDeniedBySystem_internal instead of inlining the
+      // deny-write block. Keeps the two-writer invariant at one callsite.
+      // extra_metadata carries failed_pin_attempts for dashboard disambiguation (M4).
+      // F4: explicit type annotation breaks the circular-inference chain that
+      // arises from two internalMutations in the same file calling each other.
+      // Propagate denied:false when the row was already terminal (concurrent
+      // resolve raced ahead) so the caller throws INVALID_PIN, not REQUEST_REVOKED.
+      const result: { denied: boolean } = await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: args.requestId,
+          deny_reason: "too_many_pin_attempts",
+          source: "system",
+          extra_metadata: { failed_pin_attempts: next },
+        },
+      );
+      return { capped: result.denied };
+    }
+    return { capped: false };
   },
 });

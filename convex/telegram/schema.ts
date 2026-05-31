@@ -39,6 +39,7 @@ export const telegramTables = {
     lastError: v.optional(v.object({ at: v.number(), message: v.string() })),
   })
     .index("by_chatId", ["chatId"])
+    .index("by_role", ["role"])
     .index("by_role_archived", ["role", "archivedAt"]),
 
   telegramUpdates: defineTable({

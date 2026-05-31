@@ -18,7 +18,7 @@ describe("APPROVAL_KINDS registry", () => {
       .toThrow(/CONTEXT_INVALID/);
   });
   it("exposes audit + template maps per kind", () => {
-    expect(KIND_AUDIT.manual_payment_override.resolved).toBe("approval.resolved");
+    expect(KIND_AUDIT.manual_payment_override.resolved).toBe("manual_payment_override.resolved");
     expect(KIND_TEMPLATE.manual_payment_override).toBe("manual_payment_override");
   });
 });

@@ -61,17 +61,6 @@ export const listDrafts = query({
   },
 });
 
-const commitCartArgs = {
-  sessionId: v.id("staff_sessions"),
-  idempotencyKey: v.string(),
-  intent: v.union(v.literal("draft"), v.literal("charge")),
-  lines: v.array(v.object({
-    productId: v.id("pos_products"),
-    qty: v.number(),
-  })),
-  voucherCode: v.optional(v.string()),
-};
-
 /**
  * Commit a built cart to the server. Single mutation — no per-line server
  * calls (Zustand cart on client). intent="draft" → status=draft; intent="charge"
@@ -88,7 +77,16 @@ const commitCartArgs = {
  *   pos_stock_levels (projection) → transactions._projectedNegStockFlag_internal
  */
 export const commitCart = mutation({
-  args: commitCartArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    intent: v.union(v.literal("draft"), v.literal("charge")),
+    lines: v.array(v.object({
+      productId: v.id("pos_products"),
+      qty: v.number(),
+    })),
+    voucherCode: v.optional(v.string()),
+  },
   handler: withIdempotency<
     {
       sessionId: Id<"staff_sessions">;
@@ -219,14 +217,11 @@ export const commitCart = mutation({
         flags,
       };
     },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
   ),
 });
-
-const draftArgs = {
-  sessionId: v.id("staff_sessions"),
-  draftId: v.id("pos_transactions"),
-  idempotencyKey: v.string(),
-};
 
 /**
  * Resume a draft: returns its lines + voucherCode, then DELETES the row.
@@ -236,7 +231,11 @@ const draftArgs = {
  * loser re-reads the now-deleted draft and throws DRAFT_ALREADY_RESUMED.
  */
 export const resumeDraft = mutation({
-  args: draftArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    draftId: v.id("pos_transactions"),
+  },
   handler: withIdempotency<
     { sessionId: Id<"staff_sessions">; draftId: Id<"pos_transactions">; idempotencyKey: string },
     {
@@ -286,6 +285,9 @@ export const resumeDraft = mutation({
 
       return result;
     },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
   ),
 });
 
@@ -324,8 +326,90 @@ export const listRecentAwaitingPayment = query({
   },
 });
 
+/**
+ * Cancel a transaction that is sitting in `awaiting_payment` (staff at
+ * /sale/charge hits "Abandon"). Three atomic side effects:
+ *
+ *   1. Transition txn → `cancelled`.
+ *   2. Mark any active Xendit invoice for the txn as locally cancelled
+ *      (QR codes can't be remotely cancelled — we stop processing them per
+ *      ADR-036; invoice is "active" if it has no `cancelled_at` yet).
+ *   3. Cascade-deny any live `manual_payment_override` approval requests
+ *      for the txn via `_cancelPendingManualPaymentForTxn_internal` (Task 9).
+ *
+ * State guard: only works when txn.status === "awaiting_payment". Throws
+ * TXN_NOT_AWAITING if the webhook already confirmed payment (race — caller
+ * should redirect to charge-success instead of showing the abandon dialog).
+ *
+ * Born under the strict ESLint rule (Task 6): idempotencyKey + withIdempotency
+ * + authCheck are wired from day one. requireSession (NOT requireManagerSession)
+ * — any active staff session at the booth can abandon a pending payment.
+ */
+export const cancelAwaitingPayment = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+  },
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; txnId: Id<"pos_transactions">; idempotencyKey: string },
+    { cancelled: true }
+  >(
+    "transactions.cancelAwaitingPayment",
+    async (ctx, args): Promise<{ cancelled: true }> => {
+      const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
+
+      const txn = await ctx.db.get(args.txnId);
+      if (!txn) throw new Error("TXN_NOT_FOUND");
+      if (txn.status !== "awaiting_payment") throw new Error("TXN_NOT_AWAITING");
+
+      await ctx.db.patch(args.txnId, {
+        status: "cancelled",
+        cancelled_at: Date.now(),
+        cancelled_reason: "user_cancelled_at_payment",
+      });
+
+      // Mark the active invoice as locally cancelled. Route through
+      // payments._cancelActiveInvoiceForTxn_internal — payments owns
+      // pos_xendit_invoices (ADR-034); transactions must not touch it directly.
+      // F6: thread real staff context so forensic queries by actor_id / source
+      // surface the invoice-cancel half of the operation.
+      await ctx.runMutation(
+        internal.payments.internal._cancelActiveInvoiceForTxn_internal,
+        { txnId: args.txnId, cancel_reason: "txn_cancelled", actor_id: staffId, source: "booth_inline" },
+      );
+
+      // Cascade-deny any live pending manual_payment_override approvals for
+      // this txn so managers can't approve a stale request.
+      await ctx.runMutation(
+        internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
+        { txnId: args.txnId, reason: "txn_cancelled" },
+      );
+
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "transaction.cancelled",
+        entity_type: "pos_transactions",
+        entity_id: args.txnId,
+        source: "booth_inline",
+        device_id: deviceId,
+        reason: "user_cancelled_at_payment",
+      });
+
+      return { cancelled: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
+  ),
+});
+
 export const deleteDraft = mutation({
-  args: draftArgs,
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    draftId: v.id("pos_transactions"),
+  },
   handler: withIdempotency<
     { sessionId: Id<"staff_sessions">; draftId: Id<"pos_transactions">; idempotencyKey: string },
     { deleted: true }
@@ -353,6 +437,9 @@ export const deleteDraft = mutation({
         reason: "draft_deleted",
       });
       return { deleted: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
     },
   ),
 });

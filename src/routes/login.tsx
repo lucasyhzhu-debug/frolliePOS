@@ -6,6 +6,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { storeSession } from "@/hooks/useSession";
+import { getLastStaff } from "@/hooks/useLastStaff";
 import { StaffListItem } from "@/components/auth/StaffListItem";
 import { PinEntry } from "@/components/auth/PinEntry";
 import { ConnDot } from "@/components/layout/ConnDot";
@@ -22,6 +23,25 @@ export default function LoginRoute() {
   const login = useAction(api.auth.actions.loginWithPin);
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
+
+  // Pre-stage to PIN entry for the last-known staffer (UX optimisation — no
+  // auth bypass; PIN is still required). Runs once when the active-staff list
+  // first resolves. Silently falls back to the list if the stored id is absent
+  // from the active list (deactivated, removed, or never set).
+  const hasPreStaged = useRef(false);
+  useEffect(() => {
+    if (hasPreStaged.current) return;
+    if (staff === undefined) return;
+    const lastId = getLastStaff();
+    if (!lastId) return;
+    const match = staff.find((s) => s._id === lastId);
+    if (!match) return;
+    // Only flip the ref after a successful pre-stage. Failed attempts (no lastId,
+    // no match, staff=[]) leave the door open for retry on the next Convex
+    // reactivity tick or localStorage sync (F2 fix — was set unconditionally).
+    hasPreStaged.current = true;
+    setStage({ kind: "pin", staff: match });
+  }, [staff]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
   // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
@@ -68,7 +88,7 @@ export default function LoginRoute() {
       const { sessionId } = await login({
         staffId: stage.staff._id, pin, deviceId, idempotencyKey,
       });
-      storeSession(sessionId);
+      storeSession(sessionId, stage.staff._id);
       navigate("/", { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";

@@ -35,8 +35,8 @@ let mockQueryReturn: unknown = undefined;
 // Tests don't assert on the dropdown contents — they just need a valid array
 // so the Select renders without crashing on `.map`.
 const DEFAULT_MANAGERS = [
-  { _id: "m1", name: "Lucy", code: "MGR01" },
-  { _id: "m2", name: "Marco", code: "MGR02" },
+  { name: "Lucy", code: "MGR01" },
+  { name: "Marco", code: "MGR02" },
 ];
 
 // jsdom doesn't implement these; Radix UI Select calls them when opening
@@ -508,5 +508,43 @@ describe("Approve route — manual_payment_override variant", () => {
     expect(screen.getByText(/was declined by/i)).toBeInTheDocument();
     expect(screen.getByText(/Lucy/)).toBeInTheDocument();
     expect(screen.getByText(/looks fraudulent/)).toBeInTheDocument();
+  });
+
+  it("shows revoke copy on same-visit REQUEST_REVOKED throw", async () => {
+    mockApproveManualPayment = vi.fn().mockRejectedValue(new Error("REQUEST_REVOKED"));
+    stageActions(mockApproveManualPayment, mockDenyRequest);
+    renderAt();
+
+    await selectManager("MGR01");
+    fireEvent.keyDown(document, { key: "1" });
+    fireEvent.keyDown(document, { key: "2" });
+    fireEvent.keyDown(document, { key: "3" });
+    fireEvent.keyDown(document, { key: "4" });
+
+    const approveBtn = screen.getByRole("button", { name: /^Approve$/i });
+    await waitFor(() => expect(approveBtn).not.toBeDisabled());
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent(/Approval revoked/i);
+    });
+  });
+
+  it("shows revoke copy on next-visit denied-by-system token", () => {
+    mockQueryReturn = {
+      ...pendingPaymentRequest,
+      status: "denied",
+      deny_reason: "too_many_pin_attempts",
+      denied_by_manager_id: "system",
+      denied_at: Date.now() - 60_000,
+    };
+    stageActions(mockApproveManualPayment, mockDenyRequest);
+    renderAt();
+
+    expect(screen.getByText(/Approval revoked/i)).toBeInTheDocument();
+    expect(screen.getByText(/too many wrong PIN attempts/i)).toBeInTheDocument();
+    // PIN input should not be present — the page is in a terminal state
+    expect(screen.queryByRole("button", { name: /^Approve$/i })).not.toBeInTheDocument();
   });
 });

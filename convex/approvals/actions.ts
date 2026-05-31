@@ -190,6 +190,11 @@ export const approveStaffPinReset = action({
         deviceId: OFF_BOOTH_DEVICE_ID,
         source: "telegram_approval",
       });
+      const capResult = await ctx.runMutation(
+        internal.approvals.internal._recordTokenPinFailure_internal,
+        { requestId: req._id },
+      );
+      if (capResult.capped) throw new Error("REQUEST_REVOKED");
       throw new Error("INVALID_PIN");
     }
 
@@ -434,6 +439,11 @@ export const approveManualPayment = action({
         deviceId: OFF_BOOTH_DEVICE_ID,
         source: "telegram_approval",
       });
+      const capResult = await ctx.runMutation(
+        internal.approvals.internal._recordTokenPinFailure_internal,
+        { requestId: req._id },
+      );
+      if (capResult.capped) throw new Error("REQUEST_REVOKED");
       throw new Error("INVALID_PIN");
     }
 
@@ -533,6 +543,11 @@ export const denyRequest = action({
         deviceId: OFF_BOOTH_DEVICE_ID,
         source: "telegram_approval",
       });
+      const capResult = await ctx.runMutation(
+        internal.approvals.internal._recordTokenPinFailure_internal,
+        { requestId: req._id },
+      );
+      if (capResult.capped) throw new Error("REQUEST_REVOKED");
       throw new Error("INVALID_PIN");
     }
 
