@@ -122,6 +122,29 @@ describe("token PIN cap", () => {
     expect(errMsg).toMatch(/REQUEST_RESOLVED|REQUEST_NOT_FOUND/);
   });
 
+  test("F4: cap-trip on already-resolved row returns {capped:false} (does not throw REQUEST_REVOKED)", async () => {
+    // F4 regression: _recordTokenPinFailure_internal was returning {capped:true}
+    // unconditionally after the delegate call even when the delegate returned
+    // {denied:false} (row already terminal). Now propagates the delegate flag.
+    const t = convexTest(schema);
+    const requestId = await seedPendingManualPayment(t);
+    // Pre-stage 4 failures
+    await t.run(async (ctx: any) => ctx.db.patch(requestId, { failed_pin_attempts: 4 }));
+    // Flip to resolved BEFORE the 5th failure attempt
+    await t.run(async (ctx: any) =>
+      ctx.db.patch(requestId, { status: "resolved", resolved_at: Date.now() }),
+    );
+    // 5th failure should return {capped:false} because delegate returned {denied:false}
+    const r = await t.mutation(
+      internal.approvals.internal._recordTokenPinFailure_internal as any,
+      { requestId },
+    );
+    expect(r.capped).toBe(false);
+    // Row should stay resolved (no double-flip)
+    const row = await t.run(async (ctx: any) => ctx.db.get(requestId));
+    expect(row.status).toBe("resolved");
+  });
+
   test("legitimate-fumble path — 4 attacker failures + 1 manager fumble = auto-revoke", async () => {
     const t = convexTest(schema);
     const requestId = await seedPendingManualPayment(t);

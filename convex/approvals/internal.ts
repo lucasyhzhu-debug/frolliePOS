@@ -362,10 +362,13 @@ export const _markDeniedBySystem_internal = internalMutation({
       v.literal("telegram_approval"),
       v.literal("system"),
     ),
-    // M4: optional caller-supplied metadata merged into audit emission.
-    // Allows cap-trip path to thread failed_pin_attempts count for dashboard
-    // disambiguation without requiring a second audit row.
-    extra_metadata: v.optional(v.any()),
+    // F3: constrained to the only current consumer shapes — rejects unknown
+    // scalars or keys that could silently overwrite canonical audit fields.
+    extra_metadata: v.optional(v.object({
+      failed_pin_attempts: v.optional(v.number()),
+      // F5: cascade-deny path threads cascaded_from_txn for dashboard filtering.
+      cascaded_from_txn: v.optional(v.id("pos_transactions")),
+    })),
   },
   handler: async (ctx, args) => {
     const req = await ctx.db.get(args.requestId);
@@ -377,21 +380,24 @@ export const _markDeniedBySystem_internal = internalMutation({
       denied_by_manager_id: args.cancelled_by_manager_id ?? "system",
       deny_reason: args.deny_reason,
     });
-    // M4: cancelled_via distinguishes system auto-deny from manager-initiated
-    // cancel without parsing other fields — useful for dashboard filtering since
-    // all three callers emit the same KIND_AUDIT[kind].denied action string.
+    // source column is the discriminator for system vs booth_inline vs
+    // telegram_approval. Do not duplicate as metadata.cancelled_via (F9).
+    // F3: spread extra_metadata FIRST so canonical keys win over any caller-
+    // supplied overrides (safe because the validator now constrains the shape).
     await logAudit(ctx, {
       actor_id: args.cancelled_by_manager_id ?? "system",
       action: KIND_AUDIT[req.kind].denied,
       entity_type: "pos_approval_requests",
       entity_id: args.requestId,
       source: args.source,
+      // F8: thread mgr_approver_id when present (booth_inline cancel path) so
+      // dashboards filtering by mgr_approver_id surface booth cancels too.
+      mgr_approver_id: args.cancelled_by_manager_id,
       reason: args.deny_reason,
       metadata: {
+        ...(args.extra_metadata ?? {}),
         approval_request_id: args.requestId,
         kind: req.kind,
-        cancelled_via: args.source,
-        ...(args.extra_metadata ?? {}),
       },
     });
     return { denied: true };
@@ -421,21 +427,20 @@ export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
       // Skip already-expired rows — they're user-visible as "expired" via effectiveStatus;
       // re-patching to "denied" would change audit shape without changing UX.
       if (req.token_expires_at <= now) continue;
-      await ctx.db.patch(req._id, {
-        status: "denied",
-        denied_at: now,
-        denied_by_manager_id: "system",
-        deny_reason: args.reason,
-      });
-      await logAudit(ctx, {
-        actor_id: "system",
-        action: KIND_AUDIT[req.kind].denied,
-        entity_type: "pos_approval_requests",
-        entity_id: req._id,
-        source: "system",
-        reason: args.reason,
-        metadata: { approval_request_id: req._id, kind: req.kind, cascaded_from_txn: args.txnId },
-      });
+      // F5: delegate to _markDeniedBySystem_internal instead of inlining the deny-write.
+      // The cascade-specific metadata (cascaded_from_txn) is passed via extra_metadata
+      // so the shared helper emits a consistent audit row (including cancelled_by_manager_id
+      // and source discriminator) without duplicate code. Cascade-specific pre-filter
+      // (entity_id + expiry skip) stays here before the delegate call.
+      await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: req._id,
+          deny_reason: args.reason,
+          source: "system",
+          extra_metadata: { cascaded_from_txn: args.txnId },
+        },
+      );
     }
   },
 });
@@ -461,7 +466,7 @@ export const _recordTokenPinFailure_internal = internalMutation({
       // C3: delegate to _markDeniedBySystem_internal instead of inlining the
       // deny-write block. Keeps the two-writer invariant at one callsite.
       // extra_metadata carries failed_pin_attempts for dashboard disambiguation (M4).
-      await ctx.runMutation(
+      const result = await ctx.runMutation(
         internal.approvals.internal._markDeniedBySystem_internal,
         {
           requestId: args.requestId,
@@ -470,7 +475,11 @@ export const _recordTokenPinFailure_internal = internalMutation({
           extra_metadata: { failed_pin_attempts: next },
         },
       );
-      return { capped: true };
+      // F4: if the delegate found the row already terminal (concurrent resolve
+      // raced ahead), do NOT report capped — the caller's action site will
+      // throw INVALID_PIN instead, which is correct: the PIN was wrong, but
+      // the request's terminal state is what matters.
+      return { capped: result.denied };
     }
     return { capped: false };
   },
