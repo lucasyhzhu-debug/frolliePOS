@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { validateContext, KIND_AUDIT } from "./kinds";
@@ -166,10 +167,10 @@ export const _markResolved_internal = internalMutation({
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
       // Same error code as the action-layer pre-check (actions.ts), so the
-// frontend mapError needs only one branch. Fires only on a concurrent
-// second manager racing to commit; same-key retries short-circuit
-// at the withIdempotency cache lookup above.
-if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+      // frontend mapError needs only one branch. Fires only on a concurrent
+      // second manager racing to commit; same-key retries short-circuit
+      // at the withIdempotency cache lookup above.
+      if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "resolved",
         resolved_at: Date.now(),
@@ -262,10 +263,10 @@ export const _markDenied_internal = internalMutation({
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
       // Same error code as the action-layer pre-check (actions.ts), so the
-// frontend mapError needs only one branch. Fires only on a concurrent
-// second manager racing to commit; same-key retries short-circuit
-// at the withIdempotency cache lookup above.
-if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+      // frontend mapError needs only one branch. Fires only on a concurrent
+      // second manager racing to commit; same-key retries short-circuit
+      // at the withIdempotency cache lookup above.
+      if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
       await ctx.db.patch(args.requestId, {
         status: "denied",
         denied_at: Date.now(),
@@ -361,6 +362,10 @@ export const _markDeniedBySystem_internal = internalMutation({
       v.literal("telegram_approval"),
       v.literal("system"),
     ),
+    // M4: optional caller-supplied metadata merged into audit emission.
+    // Allows cap-trip path to thread failed_pin_attempts count for dashboard
+    // disambiguation without requiring a second audit row.
+    extra_metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const req = await ctx.db.get(args.requestId);
@@ -372,6 +377,9 @@ export const _markDeniedBySystem_internal = internalMutation({
       denied_by_manager_id: args.cancelled_by_manager_id ?? "system",
       deny_reason: args.deny_reason,
     });
+    // M4: cancelled_via distinguishes system auto-deny from manager-initiated
+    // cancel without parsing other fields — useful for dashboard filtering since
+    // all three callers emit the same KIND_AUDIT[kind].denied action string.
     await logAudit(ctx, {
       actor_id: args.cancelled_by_manager_id ?? "system",
       action: KIND_AUDIT[req.kind].denied,
@@ -379,7 +387,12 @@ export const _markDeniedBySystem_internal = internalMutation({
       entity_id: args.requestId,
       source: args.source,
       reason: args.deny_reason,
-      metadata: { approval_request_id: args.requestId, kind: req.kind },
+      metadata: {
+        approval_request_id: args.requestId,
+        kind: req.kind,
+        cancelled_via: args.source,
+        ...(args.extra_metadata ?? {}),
+      },
     });
     return { denied: true };
   },
@@ -428,6 +441,9 @@ export const _cancelPendingApprovalsForTxn_internal = internalMutation({
  * miss tripped the cap so the caller can throw REQUEST_REVOKED instead of
  * INVALID_PIN.
  */
+// NOTE: _recordTokenPinFailure_internal imports internal to delegate to
+// _markDeniedBySystem_internal via ctx.runMutation. The import is already at
+// the top of this file (convex/_generated/api).
 export const _recordTokenPinFailure_internal = internalMutation({
   args: { requestId: v.id("pos_approval_requests") },
   handler: async (ctx, args) => {
@@ -437,21 +453,18 @@ export const _recordTokenPinFailure_internal = internalMutation({
     const next = (req.failed_pin_attempts ?? 0) + 1;
     await ctx.db.patch(args.requestId, { failed_pin_attempts: next });
     if (next >= TOKEN_PIN_ATTEMPT_CAP) {
-      await ctx.db.patch(args.requestId, {
-        status: "denied",
-        denied_at: Date.now(),
-        denied_by_manager_id: "system",
-        deny_reason: "too_many_pin_attempts",
-      });
-      await logAudit(ctx, {
-        actor_id: "system",
-        action: KIND_AUDIT[req.kind].denied,
-        entity_type: "pos_approval_requests",
-        entity_id: args.requestId,
-        source: "system",
-        reason: "too_many_pin_attempts",
-        metadata: { approval_request_id: args.requestId, kind: req.kind, failed_pin_attempts: next },
-      });
+      // C3: delegate to _markDeniedBySystem_internal instead of inlining the
+      // deny-write block. Keeps the two-writer invariant at one callsite.
+      // extra_metadata carries failed_pin_attempts for dashboard disambiguation (M4).
+      await ctx.runMutation(
+        internal.approvals.internal._markDeniedBySystem_internal,
+        {
+          requestId: args.requestId,
+          deny_reason: "too_many_pin_attempts",
+          source: "system",
+          extra_metadata: { failed_pin_attempts: next },
+        },
+      );
       return { capped: true };
     }
     return { capped: false };
