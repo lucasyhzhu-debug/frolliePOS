@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useNavigate, useParams, useBlocker } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { usePathChangeBlocker } from "@/hooks/usePathChangeBlocker";
 import { useXenditPayment, PAYMENT_CEILING_MS } from "@/hooks/useXenditPayment";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { useCountdown, DEFAULT_LIFETIME_MS } from "@/hooks/useCountdown";
@@ -81,13 +82,7 @@ export default function SaleCharge() {
   // ---- navigation guard ----
   // Block route transitions while the transaction is awaiting payment so staff
   // can explicitly cancel (invalidating the active QR/VA) before leaving.
-  const shouldBlock = txn?.status === "awaiting_payment";
-  const blockPredicate = useCallback(
-    ({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
-      shouldBlock && currentLocation.pathname !== nextLocation.pathname,
-    [shouldBlock],
-  );
-  const blocker = useBlocker(blockPredicate);
+  const blocker = usePathChangeBlocker(txn?.status === "awaiting_payment");
 
   // Cancel-payment handler used by the AbandonCartDialog payment variant.
   // Swallows TXN_NOT_AWAITING races — if the webhook confirmed while the dialog
