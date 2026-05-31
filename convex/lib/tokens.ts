@@ -1,7 +1,10 @@
 // Shared URL-safe token mint. Used by:
 //   - approvals/actions.ts (off-booth approval tokens, 32 bytes per ADR-029)
-//   - receipts/actions.ts   (receipt token lazy-mint per ADR-021)
-//   - transactions/internal.ts _confirmPaid (receipt tokens per ADR-021)
+//   - transactions/internal.ts _confirmPaid (receipt tokens per ADR-021,
+//     inline at the paid-transition)
+//   - transactions/internal.ts _ensureReceiptTokenForPaidTxn_internal (lazy
+//     mint path for pre-v0.5.1 paid rows; invoked via
+//     receipts/internal._lazyMintReceiptToken_internal facade)
 //
 // Implemented with Web Crypto (`globalThis.crypto.getRandomValues`) so the
 // module is safe to bundle in BOTH the Convex V8 runtime AND "use node" actions.

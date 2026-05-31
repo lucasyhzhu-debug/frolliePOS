@@ -161,17 +161,16 @@ export const _writeCacheEntry_internal = internalMutation({
 /**
  * Purge a cached receipt by transaction id.
  *
- * PR A: NO-OP — no callers in PR A (refunds module doesn't exist yet). PR B
- * replaces this body with assertion-throw behaviour: if !txn.receipt_token,
- * throw PURGE_NO_TOKEN; else delete cache entry for that token. Stubbed here
- * so the type surface is stable when refunds/internal calls it in PR B.
+ * PR A: stub that THROWS on call. No callers exist in PR A (refunds module
+ * doesn't exist yet). PR B replaces the body with cache-purge by txn lookup
+ * (read the txn's receipt_token, delete the matching pos_receipt_html_cache
+ * row). The throw ensures any premature PR B wire-up from refunds/internal
+ * fails CI loud, rather than leaving a stale "LUNAS" receipt cached for 24h
+ * post-refund.
  */
 export const _purgeReceiptCache_internal = internalMutation({
   args: { transactionId: v.id("pos_transactions") },
   handler: async () => {
-    // PR A stub. PR B replaces with real cache-purge by txn lookup. Throwing
-    // ensures any premature wire-up from refunds/internal fails CI loud rather
-    // than leaving a stale "LUNAS" receipt cached for 24h post-refund.
     throw new Error("_purgeReceiptCache_internal: PR A stub — PR B replaces");
   },
 });
