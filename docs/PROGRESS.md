@@ -828,17 +828,20 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 - Share signed-URL receipts — customer scans or taps, gets an itemised receipt
 - See refunded lines clearly on the public receipt, with the original sale never mutated
 - Audit every refund with manager-approver, reason, and timestamp
+- Track which approved refunds still owe the customer money — `settlement_status: pending → settled` (money moves manually in v1 per ADR-038)
 
 **Still not yet:**
+- Have the POS *send* refund money automatically — v1 records + audits the refund; the manager moves the cash manually in the Xendit/BCA dashboard, then marks it settled. Automated Disbursements/QRIS-refund API deferred to v1.1 (ADR-038)
 - Log stock-in or run stock checks in-app (v0.5.2)
 - View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
 - Configure the receipt template from the manager portal (v0.5.3 — v0.5.1 ships a hardcoded template)
 - Manage staff or products in-app (v0.5.3)
 
 ### Backend (`convex/`)
-- 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8)
-- 🗂️ `receipt.ts` — receipt token generation + public lookup + 24h cache
-- 🗂️ Schema: `pos_refunds`, `pos_receipt_counters`
+- 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8); on approval write the ledger (row + stock re-credit + audit) at `settlement_status: pending` (ADR-038)
+- 🗂️ `markRefundSettled` mutation — manager flips `settlement_status` pending → settled after moving cash out-of-band; **manager-session gated, not manager-PIN** (the PIN gate is at refund approval; settling is a bookkeeping ack), second audit stamp (who settled, when) per ADR-038. No Xendit refund/disbursement API call in v1
+- 🗂️ `receipt.ts` — receipt token generation + public lookup + 24h cache; **purge cached HTML on refund commit** so the receipt re-projects refund state (ADR-039)
+- 🗂️ Schema: `pos_refunds` (incl. `settlement_status` field — ADR-038), `pos_receipt_counters`
 
 ### Frontend (`src/`)
 - 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
@@ -848,7 +851,8 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 
 ### Cross-cutting
 - 🗂️ ADR-008 honoured (refunds as new rows, status computed on read)
-- 🗂️ NEW ADR (TBD number): receipt-after-refund display contract — MUST be locked in the v0.5.1 spec before code (per staffreview Critical 2: does refund mutate receipt? does it invalidate the cache? does the original token stay valid post-refund? partial-refund line display?)
+- ✅ ADR-038 (refund settlement: POS is system-of-record, money moves manually in v1; `settlement_status` seam for v1.1 automated disbursements; `markRefundSettled` is manager-session-gated) — locked 2026-05-31
+- ✅ ADR-039 (receipt-after-refund display contract — resolves staffreview Critical 2: refund re-projects the receipt not mutates it; cache purged on refund commit; original token stays valid; partial-refund lines preserved + annotated; settlement_status excluded from public receipt) — locked 2026-05-31
 - 🗂️ SCHEMA.md audit enum: `refund.*`
 
 ---

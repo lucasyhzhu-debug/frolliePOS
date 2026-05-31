@@ -50,19 +50,22 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 | [034](./034-deep-modules-surface-apis.md) | Arch | Deep modules with surface APIs as architectural blueprint | 2026-05-26 | Accepted |
 | [035](./035-telegram-as-internal-comms.md) | Comms | Telegram as internal comms infrastructure | 2026-05-27 | Accepted |
 | [036](./036-xendit-dedicated-apis-inline.md) | Pay | Xendit inline QRIS via QR Codes API + BCA VA via FVA API | 2026-05-28 | Accepted |
+| [037](./037-telegram-self-registration-role-indirection.md) | Comms | Telegram self-registration with role-indirection | 2026-05-30 | Accepted |
+| [038](./038-refund-settlement-manual-v1.md) | Pay | Refund settlement: POS is system-of-record, money moves manually in v1 | 2026-05-31 | Accepted |
+| [039](./039-receipt-after-refund-display-contract.md) | Receipts | Receipt-after-refund display contract | 2026-05-31 | Accepted |
 
 ## Groups
 
 - **Auth** — sessions, PINs, lockouts (ADR-001 through ADR-005)
 - **Ops** — shifts, audit, refunds, vouchers (ADR-006 through ADR-010)
-- **Pay** — Xendit, idempotency, currency (ADR-011 through ADR-015; ADR-036 extends; ADR-011 superseded by ADR-036)
+- **Pay** — Xendit, idempotency, currency, refund settlement (ADR-011 through ADR-015; ADR-036 extends; ADR-038 refund settlement; ADR-011 superseded by ADR-036)
 - **Stock** — products ↔ inventory, movements (ADR-016 through ADR-020)
-- **Receipts** — receipt URL, numbering, tax (ADR-021 through ADR-024)
+- **Receipts** — receipt URL, numbering, tax, refund display (ADR-021 through ADR-024; ADR-039 refund display contract)
 - **Sync** — offline, service worker, reconciliation (ADR-025, ADR-026)
 - **WA** — WhatsApp manager approval (ADR-027 through ADR-030; ADR-027 superseded by ADR-035)
 - **Time** — timestamps, retention, scheduled (ADR-031 through ADR-033; ADR-033 superseded by ADR-035)
 - **Arch** — foundational architecture (ADR-034)
-- **Comms** — internal communications channel (ADR-035)
+- **Comms** — internal communications channel (ADR-035, ADR-037)
 
 ## Template
 
