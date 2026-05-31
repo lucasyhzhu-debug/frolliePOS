@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import Lock from "./lock";
+import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 
 // ─── module mocks ─────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ describe("Lock route", () => {
   });
 
   test("Lock button calls logout with sessionId + idempotencyKey, then navigates to /login", async () => {
-    localStorage.setItem("frollie-last-staff", "kn7lucas000000000000000000000");
+    localStorage.setItem(LAST_STAFF_KEY, "kn7lucas000000000000000000000");
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
 
     renderLock();
@@ -121,15 +122,15 @@ describe("Lock route", () => {
     await waitFor(() => expect(screen.getByTestId("login-page")).toBeInTheDocument());
   });
 
-  test("frollie-last-staff key is preserved after lock", async () => {
-    localStorage.setItem("frollie-last-staff", "kn7lucas000000000000000000000");
+  test(`${LAST_STAFF_KEY} key is preserved after lock`, async () => {
+    localStorage.setItem(LAST_STAFF_KEY, "kn7lucas000000000000000000000");
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
 
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
 
     await waitFor(() => expect(mockLogout).toHaveBeenCalledOnce());
-    expect(localStorage.getItem("frollie-last-staff")).toBe("kn7lucas000000000000000000000");
+    expect(localStorage.getItem(LAST_STAFF_KEY)).toBe("kn7lucas000000000000000000000");
   });
 
   test("Cancel button navigates back to /", async () => {

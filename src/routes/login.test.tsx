@@ -19,6 +19,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import LoginRoute from "./login";
+import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 
 // ─── module mocks (hoisted by Vite) ──────────────────────────────────────────
 
@@ -103,7 +104,7 @@ describe("Login route", () => {
   });
 
   it("pre-stages to PIN if last-staff is in active list", async () => {
-    localStorage.setItem("frollie-last-staff", LUCAS._id);
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
     mockStaff([LUCAS, SARI]);
     renderLogin();
     // Should skip "Who's working?" and show Lucas's name as the heading.
@@ -114,7 +115,7 @@ describe("Login route", () => {
   });
 
   it("silently falls back to list if last-staff is NOT in active list", async () => {
-    localStorage.setItem("frollie-last-staff", "kn7deactivated00000000000000");
+    localStorage.setItem(LAST_STAFF_KEY, "kn7deactivated00000000000000");
     // Active list does NOT contain the stored id.
     mockStaff([SARI]);
     renderLogin();
@@ -127,7 +128,7 @@ describe("Login route", () => {
   });
 
   it("shows list view when no last-staff key", async () => {
-    localStorage.removeItem("frollie-last-staff"); // explicit — clear() already ran in beforeEach
+    localStorage.removeItem(LAST_STAFF_KEY); // explicit — clear() already ran in beforeEach
     mockStaff([LUCAS, SARI]);
     renderLogin();
     await waitFor(() =>
