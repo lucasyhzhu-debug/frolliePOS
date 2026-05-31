@@ -199,6 +199,26 @@ Not a public surface — provides the `withIdempotency()` wrapper used by every 
 | h | `/xendit/webhook` | POST | Verifies `x-callback-token` header; routes by event type (`invoice.paid`, `refund.succeeded`, `settlement.completed`); returns 200 fast, processes idempotently |
 | h | `/r/:receiptToken` | GET | Public receipt HTML render ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)); reads `pos_transactions` by `receipt_token`; expired HTML cache regenerates and re-caches |
 
+## `receipts.ts` *(v0.5.1 PR A)*
+
+### HTTP
+
+#### `GET /r/:token`
+Returns the HTML receipt page for the txn with matching `receipt_token`. 200 + cached HTML on hit, 200 + freshly rendered + cached on miss, 404 + Indonesian "Struk tidak ditemukan" page on unknown token or non-paid txn status.
+
+Routed via `pathPrefix: "/r/"` in `convex/http.ts`; handler is `handleReceiptRoute` (`convex/receipts/http.ts`).
+
+### Internal (not callable from public clients)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| internal q | `_buildViewModel_internal` | `{ transactionId }` | `ReceiptViewModel \| null` | Builds the view model from `pos_transactions` + `pos_transaction_lines`. Returns null if txn missing, not paid, or missing `receipt_number`. PR A returns `refunds: []`; PR B populates from `refunds/internal._listForTransaction_internal`. |
+| internal q | `_renderReceiptByToken_internal` | `{ token }` | `{ html } \| null` | Looks up txn by `by_receipt_token` index, builds view model, calls `renderReceipt`. |
+| internal q | `_getCachedReceipt_internal` | `{ token }` | `{ html, expires_at } \| null` | Returns cached HTML row if present and not expired, else null. |
+| internal m | `_writeCacheEntry_internal` | `{ token, html }` | `void` | Idempotent upsert; sets `expires_at = now + 24h`. |
+| internal m | `_purgeReceiptCache_internal` | `{ transactionId }` | `void` | PR A stub (no-op). PR B replaces with assertion-throw + cache delete. |
+| internal m | `_lazyMintReceiptToken_internal` | `{ transactionId, actor }` | `{ token } \| null` | Dormant in v0.5.1. Mints a token for tokenless paid txns (pre-v0.5.1 rows). Idempotent. Audit-logs `receipt.token_minted` (source: `booth_inline`, metadata: `{ lazy: true }`). |
+
 ## `convex/xendit/` internal helpers
 
 | Module | Helper | Notes |

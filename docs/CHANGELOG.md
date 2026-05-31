@@ -2,6 +2,24 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.1 — Refunds + customer receipts (unreleased)
+
+### PR A — receipt subsystem (shipped <date will be filled at ship-it>)
+
+- Every paid sale now produces a shareable signed-URL receipt at `/r/<token>` (ADR-021, ADR-022). 32-byte URL-safe token minted in `_confirmPaid` via the shared `mintUrlSafeToken()` helper.
+- Hardcoded receipt template per ADR-039 §4 (Indonesian language, teal accent, 🍪 emoji as logo placeholder, Instagram CTA). NPWP + tax disclaimers omitted (PPN 0 until PKP registration). Refund block stubbed (empty `refunds[]`) — populated in PR B.
+- Template lives at `convex/receipts/template.ts` (Convex-side), NOT `src/lib/receipt-template.ts` as the spec originally listed — the renderer is invoked by an httpAction and Convex code cannot import from `src/`. `src/lib/format.ts` `rp()` negative-amount handling is the only frontend-side receipt-related change, deferred to PR B.
+- 24h HTML cache with lazy regenerate on miss; no reaper cron. Convex storage is cheap; lazy is always correct.
+- Status guard on `/r/<token>`: returns 404 for non-paid txns (defence-in-depth against manual DB patches).
+- New audit verb `receipt.token_minted` (for the dormant lazy-mint helper used by future v0.5.3 history surface).
+- Extracted shared `mintUrlSafeToken(bytes=32)` to `convex/lib/tokens.ts` (used by approvals + receipts). Implemented with Web Crypto (`globalThis.crypto.getRandomValues`) so the module is V8-safe — `node:crypto.randomBytes` would have broken `npx convex codegen` because Convex statically bundles every module under V8 first.
+- ESLint `OWNERSHIP` map gains `pos_receipt_html_cache: "receipts"`; the `receipts` module is allowlisted from cross-module-db-access (aggregate read patterns — building a receipt view model spans pos_transactions + pos_transaction_lines).
+- Refactor: `_confirmPaid_internal` mints `receipt_token` inline via the shared helper rather than threading a caller-minted token through every call site (the V8-safe tokens.ts unblocked this simpler design vs. the plan's original arg-threading approach).
+
+### Rollback caveat (PR A)
+
+Reverting PR A leaves orphan `receipt_token` values on already-confirmed transactions; the public route 404s for them. Tokens are stable (field is optional, immutable when set) so re-deploying PR A restores access without migration.
+
 ## v0.5.0.1 — Housekeeping hotfix (2026-05-31)
 
 > The squash commit for this work landed on `main` titled `v0.5.1 — Housekeeping (#7)`. Renumbered here to `v0.5.0.1` so `v0.5.1` can refer to the **Refunds + customer receipts** feature phase (the canonical use in `docs/PROGRESS.md`, ADR-038, ADR-039). The git history is fixed; this header is the source of truth for the version label.
