@@ -1,8 +1,10 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { api } from "../_generated/api";
-import { Doc } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { requireManagerSession } from "../auth/sessions";
+import { withIdempotency } from "../idempotency/internal";
+import { logAudit } from "../audit/internal";
 
 /**
  * Single payload for the catalog screen + offline cache. Persisted to IDB
@@ -93,4 +95,75 @@ export const listAllProducts = query({
     ]);
     return { products, skus, components };
   },
+});
+
+/**
+ * Edit a product's non-price metadata (name, pack_label, sort_order, plus
+ * optional sku_family / initials / hue). Manager-session-gated, NO PIN —
+ * none of these fields move money (CLAUDE.md #9). Price + tax_rate edits go
+ * through the PIN-gated action (`catalog.actions.updateProductPricing`).
+ *
+ * Mirrors `staff.updateStaffName`'s `withIdempotency` + `authCheck` shape:
+ * authCheck runs BEFORE the cache lookup so an unauthorised retry can't
+ * read a cached success (see docs/PATTERNS/idempotency-dual-call-authcheck.md).
+ */
+export const updateProductMeta = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    productId: v.id("pos_products"),
+    name: v.string(),
+    pack_label: v.string(),
+    sort_order: v.number(),
+    sku_family: v.optional(v.string()),
+    initials: v.optional(v.string()),
+    hue: v.optional(v.number()),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      productId: Id<"pos_products">;
+      name: string;
+      pack_label: string;
+      sort_order: number;
+      sku_family?: string;
+      initials?: string;
+      hue?: number;
+    },
+    { ok: true }
+  >(
+    "catalog.updateProductMeta",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const name = args.name.trim();
+      if (name.length === 0 || name.length > 80) throw new Error("NAME_INVALID");
+      const before = await ctx.db.get(args.productId);
+      if (!before) throw new Error("PRODUCT_NOT_FOUND");
+      await ctx.db.patch(args.productId, {
+        name,
+        pack_label: args.pack_label,
+        sort_order: args.sort_order,
+        ...(args.sku_family !== undefined ? { sku_family: args.sku_family } : {}),
+        ...(args.initials !== undefined ? { initials: args.initials } : {}),
+        ...(args.hue !== undefined ? { hue: args.hue } : {}),
+        updated_at: Date.now(),
+      });
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "product.updated",
+        entity_type: "pos_products",
+        entity_id: args.productId,
+        source: "booth_inline",
+        device_id: deviceId,
+        metadata: { field: "meta" },
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
 });

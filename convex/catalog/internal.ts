@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { logAudit } from "../audit/internal";
 
 /**
  * Active inventory SKU ids. Exposed so other modules (e.g. inventory) can
@@ -136,5 +137,93 @@ export const _setLowThreshold_internal = internalMutation({
       throw new Error("INVALID_LOW_THRESHOLD");
     }
     await ctx.db.patch(args.skuId, { low_threshold: args.lowThreshold });
+  },
+});
+
+/**
+ * Single-writer commit for `catalog.createProduct` (v0.5.3b Task 8). The
+ * action front-half (`catalog/actions.ts`) handles PIN gate + idempotency
+ * cache; this internal owns the row insert + audit in one transaction so
+ * the audit row can never desync from the product row. Price-integer guard
+ * is repeated here as defense-in-depth (the action also validates upstream).
+ */
+export const _createProductCommit_internal = internalMutation({
+  args: {
+    mgrId: v.id("staff"),
+    sku_family: v.string(),
+    name: v.string(),
+    pack_label: v.string(),
+    price_idr: v.number(),
+    tax_rate: v.number(),
+    sort_order: v.number(),
+    initials: v.optional(v.string()),
+    hue: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ productId: Id<"pos_products"> }> => {
+    if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
+      throw new Error("PRICE_INVALID");
+    }
+    const now = Date.now();
+    const productId = await ctx.db.insert("pos_products", {
+      sku_family: args.sku_family,
+      name: args.name.trim(),
+      pack_label: args.pack_label,
+      price_idr: args.price_idr,
+      tax_rate: args.tax_rate,
+      sort_order: args.sort_order,
+      initials: args.initials,
+      hue: args.hue,
+      active: true,
+      created_at: now,
+      updated_at: now,
+    });
+    await logAudit(ctx, {
+      actor_id: args.mgrId,
+      action: "product.created",
+      entity_type: "pos_products",
+      entity_id: productId,
+      source: "booth_inline",
+      metadata: { name: args.name, price_idr: args.price_idr },
+    });
+    return { productId };
+  },
+});
+
+/**
+ * Single-writer commit for `catalog.updateProductPricing` (v0.5.3b Task 8).
+ * Reads `before` for the from→to audit metadata then patches in the same
+ * transaction. Snapshot-on-line rule (CLAUDE.md #1) means historic
+ * transactions are unaffected by this edit.
+ */
+export const _updatePricingCommit_internal = internalMutation({
+  args: {
+    mgrId: v.id("staff"),
+    productId: v.id("pos_products"),
+    price_idr: v.number(),
+    tax_rate: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
+      throw new Error("PRICE_INVALID");
+    }
+    const before = await ctx.db.get(args.productId);
+    if (!before) throw new Error("PRODUCT_NOT_FOUND");
+    await ctx.db.patch(args.productId, {
+      price_idr: args.price_idr,
+      tax_rate: args.tax_rate,
+      updated_at: Date.now(),
+    });
+    await logAudit(ctx, {
+      actor_id: args.mgrId,
+      action: "product.updated",
+      entity_type: "pos_products",
+      entity_id: args.productId,
+      source: "booth_inline",
+      metadata: {
+        field: "pricing",
+        price_idr: { from: before.price_idr, to: args.price_idr },
+      },
+    });
+    return { ok: true as const };
   },
 });

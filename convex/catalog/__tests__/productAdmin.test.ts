@@ -31,3 +31,45 @@ describe("catalog.listAllProducts", () => {
     expect(res.products.some((p) => p.active === false)).toBe(true);
   });
 });
+
+describe("catalog product create/edit", () => {
+  it("creates a product with PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p1", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "Dubai 3pcs", pack_label: "3 pcs",
+      price_idr: 50000, tax_rate: 0, sort_order: 2,
+    });
+    const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
+    expect(res.products.find((p) => p._id === productId)?.price_idr).toBe(50000);
+  });
+
+  it("edits metadata without PIN (session-gated)", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p2", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "X", pack_label: "1 pc", price_idr: 20000, tax_rate: 0, sort_order: 3,
+    });
+    await t.mutation(api.catalog.public.updateProductMeta, {
+      idempotencyKey: "m1", sessionId, productId, name: "Dubai 1pc", pack_label: "1 pc", sort_order: 3,
+    });
+    const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
+    expect(res.products.find((p) => p._id === productId)?.name).toBe("Dubai 1pc");
+  });
+
+  it("rejects a price edit with wrong PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p3", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "Y", pack_label: "1 pc", price_idr: 20000, tax_rate: 0, sort_order: 4,
+    });
+    await expect(
+      t.action(api.catalog.actions.updateProductPricing, {
+        idempotencyKey: "pr1", sessionId, productId, price_idr: 25000, tax_rate: 0, managerPin: "0000",
+      }),
+    ).rejects.toThrow(/INVALID_PIN/);
+  });
+});
