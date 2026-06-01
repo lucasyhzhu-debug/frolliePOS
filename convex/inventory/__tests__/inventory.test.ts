@@ -463,6 +463,26 @@ describe("recordRecount", () => {
     })).rejects.toThrow();
   });
 
+  it("rejects duplicate skuId in counts", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await expect(t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-dup-sku",
+      sessionId,
+      counts: [{ skuId, entered: 10 }, { skuId, entered: 20 }],
+    })).rejects.toThrow();
+  });
+
+  it("rejects non-integer entered in recordRecount", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await expect(t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-float", sessionId, counts: [{ skuId, entered: 10.5 }],
+    })).rejects.toThrow();
+  });
+
   it("idempotent replay does not double-apply", async () => {
     const t = convexTest(schema);
     const skuId = await seedSkuWithThreshold(t, "x", 0);
@@ -498,6 +518,15 @@ describe("setLowThreshold", () => {
     const { sessionId } = await seedStaffSession(t, "staff");
     await expect(t.mutation(api.inventory.public.setLowThreshold, {
       idempotencyKey: "lt-2", sessionId, skuId, lowThreshold: 25,
+    })).rejects.toThrow();
+  });
+
+  it("setLowThreshold rejects non-integer", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 5);
+    const { sessionId } = await seedStaffSession(t, "manager");
+    await expect(t.mutation(api.inventory.public.setLowThreshold, {
+      idempotencyKey: "lt-float", sessionId, skuId, lowThreshold: 20.5,
     })).rejects.toThrow();
   });
 });

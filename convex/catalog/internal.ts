@@ -127,6 +127,14 @@ export const _getSkusByIds_internal = internalQuery({
 export const _setLowThreshold_internal = internalMutation({
   args: { skuId: v.id("pos_inventory_skus"), lowThreshold: v.number() },
   handler: async (ctx, args): Promise<void> => {
+    // I11: defense-in-depth — public surface (inventory.setLowThreshold)
+    // enforces the same invariant, but an internal caller bypassing the
+    // public mutation must still hit a hard guard. Negative or non-integer
+    // thresholds are nonsensical (on_hand is a whole-piece count; the
+    // low-stock check is `on_hand < threshold`).
+    if (!Number.isInteger(args.lowThreshold) || args.lowThreshold < 0) {
+      throw new Error("INVALID_LOW_THRESHOLD");
+    }
     await ctx.db.patch(args.skuId, { low_threshold: args.lowThreshold });
   },
 });

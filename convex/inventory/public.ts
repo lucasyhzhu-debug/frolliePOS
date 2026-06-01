@@ -86,11 +86,26 @@ export const recordRecount = mutation({
     async (ctx, args) => {
       const { staffId } = await requireSession(ctx, args.sessionId);
       const staff = await ctx.db.get(staffId);
+      // Invariant: requireSession proved an active session bound to this
+      // staffId — if the row vanished between session-check and now,
+      // something is corrupt. Surface it rather than silently falling back.
+      if (!staff) throw new Error("STAFF_MISSING_INVARIANT");
       const now = Date.now();
       const touched: Id<"pos_inventory_skus">[] = [];
       const noticeLines: { sku_name: string; before: number; after: number; delta: number }[] = [];
 
+      // C1: dedup-guard the input counts. Same SKU listed twice in one
+      // recount payload is ambiguous (which "entered" wins?) and pre-fix
+      // produced a double-write of stock movements with both deltas applied
+      // against the same on_hand cache. Reject upfront with DUPLICATE_SKU.
+      const seenSkus = new Set<Id<"pos_inventory_skus">>();
       for (const { skuId, entered } of args.counts) {
+        if (seenSkus.has(skuId)) throw new Error("DUPLICATE_SKU");
+        seenSkus.add(skuId);
+        // I9: a non-integer count is physically nonsensical (the shelf
+        // holds whole pieces). Reject before the negative check so the
+        // error is specific.
+        if (!Number.isInteger(entered)) throw new Error("NON_INTEGER_COUNT");
         if (entered < 0) throw new Error("NEGATIVE_COUNT");
         const level = await ctx.db
           .query("pos_stock_levels")
@@ -148,7 +163,7 @@ export const recordRecount = mutation({
       // the same `now` snapshot, allowed inside Convex functions because it's
       // an explicit Date.now() (not the no-arg Date() constructor).
       await ctx.scheduler.runAfter(0, internal.inventory.internal._dispatchRecountNotice_internal, {
-        staff_name: staff?.name ?? "Staff",
+        staff_name: staff.name,
         recorded_at_iso: new Date(now).toISOString(),
         lines: noticeLines,
       });
@@ -205,7 +220,18 @@ export const setLowThreshold = mutation({
     "inventory.setLowThreshold",
     async (ctx, args) => {
       const { staffId } = await requireManagerSession(ctx, args.sessionId);
+      // I10: integer guard (matches recount I9). A fractional threshold has
+      // no operational meaning — on_hand is a whole-piece count.
+      if (!Number.isInteger(args.lowThreshold)) throw new Error("NON_INTEGER_THRESHOLD");
       if (args.lowThreshold < 0) throw new Error("NEGATIVE_THRESHOLD");
+      // I4: read prior threshold via the existing catalog seam so the audit
+      // row carries both before/after — manager audit drill-down needs the
+      // delta, not just the new value.
+      const [skuBefore] = await ctx.runQuery(
+        internal.catalog.internal._getSkusByIds_internal,
+        { skuIds: [args.skuId] },
+      );
+      const beforeThreshold = skuBefore?.low_threshold ?? 0;
       await ctx.runMutation(internal.catalog.internal._setLowThreshold_internal, {
         skuId: args.skuId,
         lowThreshold: args.lowThreshold,
@@ -216,7 +242,7 @@ export const setLowThreshold = mutation({
         entity_type: "pos_inventory_skus",
         entity_id: args.skuId,
         source: "booth_inline",
-        metadata: { low_threshold: args.lowThreshold },
+        metadata: { before: beforeThreshold, after: args.lowThreshold },
       });
       return { ok: true as const };
     },
