@@ -44,6 +44,12 @@ export const listTodaysRefundable = query({
  *     module via _listForTransaction_internal so the ordering convention
  *     (oldest-first) stays consistent with receipts' refund-history rendering.
  *
+ * Projection (B28a I1): `txn` excludes `receipt_token` — that field is the ADR-021
+ * capability for the public /r/<token> receipt URL; leaking it via a staff-session
+ * query would let any signed-in staffer lift the receipt URL and share it
+ * externally. Each refund's `lines[]` strips `line_id` (refunds-internal id;
+ * frontend renders refund history as a single total per refund, not per-line).
+ *
  * Returns null txn + empty lists when the session is invalid OR the txn is not
  * found / not paid — the caller renders an empty-state rather than throwing.
  */
@@ -56,9 +62,34 @@ export const listForTransaction = query({
     ctx,
     args,
   ): Promise<{
-    txn: Doc<"pos_transactions"> | null;
+    txn: {
+      _id: Id<"pos_transactions">;
+      _creationTime: number;
+      status: Doc<"pos_transactions">["status"];
+      subtotal: number;
+      voucher_discount: number;
+      total: number;
+      voucher_code_snapshot?: string;
+      created_at: number;
+      paid_at?: number;
+      receipt_number?: string;
+    } | null;
     lines: Array<Doc<"pos_transaction_lines"> & { refundable: number }>;
-    refunds: Doc<"pos_refunds">[];
+    refunds: Array<{
+      _id: Id<"pos_refunds">;
+      _creationTime: number;
+      transaction_id: Id<"pos_transactions">;
+      total_refund: number;
+      reason: string;
+      requested_by: Id<"staff">;
+      approver_id: Id<"staff">;
+      approval_source: Doc<"pos_refunds">["approval_source"];
+      settlement_status: Doc<"pos_refunds">["settlement_status"];
+      settled_by?: Id<"staff">;
+      settled_at?: number;
+      created_at: number;
+      lines: Array<{ qty: number; refund_amount: number }>;
+    }>;
   }> => {
     await requireSession(ctx, args.sessionId);
 
@@ -73,12 +104,61 @@ export const listForTransaction = query({
       refundable: lineRefundable(l),
     }));
 
-    const refunds = await ctx.runQuery(
+    const rawRefunds = await ctx.runQuery(
       internal.refunds.internal._listForTransaction_internal,
       { transactionId: args.transactionId },
     );
 
-    return { txn: result.txn, lines: linesWithRefundable, refunds };
+    // Project to display-needed fields. line_id stripped per the existing
+    // refunds-internal convention (see approvals.public.getByToken refund branch,
+    // which also strips line_id from the public surface).
+    const refunds = rawRefunds.map((r) => ({
+      _id: r._id,
+      _creationTime: r._creationTime,
+      transaction_id: r.transaction_id,
+      total_refund: r.total_refund,
+      reason: r.reason,
+      requested_by: r.requested_by,
+      approver_id: r.approver_id,
+      approval_source: r.approval_source,
+      settlement_status: r.settlement_status,
+      ...(r.settled_by !== undefined ? { settled_by: r.settled_by } : {}),
+      ...(r.settled_at !== undefined ? { settled_at: r.settled_at } : {}),
+      created_at: r.created_at,
+      lines: r.lines.map((l) => ({ qty: l.qty, refund_amount: l.refund_amount })),
+    }));
+
+    // Project txn to drop receipt_token (ADR-021 capability — must NOT leak
+    // via a staff-session query). All other fields preserved as-is.
+    const txn: {
+      _id: Id<"pos_transactions">;
+      _creationTime: number;
+      status: Doc<"pos_transactions">["status"];
+      subtotal: number;
+      voucher_discount: number;
+      total: number;
+      voucher_code_snapshot?: string;
+      created_at: number;
+      paid_at?: number;
+      receipt_number?: string;
+    } = {
+      _id: result.txn._id,
+      _creationTime: result.txn._creationTime,
+      status: result.txn.status,
+      subtotal: result.txn.subtotal,
+      voucher_discount: result.txn.voucher_discount,
+      total: result.txn.total,
+      ...(result.txn.voucher_code_snapshot !== undefined
+        ? { voucher_code_snapshot: result.txn.voucher_code_snapshot }
+        : {}),
+      created_at: result.txn.created_at,
+      ...(result.txn.paid_at !== undefined ? { paid_at: result.txn.paid_at } : {}),
+      ...(result.txn.receipt_number !== undefined
+        ? { receipt_number: result.txn.receipt_number }
+        : {}),
+    };
+
+    return { txn, lines: linesWithRefundable, refunds };
   },
 });
 
