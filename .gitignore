@@ -35,3 +35,9 @@ frollie-pos design files/
 
 # ceo-progress-report build test output
 .cpr-tmp/
+
+# superpowers brainstorming visual companion
+.superpowers/
+
+# pre-merge receipt visual verification artefacts
+.tmp-receipt-preview/

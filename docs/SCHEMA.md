@@ -19,6 +19,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `audit/` | `audit_log` |
 | `telegram/` *(v0.4)* | `telegram_log` (debug-trail only), `telegramChats`, `telegramUpdates` |
 | `settings/` *(v0.4)* | `pos_settings` |
+| `receipts/` *(v0.5.1 PR A)* | `pos_receipt_html_cache` |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -182,11 +183,13 @@ Core sale record. The v0.3 shape below is what ships in `convex/transactions/sch
 | `confirmed_via` | `"webhook" \| "polling" \| "manual" \| null` | Confirmation provenance ([strategic foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)) |
 | `confirmed_mgr_approver_id` | `Id<"staff">?` | Manager who approved a `manual` confirm |
 | `confirmed_manual_reason` | `string?` | Required for `manual` confirm |
+| `receipt_token` | `string?` | *(v0.5.1 PR A)* 32-byte URL-safe base64url; unique-by-mint-entropy. Minted in `_confirmPaid` via `mintUrlSafeToken()` ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)). Immutable once set; powers `/r/<token>` |
 
 Indexes:
 - `by_status_created` on `[status, created_at]` (ADR-026 reconciliation)
 - `by_receipt_number` on `receipt_number`
 - `by_staff_created` on `[staff_id, created_at]`
+- `by_receipt_token` on `receipt_token` *(v0.5.1 PR A)*
 
 ### `pos_transaction_lines` — v0.3 shipped *(owned by `transactions/`)*
 Line items. **Prices snapshotted at sale time** (never recomputed). The v0.5 design adds per-line discounts, computed tax amount, line total, and `refunded_qty` — none of those columns exist in v0.3.
@@ -507,6 +510,18 @@ Atomic counter for `R-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-
 
 Indexes: `by_year` on `year`.
 
+### `pos_receipt_html_cache` *(v0.5.1 PR A — owned by `receipts/`)*
+Per-token cache of rendered receipt HTML. 24h TTL with lazy regenerate on miss (no reaper cron — Convex storage is cheap; lazy is always correct). One row per `receipt_token`. Cache is purged on refund commit in PR B so the receipt re-projects refund state ([ADR-039](./ADR/039-receipt-after-refund.md)).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_receipt_html_cache">` | |
+| `token` | `string` | Matches `pos_transactions.receipt_token` |
+| `html` | `string` | Fully-rendered receipt HTML |
+| `expires_at` | `number` | `now + 24h`, server-set |
+
+Indexes: `by_token` on `token`.
+
 ### `audit_log`
 Append-only log of every state-changing action ([ADR-007](./ADR/007-audit-log-append-only.md)).
 
@@ -583,6 +598,7 @@ voucher.edited
 voucher.deactivated
 settlement.synced
 settings.updated
+receipt.token_minted
 ```
 
 **Audit actions actually emitted as of v0.3 (verified against `convex/`).** `audit_log.action` is a free `v.string()`, so the enum above is the planned v1 vocabulary; the strings below are what v0.3 mutations/actions write today. New-in-v0.3 strings supersede some planned placeholders (e.g. `transaction.committed` is emitted, not the planned `transaction.created`; `payment.confirmed` carries the path in `confirmed_via`, not the planned per-path `payment.confirmed_webhook` etc.).

@@ -1,0 +1,213 @@
+import { internalMutation, internalQuery, QueryCtx } from "../_generated/server";
+import { v } from "convex/values";
+import { internal } from "../_generated/api";
+import { renderReceipt, type ReceiptViewModel } from "./template";
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // ADR-022
+
+// Hardcoded business identity until v0.5.3 receipt-config UI. The pos_settings
+// table is owned by the settings module but does not yet expose these fields;
+// PR-future revisits when settings/internal exposes a getter.
+const RECEIPT_SETTINGS = {
+  business_name: "FROLLIE",
+  address: "Pakuwon Mall, Surabaya",
+  contact: "+62 821-xxxx-xxxx · frollie.id",
+  instagram_handle: "@frollie.id",
+} as const;
+
+/**
+ * Map a pos_xendit_invoices row to a human-readable payment_method label.
+ * Defined here so receipts owns the surface-facing wording; payments owns the
+ * row shape ("QRIS" | "BCA_VA").
+ */
+function humanMethodFromInvoice(inv: { method: "QRIS" | "BCA_VA" }): string {
+  return inv.method === "QRIS" ? "QRIS" : "BCA VA";
+}
+
+/**
+ * Build a ReceiptViewModel from a txn + lines + the active payment invoice.
+ * Shared between _buildViewModel_internal (id-keyed) and the by-token render
+ * path so we never re-fetch lines after a token resolves to a txn.
+ *
+ * Throws PAID_TXN_MISSING_PAID_AT on the data-corruption case where a paid
+ * row has no paid_at (status guard upstream ensures status === "paid").
+ */
+async function buildVmFromTxnWithLines(
+  ctx: QueryCtx,
+  txnWithLines: {
+    txn: {
+      _id: import("../_generated/dataModel").Id<"pos_transactions">;
+      receipt_number?: string;
+      paid_at?: number;
+      subtotal: number;
+      voucher_code_snapshot?: string;
+      voucher_discount: number;
+      total: number;
+    };
+    lines: Array<{
+      product_name_snapshot: string;
+      qty: number;
+      unit_price_snapshot: number;
+      line_subtotal: number;
+    }>;
+  },
+): Promise<ReceiptViewModel | null> {
+  const { txn, lines } = txnWithLines;
+  if (!txn.receipt_number) return null;        // shouldn't happen for paid txns
+  // Status guard upstream ensures status === "paid"; ADR-031 (server time wins)
+  // + _confirmPaid_internal always set paid_at on the paid transition. A paid
+  // row without paid_at = data corruption; throw rather than mask with
+  // created_at and silently misdate the receipt.
+  if (!txn.paid_at) throw new Error("PAID_TXN_MISSING_PAID_AT");
+
+  // Payment method — read latest active pos_xendit_invoices via payments/internal
+  // (ADR-034 — receipts must not query pos_xendit_invoices directly).
+  const invoice = await ctx.runQuery(
+    internal.payments.internal._getPaidInvoiceForTxn_internal,
+    { transactionId: txn._id },
+  );
+  const payment_method = invoice ? humanMethodFromInvoice(invoice) : "—";
+  const rrn = invoice?.receipt_id ?? undefined;
+
+  return {
+    receipt_number: txn.receipt_number,
+    paid_at: txn.paid_at,
+    subtotal: txn.subtotal,
+    voucher_code: txn.voucher_code_snapshot,
+    voucher_discount: txn.voucher_discount,
+    total: txn.total,
+    payment_method,
+    rrn,
+    lines: lines.map((l) => ({
+      product_name: l.product_name_snapshot,
+      qty: l.qty,
+      unit_price: l.unit_price_snapshot,
+      line_subtotal: l.line_subtotal,
+      refunded_qty: (l as { refunded_qty?: number }).refunded_qty ?? 0,        // optional per spec C1 — PR B adds the field; PR A reads via shape cast
+    })),
+    refunds: [],                                 // PR A: always empty (no refunds module yet)
+    settings: RECEIPT_SETTINGS,
+  };
+}
+
+/**
+ * Build a ReceiptViewModel from primary records. Cross-module reads route
+ * through owning-module internal surfaces (ADR-034): pos_transactions +
+ * pos_transaction_lines via transactions/internal, pos_xendit_invoices via
+ * payments/internal. In PR A, refunds[] is always empty —
+ * `_listForTransaction_internal` does not exist yet; we return [] here.
+ * PR B replaces this stub with the real cross-module call.
+ */
+export const _buildViewModel_internal = internalQuery({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<ReceiptViewModel | null> => {
+    const txnWithLines = await ctx.runQuery(
+      internal.transactions.internal._getPaidTxnWithLinesForReceipt_internal,
+      { transactionId: args.transactionId },
+    );
+    if (!txnWithLines) return null;
+    return await buildVmFromTxnWithLines(ctx, txnWithLines);
+  },
+});
+
+export const _renderReceiptByToken_internal = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args): Promise<{ html: string } | null> => {
+    const txnWithLines = await ctx.runQuery(
+      internal.transactions.internal._getPaidTxnWithLinesByToken_internal,
+      { token: args.token },
+    );
+    if (!txnWithLines) return null;
+    // Inline VM build avoids a second by-id read of txn+lines (the by-token
+    // helper already returned them). Keeps the by-token render path to one
+    // cross-module read for txn+lines + one for invoice.
+    const vm = await buildVmFromTxnWithLines(ctx, txnWithLines);
+    if (!vm) return null;
+    return { html: renderReceipt(vm) };
+  },
+});
+
+export const _getCachedReceipt_internal = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args): Promise<{ html: string } | null> => {
+    const row = await ctx.db
+      .query("pos_receipt_html_cache")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!row) return null;
+    if (row.expires_at <= Date.now()) return null;  // expired
+    return { html: row.html };
+  },
+});
+
+export const _writeCacheEntry_internal = internalMutation({
+  args: { token: v.string(), html: v.string() },
+  handler: async (ctx, args) => {
+    // Idempotent upsert: delete prior entry (if any) then insert. Convex serialises
+    // per-document writes; the delete+insert is atomic within the mutation.
+    const existing = await ctx.db
+      .query("pos_receipt_html_cache")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+    await ctx.db.insert("pos_receipt_html_cache", {
+      token: args.token,
+      html: args.html,
+      expires_at: Date.now() + CACHE_TTL_MS,
+    });
+  },
+});
+
+/**
+ * Purge a cached receipt by transaction id.
+ *
+ * PR A: stub that THROWS on call. No callers exist in PR A (refunds module
+ * doesn't exist yet). PR B replaces the body with cache-purge by txn lookup
+ * (read the txn's receipt_token, delete the matching pos_receipt_html_cache
+ * row). The throw ensures any premature PR B wire-up from refunds/internal
+ * fails CI loud, rather than leaving a stale "LUNAS" receipt cached for 24h
+ * post-refund.
+ */
+export const _purgeReceiptCache_internal = internalMutation({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async () => {
+    throw new Error("_purgeReceiptCache_internal: PR A stub — PR B replaces");
+  },
+});
+
+/**
+ * Lazy-mint a receipt token for a transaction that lacks one (pre-v0.5.1 row).
+ *
+ * Dormant in v0.5.1 — no surface invokes this. v0.5.3 history view's "re-send
+ * receipt" surface will be the first caller. AUTH-GATE CONTRACT: the helper
+ * does NOT verify the actor's session. Callers MUST verify a staff session
+ * before invoking and pass the resolved staffId as `actor` so the audit row
+ * captures provenance.
+ *
+ * STATUS-GATE CONTRACT: minting a receipt token for a non-paid txn would leak
+ * a viewable receipt URL for a sale that hasn't actually completed (draft /
+ * awaiting_payment / cancelled). The helper throws TXN_NOT_PAID rather than
+ * minting; callers (v0.5.3+ "resend receipt" surfaces) must ensure the txn is
+ * paid before invoking.
+ *
+ * Cross-module write boundary (ADR-034): pos_transactions is transactions-owned,
+ * so existence check + CSPRNG mint + patch + audit all live in
+ * transactions._ensureReceiptTokenForPaidTxn_internal. This wrapper is a thin
+ * facade so future direct callers of the owning-module helper get identical
+ * behaviour without re-implementing the mint decision.
+ */
+export const _lazyMintReceiptToken_internal = internalMutation({
+  args: { transactionId: v.id("pos_transactions"), actor: v.id("staff") },
+  handler: async (ctx, args): Promise<{ token: string }> => {
+    // Thin facade — the owning module (transactions) handles existing-token
+    // check, CSPRNG mint, patch, AND audit emit in one mutation. Keeps the
+    // ADR-034 boundary clean (pos_transactions writes stay in transactions/)
+    // and ensures every direct caller of _ensureReceiptTokenForPaidTxn_internal
+    // gets a consistent audit row on mint without re-implementing it.
+    const result = await ctx.runMutation(
+      internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
+      { transactionId: args.transactionId, actor: args.actor, isLazy: true },
+    );
+    return { token: result.token };
+  },
+});

@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
+import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
 
 /**
@@ -262,10 +263,11 @@ export const _confirmPaid_internal = internalMutation({
       }
     }
 
-    // 7. Patch txn → paid
+    // 7. Patch txn → paid (mint receipt_token here per ADR-021; V8-safe via tokens.ts Web Crypto)
     await ctx.db.patch(args.txnId, {
       status: "paid",
       receipt_number: receiptNumber,
+      receipt_token: mintUrlSafeToken(),
       paid_at: Date.now(),
       confirmed_via: args.source,
       confirmed_mgr_approver_id: args.mgr_approver_id,
@@ -332,6 +334,111 @@ export const _dailySalesSummary_internal = internalQuery({
     const totalSalesIdr = paid.reduce((s, x) => s + (x.total ?? 0), 0);
     const flaggedCount = paid.filter((x) => (x.flags ?? 0) !== 0).length;
     return { totalSalesIdr, txnCount: paid.length, flaggedCount };
+  },
+});
+
+/**
+ * Capability check + write + audit for the receipts module's lazy-mint flow.
+ * Owns the entire mint decision so any caller (receipts wrapper today, future
+ * "resend receipt" surfaces) gets identical behaviour without re-implementing
+ * the existing-token check, the CSPRNG hop, or the audit emit.
+ *
+ * Returns:
+ *   { status: "exists", token } — txn already had a token (no audit row, no
+ *                                  wasted CSPRNG bytes; idempotent re-call safe)
+ *   { status: "minted", token } — fresh mint + patch + audit
+ *
+ * Throws TXN_NOT_FOUND / TXN_NOT_PAID. The receipts wrapper translates these
+ * into the same errors it has always thrown so external surfaces are stable.
+ * Boundary (ADR-034): pos_transactions is transactions-owned, so receipts
+ * routes the patch through here rather than calling ctx.db.patch directly.
+ *
+ * `actor` carries provenance for the audit row. `isLazy` controls the audit
+ * metadata flag (lazy=true via _lazyMintReceiptToken_internal; lazy=false
+ * reserved for an inline mint path if one is ever added — _confirmPaid mints
+ * directly and audits via "payment.confirmed", so this stays unused for now).
+ */
+export const _ensureReceiptTokenForPaidTxn_internal = internalMutation({
+  args: {
+    transactionId: v.id("pos_transactions"),
+    actor: v.id("staff"),
+    isLazy: v.optional(v.boolean()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ status: "exists" | "minted"; token: string }> => {
+    const txn = await ctx.db.get(args.transactionId);
+    if (!txn) throw new Error("TXN_NOT_FOUND");
+    if (txn.status !== "paid") throw new Error("TXN_NOT_PAID");
+    if (txn.receipt_token) {
+      // Idempotent: no audit, no CSPRNG bytes wasted.
+      return { status: "exists" as const, token: txn.receipt_token };
+    }
+    // Fresh mint: generate token AFTER the existing-token check so a same-row
+    // retry doesn't burn entropy. CSPRNG (Web Crypto) is V8-safe.
+    const token = mintUrlSafeToken();
+    await ctx.db.patch(args.transactionId, { receipt_token: token });
+    await logAudit(ctx, {
+      actor_id: args.actor,
+      action: "receipt.token_minted",
+      entity_type: "pos_transactions",
+      entity_id: args.transactionId,
+      source: "booth_inline",
+      metadata: { lazy: args.isLazy ?? true },
+    });
+    return { status: "minted" as const, token };
+  },
+});
+
+/**
+ * Aggregate read for the receipts module: fetch the paid transaction + its
+ * lines in one cross-module call. Returns null if the txn is missing or not
+ * paid (receipts module callers expect to no-op on those cases).
+ *
+ * This consolidates what would otherwise be a cross-module ALLOWLIST bypass
+ * into the canonical "owning module exposes the aggregate" pattern per ADR-034.
+ */
+export const _getPaidTxnWithLinesForReceipt_internal = internalQuery({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const txn = await ctx.db.get(args.transactionId);
+    if (!txn) return null;
+    if (txn.status !== "paid") return null;
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .collect();
+    return { txn, lines };
+  },
+});
+
+/**
+ * Same aggregate but keyed by the receipt_token capability. Single read of
+ * pos_transactions via by_receipt_token, then lines. Used by the public
+ * /r/:token httpAction so receipts can dispatch end-to-end without ever
+ * touching pos_transactions or pos_transaction_lines directly.
+ *
+ * Uses `.first()` rather than `.unique()`: token collisions are corruption-
+ * grade events (32 bytes of entropy makes them astronomically unlikely), and
+ * a public route should serve the matching receipt rather than 500 on the
+ * theoretical collision. "Serve the receipt that matches the token" stays
+ * consistent with the capability semantics.
+ */
+export const _getPaidTxnWithLinesByToken_internal = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const txn = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_receipt_token", (q) => q.eq("receipt_token", args.token))
+      .first();
+    if (!txn) return null;
+    if (txn.status !== "paid") return null;
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", txn._id))
+      .collect();
+    return { txn, lines };
   },
 });
 

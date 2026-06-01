@@ -1,4 +1,16 @@
 /**
+ * WIB (Asia/Jakarta) is UTC+7 with no DST. Shared offset used by all helpers
+ * here so they stay byte-identical when given the same UTC epoch.
+ */
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * Indonesian short month names, indexed 0-11 (Jan = 0). Used by the receipt
+ * template via formatWibDateTime per ADR-039 §4.
+ */
+const ID_MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+
+/**
  * Convert a UTC epoch ms to the WIB calendar year (UTC+7, no DST).
  *
  * Used by transactions.internal._allocateReceiptNumber_internal to prefix
@@ -10,7 +22,7 @@
  * Runtime-neutral: no Convex API. Safe to import from any module + test env.
  */
 export function wibYear(timestamp: number = Date.now()): number {
-  const wibMs = timestamp + 7 * 60 * 60 * 1000;
+  const wibMs = timestamp + WIB_OFFSET_MS;
   return new Date(wibMs).getUTCFullYear();
 }
 
@@ -39,7 +51,6 @@ export function wibDayWindow(now: number): {
   dayEndMs: number;
   dateLabel: string;
 } {
-  const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
   // Shift `now` into WIB clock time so getUTC* methods give WIB calendar values.
   const wibNow = new Date(now + WIB_OFFSET_MS);
   const y = wibNow.getUTCFullYear();
@@ -50,4 +61,25 @@ export function wibDayWindow(now: number): {
   const dayEndMs = dayStartMs + 86_400_000;
   const dateLabel = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   return { dayStartMs, dayEndMs, dateLabel };
+}
+
+/**
+ * Format a UTC epoch ms as a WIB-readable string in "DD MMM YYYY · HH:mm WIB" form.
+ * Hand-written to avoid Intl quirks on the Convex runtime; WIB is fixed UTC+7 (no DST).
+ * Indonesian month names per receipt template (ADR-039 §4).
+ *
+ * The middle dot is U+00B7 (·) — preserve it byte-exact, the receipt test asserts it.
+ */
+export function formatWibDateTime(epochMs: number): string {
+  // Defensive: NaN / ±Infinity → "—". An invalid timestamp reaching the
+  // renderer is a bug upstream, but printing "NaN NaN NaN" to a customer-facing
+  // receipt is worse than printing a dash.
+  if (!Number.isFinite(epochMs)) return "—";
+  const wib = new Date(epochMs + WIB_OFFSET_MS);
+  const dd = String(wib.getUTCDate()).padStart(2, "0");
+  const mm = ID_MONTHS[wib.getUTCMonth()];
+  const yyyy = wib.getUTCFullYear();
+  const hh = String(wib.getUTCHours()).padStart(2, "0");
+  const mi = String(wib.getUTCMinutes()).padStart(2, "0");
+  return `${dd} ${mm} ${yyyy} · ${hh}:${mi} WIB`;
 }

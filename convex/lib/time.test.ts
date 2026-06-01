@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wibYear, wibDayWindow } from "./time";
+import { wibYear, wibDayWindow, formatWibDateTime } from "./time";
 
 describe("wibYear", () => {
   it("returns 2026 for noon UTC June 15 2026 (= 19:00 WIB same day)", () => {
@@ -52,5 +52,20 @@ describe("wibDayWindow", () => {
     const now = Date.UTC(2026, 4, 30, 3, 0, 0);
     const w = wibDayWindow(now);
     expect(w.dayEndMs - w.dayStartMs).toBe(86_400_000);
+  });
+});
+
+describe("formatWibDateTime", () => {
+  it("formats a known epoch as 'DD MMM YYYY · HH:mm WIB'", () => {
+    // 2026-05-31 07:32 UTC = 14:32 WIB
+    expect(formatWibDateTime(Date.parse("2026-05-31T07:32:00Z"))).toBe(
+      "31 Mei 2026 · 14:32 WIB",
+    );
+  });
+
+  it("returns '—' for non-finite input (NaN / Infinity) rather than 'NaN NaN NaN'", () => {
+    expect(formatWibDateTime(Number.NaN)).toBe("—");
+    expect(formatWibDateTime(Number.POSITIVE_INFINITY)).toBe("—");
+    expect(formatWibDateTime(Number.NEGATIVE_INFINITY)).toBe("—");
   });
 });

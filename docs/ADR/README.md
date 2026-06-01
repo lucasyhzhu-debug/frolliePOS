@@ -53,12 +53,13 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 | [037](./037-telegram-self-registration-role-indirection.md) | Comms | Telegram self-registration with role-indirection | 2026-05-30 | Accepted |
 | [038](./038-refund-settlement-manual-v1.md) | Pay | Refund settlement: POS is system-of-record, money moves manually in v1 | 2026-05-31 | Accepted |
 | [039](./039-receipt-after-refund-display-contract.md) | Receipts | Receipt-after-refund display contract | 2026-05-31 | Accepted |
+| [040](./040-voucher-attribution-partial-refunds.md) | Pay | Voucher attribution on partial refunds: proportional, floor-rounded | 2026-06-01 | Accepted |
 
 ## Groups
 
 - **Auth** — sessions, PINs, lockouts (ADR-001 through ADR-005)
 - **Ops** — shifts, audit, refunds, vouchers (ADR-006 through ADR-010)
-- **Pay** — Xendit, idempotency, currency, refund settlement (ADR-011 through ADR-015; ADR-036 extends; ADR-038 refund settlement; ADR-011 superseded by ADR-036)
+- **Pay** — Xendit, idempotency, currency, refund settlement (ADR-011 through ADR-015; ADR-036 extends; ADR-038 refund settlement; ADR-011 superseded by ADR-036); ADR-040 refund math
 - **Stock** — products ↔ inventory, movements (ADR-016 through ADR-020)
 - **Receipts** — receipt URL, numbering, tax, refund display (ADR-021 through ADR-024; ADR-039 refund display contract)
 - **Sync** — offline, service worker, reconciliation (ADR-025, ADR-026)

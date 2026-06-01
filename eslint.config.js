@@ -41,6 +41,8 @@ const OWNERSHIP = {
   pos_receipt_counters: "transactions",
   // payments module
   pos_xendit_invoices: "payments",
+  // receipts module
+  pos_receipt_html_cache: "receipts",
   // vouchers module
   pos_vouchers: "vouchers",
   pos_voucher_redemptions: "vouchers",
@@ -62,6 +64,10 @@ const OWNERSHIP = {
 // `_codes` is exempt because its conformance tests deliberately read every
 // table that owns a stable `code` identifier (staff, pos_inventory_skus,
 // pos_products) to assert format invariants per ADR-034.
+// (receipts used to live in this list while it joined pos_transactions /
+// pos_transaction_lines / pos_xendit_invoices inline; v0.5.1 PR A review
+// pulled it back inside ADR-034 boundaries — reads now route through
+// transactions/internal + payments/internal aggregate helpers.)
 const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes"];
 
 export default [

@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { buildHandleTelegramWebhook } from "./telegram/webhook";
 import { buildRegistryCommands } from "./telegram/registryCommands";
 import { xenditWebhook } from "./payments/webhook";
+import { handleReceiptRoute } from "./receipts/http";
 
 const http = httpRouter();
 
@@ -26,6 +27,13 @@ http.route({
   path: "/payments/webhook",
   method: "POST",
   handler: xenditWebhook,
+});
+
+// Public receipt URL — token in path segment is the capability per ADR-021.
+http.route({
+  pathPrefix: "/r/",
+  method: "GET",
+  handler: handleReceiptRoute,
 });
 
 export default http;

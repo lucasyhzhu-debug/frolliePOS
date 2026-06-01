@@ -1,4 +1,4 @@
-import { internalMutation, MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
@@ -346,4 +346,41 @@ export const _onPaidManual_internal = internalMutation({
       return { confirmed: true as const, receiptNumber: txn.receipt_number };
     },
   ),
+});
+
+/**
+ * Paying invoice for a txn — the invoice that carries the payment_method + RRN
+ * receipts needs to render. Independent of whether the invoice was later
+ * cancelled (e.g. PR B's refund flow may stamp `cancelled_at` on the paying
+ * invoice; the receipt still needs the original method + RRN).
+ *
+ * Selection: among all invoices for this txn, return the one with the latest
+ * `paid_at` (the most recently paid). Rows without `paid_at` are skipped —
+ * they never carry a real RRN and would only be selected when no paying
+ * invoice exists, which is the same as "no invoice" for receipts purposes.
+ *
+ * Webhook-confirmed invoices carry the bank `receipt_id` (RRN); manually
+ * confirmed invoices don't. Receipts surfaces RRN only if present.
+ *
+ * Returns null when no paid invoice exists (e.g. pure manual-override paths
+ * where no Xendit row was ever created); receipts callers fall back to a dash
+ * for the payment method in that case.
+ *
+ * Index `by_transaction` exists on pos_xendit_invoices (payments/schema.ts).
+ */
+export const _getPaidInvoiceForTxn_internal = internalQuery({
+  args: { transactionId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .collect();
+    // Sort by created_at desc — pos_xendit_invoices has no `paid_at` field
+    // (webhook confirmation timestamp lives on pos_transactions). The most
+    // recently created invoice for the txn is the paying invoice. cancelled_at
+    // is NOT filtered out: PR B's refund flow may stamp cancelled_at on the
+    // paying invoice, but the receipt still needs the original method + RRN.
+    const sorted = invoices.slice().sort((a, b) => b.created_at - a.created_at);
+    return sorted[0] ?? null;
+  },
 });

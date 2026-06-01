@@ -818,7 +818,7 @@ Decomposition rationale: [staffreview 2026-05-30](./reviews/staffreview-v0.5-spl
 
 ---
 
-## v0.5.1 — Refunds + customer receipts 🗂️ BACKLOG
+## v0.5.1 — Refunds + customer receipts 🔨 IN PROGRESS
 **Outcome:** Staff issue refunds; customers get a shareable signed-URL receipt that correctly reflects refunded lines without ever mutating the original sale.
 **Target:** TBD
 Depends on v0.5.0 nav shell. Plan not yet written.
@@ -837,16 +837,29 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 - Configure the receipt template from the manager portal (v0.5.3 — v0.5.1 ships a hardcoded template)
 - Manage staff or products in-app (v0.5.3)
 
+### PR A — receipt subsystem (shipped 2026-06-01)
+
+**Backend (`convex/`):**
+- ✅ `v05-be-receipt-schema` — `pos_receipt_html_cache` table + `pos_transactions.receipt_token` field [`ef05ecc`]
+- ✅ `v05-be-receipt-schema-test` — schema round-trip + optional-field test [`c7b2f6a`]
+- ✅ `v05-be-mint-token-shared` — `mintUrlSafeToken` shared helper extracted from `approvals/actions.ts` [`b958e29`]
+- ✅ `v05-be-receipt-template` — paid-only HTML renderer + `formatWibDateTime` time helper [`f33040a`]
+- ✅ `v05-be-receipt-internal` — render + cache get/write + `_lazyMintReceiptToken_internal` (dormant) [`bfc16ef`]
+- ✅ `v05-be-receipt-token-mint` — `_confirmPaid` mints `receipt_token` internally [`963628c`]
+- ✅ `v05-be-receipt-http` — `GET /r/:token` httpAction (24h cache, status guard, 404 page) [`97e0e92`]
+- ✅ `v05-doc-pr-a` — PR A CHANGELOG + SCHEMA + CLAUDE + API_REFERENCE + PROGRESS [`5d2de88`]
+
+### PR B — refund subsystem + settlement surface (planned)
+
 ### Backend (`convex/`)
 - 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8); on approval write the ledger (row + stock re-credit + audit) at `settlement_status: pending` (ADR-038)
 - 🗂️ `markRefundSettled` mutation — manager flips `settlement_status` pending → settled after moving cash out-of-band; **manager-session gated, not manager-PIN** (the PIN gate is at refund approval; settling is a bookkeeping ack), second audit stamp (who settled, when) per ADR-038. No Xendit refund/disbursement API call in v1
 - 🗂️ `receipt.ts` — receipt token generation + public lookup + 24h cache; **purge cached HTML on refund commit** so the receipt re-projects refund state (ADR-039)
-- 🗂️ Schema: `pos_refunds` (incl. `settlement_status` field — ADR-038), `pos_receipt_counters`
+- 🗂️ Schema: `pos_refunds` (incl. `settlement_status` field — ADR-038)
 
 ### Frontend (`src/`)
 - 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
 - 🗂️ `routes/receipt/[receiptNumber].tsx` — public receipt page `/r/:n` (signed URL)
-- 🗂️ `lib/receipt-template.ts` — hardcoded receipt HTML rendering (config UI deferred to v0.5.3)
 - 🗂️ `rp()` negative-amount handling (v0.2 follow-up)
 
 ### Cross-cutting
