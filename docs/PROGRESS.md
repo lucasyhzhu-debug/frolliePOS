@@ -870,33 +870,72 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 
 ---
 
-## v0.5.2 — Stock-in + stock-check + neg-stock reconciliation 🗂️ BACKLOG
-**Outcome:** Staff log stock-in by SKU in-app, see current levels, and managers reconcile any negative-stock drift — every change a logged, reasoned movement.
+## v0.5.2 — FPOS-internal inventory slice 🔨 IN PROGRESS
+**Outcome:** FPOS-internal inventory slice — stock-check screen, staff recount flow, reactive low-stock alerting to a new `inventory` Telegram group.
 **Target:** TBD
-Builds on `pos_stock_movements` (already shipped v0.3). Plan not yet written.
+Builds on `pos_stock_movements` (already shipped v0.3). Adds `recount` source literal, two new tables (`pos_low_stock_alerts`, `pos_recount_state`), and the reactive low-stock check seam. Plan: see `docs/superpowers/plans/2026-06-01-v0.5.2-inventory.md`.
 
 **You'll be able to:**
-- Log stock-in by SKU through the app, every change tracked as a logged movement with a reason
-- See current stock levels per SKU at a glance
-- Reconcile negative-stock-flagged transactions (ADR-018) from a manager view
+- See current stock levels per SKU at a glance on `/stock` (status: ok / low / negative)
+- Submit absolute recounts on `/stock/recount` — system computes signed deltas and writes `recount` movements; managers see every recount via Telegram
+- Drill into a SKU on `/stock/:skuId` for movement history; managers edit `low_threshold` from the detail view
+- Get reactive low-stock alerts to the `inventory` Telegram group when on-hand crosses below threshold (SKU-deduped)
 - Trust that every stock change has an audit trail — no silent number edits
 
 **Still not yet:**
+- Log FPro-driven stock-in/out — the kitchen → booth flow ships in v0.5.2b once the cross-deployment integration pattern lands
+- Reconcile negative-stock-flagged transactions (ADR-018) from a manager view (v0.5.2b)
 - View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
 - Manage staff or products in-app (v0.5.3)
 - Track spoilage / wasted stock (v0.6)
 - Rely on nightly auto-reconciliation of stock counts (v0.6)
 
 ### Backend (`convex/`)
-- 🗂️ `inventory/public.ts` extensions — stock-in mutations against existing `pos_stock_movements`, reconciliation queries
+- 🔨 `convex/inventory/` — `recordRecount` (action), `setLowThreshold` (manager mutation), `listInventory` / `getSkuDetail` / `getRecountState` (queries)
+- 🔨 `convex/inventory/internal.ts` — `_checkLowStock_internal` (reactive check), `_dispatchLowStockAlert_internal` + `_dispatchRecountNotice_internal` (Telegram dispatch)
+- 🔨 `convex/catalog/internal.ts` — `_getSkusByIds_internal` + `_setLowThreshold_internal` cross-module seams (ADR-034)
 
 ### Frontend (`src/`)
-- 🗂️ `routes/stock.tsx` — stock check (inventory view)
-- 🗂️ `routes/stock/in.tsx` — stock-in entry (with `NumericKeypad` qty input)
+- 🔨 `routes/stock/index.tsx` — inventory list
+- 🔨 `routes/stock/recount.tsx` — staff absolute recount flow
+- 🔨 `routes/stock/[skuId].tsx` — SKU detail + manager threshold edit
+- 🔨 Home screen — hourly recount-nudge banner
 
 ### Cross-cutting
+- 🔨 [ADR-041](./ADR/041-recount-adjust-distinction.md) — recount vs adjust distinction
+- 🔨 [ADR-042](./ADR/042-low-stock-detection.md) — reactive low-stock detection reuses catalog `low_threshold`
+- 🔨 Schema: `pos_low_stock_alerts` + `pos_recount_state` tables; `pos_stock_movements.source` gains `recount`
+- 🔨 SCHEMA.md audit enum: `stock.recount`, `stock.low_stock_alerted`, `stock.low_threshold_set`
+- 🔨 New Telegram role `inventory` (in `KNOWN_TELEGRAM_ROLES`); bind via `/mgr/telegram-chats` post-deploy
+
+---
+
+## v0.5.2b — FPro-driven stock-in/out 🗂️ BACKLOG
+**Outcome:** Stock-in/out flow driven by Frollie Pro recipes/inventory once the cross-deployment integration pattern lands (ADR-043 to be drafted). FPro caller stubbed for v0.5.2; this phase wires the real integration.
+**Target:** TBD
+Plan not yet written. Tasks get added at planning time (per CLAUDE.md convention).
+
+**You'll be able to:**
+- Log stock-in by SKU through the app, driven by FPro recipe + inventory data
+- Reconcile negative-stock-flagged transactions (ADR-018) from a manager view
+- Trust that every stock change has an audit trail tied to the FPro source-of-truth
+
+**Still not yet:**
+- View transaction history, see the dashboard, or reconcile settlements (v0.5.3)
+- Manage staff or products in-app (v0.5.3)
+- Track spoilage / wasted stock (v0.6)
+
+### Backend (`convex/`)
+- 🗂️ `inventory/public.ts` extensions — stock-in mutations against existing `pos_stock_movements`, reconciliation queries
+- 🗂️ FPro cross-deployment integration (per ADR-043, to be drafted) — replaces the v0.5.2 stub
+
+### Frontend (`src/`)
+- 🗂️ `routes/stock/in.tsx` — stock-in entry (with `NumericKeypad` qty input)
+- 🗂️ Negative-stock reconciliation manager view
+
+### Cross-cutting
+- 🗂️ ADR-043 (to be drafted) — POS ↔ FPro cross-deployment integration pattern
 - 🗂️ ADR-018 reconciliation tools (negative-stock manager workflow)
-- 🗂️ SCHEMA.md audit enum: `stock.*`
 
 ---
 

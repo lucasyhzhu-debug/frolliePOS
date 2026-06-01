@@ -114,7 +114,21 @@ Stale pre-v0.5.1 design (Xendit refund API, `pos_refund_lines`, `reason_code` en
 | `_listForTransaction_internal` | Cross-module read used by the receipts module to render the refund block + status header on `/r/<token>` (ADR-039). Returns refund rows for a txn (`by_transaction` index). |
 | `_findPendingRefundForTxn_internal` | Telegram-path dedup guard. Returns the existing live pending refund `requestId` for a txn (via `approvals/internal._listPendingByKind_internal` — refunds never reads `pos_approval_requests` directly per ADR-034). |
 
+## Inventory (v0.5.2)
+
+Public surface for the FPOS-internal inventory slice — stock-check screen, staff absolute recount, manager threshold edit, hourly recount nudge. Lives in `convex/inventory/public.ts` (queries) + `convex/inventory/actions.ts` (recount action). See [ADR-041](./ADR/041-recount-adjust-distinction.md) (recount source) and [ADR-042](./ADR/042-low-stock-detection.md) (reactive low-stock check reuses catalog `low_threshold`).
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| a | `inventory.actions.recordRecount` | `{ idempotencyKey, sessionId, counts: { skuId, entered }[] }` | `{ ok: true, changed: number }` | Records an absolute recount; for each changed SKU writes a signed-delta `recount` movement (`entered − before`), patches `pos_stock_levels.on_hand`, stamps `pos_recount_state.last_recount_at`, schedules manager Telegram notice via `_dispatchRecountNotice_internal`, and runs `_checkLowStock_internal` per touched SKU. Audits `stock.recount` (`source: booth_inline`, metadata `{ before, after, delta }`). Staff-allowed (no manager-PIN gate — always-notify Telegram is the control). |
+| m | `inventory.public.setLowThreshold` | `{ idempotencyKey, sessionId, skuId, lowThreshold }` | `{ ok: true }` | Manager-gated. Updates catalog-owned `pos_inventory_skus.low_threshold` via `catalog/internal._setLowThreshold_internal` (cross-module seam per ADR-034). Audits `stock.low_threshold_set` (`source: booth_inline`, metadata `{ low_threshold }`). |
+| q | `inventory.public.listInventory` | `{ sessionId }` | `Array<{ skuId, name, on_hand, low_threshold, status: "ok" \| "low" \| "negative" }>` | Session-gated. One row per active SKU. Powers `/stock`. |
+| q | `inventory.public.getSkuDetail` | `{ sessionId, skuId }` | `{ name, on_hand, low_threshold, movements }` | Session-gated. `movements` is up to 30 most-recent `pos_stock_movements` rows for the SKU in DESC order. Powers `/stock/:skuId`. |
+| q | `inventory.public.getRecountState` | `{ sessionId }` | `{ last_recount_at: number \| null }` | Session-gated. Reads the `pos_recount_state` singleton. Powers the hourly recount-nudge banner on the home screen. |
+
 ## `stock.ts`
+
+> **v0.5.2 note:** This block describes the v0.5 *planned* stock-in/adjust/spoilage surface. v0.5.2 ships only the inventory-slice queries above (`listInventory`, `getSkuDetail`, `getRecountState`) plus `recordRecount` + `setLowThreshold`. The `stockIn` / `adjust` / `recordSpoilage` mutations below are scoped to v0.5.2b (FPro-driven) and v0.6.
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|

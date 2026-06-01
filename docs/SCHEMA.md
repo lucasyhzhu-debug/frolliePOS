@@ -10,7 +10,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 |---|---|
 | `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
 | `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components` |
-| `inventory/` *(v0.3)* | `pos_stock_movements`, `pos_stock_levels` (moved from `catalog/` in v0.3 per ADR-034) |
+| `inventory/` *(v0.3, extended v0.5.2)* | `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts` *(v0.5.2)*, `pos_recount_state` *(v0.5.2)* (moved from `catalog/` in v0.3 per ADR-034) |
 | `transactions/` *(v0.3)* | `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` |
 | `payments/` *(v0.3)* | `pos_xendit_invoices` |
 | `vouchers/` *(v0.3)* | `pos_vouchers`, `pos_voucher_redemptions` |
@@ -295,7 +295,7 @@ Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-so
 | `_id` | `Id<"pos_stock_movements">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
 | `qty` | `number` | Signed; **negative for sale** |
-| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment"` | Only `sale` is written in v0.3 |
+| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment" \| "refund" \| "recount"` | `sale` (v0.3), `refund` (v0.5.1 PR B), `recount` *(v0.5.2 — staff absolute recount per [ADR-041](./ADR/041-recount-adjust-distinction.md); signed delta = `entered − before`)*. `stock_in` / `spoilage` / `adjustment` reserved (v0.5.2b / v0.6) |
 | `source_transaction_line_id` | `Id<"pos_transaction_lines">?` | Set for `sale` movements; the ADR-026 dedup key |
 | `created_at` | `number` | |
 | `recorded_by_staff_id` | `Id<"staff">?` | Staff who triggered the movement |
@@ -303,6 +303,33 @@ Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-so
 Indexes:
 - `by_sku_created` on `[inventory_sku_id, created_at]`
 - `by_line_and_sku` on `[source_transaction_line_id, inventory_sku_id]` (ADR-026 reconciliation dedup)
+
+### `pos_low_stock_alerts` *(v0.5.2 — owned by `inventory/`, ADR-042)*
+
+Dedup flag for the reactive low-stock alert. The threshold is NOT here — it lives on the catalog-owned `pos_inventory_skus.low_threshold`. The row's existence is the flag.
+
+| Field | Type | Note |
+|---|---|---|
+| `_id` | `Id<"pos_low_stock_alerts">` | |
+| `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
+| `alerted_at` | `number` | ms epoch; when the alert first fired |
+| `updated_at` | `number` | ms epoch; currently mirrors `alerted_at`. Reserved for future last-seen tracking |
+
+Index: `by_sku` on `inventory_sku_id`.
+
+Lifecycle: Inserted by `_checkLowStock_internal` when `on_hand < low_threshold` and no flag exists. **Deleted** (not patched) when `on_hand` climbs back to/above threshold — re-arms the alert.
+
+### `pos_recount_state` *(v0.5.2 — owned by `inventory/`, ADR-041)*
+
+Singleton holding the timestamp of the most recent recount. Drives the hourly recount nudge banner on the home screen.
+
+| Field | Type | Note |
+|---|---|---|
+| `_id` | `Id<"pos_recount_state">` | |
+| `last_recount_at` | `number` | ms epoch |
+| `updated_by_staff_id` | `Id<"staff">?` | Optional; populated by `recordRecount` |
+
+No index — singleton (always one row, fetched via `.first()`).
 
 ### `pos_drafts` *(new in v0.5)*
 Saved cart state with TTL ([ADR-032](./ADR/032-saved-drafts-purge-24h.md)).
@@ -606,6 +633,9 @@ payment.invoice_created     # Xendit invoice created (QRIS or BCA VA)
 payment.invoice_cancelled   # prior invoice cancelled on cart-edit retry (ADR-014)
 # inventory/
 stock.sale_movement         # signed-negative SKU decrement on sale
+stock.recount               # _recordRecount — staff absolute recount; source=booth_inline; metadata={ before, after, delta } (v0.5.2, ADR-041)
+stock.low_stock_alerted     # _checkLowStock_internal — fires when on_hand crosses below low_threshold; source=system; metadata={ on_hand, low_threshold } (v0.5.2, ADR-042)
+stock.low_threshold_set     # setLowThreshold — manager-gated threshold edit on pos_inventory_skus; source=booth_inline; metadata={ low_threshold } (v0.5.2)
 # vouchers/
 voucher.redeemed            # voucher applied + used_count incremented
 voucher.over_redeemed       # redemption pushed used_count past max_redemptions (flagged, not blocked)

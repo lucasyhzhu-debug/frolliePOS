@@ -2,6 +2,33 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.2 — FPOS-internal inventory slice (unreleased)
+
+FPOS-internal inventory slice: a stock-check screen, a staff absolute-recount flow, and reactive low-stock alerting to a new `inventory` Telegram group. Scopes out FPro-driven stock-in/out — that work moved to v0.5.2b once the cross-deployment integration pattern (ADR-043, to be drafted) lands.
+
+### Frontend
+- New `/stock` inventory list (per-SKU on-hand + low/negative status).
+- New `/stock/recount` — staff submit absolute counts; client renders signed-delta preview.
+- New `/stock/:skuId` SKU detail with movement history; manager-gated `low_threshold` edit.
+- Hourly recount-nudge banner on home, driven by `pos_recount_state.last_recount_at`.
+
+### Backend
+- New `pos_stock_movements.source` literal: `recount` (signed delta = `entered − before`, ADR-041). Staff-allowed — distinct from manager-PIN-gated `adjustment`.
+- New tables: `pos_low_stock_alerts` (dedup flag, ADR-042) + `pos_recount_state` (singleton, ADR-041).
+- New `convex/inventory/` surface: `recordRecount` action, `setLowThreshold` mutation, `listInventory` / `getSkuDetail` / `getRecountState` queries.
+- New `_checkLowStock_internal` reactive check, called from `_recordSaleMovement_internal` and `recordRecount`; SKU-deduped via `pos_low_stock_alerts.by_sku`; scheduled Telegram dispatch via fail-isolated `_dispatchLowStockAlert_internal`.
+- New audit verbs: `stock.recount`, `stock.low_stock_alerted`, `stock.low_threshold_set`.
+- New Telegram role: `inventory` (operations chat receiving recount notices + low-stock alerts). Added to `KNOWN_TELEGRAM_ROLES`.
+- Catalog cross-module seams: `_getSkusByIds_internal` + `_setLowThreshold_internal` per ADR-034.
+
+### ADRs
+- [ADR-041](./ADR/041-recount-adjust-distinction.md) — recount vs adjust distinction (`recount` is a new `pos_stock_movements.source`; staff-allowed; always-notify Telegram is the control).
+- [ADR-042](./ADR/042-low-stock-detection.md) — reactive low-stock detection reuses catalog `pos_inventory_skus.low_threshold`; no threshold duplication on the new `pos_low_stock_alerts` table.
+
+### Deploy notes
+- No frontend/backend deploy ordering changes — backend additive.
+- One new Telegram role to bind post-deploy: `inventory` (via `/mgr/telegram-chats`). Until bound, low-stock + recount dispatches will audit `telegram.send_failed` and continue silently.
+
 ## v0.5.1c — Housekeeping (2026-06-01)
 
 Pure refactors lifted from the v0.5.1b triple-review + `/simplify xhigh` "deferred" bucket. Three crisp items, three commits, no behaviour change.

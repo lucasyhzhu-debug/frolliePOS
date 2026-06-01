@@ -183,7 +183,7 @@ export const _decrementOnHandUnchecked_internal = internalMutation({
  * IMMUTABLE sale movements (the proof of what got decremented at sale time)
  * and write POSITIVE counterpart movements (source: "refund"). Increments the
  * on_hand cache (opposite of sale). Default assumption: returned items go back
- * on the shelf; if actually damaged, staff uses the v0.5.2 spoilage flow as a
+ * on the shelf; if actually damaged, staff uses the v0.6 spoilage flow as a
  * second step.
  *
  * I3 (v0.5.1 PR B post-review): pre-I3 this re-derived components by querying

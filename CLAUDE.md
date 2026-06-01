@@ -78,6 +78,8 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 7. **Negative stock allowed at sale, flagged.** Don't hard-block; set `pos_transactions.flags |= NEG_STOCK` and let manager reconcile ([ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md)).
 8. **Stock-in is a logged movement, never a number edit.** Every stock change writes a `pos_stock_movements` row with required `source` enum. `pos_stock_levels` is a denormalised cache, reconciled nightly.
 9. **Manager-PIN required for:** refunds, voids of paid txns, manual payment override, ad-hoc/manual discounts, stock adjustments, spoilage, on-device settings edits, PIN resets ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)).
+
+   > **v0.5.2 note:** `recount` is a staff-allowed `pos_stock_movements.source` distinct from the manager-PIN-gated `adjustment`. Staff submit absolute counts via the spoke screen; managers see every recount via Telegram (ADR-041). The PIN-gated `adjustment` source remains reserved for one-off corrections that need pre-action authorization.
 10. **Telegram approval routes manager-PIN gates** to the **Frollie · Managers** Telegram group. From v0.4, off-booth approval requests (PIN resets, manual payment overrides) are delivered as Telegram messages with a single-use `/approve/:token` URL button. Any manager in the group can approve from anywhere by tapping the link + entering their PIN ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md), [ADR-027](./docs/ADR/027-wa-approval-via-staff-own-wa.md) superseded for these flows). The `wa_approval` literal remains in the schema for historical rows; post-v0.4 production code emits `telegram_approval` as the audit source for all off-booth actions.
 11. **Approval tokens authorise VIEW; PINs authorise ACT** ([ADR-029](./docs/ADR/029-token-authorizes-view-pin-authorizes-act.md)). Token = 32-byte URL-safe random, single-use, 60-minute TTL.
 12. **Founders shift-summary** is a daily cron (22:00 WIB / 15:00 UTC) that posts a structured summary to **Frollie · Founders** via Telegram ([ADR-033](./docs/ADR/033-founders-shift-summary-share.md)). Opt-out via `pos_settings.founders_summary_enabled` (defaults `true` if the row is absent). An audited skip (`founders.summary_skipped`) is written on disable or when the `founders` role is unbound; no retry storm.
@@ -98,13 +100,18 @@ Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mi
 - `convex/schema.ts` — root schema, composed from per-module fragments
 - `convex/auth/` — staff, sessions, devices, PIN auth (public.ts, internal.ts, actions.ts, sessions.ts, schema.ts)
 - `convex/staff/` — staff CRUD + device registration (public.ts, internal.ts). `listActiveManagers` *(v0.5.0)* — session-gated query returning all active managers; used by the booth manager-picker on the charge screen for manager-PIN override flows.
-- `convex/catalog/` — products + inventory SKUs + components + stock levels (public.ts, schema.ts)
+- `convex/catalog/` — products + inventory SKUs + components + stock levels (public.ts, internal.ts, schema.ts). `_getSkusByIds_internal` / `_setLowThreshold_internal` *(v0.5.2 — ADR-034 cross-module seams for inventory)*
 - `convex/audit/` — append-only audit log (public.ts, internal.ts, schema.ts). `logAudit` is a plain helper called from every state-changing mutation
 - `convex/idempotency/` — mutation harness, dedupe helpers (internal.ts, schema.ts)
 - `convex/seed/` — dev seeding (internal.ts, actions.ts)
 - `convex/transactions/` *(v0.3)* — sale records: `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` (public.ts, internal.ts, actions.ts, flags.ts, schema.ts). `flags.ts` holds the `NEG_STOCK` bitset. Cart commit + `_confirmPaid` live here. `cancelAwaitingPayment` *(v0.5.0)* — manager-or-self mutation that cancels an `awaiting_payment` transaction and its pending approval requests via `_cancelPendingManualPaymentForTxn_internal`.
 - `convex/payments/` *(v0.3)* — Xendit charge: `pos_xendit_invoices` audit table (public.ts, internal.ts, actions.ts, webhook.ts, schema.ts). `webhook.ts` is the signature-verified Convex httpAction
-- `convex/inventory/` *(v0.3)* — `pos_stock_movements` + `pos_stock_levels` (public.ts, internal.ts, schema.ts). **Moved out of `catalog/` in v0.3** (ADR-034). Sale decrement writes a signed-negative movement
+- `convex/inventory/` *(v0.3, extended v0.5.2)* — `pos_stock_movements` + `pos_stock_levels` + `pos_low_stock_alerts` (dedup flag, ADR-042) + `pos_recount_state` (singleton, ADR-041) (public.ts, internal.ts, actions.ts, schema.ts). **Moved out of `catalog/` in v0.3** (ADR-034). Sale decrement writes a signed-negative movement.
+  - `recordRecount` *(v0.5.2)* — staff absolute recount; schedules `_dispatchRecountNotice_internal` to `inventory` Telegram role
+  - `setLowThreshold` *(v0.5.2)* — manager-gated threshold edit via catalog internal seam
+  - `listInventory` / `getSkuDetail` / `getRecountState` *(v0.5.2)* — queries powering `/stock` spoke routes
+  - `_checkLowStock_internal` *(v0.5.2)* — reactive low-stock check called from `_recordSaleMovement_internal` and `recordRecount`; SKU-deduped, dispatch scheduled
+  - `_dispatchLowStockAlert_internal` *(v0.5.2)* — fail-isolated dispatch to `inventory` Telegram role
 - `convex/vouchers/` *(v0.3)* — `pos_vouchers` + `pos_voucher_redemptions` (public.ts, internal.ts, schema.ts). Discount carried inline (`type`+`value`); one voucher per txn
 - `convex/approvals/` *(v0.3+)* — off-booth approval flow: `pos_approval_requests` (public.ts, internal.ts, actions.ts, schema.ts). v0.4 adds `manual_payment_override` kind and `denied` lifecycle state; token collapsed onto the request row. `kinds.ts` *(v0.4)* — `APPROVAL_KINDS` registry: `ApprovalKind` union, `validateContext`, `KIND_AUDIT`, `KIND_TEMPLATE`. This is the canonical touch-point for adding new approval kinds. `cancelPendingRequest` *(v0.5.0)* — manager-gated mutation that transitions a pending request to `denied` (with `denied_by_manager_id: "system"` sentinel) for cleaning up stuck approvals.
 - `convex/approvals/lib.ts` *(v0.5.0)* — `effectiveStatus(row)` helper (centralises the four-state lifecycle derivation: pending / resolved / denied / expired) + `TOKEN_PIN_ATTEMPT_CAP` constant (5). Imported by public.ts and actions.ts.
@@ -219,6 +226,16 @@ Set these on both dev (`npx convex env set KEY VALUE`) and prod (`npx convex env
 | `TELEGRAM_FALLBACK_ROLE` | Fallback only | Which role the `TELEGRAM_CHAT_ID` fallback applies to (usually `managers`). Must match `TELEGRAM_CHAT_ID` to make the fallback work. |
 | `TELEGRAM_BOT_USERNAME` | Optional | Used in `/start` help text and test-message copy. Defaults to `FrolliePOS_Bot` in `config.ts`. |
 | `TELEGRAM_ADMIN_URL` | Optional | URL to the `/mgr/telegram-chats` admin UI. Shown in `/register` confirmation messages. Defaults to `POS_BASE_URL/mgr/telegram-chats`. |
+
+### Telegram roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`)
+
+Roles are bound to registered chats via `/mgr/telegram-chats`. `sendTemplate` dispatches by role (with the legacy `TELEGRAM_CHAT_ID` env-fallback for `managers` only).
+
+| Role | Purpose |
+|---|---|
+| `managers` | Off-booth approval requests (PIN resets, manual payment overrides, refunds). Bind first. |
+| `founders` | Daily shift-summary cron at 22:00 WIB (ADR-033). Opt-out via `pos_settings.founders_summary_enabled`. |
+| `inventory` *(v0.5.2)* | Operations chat that receives recount notices + low-stock alerts. Bind via `/mgr/telegram-chats`. |
 
 ## How to add a feature
 
