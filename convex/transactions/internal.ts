@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "../_generated/dataModel";
+import { Id, Doc } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
@@ -528,6 +528,28 @@ export const _cancelCommit_internal = internalMutation({
       return { cancelled: true as const };
     },
   ),
+});
+
+/**
+ * List paid transactions since a UTC epoch ms threshold. Used by refunds/public
+ * `listTodaysRefundable` (Q1=B contract: paid txns from 00:00 WIB today; older
+ * txns unreachable in v0.5.1). Returns newest-first via the by_status_paid_at
+ * index so the refund picker shows recently paid rows at the top.
+ *
+ * Cross-module read surface (ADR-034): pos_transactions is transactions-owned;
+ * refunds/public routes here rather than querying directly.
+ */
+export const _listPaidTxnsSince_internal = internalQuery({
+  args: { sinceMs: v.number() },
+  handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
+    return await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        q.eq("status", "paid").gte("paid_at", args.sinceMs),
+      )
+      .order("desc")
+      .collect();
+  },
 });
 
 /**
