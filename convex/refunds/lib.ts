@@ -13,8 +13,8 @@ import { Doc } from "../_generated/dataModel";
  * refundable_qty cap enforced by the caller.
  */
 export function computeRefundAmount(
-  line: Doc<"pos_transaction_lines">,
-  txn: Doc<"pos_transactions">,
+  line: Pick<Doc<"pos_transaction_lines">, "line_subtotal" | "qty">,
+  txn: Pick<Doc<"pos_transactions">, "total" | "subtotal">,
   refundQty: number,
 ): number {
   if (refundQty <= 0) return 0;
@@ -32,8 +32,11 @@ export function computeRefundAmount(
  * Total refund amount across a set of lines being refunded.
  */
 export function computeTotalRefund(
-  txn: Doc<"pos_transactions">,
-  refundLines: Array<{ line: Doc<"pos_transaction_lines">; qty: number }>,
+  txn: Pick<Doc<"pos_transactions">, "total" | "subtotal">,
+  refundLines: Array<{
+    line: Pick<Doc<"pos_transaction_lines">, "line_subtotal" | "qty">;
+    qty: number;
+  }>,
 ): number {
   return refundLines.reduce(
     (sum, { line, qty }) => sum + computeRefundAmount(line, txn, qty),
