@@ -37,7 +37,11 @@ export const setStaffRole = action({
       managerPin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
+    // Pass derived `:commit` key so the wrapped internal short-circuits an
+    // action retry after a crash between commit and action-level cache write
+    // (mirrors refunds._commitRefund_internal pattern).
     await ctx.runMutation(internal.staff.internal._setStaffRoleCommit_internal, {
+      idempotencyKey: `${args.idempotencyKey}:commit`,
       staffId: args.staffId,
       role: args.role,
       mgrId: managerId,
@@ -77,7 +81,11 @@ export const deactivateStaff = action({
       managerPin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
+    // Pass derived `:commit` key so the wrapped internal short-circuits an
+    // action retry after a crash between commit and action-level cache write
+    // (mirrors refunds._commitRefund_internal pattern).
     await ctx.runMutation(internal.staff.internal._deactivateStaffCommit_internal, {
+      idempotencyKey: `${args.idempotencyKey}:commit`,
       staffId: args.staffId,
       mgrId: managerId,
     });
