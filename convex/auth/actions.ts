@@ -6,6 +6,7 @@ import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { argon2id } from "hash-wasm";
 import { verifyPinOrThrow, verifyManagerPinOrThrow } from "./verifyPin";
+import { withActionCache } from "../idempotency/action";
 
 const ARGON2_PARAMS = {
   parallelism: 1,
@@ -255,53 +256,52 @@ export const resetStaffPin = action({
     managerPin: v.string(),
     idempotencyKey: v.string(),
   },
-  handler: async (ctx, args): Promise<{ reset: true }> => {
-    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
-      key: args.idempotencyKey,
-    });
-    if (cached) return JSON.parse(cached) as { reset: true };
+  handler: async (ctx, args): Promise<{ reset: true }> =>
+    // v0.5.3b post-review extraction: uniform action-level idempotency
+    // (lookup → fn → write) hoisted into withActionCache. Body unchanged
+    // otherwise; PIN-regex/session/target checks stay BEFORE the manager-PIN
+    // verify so a malformed retry surfaces NEW_PIN_INVALID rather than
+    // incrementing the manager's failed-PIN counter on noise.
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "auth.resetStaffPin" },
+      async () => {
+        if (!/^\d{4}$/.test(args.newPin)) throw new Error("NEW_PIN_INVALID");
 
-    if (!/^\d{4}$/.test(args.newPin)) throw new Error("NEW_PIN_INVALID");
+        const session = await ctx.runQuery(api.auth.public.getSession, {
+          sessionId: args.sessionId,
+        });
+        if (!session) throw new Error("SESSION_INVALID");
+        if (session.staff._id === args.targetStaffId) {
+          throw new Error("USE_CHANGE_PIN_FOR_SELF");
+        }
 
-    const session = await ctx.runQuery(api.auth.public.getSession, {
-      sessionId: args.sessionId,
-    });
-    if (!session) throw new Error("SESSION_INVALID");
-    if (session.staff._id === args.targetStaffId) {
-      throw new Error("USE_CHANGE_PIN_FOR_SELF");
-    }
+        const target = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
+          staffId: args.targetStaffId,
+        });
+        if (!target || !target.active) throw new Error("TARGET_NOT_FOUND");
 
-    const target = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
-      staffId: args.targetStaffId,
-    });
-    if (!target || !target.active) throw new Error("TARGET_NOT_FOUND");
+        // Manager identity + PIN proof via the shared funnel (replaces the inline
+        // manager lookup + verifyPinOrThrow). SECURITY unchanged: verifies the
+        // MANAGER's hash, records lockout/fail against the manager.
+        const { managerId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
 
-    // Manager identity + PIN proof via the shared funnel (replaces the inline
-    // manager lookup + verifyPinOrThrow). SECURITY unchanged: verifies the
-    // MANAGER's hash, records lockout/fail against the manager.
-    const { managerId } = await verifyManagerPinOrThrow(ctx, {
-      sessionId: args.sessionId,
-      managerPin: args.managerPin,
-      idempotencyKey: args.idempotencyKey,
-    });
+        const newPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
+          pin: args.newPin,
+        });
+        await ctx.runMutation(internal.auth.internal._changePinCommit_internal, {
+          staffId: args.targetStaffId,
+          newPinHash,
+          actor: { kind: "manager_reset", mgr_approver_id: managerId },
+        });
 
-    const newPinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
-      pin: args.newPin,
-    });
-    await ctx.runMutation(internal.auth.internal._changePinCommit_internal, {
-      staffId: args.targetStaffId,
-      newPinHash,
-      actor: { kind: "manager_reset", mgr_approver_id: managerId },
-    });
-
-    const response = { reset: true } as const;
-    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
-      key: args.idempotencyKey,
-      mutationName: "auth.resetStaffPin",
-      response: JSON.stringify(response),
-    });
-    return response;
-  },
+        return { reset: true } as const;
+      },
+    ),
 });
 
 /**
