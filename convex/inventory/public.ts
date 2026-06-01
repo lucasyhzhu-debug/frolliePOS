@@ -162,10 +162,16 @@ export const recordRecount = mutation({
       // recount writes commit even if Telegram is down. recorded_at_iso uses
       // the same `now` snapshot, allowed inside Convex functions because it's
       // an explicit Date.now() (not the no-arg Date() constructor).
-      await ctx.scheduler.runAfter(0, internal.inventory.internal._dispatchRecountNotice_internal, {
-        staff_name: staff.name,
-        recorded_at_iso: new Date(now).toISOString(),
-        lines: noticeLines,
+      const recorded_at_iso = new Date(now).toISOString();
+      await ctx.scheduler.runAfter(0, internal.telegram.dispatch.dispatchRoleAlert, {
+        role: "managers",
+        kind: "recount_notice",
+        payload: {
+          staff_name: staff.name,
+          recorded_at_iso,
+          lines: noticeLines,
+        },
+        idempotencyKey: `recount:${recorded_at_iso}`,
       });
       // ADR-042: low-stock check per touched SKU. Recount can cross threshold
       // in either direction; the check is the single source of truth for

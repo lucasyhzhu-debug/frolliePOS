@@ -37,37 +37,41 @@ export const _auditSendFailed_internal = internalMutation({
 });
 
 /**
- * Audit an intentional Telegram skip. Two callers as of v0.5.2:
- *
- * 1. Founders shift-summary skips (founders_summary_enabled: false or the
- *    `founders` role unbound). Default action: `founders.summary_skipped`.
- * 2. Inventory dispatches (low-stock, recount notice) where the `inventory`
- *    or `managers` role is unbound. Pass `action: "telegram.skipped"`. This
- *    surfaces a row to ops without escalating an unbound role into an audit
- *    `telegram.send_failed` (which suggests a transient outage).
- *
- * `role` is optional metadata — used by inventory callers so the audit row
- * names which chat-registry role was missing.
+ * Audit an intentional founders shift-summary skip — toggle off or founders
+ * role unbound. Writes action `founders.summary_skipped`.
  *
  * Kept here alongside the other internal mutations because this file is not
  * "use node" — internalMutation cannot live in a "use node" file.
  */
-export const _auditSkip_internal = internalMutation({
-  args: {
-    reason: v.string(),
-    action: v.optional(v.string()),
-    role: v.optional(v.string()),
-  },
+export const _auditFoundersSkip_internal = internalMutation({
+  args: { reason: v.string() },
   handler: async (ctx, args) => {
     await logAudit(ctx, {
       actor_id: "system",
-      action: args.action ?? "founders.summary_skipped",
+      action: "founders.summary_skipped",
       entity_type: "telegram",
       source: "system",
-      metadata: {
-        reason: args.reason,
-        ...(args.role !== undefined ? { role: args.role } : {}),
-      },
+      metadata: { reason: args.reason },
+    });
+  },
+});
+
+/**
+ * Audit an intentional Telegram role-routed dispatch skip — used by
+ * dispatchRoleAlert when the role isn't bound to a chat. Writes action
+ * `telegram.skipped` with the missing role in metadata. Distinguishes
+ * "role unbound" from a `telegram.send_failed` (which suggests a transient
+ * outage) for ops triage.
+ */
+export const _auditTelegramSkip_internal = internalMutation({
+  args: { reason: v.string(), role: v.string() },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "telegram.skipped",
+      entity_type: "telegram",
+      source: "system",
+      metadata: { reason: args.reason, role: args.role },
     });
   },
 });

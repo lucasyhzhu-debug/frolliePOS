@@ -1,8 +1,8 @@
-import { internalAction, internalMutation, internalQuery, MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
-import { internal, api } from "../_generated/api";
+import { internal } from "../_generated/api";
 
 /**
  * Upsert pattern for pos_stock_levels — the denormalised cache reconciled by
@@ -347,16 +347,19 @@ export const _checkLowStock_internal = internalMutation({
         source: "system",
         metadata: { on_hand: onHand, low_threshold: sku.low_threshold },
       });
-      await ctx.scheduler.runAfter(0, internal.inventory.internal._dispatchLowStockAlert_internal, {
-        sku_id: skuId,
-        sku_name: sku.name,
-        on_hand: onHand,
-        low_threshold: sku.low_threshold,
-        // C2: thread the freshly-written alerted_at so the dispatch
-        // action's idempotency key is unique per flag-insert cycle.
-        // Keying on on_hand would collide across yo-yo bounces within
-        // the 24h action-cache window (e.g. 5 → 6 → 5).
-        alerted_at: now,
+      // v0.5.2 simplify: dispatch through the shared `dispatchRoleAlert`
+      // helper. C2: thread `alerted_at` into the idempotency key so each
+      // flag-insert cycle is unique (keying on on_hand would collide
+      // across yo-yo bounces within the 24h action-cache window).
+      await ctx.scheduler.runAfter(0, internal.telegram.dispatch.dispatchRoleAlert, {
+        role: "inventory",
+        kind: "low_stock_alert",
+        payload: {
+          sku_name: sku.name,
+          on_hand: onHand,
+          low_threshold: sku.low_threshold,
+        },
+        idempotencyKey: `lowstock:${skuId}:${now}`,
       });
     } else if (!below && flag) {
       await ctx.db.delete(flag._id);
@@ -364,123 +367,8 @@ export const _checkLowStock_internal = internalMutation({
   },
 });
 
-/**
- * Scheduled dispatch for low-stock alerts (v0.5.2, ADR-042). Routes through
- * the Telegram chat-registry to the `inventory` role and sends a `low_stock_alert`
- * template. Scheduled — never inline — so Telegram outages can't roll back the
- * flag-insert mutation that spawned it.
- *
- * Fail-isolated: if the `inventory` role isn't bound yet (common during early
- * setup), `getChatIdByRole` throws `"No Telegram chat assigned to role 'inventory'"`.
- * Swallow that one error string only — other errors propagate so genuine
- * Telegram outages surface in the Convex dashboard.
- *
- * idempotencyKey = `lowstock:<sku_id>:<alerted_at>` where alerted_at is the
- * timestamp written to the `pos_low_stock_alerts` row by the calling
- * `_checkLowStock_internal` mutation. C2: keying on `alerted_at` rather than
- * `on_hand` means each flag-insert cycle gets a unique key, so the 24h
- * action cache can't collapse two distinct bounce events. (`on_hand` could
- * legitimately repeat across yo-yo movements — e.g. 5 → 6 → 5 trips the
- * threshold twice but at the same on_hand value, and both bounces should
- * dispatch.) Keyed on sku_id (not sku_name) since display names are not
- * guaranteed unique across SKUs.
- */
-export const _dispatchLowStockAlert_internal = internalAction({
-  args: {
-    sku_id: v.id("pos_inventory_skus"),
-    sku_name: v.string(),
-    on_hand: v.number(),
-    low_threshold: v.number(),
-    alerted_at: v.number(),
-  },
-  handler: async (ctx, args) => {
-    let chatId: string;
-    try {
-      chatId = await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatIdByRole, {
-        role: "inventory",
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) {
-        // I6: surface the silent swallow as an audit row so ops can triage
-        // an unbound `inventory` role during setup. Distinct from a
-        // `telegram.send_failed` (transient outage) — this is intentional.
-        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
-          action: "telegram.skipped",
-          reason: "role_unbound",
-          role: "inventory",
-        });
-        return;
-      }
-      throw err;
-    }
-    await ctx.runAction(api.telegram.send.sendTemplate, {
-      role: "inventory",
-      kind: "low_stock_alert",
-      payload: {
-        sku_name: args.sku_name,
-        on_hand: args.on_hand,
-        low_threshold: args.low_threshold,
-      },
-      idempotencyKey: `lowstock:${args.sku_id}:${args.alerted_at}`,
-      chatIdOverride: chatId,
-    });
-  },
-});
-
-/**
- * Scheduled dispatch for recount manager-notice (v0.5.2, ADR-041). Routes
- * through the Telegram chat-registry to the `managers` role and sends a
- * `recount_notice` template with the per-SKU before/after/delta lines.
- * Scheduled — never inline — so Telegram outages can't roll back the recount
- * mutation that spawned it.
- *
- * Fail-isolated: same pattern as `_dispatchLowStockAlert_internal` — if the
- * `managers` role isn't bound, swallow the exact-string error from
- * `getChatIdByRole`; other errors propagate to surface real outages.
- *
- * idempotencyKey = `recount:<recorded_at_iso>` dedups multi-millisecond
- * reschedules; in practice impossible for the same operator to fire two
- * recounts in one ms.
- */
-export const _dispatchRecountNotice_internal = internalAction({
-  args: {
-    staff_name: v.string(),
-    recorded_at_iso: v.string(),
-    lines: v.array(v.object({
-      sku_name: v.string(),
-      before: v.number(),
-      after: v.number(),
-      delta: v.number(),
-    })),
-  },
-  handler: async (ctx, args) => {
-    let chatId: string;
-    try {
-      chatId = await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatIdByRole, {
-        role: "managers",
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) {
-        // I7: surface the silent swallow as an audit row — same rationale
-        // as the low-stock dispatch (I6). Distinguishes "role unbound" from
-        // "Telegram outage" for ops triage.
-        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
-          action: "telegram.skipped",
-          reason: "role_unbound",
-          role: "managers",
-        });
-        return;
-      }
-      throw err;
-    }
-    await ctx.runAction(api.telegram.send.sendTemplate, {
-      role: "managers",
-      kind: "recount_notice",
-      payload: args,
-      idempotencyKey: `recount:${args.recorded_at_iso}`,
-      chatIdOverride: chatId,
-    });
-  },
-});
+// _dispatchLowStockAlert_internal + _dispatchRecountNotice_internal removed
+// in v0.5.2 simplify. Both collapsed into the shared
+// `internal.telegram.dispatch.dispatchRoleAlert` helper — the role + kind +
+// payload + idempotencyKey parameters carry everything the per-feature
+// wrappers were doing inline. See convex/telegram/dispatch.ts.
