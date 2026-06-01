@@ -331,6 +331,11 @@ export const _resolveSession_internal = internalQuery({
  * returns null on missing / ended session, missing / inactive staff. Used by
  * v0.5.3a reporting queries to fork manager-vs-staff behaviour without raising
  * (queries return [] / null instead of throwing).
+ *
+ * Prefer this over _resolveSession_internal when the caller needs to fork on
+ * role (e.g. manager sees any day, staff sees server-today only). Use
+ * _resolveSession_internal for everything else to avoid unnecessary coupling
+ * to the role field.
  */
 export const _resolveSessionRole_internal = internalQuery({
   args: { sessionId: v.id("staff_sessions") },

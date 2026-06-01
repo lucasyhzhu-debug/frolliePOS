@@ -20,6 +20,21 @@ describe("_resolveSessionRole_internal", () => {
     expect(ok?.deviceId).toBe("d1");
   });
 
+  it("returns role 'staff' for a staff session", async () => {
+    const t = convexTest(schema);
+    const { sessionId, staffId } = await t.run(async (ctx) => {
+      const sid = await ctx.db.insert("staff", {
+        name: "Bayu", role: "staff", active: true, pin_hash: "x", code: "S2", created_at: 0,
+      } as any);
+      const sess = await ctx.db.insert("staff_sessions", {
+        staff_id: sid, device_id: "d2", started_at: 0, ended_at: null, end_reason: null,
+      } as any);
+      return { sessionId: sess, staffId: sid };
+    });
+    const out = await t.query(internal.auth.internal._resolveSessionRole_internal, { sessionId });
+    expect(out).toMatchObject({ staffId, role: "staff" });
+  });
+
   it("returns null when the session has ended", async () => {
     const t = convexTest(schema);
     const sessionId = await t.run(async (ctx) => {
@@ -45,6 +60,23 @@ describe("_resolveSessionRole_internal", () => {
       } as any);
     });
     const out = await t.query(internal.auth.internal._resolveSessionRole_internal, { sessionId });
+    expect(out).toBeNull();
+  });
+
+  it("returns null when the session row does not exist", async () => {
+    const t = convexTest(schema);
+    // Insert + delete so we get a well-typed Id that no longer points to a row.
+    const goneSessionId = await t.run(async (ctx) => {
+      const sid = await ctx.db.insert("staff", {
+        name: "Tmp", role: "staff", active: true, pin_hash: "x", code: "T1", created_at: 0,
+      } as any);
+      const sess = await ctx.db.insert("staff_sessions", {
+        staff_id: sid, device_id: "d3", started_at: 0, ended_at: null, end_reason: null,
+      } as any);
+      await ctx.db.delete(sess);
+      return sess;
+    });
+    const out = await t.query(internal.auth.internal._resolveSessionRole_internal, { sessionId: goneSessionId });
     expect(out).toBeNull();
   });
 });
