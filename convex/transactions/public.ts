@@ -6,6 +6,26 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
+import { wibDayWindow, parseWibDayLabel } from "../lib/time";
+import { computeDaySummary, type DayTxn, type DaySummary, type RefundStatus } from "./lib";
+import { refundStatus } from "../refunds/lib";
+
+/**
+ * Resolve the [start,end) ms window for a day-scoped query.
+ *
+ *   allowOverride=true + day  → parse the YYYY-MM-DD label (manager picker)
+ *   otherwise                 → server-today WIB
+ *
+ * Centralises the manager-vs-staff fork from listDayTransactions and
+ * dashboardSummary, and avoids the eager wibDayWindow(Date.now()) allocation
+ * when a label is supplied.
+ */
+function resolveWindow(
+  day: string | undefined,
+  allowOverride: boolean,
+): { dayStartMs: number; dayEndMs: number } {
+  return allowOverride && day ? parseWibDayLabel(day) : wibDayWindow(Date.now());
+}
 
 /**
  * Resolve a sessionId to its staff + device via the auth module's internal
@@ -58,6 +78,50 @@ export const listDrafts = query({
       .order("desc")
       .filter((q) => q.eq(q.field("status"), "draft"))
       .collect();
+  },
+});
+
+/**
+ * v0.5.3a history list. Resolves session+role:
+ *  - role "manager" — may pass `day` (YYYY-MM-DD WIB); defaults to today.
+ *  - role "staff"   — `day` is ignored; ALWAYS server-today (today-collapse, no error).
+ * Returns [] for any invalid session so the UI degrades gracefully.
+ */
+export const listDayTransactions = query({
+  args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<DayTxn[]> => {
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return [];
+    const win = resolveWindow(args.day, who.role === "manager");
+    return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
+      dayStartMs: win.dayStartMs,
+      dayEndMs: win.dayEndMs,
+    });
+  },
+});
+
+/**
+ * v0.5.3a manager dashboard summary — aggregates the day's paid txns into the
+ * dashboard view-model. Throws MANAGER_ONLY for a staff session and NO_SESSION
+ * for an invalid session (per _requireManagerSession_internal semantics).
+ *
+ * Day picker: `day` is "YYYY-MM-DD" in WIB; defaults to server-today (WIB).
+ */
+export const dashboardSummary = query({
+  args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<DaySummary> => {
+    await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
+      sessionId: args.sessionId,
+    });
+    // Manager-gated above → allowOverride=true.
+    const win = resolveWindow(args.day, true);
+    const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
+      dayStartMs: win.dayStartMs,
+      dayEndMs: win.dayEndMs,
+    });
+    return computeDaySummary(txns);
   },
 });
 
@@ -404,6 +468,63 @@ export const cancelAwaitingPayment = mutation({
   ),
 });
 
+type TxnDetail = {
+  txn: Doc<"pos_transactions">;
+  lines: Doc<"pos_transaction_lines">[];
+  refundStatus: RefundStatus;
+};
+
+/**
+ * v0.5.3a transaction detail. Pure read — does NOT mint a receipt token; only
+ * returns the existing one (or null). Use shareReceipt to mint on demand.
+ *
+ * Scope:
+ *   - manager: any txn
+ *   - staff:   only txns whose created_at falls in server-today (WIB) — returns null otherwise (FE renders "not found").
+ *   - null on invalid session OR missing txn (graceful UI degrade).
+ */
+export const getTransactionDetail = query({
+  args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<TxnDetail | null> => {
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return null;
+    const txn = await ctx.db.get(args.txnId);
+    if (!txn) return null;
+    if (who.role !== "manager") {
+      const today = wibDayWindow(Date.now());
+      // Out-of-scope: staff may only read txns from server-today (WIB). Returning
+      // null (not throwing) keeps the FE on the graceful "not found" path — the
+      // staff member tapping an old permalink sees the same friendly card as
+      // a hard-deleted txn, without an ErrorBoundary in the spoke tree.
+      if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) {
+        return null;
+      }
+    }
+    // Two independent reads given args.txnId — parallel to shave latency.
+    const [lines, refunds] = await Promise.all([
+      ctx.db
+        .query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+        .collect(),
+      ctx.runQuery(
+        internal.refunds.internal._listForTransaction_internal,
+        { transactionId: args.txnId },
+      ),
+    ]);
+    // Note: receipt_token is intentionally NOT returned. The FE goes through
+    // shareReceipt to mint/fetch the token, which narrows the capability
+    // surface (a Doc read at any other public seam can't accidentally leak the
+    // signed-URL secret — ADR-021).
+    return {
+      txn,
+      lines,
+      refundStatus: refundStatus(lines, refunds.length > 0),
+    };
+  },
+});
+
 export const deleteDraft = mutation({
   args: {
     idempotencyKey: v.string(),
@@ -437,6 +558,52 @@ export const deleteDraft = mutation({
         reason: "draft_deleted",
       });
       return { deleted: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
+  ),
+});
+
+/**
+ * v0.5.3a: mint-on-share. The first real caller of the dormant v0.5.1 lazy-mint
+ * seam (receipts/internal._lazyMintReceiptToken_internal). Idempotent — if the
+ * transaction already has a receipt_token, the underlying internal returns the
+ * existing one without re-minting and without writing an audit row.
+ *
+ * Public-mutation contract per rule #21: idempotencyKey + withIdempotency +
+ * authCheck wired from day one. The handler re-resolves the session inside the
+ * cached body to capture staffId for the audit on first mint.
+ *
+ * Throws (via the lazy-mint internal):
+ *   - SESSION_INVALID — handled in authCheck before the cache lookup
+ *   - TXN_NOT_FOUND — txn does not exist
+ *   - TXN_NOT_PAID  — txn exists but is draft / awaiting_payment / cancelled
+ *                     (minting a token for a non-paid txn would leak a
+ *                     viewable receipt for an incomplete sale)
+ */
+export const shareReceipt = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+  },
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; txnId: Id<"pos_transactions">; idempotencyKey: string },
+    { token: string }
+  >(
+    "transactions.shareReceipt",
+    async (ctx, args): Promise<{ token: string }> => {
+      const { staffId } = await resolveSessionStaff(ctx, args.sessionId);
+      // v0.5.3a simplification: call the owning-module helper directly. The
+      // receipts._lazyMintReceiptToken_internal facade was a pure pass-through
+      // (one extra runMutation hop) and was deleted to keep the ADR-034
+      // boundary clear — pos_transactions writes stay in transactions/.
+      const { token } = await ctx.runMutation(
+        internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
+        { transactionId: args.txnId, actor: staffId, isLazy: true },
+      );
+      return { token };
     },
     {
       authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },

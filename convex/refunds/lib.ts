@@ -32,13 +32,37 @@ export function computeRefundAmount(
  * Helper to safely read refunded_qty (the field is v.optional so existing rows
  * have undefined). Treat undefined as 0.
  */
-export function lineRefundedQty(line: Doc<"pos_transaction_lines">): number {
+export function lineRefundedQty(
+  line: Pick<Doc<"pos_transaction_lines">, "refunded_qty">,
+): number {
   return line.refunded_qty ?? 0;
 }
 
 /**
  * Remaining refundable qty for a line.
  */
-export function lineRefundable(line: Doc<"pos_transaction_lines">): number {
+export function lineRefundable(
+  line: Pick<Doc<"pos_transaction_lines">, "qty" | "refunded_qty">,
+): number {
   return line.qty - lineRefundedQty(line);
+}
+
+export type RefundStatus = "none" | "partial" | "full";
+
+/**
+ * Three-state refund status from lines + whether any refund row exists.
+ * Shared by the public receipt template (label LUNAS/SEBAGIAN.../DIKEMBALIKAN)
+ * and the v0.5.3a history badge — single derivation, no duplication.
+ *
+ * `hasRefunds` must reflect whether at least one pos_refunds row exists for
+ * the transaction. Callers are responsible for keeping it consistent with the
+ * `refunded_qty` values on `lines` (the helper does not cross-check).
+ */
+export function refundStatus(
+  lines: Pick<Doc<"pos_transaction_lines">, "qty" | "refunded_qty">[],
+  hasRefunds: boolean,
+): RefundStatus {
+  if (!hasRefunds) return "none";
+  const allRefunded = lines.every((l) => lineRefundedQty(l) >= l.qty);
+  return allRefunded ? "full" : "partial";
 }

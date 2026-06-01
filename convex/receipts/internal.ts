@@ -214,39 +214,3 @@ export const _purgeReceiptCache_internal = internalMutation({
   },
 });
 
-/**
- * Lazy-mint a receipt token for a transaction that lacks one (pre-v0.5.1 row).
- *
- * Dormant in v0.5.1 — no surface invokes this. v0.5.3 history view's "re-send
- * receipt" surface will be the first caller. AUTH-GATE CONTRACT: the helper
- * does NOT verify the actor's session. Callers MUST verify a staff session
- * before invoking and pass the resolved staffId as `actor` so the audit row
- * captures provenance.
- *
- * STATUS-GATE CONTRACT: minting a receipt token for a non-paid txn would leak
- * a viewable receipt URL for a sale that hasn't actually completed (draft /
- * awaiting_payment / cancelled). The helper throws TXN_NOT_PAID rather than
- * minting; callers (v0.5.3+ "resend receipt" surfaces) must ensure the txn is
- * paid before invoking.
- *
- * Cross-module write boundary (ADR-034): pos_transactions is transactions-owned,
- * so existence check + CSPRNG mint + patch + audit all live in
- * transactions._ensureReceiptTokenForPaidTxn_internal. This wrapper is a thin
- * facade so future direct callers of the owning-module helper get identical
- * behaviour without re-implementing the mint decision.
- */
-export const _lazyMintReceiptToken_internal = internalMutation({
-  args: { transactionId: v.id("pos_transactions"), actor: v.id("staff") },
-  handler: async (ctx, args): Promise<{ token: string }> => {
-    // Thin facade — the owning module (transactions) handles existing-token
-    // check, CSPRNG mint, patch, AND audit emit in one mutation. Keeps the
-    // ADR-034 boundary clean (pos_transactions writes stay in transactions/)
-    // and ensures every direct caller of _ensureReceiptTokenForPaidTxn_internal
-    // gets a consistent audit row on mint without re-implementing it.
-    const result = await ctx.runMutation(
-      internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
-      { transactionId: args.transactionId, actor: args.actor, isLazy: true },
-    );
-    return { token: result.token };
-  },
-});

@@ -2,7 +2,7 @@
  * WIB (Asia/Jakarta) is UTC+7 with no DST. Shared offset used by all helpers
  * here so they stay byte-identical when given the same UTC epoch.
  */
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+export const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 /**
  * Indonesian short month names, indexed 0-11 (Jan = 0). Used by the receipt
@@ -61,6 +61,33 @@ export function wibDayWindow(now: number): {
   const dayEndMs = dayStartMs + 86_400_000;
   const dateLabel = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   return { dayStartMs, dayEndMs, dateLabel };
+}
+
+/**
+ * Parse a "YYYY-MM-DD" WIB calendar label into that day's [start, end) ms window.
+ *
+ * Throws INVALID_DAY for any string that:
+ *   - doesn't match the strict YYYY-MM-DD regex
+ *   - represents an out-of-range or overflow date (e.g. "2026-02-30" rolls
+ *     forward to March 2; we reject via round-trip check)
+ *
+ * Sibling of wibDayWindow (which takes an epoch ms, not a label). Lifted from
+ * transactions/public.ts in v0.5.3a so any future caller that wants to scope a
+ * query to a labelled WIB day shares one parser.
+ */
+export function parseWibDayLabel(label: string): { dayStartMs: number; dayEndMs: number } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) throw new Error("INVALID_DAY");
+  const [y, m, d] = label.split("-").map(Number);
+  const reconstructed = new Date(Date.UTC(y, m - 1, d));
+  if (
+    reconstructed.getUTCFullYear() !== y ||
+    reconstructed.getUTCMonth() !== m - 1 ||
+    reconstructed.getUTCDate() !== d
+  ) {
+    throw new Error("INVALID_DAY");
+  }
+  const dayStartMs = Date.UTC(y, m - 1, d) - WIB_OFFSET_MS;
+  return { dayStartMs, dayEndMs: dayStartMs + 86_400_000 };
 }
 
 /**

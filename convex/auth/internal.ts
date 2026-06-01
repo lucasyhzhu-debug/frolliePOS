@@ -326,6 +326,31 @@ export const _resolveSession_internal = internalQuery({
   },
 });
 
+/**
+ * Like _resolveSession_internal but also includes the staff role. Non-throwing —
+ * returns null on missing / ended session, missing / inactive staff. Used by
+ * v0.5.3a reporting queries to fork manager-vs-staff behaviour without raising
+ * (queries return [] / null instead of throwing).
+ *
+ * Prefer this over _resolveSession_internal when the caller needs to fork on
+ * role (e.g. manager sees any day, staff sees server-today only). Use
+ * _resolveSession_internal for everything else to avoid unnecessary coupling
+ * to the role field.
+ */
+export const _resolveSessionRole_internal = internalQuery({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" } | null> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.ended_at != null) return null;
+    const staff = await ctx.db.get(session.staff_id);
+    if (!staff || !staff.active) return null;
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role };
+  },
+});
+
 const changePinActorValidator = v.union(
   v.object({ kind: v.literal("self") }),
   v.object({ kind: v.literal("manager_reset"), mgr_approver_id: v.id("staff") }),
@@ -432,6 +457,20 @@ export const _requireManagerSession_internal = internalQuery({
     args,
   ): Promise<{ staffId: Id<"staff">; deviceId: string }> => {
     return await requireManagerSession(ctx, args.sessionId);
+  },
+});
+
+/**
+ * Return all staff (active + inactive) projected to { _id, name } for callers
+ * that need to label entities by staff. Used by v0.5.3a transactions._fetchDayWindow_internal
+ * to map staff_id → display name without per-row N+1 lookups. Includes inactive
+ * staff so historical txns by a now-deactivated staff member still get a name.
+ */
+export const _listStaffNames_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Array<{ _id: Id<"staff">; name: string }>> => {
+    const rows = await ctx.db.query("staff").collect();
+    return rows.map((s) => ({ _id: s._id, name: s.name }));
   },
 });
 

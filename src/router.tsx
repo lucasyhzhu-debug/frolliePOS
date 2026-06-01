@@ -48,6 +48,7 @@ const Lock = lazy(() => import("@/routes/lock"));
 const Refund = lazy(() => import("@/routes/refund"));
 const RefundDetail = lazy(() => import("@/routes/refund/detail"));
 const History = lazy(() => import("@/routes/history"));
+const HistoryDetail = lazy(() => import("@/routes/history/$txnId"));
 const Settlements = lazy(() => import("@/routes/settlements"));
 
 const MgrHome = lazy(() => import("@/routes/mgr/home"));
@@ -89,6 +90,7 @@ const routes: RouteObject[] = [
       { path: "refund", element: <Refund /> },
       { path: "refund/:txnId", element: <RefundDetail /> },
       { path: "history", element: <History /> },
+      { path: "history/:txnId", element: <HistoryDetail /> },
       { path: "settlements", element: <Settlements /> },
       { path: "wait/:requestId", element: <Wait /> },
       { path: "mgr", element: <MgrHome /> },

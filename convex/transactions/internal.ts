@@ -7,6 +7,9 @@ import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
+import type { DayTxn } from "./lib";
+import { instrumentFromInvoice } from "../payments/internal";
+import { refundStatus } from "../refunds/lib";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -549,6 +552,116 @@ export const _listPaidTxnsSince_internal = internalQuery({
       )
       .order("desc")
       .collect();
+  },
+});
+
+/**
+ * Single day read used by v0.5.3a's three public queries
+ * (listDayTransactions, dashboardSummary). Resolves:
+ *   - paid txns in the [dayStartMs, dayEndMs) window via by_status_created
+ *   - their lines + refunds total (single sum per txn)
+ *   - the active Xendit payment instrument (qris / bca_va / unknown)
+ *   - the staff name (one upfront staff lookup avoids N+1)
+ *
+ * Cross-module reads route through owning-module internals per ADR-034:
+ *   pos_xendit_invoices → payments._getPaidInvoiceForTxn_internal
+ *                         (normalised to instrument via instrumentFromInvoice)
+ *   staff (name lookup) → auth._listStaffNames_internal
+ *   pos_refunds          → refunds._listForTransaction_internal (verified
+ *                          signature: { transactionId } → Doc<"pos_refunds">[];
+ *                          field for refund total per row is `total_refund`)
+ *
+ * Does NOT gate role — callers (T5/T6) resolve session+role and decide which
+ * day window to pass.
+ */
+export const _fetchDayWindow_internal = internalQuery({
+  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  handler: async (ctx, args): Promise<DayTxn[]> => {
+    // Window by paid_at (not created_at) so cross-midnight late confirmations
+    // land in the day they paid, matching _dailySalesSummary_internal (founders
+    // shift-summary). created_at would silently drop carts opened on day N and
+    // paid past midnight on day N+1.
+    const txns = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        q.eq("status", "paid").gte("paid_at", args.dayStartMs).lt("paid_at", args.dayEndMs),
+      )
+      .order("desc")
+      .collect();
+
+    // Staff names up front (small set) → Map to avoid N+1.
+    const staffNames = await ctx.runQuery(internal.auth.internal._listStaffNames_internal, {});
+    const nameById = new Map(staffNames.map((s) => [String(s._id), s.name]));
+
+    const out: DayTxn[] = [];
+    for (const t of txns) {
+      // Three independent reads given t._id — fire in parallel to shave per-txn
+      // latency. Refunds total via refunds._listForTransaction_internal (same
+      // helper the receipts template uses; per-row amount on `total_refund`).
+      // Invoice via payments._getPaidInvoiceForTxn_internal + the pure
+      // instrumentFromInvoice normaliser (v0.5.3a consolidation — the previous
+      // _instrumentForTxn_internal was identical SQL).
+      const [lines, refundRows, invoice] = await Promise.all([
+        ctx.db
+          .query("pos_transaction_lines")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+          .collect(),
+        ctx.runQuery(
+          internal.refunds.internal._listForTransaction_internal,
+          { transactionId: t._id },
+        ),
+        ctx.runQuery(
+          internal.payments.internal._getPaidInvoiceForTxn_internal,
+          { transactionId: t._id },
+        ),
+      ]);
+      const refundsTotal = refundRows.reduce((s, r) => s + r.total_refund, 0);
+      const instrument = instrumentFromInvoice(invoice);
+
+      // M2: ?? on invariant-guaranteed fields = silent corruption (MEMORY).
+      // Staff are soft-deleted (active:false), never hard-deleted, so a
+      // missing staff name means the staff row was hard-deleted out from
+      // under a transaction — failing loud surfaces the corruption.
+      const staffName = nameById.get(String(t.staff_id));
+      if (!staffName) {
+        throw new Error(
+          `STAFF_MISSING_FOR_TXN — txn ${t._id} references staff ${t.staff_id} which is not in pos_staff`,
+        );
+      }
+
+      // Pre-compute the refund badge here (BE) so the FE history list doesn't
+      // re-import `refundStatus` from `refunds/lib`. `refundStatus` only reads
+      // `qty` + `refunded_qty` from each line, both of which are already in the
+      // DayLine projection — zero extra cost.
+      const lineProjection = lines.map((l) => ({
+        product_code_snapshot: l.product_code_snapshot,
+        product_name_snapshot: l.product_name_snapshot,
+        qty: l.qty,
+        refunded_qty: l.refunded_qty,
+      }));
+      const hasRefunds = refundRows.length > 0;
+
+      out.push({
+        _id: t._id,
+        created_at: t.created_at,
+        // status === "paid" guarantees paid_at is set (_confirmPaid stamps it
+        // server-side, ADR-031). The bang is invariant-backed.
+        paid_at: t.paid_at!,
+        total: t.total,
+        subtotal: t.subtotal,
+        voucher_discount: t.voucher_discount,
+        voucher_code_snapshot: t.voucher_code_snapshot,
+        staff_id: t.staff_id,
+        staff_name: staffName,
+        instrument,
+        flags: t.flags,
+        lines: lineProjection,
+        refundsTotal,
+        hasRefunds,
+        refundStatus: refundStatus(lineProjection, hasRefunds),
+      });
+    }
+    return out;
   },
 });
 

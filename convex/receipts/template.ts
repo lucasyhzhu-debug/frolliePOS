@@ -6,6 +6,7 @@
 
 import { formatWibDateTime } from "../lib/time";
 import { escapeHtml } from "../lib/html";
+import { refundStatus, type RefundStatus } from "../refunds/lib";
 
 // Hardcoded business identity until v0.5.3 receipt-config UI; pulled from
 // pos_settings in the render caller.
@@ -52,6 +53,12 @@ const STATUS_LABELS = {
 
 export type ReceiptStatus = keyof typeof STATUS_LABELS;
 
+const STATUS_BY_REFUND: Record<RefundStatus, ReceiptStatus> = {
+  none: "paid",
+  partial: "partial_refund",
+  full: "refunded",
+};
+
 /**
  * Compute the receipt status purely from refunds vs lines.
  * - No refunds: paid
@@ -59,9 +66,7 @@ export type ReceiptStatus = keyof typeof STATUS_LABELS;
  * - All line qty refunded: refunded
  */
 export function computeReceiptStatus(vm: ReceiptViewModel): ReceiptStatus {
-  if (vm.refunds.length === 0) return "paid";
-  const allRefunded = vm.lines.every((l) => l.refunded_qty >= l.qty);
-  return allRefunded ? "refunded" : "partial_refund";
+  return STATUS_BY_REFUND[refundStatus(vm.lines, vm.refunds.length > 0)];
 }
 
 /** Indonesian-locale integer rupiah formatter (dot-separated thousands). */

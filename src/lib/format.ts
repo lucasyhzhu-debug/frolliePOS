@@ -47,6 +47,31 @@ export function fmtDate(epochMs: number): string {
   return DATE.format(new Date(epochMs));
 }
 
+/**
+ * Build the public receipt URL for a given token.
+ *
+ * The receipt is served by a Convex httpAction at
+ * `https://<deployment>.convex.site/r/<token>` (PR A — receipts module). The
+ * Convex client URL we have (`VITE_CONVEX_URL`) is the `.convex.cloud` WS
+ * endpoint; we swap `.cloud` for `.site` to hit the HTTP routing surface.
+ *
+ * Falls back to a same-origin `/r/<token>` only when the env is missing
+ * (dev-only escape hatch); the SPA route is a stub today, so the dev user at
+ * least sees the not-implemented placeholder rather than nothing.
+ */
+export function buildReceiptUrl(token: string): string {
+  const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+  if (!convexUrl) {
+    return `/r/${token}`;
+  }
+  // VITE_CONVEX_URL is always the bare origin (no path) for the WS endpoint.
+  // The previous regex had an optional path group that never matched in
+  // practice — tighten so any future surprise shape surfaces in tests rather
+  // than silently stripping data.
+  const siteOrigin = convexUrl.replace(/\.convex\.cloud$/, ".convex.site");
+  return `${siteOrigin}/r/${token}`;
+}
+
 export function fmtRelative(epochMs: number): string {
   const diff = Date.now() - epochMs;
   if (diff < 30_000) return "just now";
