@@ -17,5 +17,15 @@ describe("telegramHtml v0.5.2 renderers", () => {
     expect(m.text).toContain("Sari");
     expect(m.text).toContain("Dubai");
     expect(m.text).toContain("-20");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+  it("renderRecountNotice escapes staff_name and sku_name", () => {
+    const m = renderRecountNotice({
+      staff_name: "Si <admin>", recorded_at_iso: "2026-06-01T10:00:00.000Z",
+      lines: [{ sku_name: "Dubai <8pc>", before: 10, after: 15, delta: 5 }],
+    });
+    expect(m.text).toContain("Si &lt;admin&gt;");
+    expect(m.text).toContain("Dubai &lt;8pc&gt;");
+    expect(m.text).toContain("+5");
   });
 });
