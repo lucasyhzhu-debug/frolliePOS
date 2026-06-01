@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
 async function seedProduct(t: ReturnType<typeof convexTest>, active: boolean) {
@@ -57,6 +57,36 @@ describe("catalog product create/edit", () => {
     });
     const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
     expect(res.products.find((p) => p._id === productId)?.name).toBe("Dubai 1pc");
+  });
+
+  // v0.5.3b post-review: prove the inner :commit wrap is idempotent. The
+  // action-level cache already absorbs the second action call before the
+  // internal runs, so to actually exercise the wrapped withIdempotency we
+  // call the internal directly with the same `:commit`-derived key. This is
+  // the contract that closes the "action crashed between commit and
+  // action-level cache write" hole — refunds._commitRefund_internal has the
+  // same shape and the same kind of test.
+  it("_createProductCommit_internal is idempotent under same :commit key", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const args = {
+      idempotencyKey: "retry-test:commit",
+      mgrId: managerId,
+      sku_family: "dubai",
+      name: "Idempo",
+      pack_label: "1 pc",
+      price_idr: 30000,
+      tax_rate: 0,
+      sort_order: 99,
+    };
+    const first = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
+    const second = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
+    expect(second.productId).toBe(first.productId);
+    // Double-insert check: only one pos_products row exists for this name.
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("pos_products").collect(),
+    );
+    expect(rows.filter((p) => p.name === "Idempo")).toHaveLength(1);
   });
 
   it("rejects a price edit with wrong PIN", async () => {
