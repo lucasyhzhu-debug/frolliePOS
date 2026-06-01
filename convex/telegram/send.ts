@@ -8,7 +8,11 @@ import {
   renderFoundersSummary,
   renderStaffPinReset,
   renderRefund,
+  renderLowStockAlert,
+  renderRecountNotice,
   type RenderedMessage,
+  type LowStockAlertPayload,
+  type RecountNoticePayload,
 } from "../lib/telegramHtml";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
@@ -27,6 +31,8 @@ export const sendTemplate = action({
       v.literal("manual_payment_override"),
       v.literal("shift_summary"),
       v.literal("refund"),
+      v.literal("low_stock_alert"),     // v0.5.2
+      v.literal("recount_notice"),      // v0.5.2
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -63,6 +69,16 @@ export const sendTemplate = action({
         ),
         reason: v.string(),
         request_url: v.string(),
+      }),
+      // low_stock_alert — matches LowStockAlertPayload in lib/telegramHtml.ts
+      v.object({ sku_name: v.string(), on_hand: v.number(), low_threshold: v.number() }),
+      // recount_notice — matches RecountNoticePayload
+      v.object({
+        staff_name: v.string(),
+        recorded_at_iso: v.string(),
+        lines: v.array(v.object({
+          sku_name: v.string(), before: v.number(), after: v.number(), delta: v.number(),
+        })),
       }),
     ),
     idempotencyKey: v.string(),
@@ -136,6 +152,12 @@ export const sendTemplate = action({
             request_url: string;
           },
         );
+        break;
+      case "low_stock_alert":
+        rendered = renderLowStockAlert(args.payload as LowStockAlertPayload);
+        break;
+      case "recount_notice":
+        rendered = renderRecountNotice(args.payload as RecountNoticePayload);
         break;
     }
 

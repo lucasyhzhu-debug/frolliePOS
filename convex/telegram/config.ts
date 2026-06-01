@@ -2,7 +2,7 @@
 // Frollie POS — Telegram role allowlist and bot metadata.
 // This is the ONLY file adapted for self-registration; chatRegistry.ts ships verbatim.
 
-export const KNOWN_TELEGRAM_ROLES = ["managers", "founders"] as const;
+export const KNOWN_TELEGRAM_ROLES = ["managers", "founders", "inventory"] as const;
 
 export type TelegramRole = (typeof KNOWN_TELEGRAM_ROLES)[number];
 
