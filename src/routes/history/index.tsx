@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { refundStatus } from "../../../convex/refunds/lib";
 import { useSession } from "@/hooks/useSession";
 import { rp, fmtTime } from "@/lib/format";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
@@ -118,8 +117,9 @@ export default function HistoryIndex() {
         ) : (
           <ul className="space-y-3" data-testid="history-list">
             {rows.map((t) => {
-              const status = refundStatus(t.lines, t.hasRefunds);
-              const badge = REFUND_BADGE[status];
+              // refundStatus is pre-computed by the BE day-window aggregator —
+              // single derivation matches the receipt template + detail badge.
+              const badge = REFUND_BADGE[t.refundStatus];
               const instrumentLabel = INSTRUMENT_LABEL[t.instrument];
               return (
                 <li key={t._id}>

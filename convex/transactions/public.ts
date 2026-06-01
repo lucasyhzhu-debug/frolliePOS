@@ -6,30 +6,25 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
-import { wibDayWindow, WIB_OFFSET_MS } from "../lib/time";
-import { computeDaySummary, type DayTxn, type DaySummary } from "./lib";
-import { refundStatus, type RefundStatus } from "../refunds/lib";
+import { wibDayWindow, parseWibDayLabel } from "../lib/time";
+import { computeDaySummary, type DayTxn, type DaySummary, type RefundStatus } from "./lib";
+import { refundStatus } from "../refunds/lib";
 
 /**
- * Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window.
- * Throws INVALID_DAY for any malformed or overflow date — silent NaN math
- * would produce an empty window with no UI feedback (manager sees "no sales"
- * for a typo'd date instead of a clear error).
+ * Resolve the [start,end) ms window for a day-scoped query.
+ *
+ *   allowOverride=true + day  → parse the YYYY-MM-DD label (manager picker)
+ *   otherwise                 → server-today WIB
+ *
+ * Centralises the manager-vs-staff fork from listDayTransactions and
+ * dashboardSummary, and avoids the eager wibDayWindow(Date.now()) allocation
+ * when a label is supplied.
  */
-function windowForLabel(label: string): { dayStartMs: number; dayEndMs: number } {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) throw new Error("INVALID_DAY");
-  const [y, m, d] = label.split("-").map(Number);
-  // Round-trip via Date.UTC to reject overflows (e.g. "2026-02-30" → Mar 2).
-  const reconstructed = new Date(Date.UTC(y, m - 1, d));
-  if (
-    reconstructed.getUTCFullYear() !== y ||
-    reconstructed.getUTCMonth() !== m - 1 ||
-    reconstructed.getUTCDate() !== d
-  ) {
-    throw new Error("INVALID_DAY");
-  }
-  const dayStartMs = Date.UTC(y, m - 1, d) - WIB_OFFSET_MS;
-  return { dayStartMs, dayEndMs: dayStartMs + 86_400_000 };
+function resolveWindow(
+  day: string | undefined,
+  allowOverride: boolean,
+): { dayStartMs: number; dayEndMs: number } {
+  return allowOverride && day ? parseWibDayLabel(day) : wibDayWindow(Date.now());
 }
 
 /**
@@ -99,8 +94,7 @@ export const listDayTransactions = query({
       sessionId: args.sessionId,
     });
     if (!who) return [];
-    const today = wibDayWindow(Date.now());
-    const win = who.role === "manager" && args.day ? windowForLabel(args.day) : today;
+    const win = resolveWindow(args.day, who.role === "manager");
     return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
@@ -121,8 +115,8 @@ export const dashboardSummary = query({
     await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
       sessionId: args.sessionId,
     });
-    const today = wibDayWindow(Date.now());
-    const win = args.day ? windowForLabel(args.day) : today;
+    // Manager-gated above → allowOverride=true.
+    const win = resolveWindow(args.day, true);
     const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,

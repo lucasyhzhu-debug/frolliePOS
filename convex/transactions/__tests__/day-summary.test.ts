@@ -7,7 +7,7 @@ const txn = (over: Partial<DayTxn>): DayTxn => ({
   voucher_discount: 0, voucher_code_snapshot: undefined, staff_id: "s1" as any,
   staff_name: "Sari", instrument: "qris", flags: 0,
   lines: [{ product_code_snapshot: "DUBAI8", product_name_snapshot: "Dubai 8pcs", qty: 1, refunded_qty: 0 }],
-  refundsTotal: 0, hasRefunds: false, ...over,
+  refundsTotal: 0, hasRefunds: false, refundStatus: "none", ...over,
 });
 
 describe("computeDaySummary", () => {

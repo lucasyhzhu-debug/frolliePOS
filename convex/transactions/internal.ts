@@ -9,6 +9,7 @@ import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
 import type { DayTxn } from "./lib";
 import { instrumentFromInvoice } from "../payments/internal";
+import { refundStatus } from "../refunds/lib";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -628,6 +629,18 @@ export const _fetchDayWindow_internal = internalQuery({
         );
       }
 
+      // Pre-compute the refund badge here (BE) so the FE history list doesn't
+      // re-import `refundStatus` from `refunds/lib`. `refundStatus` only reads
+      // `qty` + `refunded_qty` from each line, both of which are already in the
+      // DayLine projection — zero extra cost.
+      const lineProjection = lines.map((l) => ({
+        product_code_snapshot: l.product_code_snapshot,
+        product_name_snapshot: l.product_name_snapshot,
+        qty: l.qty,
+        refunded_qty: l.refunded_qty,
+      }));
+      const hasRefunds = refundRows.length > 0;
+
       out.push({
         _id: t._id,
         created_at: t.created_at,
@@ -642,14 +655,10 @@ export const _fetchDayWindow_internal = internalQuery({
         staff_name: staffName,
         instrument,
         flags: t.flags,
-        lines: lines.map((l) => ({
-          product_code_snapshot: l.product_code_snapshot,
-          product_name_snapshot: l.product_name_snapshot,
-          qty: l.qty,
-          refunded_qty: l.refunded_qty,
-        })),
+        lines: lineProjection,
         refundsTotal,
-        hasRefunds: refundRows.length > 0,
+        hasRefunds,
+        refundStatus: refundStatus(lineProjection, hasRefunds),
       });
     }
     return out;

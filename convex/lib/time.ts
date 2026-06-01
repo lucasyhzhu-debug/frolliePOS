@@ -64,6 +64,33 @@ export function wibDayWindow(now: number): {
 }
 
 /**
+ * Parse a "YYYY-MM-DD" WIB calendar label into that day's [start, end) ms window.
+ *
+ * Throws INVALID_DAY for any string that:
+ *   - doesn't match the strict YYYY-MM-DD regex
+ *   - represents an out-of-range or overflow date (e.g. "2026-02-30" rolls
+ *     forward to March 2; we reject via round-trip check)
+ *
+ * Sibling of wibDayWindow (which takes an epoch ms, not a label). Lifted from
+ * transactions/public.ts in v0.5.3a so any future caller that wants to scope a
+ * query to a labelled WIB day shares one parser.
+ */
+export function parseWibDayLabel(label: string): { dayStartMs: number; dayEndMs: number } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) throw new Error("INVALID_DAY");
+  const [y, m, d] = label.split("-").map(Number);
+  const reconstructed = new Date(Date.UTC(y, m - 1, d));
+  if (
+    reconstructed.getUTCFullYear() !== y ||
+    reconstructed.getUTCMonth() !== m - 1 ||
+    reconstructed.getUTCDate() !== d
+  ) {
+    throw new Error("INVALID_DAY");
+  }
+  const dayStartMs = Date.UTC(y, m - 1, d) - WIB_OFFSET_MS;
+  return { dayStartMs, dayEndMs: dayStartMs + 86_400_000 };
+}
+
+/**
  * Format a UTC epoch ms as a WIB-readable string in "DD MMM YYYY · HH:mm WIB" form.
  * Hand-written to avoid Intl quirks on the Convex runtime; WIB is fixed UTC+7 (no DST).
  * Indonesian month names per receipt template (ADR-039 §4).

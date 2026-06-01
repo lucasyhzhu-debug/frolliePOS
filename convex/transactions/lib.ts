@@ -1,6 +1,11 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { WIB_OFFSET_MS } from "../lib/time";
 import { NEG_STOCK } from "./flags";
+import type { RefundStatus } from "../refunds/lib";
+
+// Re-export so FE callers consuming DayTxn get the RefundStatus type from a
+// single owning module (transactions/lib) rather than reaching into refunds/.
+export type { RefundStatus } from "../refunds/lib";
 
 /**
  * Pure day-summary aggregators for v0.5.3a reporting.
@@ -52,6 +57,12 @@ export type DayTxn = {
   lines: DayLine[];
   refundsTotal: number;
   hasRefunds: boolean;
+  /**
+   * Pre-computed by `_fetchDayWindow_internal` so the FE history list doesn't
+   * have to re-import `refundStatus` from `refunds/lib`. Single derivation,
+   * matches the receipt template + the detail-route badge.
+   */
+  refundStatus: RefundStatus;
 };
 
 export type DaySummary = {

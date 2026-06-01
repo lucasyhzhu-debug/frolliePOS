@@ -34,6 +34,7 @@ const DEFAULT_ROW = {
   ],
   refundsTotal: 0,
   hasRefunds: false,
+  refundStatus: "none" as const,
 };
 
 let mockSessionReturn: unknown = {
