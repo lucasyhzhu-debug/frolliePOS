@@ -42,3 +42,19 @@ export function lineRefundedQty(line: Doc<"pos_transaction_lines">): number {
 export function lineRefundable(line: Doc<"pos_transaction_lines">): number {
   return line.qty - lineRefundedQty(line);
 }
+
+export type RefundStatus = "none" | "partial" | "full";
+
+/**
+ * Three-state refund status from lines + whether any refund row exists.
+ * Shared by the public receipt template (label LUNAS/SEBAGIAN.../DIKEMBALIKAN)
+ * and the v0.5.3a history badge — single derivation, no duplication.
+ */
+export function refundStatus(
+  lines: Pick<Doc<"pos_transaction_lines">, "qty" | "refunded_qty">[],
+  hasRefunds: boolean,
+): RefundStatus {
+  if (!hasRefunds) return "none";
+  const allRefunded = lines.every((l) => lineRefundedQty(l as Doc<"pos_transaction_lines">) >= l.qty);
+  return allRefunded ? "full" : "partial";
+}
