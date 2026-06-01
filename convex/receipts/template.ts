@@ -120,9 +120,11 @@ export function renderReceipt(vm: ReceiptViewModel): string {
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>Total awal</span><span>${rp(vm.total)}</span></div>
       <div style="display:flex;justify-content:space-between;font-weight:700;font-size:15px;margin-top:10px;padding-top:8px;border-top:2px solid #1d1d1f"><span>NET DIBAYAR</span><span>${rp(netRetained)}</span></div>`;
 
+  // ADR-039 §4: settlement timeline is internal bookkeeping, never on the
+  // customer-facing receipt. The customer sees only that a refund happened.
   const refundFooter = vm.refunds.length === 0
     ? "Simpan struk ini untuk refund / penukaran"
-    : "Pengembalian dana akan diproses dalam 1-2 hari kerja";
+    : "Pengembalian dana telah diproses";
 
   return `<!DOCTYPE html>
 <html lang="id">
