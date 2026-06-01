@@ -13,7 +13,7 @@
 // ── Runtime note ─────────────────────────────────────────────────────────────
 // NO "use node" directive here. Both actions only call Convex internals via
 // ctx.runQuery / ctx.runAction / ctx.runMutation — no Node-specific imports.
-// `_auditSkip_internal` (internalMutation) lives in telegram/internal.ts
+// `_auditFoundersSkip_internal` (internalMutation) lives in telegram/internal.ts
 // because "use node" files may only export actions (same pattern as
 // _auditSendFailed_internal).
 //
@@ -62,7 +62,7 @@ export const sendFoundersSummary = internalAction({
       {},
     );
     if (!settings.founders_summary_enabled) {
-      await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+      await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
         reason: "disabled",
       });
       return { skipped: "disabled" };
@@ -94,7 +94,7 @@ export const sendFoundersSummary = internalAction({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("No Telegram chat assigned to role")) {
-        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+        await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
           reason: "role_unbound",
         });
         return { skipped: "role_unbound" };
@@ -130,7 +130,7 @@ export const sendFoundersSummary = internalAction({
     } catch (err) {
       if (!isTransientError(err)) {
         // Non-transient: audit + rethrow (no infinite retry storm).
-        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+        await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
           reason: "send_failed",
         });
         throw err;

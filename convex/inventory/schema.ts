@@ -12,6 +12,7 @@ export const inventoryTables = {
       v.literal("spoilage"),                       // v0.6
       v.literal("adjustment"),                     // v0.5
       v.literal("refund"),                         // v0.5.1 PR B
+      v.literal("recount"),                        // v0.5.2 — staff absolute recount (ADR-041)
     ),
 
     source_transaction_line_id: v.optional(v.id("pos_transaction_lines")),
@@ -30,4 +31,23 @@ export const inventoryTables = {
     updated_at: v.number(),
   })
     .index("by_sku", ["inventory_sku_id"]),
+
+  // v0.5.2 (ADR-042): low-stock dedup FLAG only. The threshold itself is the
+  // catalog-owned pos_inventory_skus.low_threshold — NOT duplicated here.
+  // Row is DELETED (not flagged) when on_hand climbs back to/above threshold — re-arms the alert.
+  // The row's existence IS the flag — no `updated_at` field; `alerted_at` is the
+  // only timestamp (set once at insert).
+  pos_low_stock_alerts: defineTable({
+    inventory_sku_id: v.id("pos_inventory_skus"),
+    alerted_at: v.number(),
+  }).index("by_sku", ["inventory_sku_id"]),
+
+  // v0.5.2 (ADR-041): singleton holding the last recount timestamp for the hourly
+  // nudge. One row. Avoids a by-source scan of pos_stock_movements (no such index).
+  // No `updated_by_staff_id` — actor identity for the recount lives on the
+  // matching audit_log row (`stock.recount` action), where audit drill-down
+  // looks for it anyway.
+  pos_recount_state: defineTable({
+    last_recount_at: v.number(),
+  }),
 };

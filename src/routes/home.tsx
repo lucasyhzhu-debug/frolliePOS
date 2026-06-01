@@ -4,6 +4,7 @@ import { api } from "../../convex/_generated/api";
 import { useSession, clearSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
+import { useRecountNudge } from "@/hooks/useRecountNudge";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ export default function HomeRoute() {
   const catalog = snapshot ?? liveCatalog;
   const logout = useMutation(api.auth.public.logout);
   const logoutKey = useIdempotency(`logout:${session.sessionId ?? "none"}`);
+  const nudge = useRecountNudge();
 
   if (session.status !== "active") return null; // RootLayout redirected
 
@@ -76,6 +78,15 @@ export default function HomeRoute() {
         </div>
         <ConnDot />
       </header>
+
+      {nudge && (
+        <Link
+          to="/stock/recount"
+          className="block rounded-md bg-amber-50 p-3 text-center text-sm text-amber-800"
+        >
+          Saatnya menghitung ulang stok — ketuk untuk mulai
+        </Link>
+      )}
 
       <div className="flex-1 space-y-4">
         {grouped.map(({ group, tiles }) => (

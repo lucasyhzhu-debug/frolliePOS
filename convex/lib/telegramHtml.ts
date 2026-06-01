@@ -5,6 +5,8 @@
 //
 // sendTelegramHtml ported from convex-telegram-bot-starter for chatRegistry.ts
 
+import { formatWibDateTime } from "./time";
+
 interface TelegramSendResponse {
   ok: boolean;
   result?: { message_id: number };
@@ -164,6 +166,39 @@ export function renderRefund(p: RefundPayload): RenderedMessage {
   return {
     text,
     inline_keyboard: [[{ text: "✓ Tinjau & setujui", url: p.request_url }]],
+  };
+}
+
+export interface LowStockAlertPayload {
+  sku_name: string;
+  on_hand: number;
+  low_threshold: number;
+}
+export function renderLowStockAlert(p: LowStockAlertPayload): RenderedMessage {
+  const name = escapeHtml(p.sku_name);
+  return {
+    text:
+      `⚠️ <b>Stok menipis</b>\n` +
+      `SKU: <b>${name}</b>\n` +
+      `Sisa: <b>${p.on_hand}</b> pcs (ambang: ${p.low_threshold})`,
+  };
+}
+
+export interface RecountNoticePayload {
+  staff_name: string;
+  recorded_at_iso: string;
+  lines: Array<{ sku_name: string; before: number; after: number; delta: number }>;
+}
+export function renderRecountNotice(p: RecountNoticePayload): RenderedMessage {
+  const rows = p.lines
+    .map((l) => `• ${escapeHtml(l.sku_name)}: ${l.before} → ${l.after} (${l.delta >= 0 ? "+" : ""}${l.delta})`)
+    .join("\n");
+  // v0.5.2 simplify: render the timestamp inline (was accepted in the payload
+  // but discarded). Operators reading the alert outside the booth need to know
+  // WHEN the recount was recorded, not just who did it.
+  const when = escapeHtml(formatWibDateTime(new Date(p.recorded_at_iso).getTime()));
+  return {
+    text: `📝 <b>Penghitungan ulang stok</b> oleh ${escapeHtml(p.staff_name)} · ${when}\n${rows}`,
   };
 }
 

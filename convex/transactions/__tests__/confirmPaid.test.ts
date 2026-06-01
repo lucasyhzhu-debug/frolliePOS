@@ -3,6 +3,13 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// _checkLowStock_internal schedules a Telegram dispatch via runAfter(0) when
+// on_hand crosses below low_threshold. setupTelegramStub() stubs fetch + env so
+// the scheduled action is offline + deterministic. drainScheduled() flushes any
+// pending dispatches before teardown.
+setupTelegramStub();
 
 async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -157,6 +164,8 @@ describe("_confirmPaid_internal funnel", () => {
     await t.mutation(internal.transactions.internal._confirmPaid_internal, { txnId: s.txn, source: "webhook" });
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.flags).toBe(1);
+    // on_hand drains from 5 → -3, threshold 0 → -3 < 0 schedules low-stock dispatch.
+    await drainScheduled(t);
   });
 
   it("voucher redeemed through funnel: redemption row written, used_count incremented, no over-redeem flag", async () => {

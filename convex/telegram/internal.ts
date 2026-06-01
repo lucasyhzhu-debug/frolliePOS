@@ -37,17 +37,14 @@ export const _auditSendFailed_internal = internalMutation({
 });
 
 /**
- * Audit a founders shift-summary skip. Written when the daily cron fires but
- * the send is intentionally skipped (founders_summary_enabled: false) or the
- * send fails with a non-transient error.
+ * Audit an intentional founders shift-summary skip — toggle off or founders
+ * role unbound. Writes action `founders.summary_skipped`.
  *
  * Kept here alongside the other internal mutations because this file is not
  * "use node" — internalMutation cannot live in a "use node" file.
  */
-export const _auditSkip_internal = internalMutation({
-  args: {
-    reason: v.string(),
-  },
+export const _auditFoundersSkip_internal = internalMutation({
+  args: { reason: v.string() },
   handler: async (ctx, args) => {
     await logAudit(ctx, {
       actor_id: "system",
@@ -55,6 +52,26 @@ export const _auditSkip_internal = internalMutation({
       entity_type: "telegram",
       source: "system",
       metadata: { reason: args.reason },
+    });
+  },
+});
+
+/**
+ * Audit an intentional Telegram role-routed dispatch skip — used by
+ * dispatchRoleAlert when the role isn't bound to a chat. Writes action
+ * `telegram.skipped` with the missing role in metadata. Distinguishes
+ * "role unbound" from a `telegram.send_failed` (which suggests a transient
+ * outage) for ops triage.
+ */
+export const _auditTelegramSkip_internal = internalMutation({
+  args: { reason: v.string(), role: v.string() },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "telegram.skipped",
+      entity_type: "telegram",
+      source: "system",
+      metadata: { reason: args.reason, role: args.role },
     });
   },
 });
