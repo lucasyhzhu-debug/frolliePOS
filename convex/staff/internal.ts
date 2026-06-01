@@ -48,6 +48,50 @@ export const _setStaffRoleCommit_internal = internalMutation({
   },
 });
 
+/**
+ * Commit a staff deactivation. Owns SELF_DEACTIVATE + LAST_ACTIVE_MANAGER guards
+ * so read+patch are atomic. Called by `staff/actions.deactivateStaff` AFTER
+ * manager PIN verification.
+ *
+ * Guard order is deliberate:
+ *   1. SELF_DEACTIVATE  (cheapest, semantically clearest — no DB read)
+ *   2. STAFF_NOT_FOUND  (target lookup)
+ *   3. already-inactive (idempotent no-op for retries past the original commit)
+ *   4. LAST_ACTIVE_MANAGER (index scan + JS filter)
+ *   5. patch + audit
+ *
+ * No session teardown: `requireSession` rejects inactive staff, so the target's
+ * live session self-invalidates on its next request.
+ */
+export const _deactivateStaffCommit_internal = internalMutation({
+  args: { staffId: v.id("staff"), mgrId: v.id("staff") },
+  handler: async (ctx, args) => {
+    if (args.staffId === args.mgrId) throw new Error("SELF_DEACTIVATE");
+    const target = await ctx.db.get(args.staffId);
+    if (!target) throw new Error("STAFF_NOT_FOUND");
+    if (!target.active) return { ok: true as const }; // idempotent no-op
+    if (target.role === "manager") {
+      const managers = await ctx.db
+        .query("staff")
+        .withIndex("by_role", (q) => q.eq("role", "manager"))
+        .collect();
+      const otherActive = managers.filter(
+        (m) => m.active && m._id !== args.staffId,
+      );
+      if (otherActive.length === 0) throw new Error("LAST_ACTIVE_MANAGER");
+    }
+    await ctx.db.patch(args.staffId, { active: false });
+    await logAudit(ctx, {
+      actor_id: args.mgrId,
+      action: "staff.deactivated",
+      entity_type: "staff",
+      entity_id: args.staffId,
+      source: "booth_inline",
+    });
+    return { ok: true as const };
+  },
+});
+
 export const _createStaffCommit_internal = internalMutation({
   args: {
     idempotencyKey: v.string(),

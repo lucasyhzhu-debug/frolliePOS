@@ -81,3 +81,47 @@ describe("staff role + name edits", () => {
     expect(rows.find((r) => r._id === sId)?.role).toBe("manager");
   });
 });
+
+describe("staff.deactivateStaff", () => {
+  it("deactivates a staffer with PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const sId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Sari", pin: "1111", role: "staff",
+    });
+    await t.action(api.staff.actions.deactivateStaff, {
+      idempotencyKey: "d1", sessionId, staffId: sId, managerPin: "9999",
+    });
+    const rows = await t.query(api.staff.public.listStaff, { sessionId });
+    expect(rows.find((r) => r._id === sId)?.active).toBe(false);
+  });
+
+  it("refuses self-deactivate", async () => {
+    const t = convexTest(schema);
+    const { sessionId, managerId } = await seedManagerSession(t);
+    await expect(
+      t.action(api.staff.actions.deactivateStaff, {
+        idempotencyKey: "d2", sessionId, staffId: managerId, managerPin: "9999",
+      }),
+    ).rejects.toThrow(/SELF_DEACTIVATE|LAST_ACTIVE_MANAGER/);
+  });
+
+  it("refuses deactivating the last active manager", async () => {
+    const t = convexTest(schema);
+    const { sessionId, managerId } = await seedManagerSession(t);
+    // second manager so self-check isn't the one firing; then deactivate the other
+    const m2 = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Mgr2", pin: "8888", role: "manager",
+    });
+    await t.action(api.staff.actions.deactivateStaff, {
+      idempotencyKey: "d3", sessionId, staffId: m2, managerPin: "9999",
+    });
+    // now only `managerId` remains active; deactivating self must fail on last-manager
+    await expect(
+      t.action(api.staff.actions.deactivateStaff, {
+        idempotencyKey: "d4", sessionId, staffId: managerId, managerPin: "9999",
+      }),
+    ).rejects.toThrow(/SELF_DEACTIVATE|LAST_ACTIVE_MANAGER/);
+    void m2;
+  });
+});

@@ -52,3 +52,42 @@ export const setStaffRole = action({
     return response;
   },
 });
+
+/**
+ * Deactivate a staff member. Manager session + manager PIN required.
+ * Mirrors `setStaffRole`'s action-level idempotency pattern exactly.
+ * SELF_DEACTIVATE + LAST_ACTIVE_MANAGER guards live in the internal mutation
+ * so the read+patch is atomic.
+ */
+export const deactivateStaff = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    staffId: v.id("staff"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { ok: true };
+
+    const { managerId } = await verifyManagerPinOrThrow(ctx, {
+      sessionId: args.sessionId,
+      managerPin: args.managerPin,
+      idempotencyKey: args.idempotencyKey,
+    });
+    await ctx.runMutation(internal.staff.internal._deactivateStaffCommit_internal, {
+      staffId: args.staffId,
+      mgrId: managerId,
+    });
+
+    const response = { ok: true } as const;
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "staff.deactivateStaff",
+      response: JSON.stringify(response),
+    });
+    return response;
+  },
+});
