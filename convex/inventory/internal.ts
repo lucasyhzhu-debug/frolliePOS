@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 
 /**
@@ -142,6 +143,80 @@ export const _decrementOnHandUnchecked_internal = internalMutation({
       await ctx.db.insert("pos_stock_levels", {
         inventory_sku_id: args.skuId, on_hand: -args.qty, updated_at: now,
       });
+    }
+  },
+});
+
+/**
+ * Refund-flow stock re-credit per ADR-019. For each refunded line, look up the
+ * product's SKU components and write POSITIVE movements (source: "refund") for
+ * each component × refund_qty. Increments the on_hand cache (opposite of sale).
+ * Default assumption: returned items go back on the shelf; if actually damaged,
+ * staff uses the v0.5.2 spoilage flow as a second step.
+ *
+ * Mirrors _recordSaleMovement_internal's shape — same per-line, per-component
+ * fan-out, same audit pattern — but with sign flipped and source = "refund".
+ */
+export const _refundReCredit_internal = internalMutation({
+  args: {
+    refundId: v.id("pos_refunds"),
+    lines: v.array(v.object({
+      line_id: v.id("pos_transaction_lines"),
+      qty: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const { line_id, qty } of args.lines) {
+      const line = await ctx.db.get(line_id);
+      if (!line) throw new Error("LINE_NOT_FOUND");
+
+      // ADR-034: cross-module read via catalog/internal; do not touch
+      // pos_product_components directly.
+      const components = await ctx.runQuery(
+        internal.catalog.internal._getComponentsForProducts_internal,
+        { productIds: [line.product_id] },
+      );
+
+      for (const c of components) {
+        const movementQty = c.qty * qty;   // POSITIVE — re-credit (sale was negative)
+
+        await ctx.db.insert("pos_stock_movements", {
+          inventory_sku_id: c.skuId,
+          qty: movementQty,
+          source: "refund",
+          source_transaction_line_id: line_id,
+          created_at: now,
+        });
+
+        // INCREMENT the denormalised on_hand cache (opposite of sale).
+        const level = await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", c.skuId))
+          .first();
+        if (level) {
+          await ctx.db.patch(level._id, { on_hand: level.on_hand + movementQty, updated_at: now });
+        } else {
+          await ctx.db.insert("pos_stock_levels", {
+            inventory_sku_id: c.skuId, on_hand: movementQty, updated_at: now,
+          });
+        }
+
+        // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
+        await logAudit(ctx, {
+          actor_id: "system",
+          action: "stock.refund_movement",
+          entity_type: "pos_inventory_skus",
+          entity_id: c.skuId,
+          source: "system",
+          metadata: {
+            refund_id: args.refundId,
+            transaction_id: line.transaction_id,
+            line_id,
+            qty: movementQty,
+          },
+        });
+      }
     }
   },
 });
