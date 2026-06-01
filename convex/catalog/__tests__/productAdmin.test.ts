@@ -73,3 +73,43 @@ describe("catalog product create/edit", () => {
     ).rejects.toThrow(/INVALID_PIN/);
   });
 });
+
+describe("catalog.setProductComponents", () => {
+  async function seedSku(t: ReturnType<typeof convexTest>, sku: string, active = true) {
+    return t.run(async (ctx) =>
+      ctx.db.insert("pos_inventory_skus", {
+        sku, name: sku, unit: "piece", low_threshold: 10, active, created_at: Date.now(),
+      }),
+    );
+  }
+  it("replace-sets components", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p9", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "Box", pack_label: "8 pcs", price_idr: 120000, tax_rate: 0, sort_order: 1,
+    });
+    const skuA = await seedSku(t, "dubai");
+    await t.mutation(api.catalog.public.setProductComponents, {
+      idempotencyKey: "sc1", sessionId, productId, components: [{ inventory_sku_id: skuA, qty: 8 }],
+    });
+    const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
+    const comps = res.components.filter((c) => c.product_id === productId);
+    expect(comps).toHaveLength(1);
+    expect(comps[0].qty).toBe(8);
+  });
+  it("rejects qty <= 0 and inactive SKU", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p10", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "Box2", pack_label: "8 pcs", price_idr: 120000, tax_rate: 0, sort_order: 1,
+    });
+    const inactive = await seedSku(t, "old", false);
+    await expect(
+      t.mutation(api.catalog.public.setProductComponents, {
+        idempotencyKey: "sc2", sessionId, productId, components: [{ inventory_sku_id: inactive, qty: 1 }],
+      }),
+    ).rejects.toThrow(/SKU_INACTIVE/);
+  });
+});

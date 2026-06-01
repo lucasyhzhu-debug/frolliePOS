@@ -167,3 +167,80 @@ export const updateProductMeta = mutation({
     },
   ),
 });
+
+/**
+ * Replace the full component set for a product. Manager-session-gated, no PIN
+ * (components are recipe wiring, not money — CLAUDE.md #9). Validates EVERY
+ * component (qty integer > 0, SKU exists + active) BEFORE any delete/insert
+ * so a bad row in position N doesn't leave rows 1..N-1 already deleted
+ * (fail-before-write atomicity).
+ *
+ * Replace-set shape: the UI hands us the desired component set and we delete
+ * existing rows (via `by_product` index) then insert the new set. UIs don't
+ * want to incrementally patch component rows row-by-row.
+ */
+export const setProductComponents = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    productId: v.id("pos_products"),
+    components: v.array(
+      v.object({
+        inventory_sku_id: v.id("pos_inventory_skus"),
+        qty: v.number(),
+      }),
+    ),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      productId: Id<"pos_products">;
+      components: Array<{ inventory_sku_id: Id<"pos_inventory_skus">; qty: number }>;
+    },
+    { ok: true }
+  >(
+    "catalog.setProductComponents",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const product = await ctx.db.get(args.productId);
+      if (!product) throw new Error("PRODUCT_NOT_FOUND");
+      // Validate each component first (fail before any write).
+      for (const c of args.components) {
+        if (!Number.isInteger(c.qty) || c.qty <= 0) throw new Error("QTY_INVALID");
+        const sku = await ctx.db.get(c.inventory_sku_id);
+        if (!sku) throw new Error("SKU_NOT_FOUND");
+        if (!sku.active) throw new Error("SKU_INACTIVE");
+      }
+      // Replace-set: delete existing rows for this product, insert the new set.
+      const existing = await ctx.db
+        .query("pos_product_components")
+        .withIndex("by_product", (q) => q.eq("product_id", args.productId))
+        .collect();
+      for (const row of existing) await ctx.db.delete(row._id);
+      for (const c of args.components) {
+        await ctx.db.insert("pos_product_components", {
+          product_id: args.productId,
+          inventory_sku_id: c.inventory_sku_id,
+          qty: c.qty,
+        });
+      }
+      await ctx.db.patch(args.productId, { updated_at: Date.now() });
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "product.updated",
+        entity_type: "pos_products",
+        entity_id: args.productId,
+        source: "booth_inline",
+        device_id: deviceId,
+        metadata: { components_changed: true, count: args.components.length },
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
