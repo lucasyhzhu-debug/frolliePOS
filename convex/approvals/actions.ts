@@ -526,13 +526,11 @@ export const approveRefund = action({
     ctx,
     args,
   ): Promise<{ refundId: Id<"pos_refunds">; total_refund: number }> => {
-    // Step 1: action-level idempotency pre-check
-    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
-      key: args.idempotencyKey,
-    });
-    if (cached) return JSON.parse(cached) as { refundId: Id<"pos_refunds">; total_refund: number };
-
-    // Step 2: token lookup + constant-time compare
+    // I5 (v0.5.1 PR B post-review): token auth BEFORE cache lookup. Token
+    // validation is one indexed query + a constant-time compare — cheap. The
+    // argon2 PIN verify stays after the cache (expensive). Pre-I5 a caller
+    // without a valid token but with a leaked idempotencyKey could replay
+    // the cached { refundId, total_refund }. Mirrors CLAUDE.md rule #21.
     const tokenHash = sha256Hex(args.token);
     const req = await ctx.runQuery(
       internal.approvals.internal._getByTokenHash_internal,
@@ -546,10 +544,16 @@ export const approveRefund = action({
       throw new Error("TOKEN_INVALID");
     }
 
-    // Step 3: state guards
+    // State guards (still part of auth — must reject before cache replay).
     if (req.kind !== "refund") throw new Error("WRONG_KIND");
     if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
     if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Step 1: action-level idempotency pre-check (after token auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { refundId: Id<"pos_refunds">; total_refund: number };
 
     // Extract the refund payload from the validated context. The context was
     // written by requestRefundApproval (B9) via _createRequest_internal, which

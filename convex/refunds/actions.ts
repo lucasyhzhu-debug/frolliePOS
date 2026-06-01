@@ -70,17 +70,21 @@ export const commitRefundInline = action({
     ctx,
     args,
   ): Promise<{ refundId: Id<"pos_refunds">; total_refund: number }> => {
-    // 1. Cache pre-check
-    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
-      key: args.idempotencyKey,
-    });
-    if (cached) return JSON.parse(cached);
-
-    // 2. Auth: a valid (non-ended) session is required to initiate a refund.
+    // I5 (v0.5.1 PR B post-review): auth BEFORE cache lookup. The session
+    // lookup is one indexed query — cheap. Pre-I5, a caller without a session
+    // but holding a valid idempotencyKey could replay the cached
+    // { refundId, total_refund } blob from a prior committed call. Mirrors
+    // CLAUDE.md rule #21 ("auth before cache") for the action-level pattern.
     const session = await ctx.runQuery(api.auth.public.getSession, {
       sessionId: args.sessionId,
     });
     if (!session) throw new Error("SESSION_INVALID");
+
+    // 1. Cache pre-check (after auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached);
 
     // 3. Resolve approving manager by the explicitly supplied staff code.
     //    Single MANAGER_NOT_FOUND covers "no such code", "wrong role", and
@@ -187,18 +191,20 @@ export const requestRefundApproval = action({
     ctx,
     args,
   ): Promise<{ requestId: Id<"pos_approval_requests"> }> => {
-    // Step 1: action-level idempotency pre-check
-    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
-      key: args.idempotencyKey,
-    });
-    if (cached) return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> };
-
-    // Step 2: resolve session — staff just initiates; no PIN at this stage.
+    // I5 (v0.5.1 PR B post-review): auth BEFORE cache lookup. Session is one
+    // indexed query — cheap. Closes the cached-response-to-unauthorized-caller
+    // hole (rule #21).
     const requester = await ctx.runQuery(
       internal.auth.internal._resolveSession_internal,
       { sessionId: args.sessionId },
     );
     if (!requester) throw new Error("NO_SESSION");
+
+    // Step 1: action-level idempotency pre-check (after auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> };
 
     // Step 3: validate + compute preview in one shot. Throws TXN_NOT_REFUNDABLE
     // / TXN_NOT_PAID / LINE_NOT_FOUND on bad input — matches _commitRefund_internal's
