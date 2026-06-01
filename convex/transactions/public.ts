@@ -508,14 +508,17 @@ export const getTransactionDetail = query({
         return null;
       }
     }
-    const lines = await ctx.db
-      .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-      .collect();
-    const refunds = await ctx.runQuery(
-      internal.refunds.internal._listForTransaction_internal,
-      { transactionId: args.txnId },
-    );
+    // Two independent reads given args.txnId — parallel to shave latency.
+    const [lines, refunds] = await Promise.all([
+      ctx.db
+        .query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+        .collect(),
+      ctx.runQuery(
+        internal.refunds.internal._listForTransaction_internal,
+        { transactionId: args.txnId },
+      ),
+    ]);
     // Note: receipt_token is intentionally NOT returned. The FE goes through
     // shareReceipt to mint/fetch the token, which narrows the capability
     // surface (a Doc read at any other public seam can't accidentally leak the

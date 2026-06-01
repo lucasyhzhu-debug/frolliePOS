@@ -7,7 +7,8 @@ import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
-import type { DayTxn, Instrument } from "./lib";
+import type { DayTxn } from "./lib";
+import { instrumentFromInvoice } from "../payments/internal";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -562,7 +563,8 @@ export const _listPaidTxnsSince_internal = internalQuery({
  *   - the staff name (one upfront staff lookup avoids N+1)
  *
  * Cross-module reads route through owning-module internals per ADR-034:
- *   pos_xendit_invoices → payments._instrumentForTxn_internal
+ *   pos_xendit_invoices → payments._getPaidInvoiceForTxn_internal
+ *                         (normalised to instrument via instrumentFromInvoice)
  *   staff (name lookup) → auth._listStaffNames_internal
  *   pos_refunds          → refunds._listForTransaction_internal (verified
  *                          signature: { transactionId } → Doc<"pos_refunds">[];
@@ -592,24 +594,39 @@ export const _fetchDayWindow_internal = internalQuery({
 
     const out: DayTxn[] = [];
     for (const t of txns) {
-      const lines = await ctx.db
-        .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
-        .collect();
-
-      // Refunds total — pos_refunds is OWNED by the refunds module per ADR-034.
-      // Routes through refunds._listForTransaction_internal (same helper the
-      // receipts template uses). Per-row refund amount lives on `total_refund`.
-      const refundRows = await ctx.runQuery(
-        internal.refunds.internal._listForTransaction_internal,
-        { transactionId: t._id },
-      );
+      // Three independent reads given t._id — fire in parallel to shave per-txn
+      // latency. Refunds total via refunds._listForTransaction_internal (same
+      // helper the receipts template uses; per-row amount on `total_refund`).
+      // Invoice via payments._getPaidInvoiceForTxn_internal + the pure
+      // instrumentFromInvoice normaliser (v0.5.3a consolidation — the previous
+      // _instrumentForTxn_internal was identical SQL).
+      const [lines, refundRows, invoice] = await Promise.all([
+        ctx.db
+          .query("pos_transaction_lines")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+          .collect(),
+        ctx.runQuery(
+          internal.refunds.internal._listForTransaction_internal,
+          { transactionId: t._id },
+        ),
+        ctx.runQuery(
+          internal.payments.internal._getPaidInvoiceForTxn_internal,
+          { transactionId: t._id },
+        ),
+      ]);
       const refundsTotal = refundRows.reduce((s, r) => s + r.total_refund, 0);
+      const instrument = instrumentFromInvoice(invoice);
 
-      const instrument: Instrument = await ctx.runQuery(
-        internal.payments.internal._instrumentForTxn_internal,
-        { txnId: t._id },
-      );
+      // M2: ?? on invariant-guaranteed fields = silent corruption (MEMORY).
+      // Staff are soft-deleted (active:false), never hard-deleted, so a
+      // missing staff name means the staff row was hard-deleted out from
+      // under a transaction — failing loud surfaces the corruption.
+      const staffName = nameById.get(String(t.staff_id));
+      if (!staffName) {
+        throw new Error(
+          `STAFF_MISSING_FOR_TXN — txn ${t._id} references staff ${t.staff_id} which is not in pos_staff`,
+        );
+      }
 
       out.push({
         _id: t._id,
@@ -622,15 +639,7 @@ export const _fetchDayWindow_internal = internalQuery({
         voucher_discount: t.voucher_discount,
         voucher_code_snapshot: t.voucher_code_snapshot,
         staff_id: t.staff_id,
-        // M2: ?? on invariant-guaranteed fields = silent corruption (MEMORY).
-        // Staff are soft-deleted (active:false), never hard-deleted, so a
-        // missing staff name means the staff row was hard-deleted out from
-        // under a transaction — failing loud surfaces the corruption.
-        staff_name: (() => {
-          const n = nameById.get(String(t.staff_id));
-          if (!n) throw new Error(`STAFF_MISSING_FOR_TXN — txn ${t._id} references staff ${t.staff_id} which is not in pos_staff`);
-          return n;
-        })(),
+        staff_name: staffName,
         instrument,
         flags: t.flags,
         lines: lines.map((l) => ({
