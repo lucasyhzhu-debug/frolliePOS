@@ -75,7 +75,9 @@ function humanizeAuthError(e: unknown): string {
   if (m.includes("NEW_PIN_INVALID")) return "New PIN must be 4 digits.";
   if (m.includes("TARGET_NOT_FOUND")) return "Target staff not found.";
   if (m.includes("USE_CHANGE_PIN_FOR_SELF")) return "Use change-PIN for yourself.";
-  if (m.includes("NOT_MANAGER")) return "Manager session required.";
+  if (m.includes("STAFF_NOT_FOUND")) return "Staff member not found.";
+  if (m.includes("SESSION_INVALID")) return "Session expired. Lock and log in again.";
+  if (m.includes("NOT_MANAGER")) return "Only managers can do that.";
   return "Something went wrong.";
 }
 

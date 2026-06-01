@@ -47,6 +47,7 @@ function humanizeSettingsError(e: unknown): string {
   const m = String((e as Error)?.message ?? e);
   if (/FIELD_TOO_LONG/.test(m)) return "One of the fields is too long (max 120 chars).";
   if (m.includes("NOT_MANAGER")) return "Manager session required.";
+  if (m.includes("SESSION_INVALID")) return "Session expired. Lock and log in again.";
   return "Couldn't save. Try again.";
 }
 
@@ -149,6 +150,12 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     }
     setUploading(true);
     try {
+      // BOTH calls below can fail: generateLogoUploadUrl (server) AND the
+      // subsequent fetch upload (network/storage). If either throws, the cached
+      // uploadUrl tied to `uploadKey` is now stale (Convex upload URLs are
+      // short-lived) and the SAME key on a retry would replay the same stale
+      // URL → silent re-failure. The catch below clearIntent's the key before
+      // toasting so the next attempt mints a fresh URL.
       const { uploadUrl } = await generateLogoUploadUrl({
         idempotencyKey: uploadKey,
         sessionId,
@@ -177,6 +184,9 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
       toast.success("Logo ready — Save to apply.");
     } catch {
+      // Rotate the intent BEFORE the toast so the next retry mints a fresh
+      // upload URL instead of replaying the stale one cached on `uploadKey`.
+      await clearIntent("settings.logoUpload");
       toast.error("Logo upload failed. Try again.");
     } finally {
       setUploading(false);
