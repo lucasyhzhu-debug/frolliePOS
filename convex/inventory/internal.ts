@@ -256,3 +256,30 @@ export const _refundReCredit_internal = internalMutation({
     }
   },
 });
+
+/**
+ * Apply a signed delta to pos_stock_levels.on_hand for a single SKU. Inserts
+ * the level row if none exists, otherwise patches in place. Returns the new
+ * on_hand value so callers can include it in downstream payloads (e.g. the
+ * recount manager-notice).
+ *
+ * v0.5.2 — extracted for recount (ADR-041). The sale + refund paths keep
+ * using the local upsertStockLevel helper (different shape; intentional —
+ * keeps regression surface zero in v0.5.2).
+ */
+export const _applyLevelDelta_internal = internalMutation({
+  args: { skuId: v.id("pos_inventory_skus"), delta: v.number() },
+  handler: async (ctx, { skuId, delta }) => {
+    const now = Date.now();
+    const level = await ctx.db
+      .query("pos_stock_levels")
+      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+      .first();
+    if (level) {
+      await ctx.db.patch(level._id, { on_hand: level.on_hand + delta, updated_at: now });
+      return level.on_hand + delta;
+    }
+    await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: delta, updated_at: now });
+    return delta;
+  },
+});

@@ -183,4 +183,21 @@ describe("inventory/schema v0.5.2", () => {
       expect((await ctx.db.get(mv))!.source).toBe("recount");
     });
   });
+
+  describe("_applyLevelDelta_internal", () => {
+    it("inserts when absent, patches when present", async () => {
+      const t = convexTest(schema);
+      const skuId = await t.run(async (ctx) =>
+        ctx.db.insert("pos_inventory_skus", {
+          sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: true, created_at: Date.now(),
+        }),
+      );
+      await t.mutation(internal.inventory.internal._applyLevelDelta_internal, { skuId, delta: 10 });
+      await t.mutation(internal.inventory.internal._applyLevelDelta_internal, { skuId, delta: -3 });
+      const lvl = await t.run(async (ctx) =>
+        ctx.db.query("pos_stock_levels").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+      );
+      expect(lvl!.on_hand).toBe(7);
+    });
+  });
 });
