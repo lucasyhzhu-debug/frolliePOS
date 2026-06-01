@@ -8,6 +8,7 @@ import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
 import { wibDayWindow } from "../lib/time";
 import { computeDaySummary, type DayTxn, type DaySummary } from "./lib";
+import { refundStatus, type RefundStatus } from "../refunds/lib";
 
 /** Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window. */
 function windowForLabel(label: string): { dayStartMs: number; dayEndMs: number } {
@@ -456,6 +457,55 @@ export const cancelAwaitingPayment = mutation({
       authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
     },
   ),
+});
+
+type TxnDetail = {
+  txn: Doc<"pos_transactions">;
+  lines: Doc<"pos_transaction_lines">[];
+  refundStatus: RefundStatus;
+  receipt_token: string | null;
+};
+
+/**
+ * v0.5.3a transaction detail. Pure read — does NOT mint a receipt token; only
+ * returns the existing one (or null). Use shareReceipt to mint on demand.
+ *
+ * Scope:
+ *   - manager: any txn
+ *   - staff:   only txns whose created_at falls in server-today (WIB)
+ *     — throws OUT_OF_SCOPE otherwise.
+ *   - null on invalid session OR missing txn (graceful UI degrade).
+ */
+export const getTransactionDetail = query({
+  args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<TxnDetail | null> => {
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return null;
+    const txn = await ctx.db.get(args.txnId);
+    if (!txn) return null;
+    if (who.role !== "manager") {
+      const today = wibDayWindow(Date.now());
+      if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) {
+        throw new Error("OUT_OF_SCOPE");
+      }
+    }
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .collect();
+    const refunds = await ctx.runQuery(
+      internal.refunds.internal._listForTransaction_internal,
+      { transactionId: args.txnId },
+    );
+    return {
+      txn,
+      lines,
+      refundStatus: refundStatus(lines, refunds.length > 0),
+      receipt_token: txn.receipt_token ?? null,
+    };
+  },
 });
 
 export const deleteDraft = mutation({

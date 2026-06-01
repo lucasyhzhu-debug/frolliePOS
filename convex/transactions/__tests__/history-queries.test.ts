@@ -186,3 +186,84 @@ describe("dashboardSummary", () => {
     expect(s.net).toBe(50_000); // no refunds
   });
 });
+
+describe("getTransactionDetail", () => {
+  it("returns null for an invalid session", async () => {
+    const t = convexTest(schema);
+    const goneId = await t.run(async (ctx) => {
+      const sid = await ctx.db.insert("staff", { name: "X", role: "staff", active: true, pin_hash: "x", code: "X1", created_at: 0 } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      await ctx.db.delete(sess);
+      return { sessionId: sess };
+    });
+    // Use any valid-looking txn id — handler returns null on missing session before reading txn.
+    const fakeTxnId = await t.run(async (ctx) => {
+      const sid = await ctx.db.insert("staff", { name: "Y", role: "staff", active: true, pin_hash: "x", code: "Y1", created_at: 0 } as any);
+      const id = await ctx.db.insert("pos_transactions", {
+        status: "paid", subtotal: 1000, voucher_discount: 0, total: 1000, flags: 0,
+        staff_id: sid, created_at: 0, paid_at: 0,
+      } as any);
+      return id;
+    });
+    const res = await t.query(api.transactions.public.getTransactionDetail, {
+      sessionId: goneId.sessionId, txnId: fakeTxnId,
+    });
+    expect(res).toBeNull();
+  });
+
+  it("returns null for a missing txn", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, { name: "S", role: "staff", code: "S2" });
+    const sessionId = await seedSession(t, staffId);
+    const goneTxnId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("pos_transactions", {
+        status: "paid", subtotal: 1000, voucher_discount: 0, total: 1000, flags: 0,
+        staff_id: staffId, created_at: 0, paid_at: 0,
+      } as any);
+      await ctx.db.delete(id);
+      return id;
+    });
+    const res = await t.query(api.transactions.public.getTransactionDetail, {
+      sessionId, txnId: goneTxnId,
+    });
+    expect(res).toBeNull();
+  });
+
+  it("rejects a staff read of a prior-day txn (OUT_OF_SCOPE)", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, { name: "S3", role: "staff", code: "S3" });
+    const sessionId = await seedSession(t, staffId);
+    const todayWin = wibDayWindow(Date.now());
+    const yesterdayStart = todayWin.dayStartMs - 86_400_000;
+    const yTxnId = await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000 });
+    await expect(
+      t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId })
+    ).rejects.toThrow(/OUT_OF_SCOPE/);
+  });
+
+  it("a manager may read a prior-day txn", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedStaff(t, { name: "M", role: "manager", code: "M3" });
+    const sessionId = await seedSession(t, mgrId);
+    const todayWin = wibDayWindow(Date.now());
+    const yesterdayStart = todayWin.dayStartMs - 86_400_000;
+    const yTxnId = await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 77_000 });
+    const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId });
+    expect(res?.txn.total).toBe(77_000);
+    expect(res?.refundStatus).toBe("none");
+    expect(res?.receipt_token).toBeNull();
+    expect(res?.lines).toHaveLength(1);
+  });
+
+  it("returns refundStatus 'none' and null receipt_token for a today txn without those", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, { name: "S4", role: "staff", code: "S4" });
+    const sessionId = await seedSession(t, staffId);
+    const todayWin = wibDayWindow(Date.now());
+    const txnId = await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 7_200_000, total: 25_000 });
+    const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId });
+    expect(res?.refundStatus).toBe("none");
+    expect(res?.receipt_token).toBeNull();
+    expect(res?.lines).toHaveLength(1);
+  });
+});
