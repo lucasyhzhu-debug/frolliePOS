@@ -5,8 +5,9 @@ import { v } from "convex/values";
 import { internal, api } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { argon2Verify } from "hash-wasm";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { mintUrlSafeToken } from "../lib/tokens";
+import { sha256Hex } from "../lib/tokenHash";
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
 
@@ -26,15 +27,6 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
  * stabilization + Risks under watch.
  */
 const OFF_BOOTH_DEVICE_ID = "approve-route";
-
-/**
- * SHA-256 hex of a string. Tokens are high-entropy (32 random bytes), so salt-less
- * SHA-256 is appropriate (ADR-029) — argon2id is reserved for low-entropy PINs.
- * Runs in the Node runtime ("use node"), so node:crypto is available here.
- */
-function sha256Hex(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
 
 /**
  * Fired (via ctx.scheduler.runAfter) when a staff member trips the 3rd failed

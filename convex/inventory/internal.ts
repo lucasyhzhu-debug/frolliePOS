@@ -1,7 +1,43 @@
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+
+/**
+ * Upsert pattern for pos_stock_levels — the denormalised cache reconciled by
+ * nightly cron (CLAUDE.md business rule #8). Used by sale-decrement, refund-
+ * credit, manager-adjust, and (v0.5.2) recount/low-stock paths.
+ *
+ * `delta` can be negative (sale decrement) or positive (refund credit / stock-in).
+ * Negative on_hand is ALLOWED — ADR-018 says we don't block; we flag on the
+ * transaction. The cache reflects what actually moved.
+ *
+ * Server time wins per ADR-031: caller passes `now` from a single `Date.now()`
+ * snapshot so all rows in a single mutation share the same timestamp.
+ */
+async function upsertStockLevel(
+  ctx: MutationCtx,
+  skuId: Id<"pos_inventory_skus">,
+  delta: number,
+  now: number,
+): Promise<void> {
+  const level = await ctx.db
+    .query("pos_stock_levels")
+    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+    .first();
+  if (level) {
+    await ctx.db.patch(level._id, {
+      on_hand: level.on_hand + delta,
+      updated_at: now,
+    });
+  } else {
+    await ctx.db.insert("pos_stock_levels", {
+      inventory_sku_id: skuId,
+      on_hand: delta,
+      updated_at: now,
+    });
+  }
+}
 
 /**
  * Record sale-driven stock movements for a confirmed transaction.
@@ -39,17 +75,7 @@ export const _recordSaleMovement_internal = internalMutation({
       });
 
       // Decrement the denormalised on_hand cache (ADR-018: negative allowed).
-      const level = await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", line.skuId))
-        .first();
-      if (level) {
-        await ctx.db.patch(level._id, { on_hand: level.on_hand - line.qty, updated_at: now });
-      } else {
-        await ctx.db.insert("pos_stock_levels", {
-          inventory_sku_id: line.skuId, on_hand: -line.qty, updated_at: now,
-        });
-      }
+      await upsertStockLevel(ctx, line.skuId, -line.qty, now);
 
       // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
       await logAudit(ctx, {
@@ -132,18 +158,8 @@ export const _getOnHandBySkus_internal = internalQuery({
 export const _decrementOnHandUnchecked_internal = internalMutation({
   args: { skuId: v.id("pos_inventory_skus"), qty: v.number() },
   handler: async (ctx, args) => {
-    const level = await ctx.db
-      .query("pos_stock_levels")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
-      .first();
     const now = Date.now();
-    if (level) {
-      await ctx.db.patch(level._id, { on_hand: level.on_hand - args.qty, updated_at: now });
-    } else {
-      await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: args.skuId, on_hand: -args.qty, updated_at: now,
-      });
-    }
+    await upsertStockLevel(ctx, args.skuId, -args.qty, now);
   },
 });
 
@@ -220,17 +236,7 @@ export const _refundReCredit_internal = internalMutation({
         });
 
         // INCREMENT the denormalised on_hand cache (opposite of sale).
-        const level = await ctx.db
-          .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-          .first();
-        if (level) {
-          await ctx.db.patch(level._id, { on_hand: level.on_hand + movementQty, updated_at: now });
-        } else {
-          await ctx.db.insert("pos_stock_levels", {
-            inventory_sku_id: skuId, on_hand: movementQty, updated_at: now,
-          });
-        }
+        await upsertStockLevel(ctx, skuId, movementQty, now);
 
         // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
         await logAudit(ctx, {

@@ -1186,6 +1186,64 @@ function RefundVariant({ token, request }: RefundProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Terminal-state per-kind copy registry
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Collapses 6 near-identical resolved/denied JSX blocks (3 kinds × 2 states)
+// into one config object + one render helper per terminal status. Adding a new
+// approval kind in v0.6 requires one entry here rather than two more blocks.
+//
+// `req` is typed as `any` at the call site (intentional — the parent narrows
+// `request.kind` before the lookup, so the variant fields each renderer reads
+// are guaranteed present by the discriminated union at that point). A mapped
+// generic would be tighter but adds a typing tax disproportionate to a 3-kind
+// table; the call-site narrowing is the safety net.
+
+type TerminalCopy = {
+  resolvedMsg: (req: any) => React.ReactNode;
+  deniedMsg: (req: any, denierLabel: string) => React.ReactNode;
+  deniedExtra?: (req: any) => React.ReactNode;
+};
+
+const TERMINAL_COPY: Record<string, TerminalCopy> = {
+  staff_pin_reset: {
+    resolvedMsg: (req) => (
+      <>✓ {req.subject_staff_name}&apos;s PIN has already been reset.</>
+    ),
+    deniedMsg: (req, denierLabel) => (
+      <>
+        PIN reset for {req.subject_staff_name} was declined by {denierLabel}.
+      </>
+    ),
+    deniedExtra: (req) => (
+      <p className="text-xs text-muted-foreground">
+        {req.subject_staff_name} stays locked until the natural lockout cycle expires.
+      </p>
+    ),
+  },
+  manual_payment_override: {
+    resolvedMsg: (req) => (
+      <>✓ Payment of {rp(req.display.amount_idr)} already approved.</>
+    ),
+    deniedMsg: (req, denierLabel) => (
+      <>
+        Payment of {rp(req.display.amount_idr)} was declined by {denierLabel}.
+      </>
+    ),
+  },
+  refund: {
+    resolvedMsg: (req) => (
+      <>✓ Refund of {rp(req.display.total_refund)} already approved.</>
+    ),
+    deniedMsg: (req, denierLabel) => (
+      <>
+        Refund of {rp(req.display.total_refund)} was declined by {denierLabel}.
+      </>
+    ),
+  },
+};
+
+// ────────────────────────────────────────────────────────────────────────────
 // Root route component — dispatches on request.kind
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1221,42 +1279,21 @@ export default function Approve() {
 
   // ── Already RESOLVED (terminal: approved + committed) ───────────────────
   if (request.status === "resolved") {
-    if (request.kind === "staff_pin_reset") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <CheckCircle2 className="h-8 w-8 text-teal-600" />
-          <p className="text-sm font-medium">
-            ✓ {request.subject_staff_name}&apos;s PIN has already been reset.
-          </p>
-        </main>
-      );
-    }
-    if (request.kind === "manual_payment_override") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <CheckCircle2 className="h-8 w-8 text-teal-600" />
-          <p className="text-sm font-medium">
-            ✓ Payment of {rp(request.display.amount_idr)} already approved.
-          </p>
-        </main>
-      );
-    }
-    if (request.kind === "refund") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <CheckCircle2 className="h-8 w-8 text-teal-600" />
-          <p className="text-sm font-medium">
-            ✓ Refund of {rp(request.display.total_refund)} already approved.
-          </p>
-        </main>
-      );
-    }
+    const copy = TERMINAL_COPY[request.kind];
+    if (!copy) return null;
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <p className="text-sm font-medium">{copy.resolvedMsg(request)}</p>
+      </main>
+    );
   }
 
   // ── Already DENIED (terminal: declined, includes reason + manager) ──────
   if (request.status === "denied") {
     // System auto-revoke due to too many wrong PIN attempts — show a distinct
     // "ask for a fresh approval" message rather than the manager-deny copy.
+    // Preserved AS-IS; must run BEFORE the per-kind dispatch.
     if (request.deny_reason === "too_many_pin_attempts") {
       return (
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
@@ -1276,54 +1313,20 @@ export default function Approve() {
         : denierName ?? denierCode ?? "a manager";
     const reason = request.deny_reason;
 
-    if (request.kind === "staff_pin_reset") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <XCircle className="h-8 w-8 text-destructive" />
-          <p className="text-sm font-medium">
-            PIN reset for {request.subject_staff_name} was declined by {denierLabel}.
+    const copy = TERMINAL_COPY[request.kind];
+    if (!copy) return null;
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">{copy.deniedMsg(request, denierLabel)}</p>
+        {reason && (
+          <p className="text-sm text-muted-foreground italic">
+            &ldquo;{reason}&rdquo;
           </p>
-          {reason && (
-            <p className="text-sm text-muted-foreground italic">
-              &ldquo;{reason}&rdquo;
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {request.subject_staff_name} stays locked until the natural lockout cycle expires.
-          </p>
-        </main>
-      );
-    }
-    if (request.kind === "manual_payment_override") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <XCircle className="h-8 w-8 text-destructive" />
-          <p className="text-sm font-medium">
-            Payment of {rp(request.display.amount_idr)} was declined by {denierLabel}.
-          </p>
-          {reason && (
-            <p className="text-sm text-muted-foreground italic">
-              &ldquo;{reason}&rdquo;
-            </p>
-          )}
-        </main>
-      );
-    }
-    if (request.kind === "refund") {
-      return (
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-          <XCircle className="h-8 w-8 text-destructive" />
-          <p className="text-sm font-medium">
-            Refund of {rp(request.display.total_refund)} was declined by {denierLabel}.
-          </p>
-          {reason && (
-            <p className="text-sm text-muted-foreground italic">
-              &ldquo;{reason}&rdquo;
-            </p>
-          )}
-        </main>
-      );
-    }
+        )}
+        {copy.deniedExtra?.(request)}
+      </main>
+    );
   }
 
   // ── Dispatch on kind ──────────────────────────────────────────────────────

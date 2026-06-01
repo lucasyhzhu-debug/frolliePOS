@@ -2,9 +2,21 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
-## v0.5.1 — Refunds + customer receipts (unreleased)
+## v0.5.1c — Housekeeping (2026-06-01)
 
-### PR A — receipt subsystem (shipped <date will be filled at ship-it>)
+Pure refactors lifted from the v0.5.1b triple-review + `/simplify xhigh` "deferred" bucket. Three crisp items, three commits, no behaviour change.
+
+- **Shared `sha256Hex` helper** at `convex/lib/tokenHash.ts` ("use node"). Approval-token and refund-token hashing (ADR-029) was duplicated byte-for-byte between `convex/approvals/actions.ts` and `convex/refunds/actions.ts`. Single source of truth for the security primitive; future kind additions (kind #4 in v0.6) import rather than copy.
+- **`upsertStockLevel(ctx, skuId, delta, now)` helper** in `convex/inventory/internal.ts`. Three existing `pos_stock_levels` upsert sites (sale-decrement, manager-adjust, refund re-credit) collapsed to a single helper. v0.5.2 inventory plan adds two more upsert sites (recount + low-stock delta) — landing the helper now avoids writing those duplications in the first place. ADR-018 invariant (negative `on_hand` allowed, flagged on transactions) preserved — the helper does not block negatives. `.first()` retained over `.unique()` for zero-behaviour-change.
+- **Collapsed `Approve()` terminal-state dispatch** in `src/routes/approve/index.tsx`. Six near-identical `CheckCircle2`/`XCircle` blocks (three kinds × resolved + denied) replaced by a per-kind `{ resolvedMsg, deniedMsg, deniedExtra? }` config table. The system auto-revoke special case (`deny_reason === "too_many_pin_attempts"`) and the `denierLabel` fallback chain are preserved byte-for-byte. Kind #4 (v0.6 spoilage/void) will add one TerminalCopy entry instead of two CheckCircle2/XCircle blocks.
+
+Net diff: ~+9 LOC across three files (helpers cost more lines than they save on this small N, but the drift hazard is what was bought down). Tests: 658/658 still passing; no test changes required.
+
+Deferred to v0.6 (when kind #4 reveals the seam): 3-way variant unification in `/approve` (PinReset/ManualPayment/Refund variants share ~330 lines each), `_computeRefundPreview` ↔ `_commitRefund` dual-loop helper, `replayCachedOr<T>` action-envelope helper.
+
+## v0.5.1 — Refunds + customer receipts (2026-06-01)
+
+### PR A — receipt subsystem (shipped 2026-06-01)
 
 - Every paid sale now produces a shareable signed-URL receipt at `/r/<token>` (ADR-021, ADR-022). 32-byte URL-safe token minted in `_confirmPaid` via the shared `mintUrlSafeToken()` helper.
 - Hardcoded receipt template per ADR-039 §4 (Indonesian language, teal accent, 🍪 emoji as logo placeholder, Instagram CTA). NPWP + tax disclaimers omitted (PPN 0 until PKP registration). Refund block stubbed (empty `refunds[]`) — populated in PR B.
