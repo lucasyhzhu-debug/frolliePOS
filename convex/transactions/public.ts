@@ -547,3 +547,45 @@ export const deleteDraft = mutation({
     },
   ),
 });
+
+/**
+ * v0.5.3a: mint-on-share. The first real caller of the dormant v0.5.1 lazy-mint
+ * seam (receipts/internal._lazyMintReceiptToken_internal). Idempotent — if the
+ * transaction already has a receipt_token, the underlying internal returns the
+ * existing one without re-minting and without writing an audit row.
+ *
+ * Public-mutation contract per rule #21: idempotencyKey + withIdempotency +
+ * authCheck wired from day one. The handler re-resolves the session inside the
+ * cached body to capture staffId for the audit on first mint.
+ *
+ * Throws (via the lazy-mint internal):
+ *   - SESSION_INVALID — handled in authCheck before the cache lookup
+ *   - TXN_NOT_FOUND — txn does not exist
+ *   - TXN_NOT_PAID  — txn exists but is draft / awaiting_payment / cancelled
+ *                     (minting a token for a non-paid txn would leak a
+ *                     viewable receipt for an incomplete sale)
+ */
+export const shareReceipt = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+  },
+  handler: withIdempotency<
+    { sessionId: Id<"staff_sessions">; txnId: Id<"pos_transactions">; idempotencyKey: string },
+    { token: string }
+  >(
+    "transactions.shareReceipt",
+    async (ctx, args): Promise<{ token: string }> => {
+      const { staffId } = await resolveSessionStaff(ctx, args.sessionId);
+      const { token } = await ctx.runMutation(
+        internal.receipts.internal._lazyMintReceiptToken_internal,
+        { transactionId: args.txnId, actor: staffId },
+      );
+      return { token };
+    },
+    {
+      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+    },
+  ),
+});
