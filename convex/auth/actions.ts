@@ -111,9 +111,16 @@ export const loginWithPin = action({
 });
 
 /**
- * Create a new staff member. Manager session required. Hash is computed in the
- * Node action runtime (argon2id), then committed via the internal V8 mutation.
- * Manager check enforced inside the wrapped mutation per ADR-013 hazard note.
+ * Create a new staff member. Manager session + manager PIN required (v0.5.3b).
+ * Hash is computed in the Node action runtime (argon2id), then committed via
+ * the internal V8 mutation.
+ *
+ * PIN gate (Task 4): the caller proves they are an active manager via
+ * `verifyManagerPinOrThrow` BEFORE the new staffer's PIN is hashed. The helper
+ * runs the shared lockout pre-check + argon2 + failed-attempt recording funnel
+ * against the MANAGER's own hash (records lockout/fail against the manager).
+ * The inner `_createStaffCommit_internal` still defensively re-checks the
+ * manager session (ADR-013 hazard note) and provides idempotency caching.
  */
 export const createStaff = action({
   args: {
@@ -122,6 +129,7 @@ export const createStaff = action({
     name: v.string(),
     role: v.union(v.literal("staff"), v.literal("manager")),
     pin: v.string(),
+    managerPin: v.string(),
   },
   handler: async (
     ctx,
@@ -130,6 +138,12 @@ export const createStaff = action({
     if (!/^\d{4}$/.test(args.pin)) {
       throw new Error("PIN must be exactly 4 digits");
     }
+    // PIN gate: prove the caller is an active manager (records lockout on fail).
+    await verifyManagerPinOrThrow(ctx, {
+      sessionId: args.sessionId,
+      managerPin: args.managerPin,
+      idempotencyKey: args.idempotencyKey,
+    });
     const pin_hash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
       pin: args.pin,
     });

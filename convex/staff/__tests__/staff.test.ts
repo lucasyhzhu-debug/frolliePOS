@@ -223,7 +223,7 @@ describe("createStaff", () => {
 
     const newStaff = await t.action(api.auth.actions.createStaff, {
       sessionId: mgrSession, name: "Citra", role: "staff", pin: "1234",
-      idempotencyKey: "create-1",
+      managerPin: "9999", idempotencyKey: "create-1",
     });
     expect(newStaff.name).toBe("Citra");
 
@@ -231,8 +231,8 @@ describe("createStaff", () => {
     await expect(
       t.action(api.auth.actions.createStaff, {
         sessionId: staffSession, name: "Eka", role: "staff", pin: "1111",
-        idempotencyKey: "create-2",
+        managerPin: "1234", idempotencyKey: "create-2",
       })
-    ).rejects.toThrow(/manager/i);
+    ).rejects.toThrow(/NOT_MANAGER|manager/i);
   });
 });
