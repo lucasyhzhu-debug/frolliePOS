@@ -8,6 +8,7 @@ import { rp, fmtTime } from "@/lib/format";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { INSTRUMENT_LABEL, REFUND_BADGE } from "@/lib/pos-labels";
 
 /**
  * v0.5.3a T9 — transaction history list.
@@ -21,27 +22,6 @@ import { Badge } from "@/components/ui/badge";
  * is harmless without it because Link just navigates — the destination
  * resolves later when the router gains the entry.
  */
-
-const INSTRUMENT_LABEL: Record<"qris" | "bca_va" | "unknown", string> = {
-  qris: "QRIS",
-  bca_va: "BCA VA",
-  unknown: "—",
-};
-
-const REFUND_BADGE = {
-  none: {
-    label: "LUNAS",
-    cls: "bg-emerald-100 text-emerald-800 border-transparent",
-  },
-  partial: {
-    label: "SEBAGIAN DIKEMBALIKAN",
-    cls: "bg-amber-100 text-amber-800 border-transparent",
-  },
-  full: {
-    label: "DIKEMBALIKAN",
-    cls: "bg-red-100 text-red-800 border-transparent",
-  },
-} as const;
 
 export default function HistoryIndex() {
   const session = useSession();

@@ -19,14 +19,9 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { rp } from "@/lib/format";
+import { INSTRUMENT_LABEL } from "@/lib/pos-labels";
 
 const HOURLY_LABELS = [0, 6, 12, 18, 24];
-
-const INSTRUMENT_LABEL: Record<"qris" | "bca_va" | "unknown", string> = {
-  qris: "QRIS",
-  bca_va: "BCA VA",
-  unknown: "Tidak diketahui",
-};
 
 export default function MgrDashboard() {
   const session = useSession();
@@ -178,7 +173,7 @@ function PaymentMixCard({ s }: { s: DaySummary }) {
 function TopSkusCard({ s }: { s: DaySummary }) {
   return (
     <Card className="p-4" data-testid="top-skus-card">
-      <h3 className="mb-3 text-sm font-semibold">Top SKU</h3>
+      <h3 className="mb-3 text-sm font-semibold">Top SKU (qty terjual, bruto)</h3>
       {s.topSkus.length === 0 ? (
         <p className="text-sm text-muted-foreground">Belum ada penjualan.</p>
       ) : (
@@ -204,7 +199,7 @@ function HourlyCurveCard({ s }: { s: DaySummary }) {
   const max = Math.max(1, ...s.hourlyCurve);
   return (
     <Card className="p-4" data-testid="hourly-curve-card">
-      <h3 className="mb-2 text-sm font-semibold">Per jam</h3>
+      <h3 className="mb-2 text-sm font-semibold">Transaksi per jam</h3>
       <div className="flex h-24 items-end gap-px rounded bg-muted/30 p-1">
         {s.hourlyCurve.map((n, h) => (
           <div

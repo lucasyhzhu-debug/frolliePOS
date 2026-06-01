@@ -100,7 +100,10 @@ export function computeDaySummary(txns: DayTxn[]): DaySummary {
     // reason. paid_at is server-set inside _confirmPaid (ADR-031) and is
     // guaranteed for status="paid" rows.
     hourlyCurve[wibHour(t.paid_at)]++;
-    if (t.voucher_discount > 0) { voucherCount++; voucherTotal += t.voucher_discount; }
+    // M4: gate on the snapshot, not the discount value. A voucher can apply
+    // and still yield 0 (e.g. % discount on tiny cart) — those txns still
+    // count as voucher usage; total stays accurate (0 contributes 0).
+    if (t.voucher_code_snapshot) { voucherCount++; voucherTotal += t.voucher_discount; }
     for (const l of t.lines) {
       const e = skuMap.get(l.product_code_snapshot) ?? { code: l.product_code_snapshot, name: l.product_name_snapshot, qty: 0 };
       e.qty += l.qty;

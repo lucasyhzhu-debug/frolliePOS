@@ -6,6 +6,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
 import { rp, fmtTime, fmtDate, buildReceiptUrl } from "@/lib/format";
+import { REFUND_BADGE } from "@/lib/pos-labels";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -28,21 +29,6 @@ import { toast } from "sonner";
  * Note: T11 wires the `/history/:txnId` route to the router. This file ships
  * here so it typechecks and tests pass in isolation.
  */
-
-const REFUND_BADGE = {
-  none: {
-    label: "LUNAS",
-    cls: "bg-emerald-100 text-emerald-800 border-transparent",
-  },
-  partial: {
-    label: "SEBAGIAN DIKEMBALIKAN",
-    cls: "bg-amber-100 text-amber-800 border-transparent",
-  },
-  full: {
-    label: "DIKEMBALIKAN",
-    cls: "bg-red-100 text-red-800 border-transparent",
-  },
-} as const;
 
 // "polling" is a legacy literal for pre-ADR-036 rows; v0.4+ writers emit only
 // "webhook" / "manual_override" / null. Kept so archived v0.3 receipts render.
