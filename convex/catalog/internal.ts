@@ -1,4 +1,4 @@
-import { internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 
@@ -86,5 +86,47 @@ export const _getProductsByIds_internal = internalQuery({
           }]
         : [],
     );
+  },
+});
+
+/**
+ * Batch read of inventory SKUs by id, projected to the minimal surface the
+ * inventory module needs (name + low_threshold). Exposed so inventory can
+ * compose alert/recount views without reaching into catalog-owned
+ * `pos_inventory_skus` directly (ADR-034 module boundary — inventory is the
+ * consumer here, catalog is the owner).
+ *
+ * Missing ids are silently dropped (same pattern as
+ * `_getProductsByIds_internal`); the caller treats absence as the sku being
+ * deleted/inactive and decides locally.
+ */
+export const _getSkusByIds_internal = internalQuery({
+  args: { skuIds: v.array(v.id("pos_inventory_skus")) },
+  handler: async (ctx, args): Promise<Array<{
+    skuId: Id<"pos_inventory_skus">;
+    name: string;
+    low_threshold: number;
+  }>> => {
+    // Parallel point lookups — missing ids drop out via flatMap.
+    const rows = await Promise.all(args.skuIds.map((id) => ctx.db.get(id)));
+    return rows.flatMap((r) =>
+      r ? [{ skuId: r._id, name: r.name, low_threshold: r.low_threshold }] : [],
+    );
+  },
+});
+
+/**
+ * Patch a single SKU's `low_threshold`. Exposed so inventory's manager-gated
+ * threshold-edit mutation can update the catalog-owned `pos_inventory_skus`
+ * row without inventory writing the catalog table directly (ADR-034 module
+ * boundary — inventory is the consumer, catalog owns the table).
+ *
+ * Caller is responsible for auth/audit/idempotency; this internal is a thin
+ * write seam.
+ */
+export const _setLowThreshold_internal = internalMutation({
+  args: { skuId: v.id("pos_inventory_skus"), lowThreshold: v.number() },
+  handler: async (ctx, args): Promise<void> => {
+    await ctx.db.patch(args.skuId, { low_threshold: args.lowThreshold });
   },
 });

@@ -24,6 +24,15 @@ async function seedProductId(ctx: any) {
   });
 }
 
+/** Insert a minimal inventory SKU with an explicit low_threshold. */
+async function seedSkuWithThreshold(t: any, sku: string, low_threshold: number) {
+  return t.run((ctx: any) =>
+    ctx.db.insert("pos_inventory_skus", {
+      sku, name: sku, unit: "piece", low_threshold, active: true, created_at: Date.now(),
+    }),
+  );
+}
+
 describe("inventory/internal", () => {
   it("_recordSaleMovement_internal: writes one movement row per line, decrements on_hand, updates updated_at", async () => {
     const t = convexTest(schema);
@@ -138,6 +147,18 @@ describe("inventory/internal", () => {
 
     expect(projected[setup.skuA]).toBe(7);
     expect(projected[setup.skuB]).toBe(-2);
+  });
+});
+
+describe("catalog internals for inventory", () => {
+  it("_getSkusByIds_internal returns name + low_threshold; _setLowThreshold_internal patches", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 5);
+    const got = await t.query(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
+    expect(got[0]).toMatchObject({ skuId, name: "x", low_threshold: 5 });
+    await t.mutation(internal.catalog.internal._setLowThreshold_internal, { skuId, lowThreshold: 25 });
+    const got2 = await t.query(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
+    expect(got2[0].low_threshold).toBe(25);
   });
 });
 
