@@ -45,7 +45,11 @@ export const createProduct = action({
       managerPin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
+    // Pass derived `:commit` key so the wrapped internal short-circuits an
+    // action retry after a crash between commit and action-level cache write
+    // (mirrors refunds._commitRefund_internal pattern).
     const res = await ctx.runMutation(internal.catalog.internal._createProductCommit_internal, {
+      idempotencyKey: `${args.idempotencyKey}:commit`,
       mgrId: managerId,
       sku_family: args.sku_family,
       name: args.name,
@@ -91,7 +95,11 @@ export const updateProductPricing = action({
       managerPin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
+    // Pass derived `:commit` key so the wrapped internal short-circuits an
+    // action retry after a crash between commit and action-level cache write
+    // (mirrors refunds._commitRefund_internal pattern).
     await ctx.runMutation(internal.catalog.internal._updatePricingCommit_internal, {
+      idempotencyKey: `${args.idempotencyKey}:commit`,
       mgrId: managerId,
       productId: args.productId,
       price_idr: args.price_idr,

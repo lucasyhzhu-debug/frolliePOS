@@ -2,6 +2,7 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 
 /**
  * Active inventory SKU ids. Exposed so other modules (e.g. inventory) can
@@ -146,9 +147,16 @@ export const _setLowThreshold_internal = internalMutation({
  * cache; this internal owns the row insert + audit in one transaction so
  * the audit row can never desync from the product row. Price-integer guard
  * is repeated here as defense-in-depth (the action also validates upstream).
+ *
+ * v0.5.3b post-review fix: action retry after a crash between commit and
+ * action-level cache write would re-execute and double-insert the product.
+ * withIdempotency on the `:commit`-derived key short-circuits the retry. See
+ * docs/PATTERNS/idempotency-dual-call-authcheck.md and
+ * refunds._commitRefund_internal for the canonical shape.
  */
 export const _createProductCommit_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     mgrId: v.id("staff"),
     sku_family: v.string(),
     name: v.string(),
@@ -159,34 +167,51 @@ export const _createProductCommit_internal = internalMutation({
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<{ productId: Id<"pos_products"> }> => {
-    if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
-      throw new Error("PRICE_INVALID");
-    }
-    const now = Date.now();
-    const productId = await ctx.db.insert("pos_products", {
-      sku_family: args.sku_family,
-      name: args.name.trim(),
-      pack_label: args.pack_label,
-      price_idr: args.price_idr,
-      tax_rate: args.tax_rate,
-      sort_order: args.sort_order,
-      initials: args.initials,
-      hue: args.hue,
-      active: true,
-      created_at: now,
-      updated_at: now,
-    });
-    await logAudit(ctx, {
-      actor_id: args.mgrId,
-      action: "product.created",
-      entity_type: "pos_products",
-      entity_id: productId,
-      source: "booth_inline",
-      metadata: { name: args.name, price_idr: args.price_idr },
-    });
-    return { productId };
-  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      mgrId: Id<"staff">;
+      sku_family: string;
+      name: string;
+      pack_label: string;
+      price_idr: number;
+      tax_rate: number;
+      sort_order: number;
+      initials?: string;
+      hue?: number;
+    },
+    { productId: Id<"pos_products"> }
+  >(
+    "catalog._createProductCommit_internal",
+    async (ctx, args): Promise<{ productId: Id<"pos_products"> }> => {
+      if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
+        throw new Error("PRICE_INVALID");
+      }
+      const now = Date.now();
+      const productId = await ctx.db.insert("pos_products", {
+        sku_family: args.sku_family,
+        name: args.name.trim(),
+        pack_label: args.pack_label,
+        price_idr: args.price_idr,
+        tax_rate: args.tax_rate,
+        sort_order: args.sort_order,
+        initials: args.initials,
+        hue: args.hue,
+        active: true,
+        created_at: now,
+        updated_at: now,
+      });
+      await logAudit(ctx, {
+        actor_id: args.mgrId,
+        action: "product.created",
+        entity_type: "pos_products",
+        entity_id: productId,
+        source: "booth_inline",
+        metadata: { name: args.name, price_idr: args.price_idr },
+      });
+      return { productId };
+    },
+  ),
 });
 
 /**
@@ -194,36 +219,55 @@ export const _createProductCommit_internal = internalMutation({
  * Reads `before` for the from→to audit metadata then patches in the same
  * transaction. Snapshot-on-line rule (CLAUDE.md #1) means historic
  * transactions are unaffected by this edit.
+ *
+ * v0.5.3b post-review fix: action retry after a crash between commit and
+ * action-level cache write would re-execute and double-emit the audit row.
+ * withIdempotency on the `:commit`-derived key short-circuits the retry. See
+ * docs/PATTERNS/idempotency-dual-call-authcheck.md and
+ * refunds._commitRefund_internal for the canonical shape.
  */
 export const _updatePricingCommit_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     mgrId: v.id("staff"),
     productId: v.id("pos_products"),
     price_idr: v.number(),
     tax_rate: v.number(),
   },
-  handler: async (ctx, args): Promise<{ ok: true }> => {
-    if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
-      throw new Error("PRICE_INVALID");
-    }
-    const before = await ctx.db.get(args.productId);
-    if (!before) throw new Error("PRODUCT_NOT_FOUND");
-    await ctx.db.patch(args.productId, {
-      price_idr: args.price_idr,
-      tax_rate: args.tax_rate,
-      updated_at: Date.now(),
-    });
-    await logAudit(ctx, {
-      actor_id: args.mgrId,
-      action: "product.updated",
-      entity_type: "pos_products",
-      entity_id: args.productId,
-      source: "booth_inline",
-      metadata: {
-        field: "pricing",
-        price_idr: { from: before.price_idr, to: args.price_idr },
-      },
-    });
-    return { ok: true as const };
-  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      mgrId: Id<"staff">;
+      productId: Id<"pos_products">;
+      price_idr: number;
+      tax_rate: number;
+    },
+    { ok: true }
+  >(
+    "catalog._updatePricingCommit_internal",
+    async (ctx, args): Promise<{ ok: true }> => {
+      if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
+        throw new Error("PRICE_INVALID");
+      }
+      const before = await ctx.db.get(args.productId);
+      if (!before) throw new Error("PRODUCT_NOT_FOUND");
+      await ctx.db.patch(args.productId, {
+        price_idr: args.price_idr,
+        tax_rate: args.tax_rate,
+        updated_at: Date.now(),
+      });
+      await logAudit(ctx, {
+        actor_id: args.mgrId,
+        action: "product.updated",
+        entity_type: "pos_products",
+        entity_id: args.productId,
+        source: "booth_inline",
+        metadata: {
+          field: "pricing",
+          price_idr: { from: before.price_idr, to: args.price_idr },
+        },
+      });
+      return { ok: true as const };
+    },
+  ),
 });
