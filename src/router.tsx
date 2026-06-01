@@ -52,6 +52,7 @@ const MgrHome = lazy(() => import("@/routes/mgr/home"));
 const MgrDashboard = lazy(() => import("@/routes/mgr/dashboard"));
 const MgrProducts = lazy(() => import("@/routes/mgr/products"));
 const MgrReceipt = lazy(() => import("@/routes/mgr/receipt"));
+const MgrRefundsPending = lazy(() => import("@/routes/mgr/refunds-pending"));
 const MgrTelegramChats = lazy(() => import("@/routes/mgr/telegram-chats"));
 
 const Wait = lazy(() => import("@/routes/wait"));
@@ -90,6 +91,7 @@ const routes: RouteObject[] = [
       { path: "mgr/dashboard", element: <MgrDashboard /> },
       { path: "mgr/products", element: <MgrProducts /> },
       { path: "mgr/receipt", element: <MgrReceipt /> },
+      { path: "mgr/refunds-pending", element: <MgrRefundsPending /> },
       { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
     ],
   },
