@@ -352,6 +352,11 @@ export const _checkLowStock_internal = internalMutation({
         sku_name: sku.name,
         on_hand: onHand,
         low_threshold: sku.low_threshold,
+        // C2: thread the freshly-written alerted_at so the dispatch
+        // action's idempotency key is unique per flag-insert cycle.
+        // Keying on on_hand would collide across yo-yo bounces within
+        // the 24h action-cache window (e.g. 5 → 6 → 5).
+        alerted_at: now,
       });
     } else if (!below && flag) {
       await ctx.db.delete(flag._id);
@@ -370,10 +375,15 @@ export const _checkLowStock_internal = internalMutation({
  * Swallow that one error string only — other errors propagate so genuine
  * Telegram outages surface in the Convex dashboard.
  *
- * idempotencyKey = `lowstock:<sku_id>:<on_hand>` so the same SKU at the same
- * on_hand level never re-sends; crossing two thresholds (e.g. 5→4→3 against a
- * threshold of 20) DOES emit two messages. Keyed on sku_id (not sku_name) since
- * display names are not guaranteed unique across SKUs.
+ * idempotencyKey = `lowstock:<sku_id>:<alerted_at>` where alerted_at is the
+ * timestamp written to the `pos_low_stock_alerts` row by the calling
+ * `_checkLowStock_internal` mutation. C2: keying on `alerted_at` rather than
+ * `on_hand` means each flag-insert cycle gets a unique key, so the 24h
+ * action cache can't collapse two distinct bounce events. (`on_hand` could
+ * legitimately repeat across yo-yo movements — e.g. 5 → 6 → 5 trips the
+ * threshold twice but at the same on_hand value, and both bounces should
+ * dispatch.) Keyed on sku_id (not sku_name) since display names are not
+ * guaranteed unique across SKUs.
  */
 export const _dispatchLowStockAlert_internal = internalAction({
   args: {
@@ -381,6 +391,7 @@ export const _dispatchLowStockAlert_internal = internalAction({
     sku_name: v.string(),
     on_hand: v.number(),
     low_threshold: v.number(),
+    alerted_at: v.number(),
   },
   handler: async (ctx, args) => {
     let chatId: string;
@@ -401,7 +412,7 @@ export const _dispatchLowStockAlert_internal = internalAction({
         on_hand: args.on_hand,
         low_threshold: args.low_threshold,
       },
-      idempotencyKey: `lowstock:${args.sku_id}:${args.on_hand}`,
+      idempotencyKey: `lowstock:${args.sku_id}:${args.alerted_at}`,
       chatIdOverride: chatId,
     });
   },
