@@ -49,6 +49,7 @@ async function buildVmFromTxnWithLines(
       qty: number;
       unit_price_snapshot: number;
       line_subtotal: number;
+      refunded_qty?: number;
     }>;
   },
 ): Promise<ReceiptViewModel | null> {
@@ -69,6 +70,12 @@ async function buildVmFromTxnWithLines(
   const payment_method = invoice ? humanMethodFromInvoice(invoice) : "—";
   const rrn = invoice?.receipt_id ?? undefined;
 
+  // Cross-module per ADR-034 — refunds module owns pos_refunds.
+  const refundRows = await ctx.runQuery(
+    internal.refunds.internal._listForTransaction_internal,
+    { transactionId: txn._id },
+  );
+
   return {
     receipt_number: txn.receipt_number,
     paid_at: txn.paid_at,
@@ -83,9 +90,12 @@ async function buildVmFromTxnWithLines(
       qty: l.qty,
       unit_price: l.unit_price_snapshot,
       line_subtotal: l.line_subtotal,
-      refunded_qty: (l as { refunded_qty?: number }).refunded_qty ?? 0,        // optional per spec C1 — PR B adds the field; PR A reads via shape cast
+      refunded_qty: l.refunded_qty ?? 0,
     })),
-    refunds: [],                                 // PR A: always empty (no refunds module yet)
+    refunds: refundRows.map((r) => ({
+      refund_amount: r.total_refund,
+      refunded_at: r.created_at,
+    })),
     settings: RECEIPT_SETTINGS,
   };
 }
@@ -161,17 +171,40 @@ export const _writeCacheEntry_internal = internalMutation({
 /**
  * Purge a cached receipt by transaction id.
  *
- * PR A: stub that THROWS on call. No callers exist in PR A (refunds module
- * doesn't exist yet). PR B replaces the body with cache-purge by txn lookup
- * (read the txn's receipt_token, delete the matching pos_receipt_html_cache
- * row). The throw ensures any premature PR B wire-up from refunds/internal
- * fails CI loud, rather than leaving a stale "LUNAS" receipt cached for 24h
- * post-refund.
+ * PR B: real implementation. Called by `_commitRefund_internal` to invalidate
+ * the cached "LUNAS" receipt HTML after a refund commit so the next /r/<token>
+ * fetch regenerates with the up-to-date refund block.
+ *
+ * Cross-module read for the txn routes through transactions/internal per
+ * ADR-034. The aggregate helper status-guards to paid txns — a refund commit
+ * on a missing or non-paid row is a data-integrity violation; let it bubble.
+ * Reading pos_receipt_html_cache directly is intra-module (receipts owns the
+ * table) and needs no allowlist exemption.
  */
 export const _purgeReceiptCache_internal = internalMutation({
   args: { transactionId: v.id("pos_transactions") },
-  handler: async () => {
-    throw new Error("_purgeReceiptCache_internal: PR A stub — PR B replaces");
+  handler: async (ctx, args) => {
+    const result = await ctx.runQuery(
+      internal.transactions.internal._getPaidTxnWithLinesForReceipt_internal,
+      { transactionId: args.transactionId },
+    );
+    if (!result) {
+      throw new Error(`PURGE_TXN_NOT_PAID — refund commit on missing or non-paid txn ${args.transactionId}; investigate`);
+    }
+    if (!result.txn.receipt_token) {
+      throw new Error(
+        `PURGE_NO_TOKEN — refund commit on txn ${args.transactionId} without receipt_token; ` +
+        `investigate _confirmPaid token-mint flow OR refund flow reached pre-v0.5.1 paid row ` +
+        `(Q1=B recent-list cutoff should prevent this)`,
+      );
+    }
+    // Delete the cached HTML row if it exists. If not, no-op — the next
+    // /r/<token> request will regenerate fresh.
+    const cached = await ctx.db
+      .query("pos_receipt_html_cache")
+      .withIndex("by_token", (q) => q.eq("token", result.txn.receipt_token!))
+      .unique();
+    if (cached) await ctx.db.delete(cached._id);
   },
 });
 
