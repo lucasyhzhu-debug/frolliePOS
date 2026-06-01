@@ -189,6 +189,10 @@ export default function RefundDetail() {
       });
       toast.success("Refund committed");
       setPickerOpen(false);
+      // N2: clear the persisted idempotency key on success so a future refund
+      // attempt for the same txn (e.g. partial refund #2) mints a fresh key
+      // instead of replaying the now-stale cached commit blob for 24h.
+      if (txnId) await clearIntent(`refund-inline:${txnId}`);
       navigate("/refund");
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Refund failed";
@@ -225,8 +229,12 @@ export default function RefundDetail() {
   // ---- approval terminal handlers ----
   // On denied/expired, clear the telegram idempotency key so a retry mints a
   // fresh requestId instead of replaying the resolved/denied blob.
-  const handleApprovalResolved = () => {
+  const handleApprovalResolved = async () => {
     toast.success("Manager approved — refund committed.");
+    // N2: clear the persisted telegram idempotency key on resolve so a future
+    // refund attempt mints a fresh requestId instead of replaying the cached
+    // request blob for 24h.
+    if (txnId) await clearIntent(`refund-telegram:${txnId}`);
     navigate("/refund");
   };
   const handleApprovalDenied = async () => {
