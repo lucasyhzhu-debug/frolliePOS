@@ -38,3 +38,6 @@ frollie-pos design files/
 
 # superpowers brainstorming visual companion
 .superpowers/
+
+# pre-merge receipt visual verification artefacts
+.tmp-receipt-preview/
