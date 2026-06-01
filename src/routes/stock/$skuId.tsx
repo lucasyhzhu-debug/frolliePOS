@@ -33,8 +33,12 @@ export default function SkuDetailScreen() {
       });
       await clearIntent(intent);
       toast.success("Ambang stok disimpan");
-    } catch {
-      toast.error("Hanya manajer");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("MANAGER_ONLY")) toast.error("Hanya manajer");
+      else if (msg.includes("NEGATIVE_THRESHOLD") || msg.includes("NON_INTEGER_THRESHOLD"))
+        toast.error("Nilai tidak valid");
+      else toast.error("Gagal menyimpan");
     }
   }
 

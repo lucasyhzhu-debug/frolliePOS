@@ -34,8 +34,12 @@ export default function RecountScreen() {
       toast.success(`${res.changed} SKU diperbarui`);
       await clearIntent(intent);
       navigate("/stock");
-    } catch {
-      toast.error("Gagal menyimpan hitungan");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("DUPLICATE_SKU")) toast.error("SKU duplikat dalam satu hitungan");
+      else if (msg.includes("NEGATIVE_COUNT") || msg.includes("NON_INTEGER_COUNT"))
+        toast.error("Hitungan harus bilangan bulat ≥ 0");
+      else toast.error("Gagal menyimpan hitungan");
     } finally {
       setBusy(false);
     }
