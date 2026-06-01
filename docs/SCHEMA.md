@@ -495,6 +495,12 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 |---|---|---|
 | `_id` | `Id<"pos_settings">` | One row only (singleton pattern) |
 | `founders_summary_enabled` | `boolean` | Controls whether shift-end summary is shared to Founders group. Read-time default `true` when row absent ([ADR-033](./ADR/033-founders-shift-summary-share.md)) |
+| `receipt_business_name` | `string?` | *(v0.5.3b)* Receipt header business name (e.g. `"Frollie"`). Read-time default applied by `_getSettings_internal` when absent |
+| `receipt_address` | `string?` | *(v0.5.3b)* Receipt header address line |
+| `receipt_contact` | `string?` | *(v0.5.3b)* Receipt header contact (phone / website) |
+| `receipt_instagram_handle` | `string?` | *(v0.5.3b)* IG handle for the receipt footer (e.g. `"@frollie"`) |
+| `receipt_footer_text` | `string?` | *(v0.5.3b)* Free-text footer line on the receipt (e.g. "Terima kasih") |
+| `receipt_logo_storage_id` | `Id<"_storage">?` | *(v0.5.3b)* Optional uploaded logo (Convex storage). Rendered as `<img>` above the header text when present. Set via `generateLogoUploadUrl` → `updateReceiptConfig` |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
@@ -655,6 +661,13 @@ refund.committed            # _commitRefund_internal — pos_refunds row inserte
 refund.approval_resolved    # Emitted when an approval request of kind=refund is marked resolved on the Telegram path (_markResolved_internal). Entity_type=pos_approval_requests. The corresponding refund.committed is emitted separately by the refund commit funnel — verbs are distinct (C2, v0.5.1 PR B post-review) so dashboards count refunds without double-counting Telegram-path rows.
 refund.denied               # _markDenied_internal via denyRequest (kind=refund) — manager denied the off-booth refund request (source=telegram_approval)
 refund.settled              # markRefundSettled — pending → settled bookkeeping flip (ADR-038, manager-session gated, source=booth_inline)
+# v0.5.3b admin slice (all source=booth_inline)
+staff.updated               # updateStaffName / setStaffRole — metadata={ field:"name"|"role", role? } (manager-session for name; manager-PIN for role)
+staff.deactivated           # deactivateStaff — manager-PIN gated; soft-delete via active=false
+product.created             # createProduct action — manager-PIN gated; metadata={ name, price_idr }
+product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count } | { price_idr:{ from, to } }
+product.archived            # archiveProduct — manager-session; soft-delete via active=false
+settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
 ```
 
 ## Relationship to Frollie Pro tables

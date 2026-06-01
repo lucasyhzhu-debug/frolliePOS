@@ -2,6 +2,42 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.3b — In-app admin (staff + product CRUD + receipt config) (unreleased)
+
+- Managers can create/edit/deactivate staff in-app under a tiered manager gate (manager-PIN for identity writes, manager-session for low-stakes config).
+- Managers can create/edit/archive products and edit inventory-SKU linkage; price/tax changes are PIN-gated.
+- Receipt branding (text + uploaded logo) configurable from the manager portal; config change purges the receipt cache so customers see new branding on next view.
+- `listStaff` no longer returns `pin_hash` (v0.2 follow-up — security cleanup).
+- New `verifyManagerPinOrThrow` helper; `resetStaffPin` refactored onto it.
+
+### Frontend
+- New `/mgr/staff` — create, rename, role-change, deactivate, reset-PIN under the appropriate gate.
+- New `/mgr/products` — create, edit metadata, edit inventory-SKU components, edit pricing (PIN), archive.
+- New `/mgr/receipt` — receipt branding form (business name / address / contact / IG / footer) + logo upload + live preview.
+
+### Backend
+- `convex/staff/actions.ts` — `setStaffRole`, `deactivateStaff` (both manager-PIN).
+- `convex/staff/public.ts::listStaff` — strips `pin_hash` from the returned shape; new internal `_helpers.ts` for the projection.
+- `convex/staff/public.ts::createStaff` — now manager-PIN gated.
+- `convex/staff/public.ts::updateStaffName` — manager-session (low-stakes rename).
+- `convex/catalog/actions.ts` — `createProduct`, `updateProductPricing` (both manager-PIN).
+- `convex/catalog/public.ts` — `updateProductMeta`, `setProductComponents`, `archiveProduct` (manager-session); `listAllProducts` admin query.
+- `convex/settings/public.ts` — `getReceiptConfig`, `updateReceiptConfig`, `generateLogoUploadUrl`.
+- `convex/receipts/internal.ts::_purgeAllReceiptCache_internal` — wiped on every receipt-config update.
+- `convex/receipts/template.ts` — reads branding from `pos_settings`; renders uploaded logo + configurable footer.
+- `convex/auth/verifyPin.ts::verifyManagerPinOrThrow` — extracted helper; `resetStaffPin` refactored onto it (consolidates manager-PIN verification).
+- `pos_settings` gains 6 optional fields: `receipt_business_name`, `receipt_address`, `receipt_contact`, `receipt_instagram_handle`, `receipt_footer_text`, `receipt_logo_storage_id`.
+- New audit verbs (all `source=booth_inline`): `staff.updated`, `staff.deactivated`, `product.created`, `product.updated`, `product.archived`, `settings.receipt_updated`.
+
+### Tests
+- New vitest suites cover staff admin (create/role/deactivate), product admin (CRUD + components + pricing), receipt config (CRUD + cache-purge), and the `verifyManagerPinOrThrow` funnel.
+
+### ADRs
+- None new — slice extends existing tables (`pos_settings`, `staff`, `pos_products`, `pos_product_components`) and follows the established manager-PIN / manager-session gate pattern.
+
+### Deploy notes
+- Backend additive (six new optional `pos_settings` fields; no migration needed). Receipt cache is purged on first config write, so existing minted receipts re-render lazily with new branding on next view.
+
 ## v0.5.3a — Reporting (transaction history + manager dashboard) (unreleased)
 
 Read-mostly reporting slice: staff get a same-day transaction history, managers get any-day plus a laptop-first dashboard. Customer receipts can be re-shared from history via `shareReceipt` — the first real caller of the v0.5.1 dormant lazy-mint seam. Zero schema change; reports are a pure function of `(WIB calendar date, role)` (ADR-031).
