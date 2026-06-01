@@ -155,6 +155,8 @@ export default function RefundDetail() {
       return "Refund quantity must be a positive integer";
     if (raw.includes("REFUND_LINES_DUPLICATE"))
       return "Refund line listed twice — please reload and retry";
+    if (raw.includes("REFUND_TOTAL_ZERO"))
+      return "Refund amount is zero — voucher-covered lines cannot be refunded";
     if (raw.includes("NO_SESSION") || raw.includes("SESSION_INVALID"))
       return "Session expired — please sign in again";
     if (raw.includes("POS_BASE_URL not set"))

@@ -310,6 +310,32 @@ describe("_commitRefund_internal", () => {
     });
   });
 
+  it("rejects zero-rupiah refund total (REFUND_TOTAL_ZERO)", async () => {
+    // N4: a 100%-voucher-covered txn (total=0) makes computeRefundAmount
+    // return 0 for every line. Pre-fix the booth path would still insert a
+    // pos_refunds row for Rp 0 — meaningless write polluting the settlement
+    // queue. The Telegram path is already protected by validateContext;
+    // the booth funnel now matches that contract.
+    const t = convexTest(schema);
+    const { staffId, mgrId, txnId, lineIds } = await seedPaidTxn(t, {
+      subtotal: 50000,
+      voucher: 50000,    // 100% voucher → total=0
+      lines: [{ qty: 1, unit_price: 50000 }],
+    });
+
+    await expect(
+      t.mutation(internal.refunds.internal._commitRefund_internal, {
+        idempotencyKey: "commit-test-zero-refund",
+        transactionId: txnId,
+        lines: [{ line_id: lineIds[0], qty: 1 }],
+        reason: "free promo refund attempt",
+        requestedBy: staffId,
+        approverId: mgrId,
+        approvalSource: "booth_inline",
+      }),
+    ).rejects.toThrow(/REFUND_TOTAL_ZERO/);
+  });
+
   it("rejects duplicate line_id entries in args (REFUND_LINES_DUPLICATE)", async () => {
     // N1: a caller submitting [{A,1},{A,1}] against A.refundable=2 would have
     // each entry individually pass `qty <= refundable` while the AGGREGATE

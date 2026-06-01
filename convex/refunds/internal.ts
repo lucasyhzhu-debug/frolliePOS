@@ -239,6 +239,12 @@ export const _commitRefund_internal = internalMutation({
       refund_amount: computeRefundAmount(line, txn, qty),
     }));
     const total_refund = refundLineRows.reduce((s, r) => s + r.refund_amount, 0);
+    // N4: reject zero-rupiah refunds at the booth-PIN path (the Telegram path
+    // is already gated by validateContext("refund") which rejects
+    // total_refund <= 0). A 100%-voucher-covered line or a zero-paid txn
+    // would otherwise insert a pos_refunds row + audit + stock credit for
+    // Rp 0 — meaningless write that pollutes the settlement queue.
+    if (total_refund <= 0) throw new Error("REFUND_TOTAL_ZERO");
 
     const now = Date.now();
 
