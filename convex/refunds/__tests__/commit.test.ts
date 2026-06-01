@@ -1,6 +1,7 @@
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
+import { Id } from "../../_generated/dataModel";
 import { describe, it, expect } from "vitest";
 
 /**
@@ -61,7 +62,7 @@ async function seedPaidTxn(
       receipt_number: "R-2026-0001",
       receipt_token: opts.receiptToken ?? "test-token-for-purge",
     });
-    const lineIds: any[] = [];
+    const lineIds: Id<"pos_transaction_lines">[] = [];
     for (const l of opts.lines) {
       const lineId = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId,

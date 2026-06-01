@@ -97,14 +97,10 @@ async function seedPaidTxnWithRealManager(t: ReturnType<typeof convexTest>) {
   });
 }
 
-async function queryAudit(t: ReturnType<typeof convexTest>, action: string) {
-  return await t.run((ctx) =>
-    ctx.db
-      .query("audit_log")
-      .withIndex("by_action_date", (q) => q.eq("action", action))
-      .collect(),
-  );
-}
+// Inline-only audit query helper: the typed `convexTest` ctx narrows withIndex
+// on `audit_log.by_action_date` correctly when the closure has direct access to
+// the schema-bound t. Pulling this into a helper widens the ctx generics and
+// loses the index narrowing — so we inline at each call site.
 
 describe("refund audit trail", () => {
   it("requestRefundApproval → emits refund.requested (actor=requester, source=system)", async () => {
@@ -119,7 +115,12 @@ describe("refund audit trail", () => {
       reason: "wrong order",
     });
 
-    const rows = await queryAudit(t, "refund.requested");
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.requested"))
+        .collect(),
+    );
     expect(rows.length).toBe(1);
     // _createRequest_internal sets actor_id = requester_staff_id and source = "system".
     expect(rows[0].actor_id).toBe(staffId);
@@ -139,7 +140,12 @@ describe("refund audit trail", () => {
       approvalSource: "booth_inline",
     });
 
-    const rows = await queryAudit(t, "refund.committed");
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.committed"))
+        .collect(),
+    );
     expect(rows.length).toBe(1);
     expect(rows[0].source).toBe("booth_inline");
     expect(rows[0].actor_id).toBe(mgrId);
@@ -158,7 +164,12 @@ describe("refund audit trail", () => {
       approvalSource: "telegram_approval",
     });
 
-    const rows = await queryAudit(t, "refund.committed");
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.committed"))
+        .collect(),
+    );
     expect(rows.length).toBe(1);
     expect(rows[0].source).toBe("telegram_approval");
     expect(rows[0].actor_id).toBe(mgrId);
@@ -187,7 +198,12 @@ describe("refund audit trail", () => {
       refundId,
     });
 
-    const rows = await queryAudit(t, "refund.settled");
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.settled"))
+        .collect(),
+    );
     expect(rows.length).toBe(1);
     expect(rows[0].source).toBe("booth_inline");
     expect(rows[0].actor_id).toBe(mgrId);
@@ -235,7 +251,12 @@ describe("refund audit trail", () => {
       idempotencyKey: "audit-deny-1",
     });
 
-    const rows = await queryAudit(t, "refund.denied");
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.denied"))
+        .collect(),
+    );
     expect(rows.length).toBe(1);
     expect(rows[0].source).toBe("telegram_approval");
   });
