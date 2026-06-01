@@ -192,11 +192,17 @@ export const _purgeReceiptCache_internal = internalMutation({
       throw new Error(`PURGE_TXN_NOT_PAID — refund commit on missing or non-paid txn ${args.transactionId}; investigate`);
     }
     if (!result.txn.receipt_token) {
-      throw new Error(
-        `PURGE_NO_TOKEN — refund commit on txn ${args.transactionId} without receipt_token; ` +
-        `investigate _confirmPaid token-mint flow OR refund flow reached pre-v0.5.1 paid row ` +
-        `(Q1=B recent-list cutoff should prevent this)`,
-      );
+      // N3: pre-v0.5.1 paid txns lack receipt_token (the field was added in PR A).
+      // Refunds against them have nothing to purge — receipts have no cache entry
+      // to invalidate. Return silently rather than aborting the entire refund
+      // transaction. Lazy-mint isn't necessary here because no receipt has been
+      // rendered for these txns; the customer never had a URL.
+      //
+      // Loud-throw intent (catch _confirmPaid token-mint drift) is preserved by
+      // the v0.5.1+ invariant: every _confirmPaid mints a receipt_token, so any
+      // post-deploy paid row without one is a different bug surfaced elsewhere
+      // (transactions/__tests__/confirm-paid-token.test.ts asserts the mint).
+      return;
     }
     // Delete the cached HTML row if it exists. If not, no-op — the next
     // /r/<token> request will regenerate fresh.

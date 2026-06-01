@@ -255,6 +255,61 @@ describe("_commitRefund_internal", () => {
     ).rejects.toThrow(/REFUND_QTY_EXCEEDS_REFUNDABLE/);
   });
 
+  it("commits successfully when paid txn lacks receipt_token (pre-v0.5.1 legacy row)", async () => {
+    // N3: pre-v0.5.1 paid txns don't have receipt_token (added in PR A). The
+    // refund commit must NOT abort on the purge step — there's no cached
+    // receipt HTML to invalidate. Verifies _purgeReceiptCache_internal returns
+    // silently for the no-token case.
+    const t = convexTest(schema);
+    const { staffId, mgrId, txnId, lineIds } = await t.run(async (ctx) => {
+      const staffId = await ctx.db.insert("staff", {
+        code: "S-LG", name: "LG", role: "staff", active: true,
+        pin_hash: "x", created_at: Date.now(),
+      });
+      const mgrId = await ctx.db.insert("staff", {
+        code: "M-LG", name: "Mgr", role: "manager", active: true,
+        pin_hash: "x", created_at: Date.now(),
+      });
+      const productId = await ctx.db.insert("pos_products", {
+        sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
+        price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
+        created_at: Date.now(), updated_at: Date.now(),
+      });
+      // No receipt_token — simulates a paid txn from before v0.5.1.
+      const txnId = await ctx.db.insert("pos_transactions", {
+        status: "paid", subtotal: 50000, voucher_discount: 0, total: 50000,
+        flags: 0, staff_id: staffId, created_at: Date.now(), paid_at: Date.now(),
+        receipt_number: "R-LEGACY-0001",
+      });
+      const lineId = await ctx.db.insert("pos_transaction_lines", {
+        transaction_id: txnId, product_id: productId,
+        product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
+        unit_price_snapshot: 50000, tax_rate_snapshot: 0,
+        qty: 1, line_subtotal: 50000,
+      });
+      return { staffId, mgrId, txnId, lineIds: [lineId] };
+    });
+
+    const { refundId, total_refund } = await t.mutation(
+      internal.refunds.internal._commitRefund_internal,
+      {
+        idempotencyKey: "commit-test-legacy-no-token",
+        transactionId: txnId,
+        lines: [{ line_id: lineIds[0], qty: 1 }],
+        reason: "legacy refund",
+        requestedBy: staffId,
+        approverId: mgrId,
+        approvalSource: "booth_inline",
+      },
+    );
+
+    expect(total_refund).toBe(50000);
+    await t.run(async (ctx) => {
+      const refund = await ctx.db.get(refundId);
+      expect(refund?.total_refund).toBe(50000);
+    });
+  });
+
   it("rejects duplicate line_id entries in args (REFUND_LINES_DUPLICATE)", async () => {
     // N1: a caller submitting [{A,1},{A,1}] against A.refundable=2 would have
     // each entry individually pass `qty <= refundable` while the AGGREGATE
