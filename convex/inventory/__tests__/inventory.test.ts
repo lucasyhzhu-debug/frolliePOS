@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
-import { internal } from "../../_generated/api";
+import { internal, api } from "../../_generated/api";
 
 // _checkLowStock_internal schedules _dispatchLowStockAlert_internal via runAfter(0)
 // when on_hand crosses below low_threshold. The dispatch action calls Telegram —
@@ -52,6 +52,19 @@ async function seedProductId(ctx: any) {
     sku_family: "_seed", name: "Seed Product", pack_label: "1pc",
     price_idr: 0, tax_rate: 0, active: true, sort_order: 0,
     created_at: now, updated_at: now,
+  });
+}
+
+/** Insert a staff + an active staff_sessions row; returns both ids. */
+async function seedStaffSession(t: any, role: "staff" | "manager" = "staff") {
+  return t.run(async (ctx: any) => {
+    const staffId = await ctx.db.insert("staff", {
+      name: "S", pin_hash: "$argon2id$x", role, active: true, created_at: Date.now(),
+    });
+    const sessionId = await ctx.db.insert("staff_sessions", {
+      staff_id: staffId, device_id: "dev-1", started_at: Date.now(), ended_at: null, end_reason: null,
+    });
+    return { staffId, sessionId };
   });
 }
 
@@ -382,6 +395,88 @@ describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => 
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).collect(),
     );
     expect(flags).toHaveLength(1);
+    await drainScheduled(t);
+  });
+});
+
+describe("recordRecount", () => {
+  it("writes recount movement (signed delta), sets on_hand to entered, stamps recount-state", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now() });
+    });
+    await t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-1", sessionId, counts: [{ skuId, entered: 30 }],
+    });
+    const lvl = await t.run(async (ctx) =>
+      ctx.db.query("pos_stock_levels").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(lvl!.on_hand).toBe(30);
+    const mv = await t.run(async (ctx) =>
+      ctx.db.query("pos_stock_movements").withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", skuId)).collect(),
+    );
+    expect(mv.find((m: any) => m.source === "recount")!.qty).toBe(-20);
+    const state = await t.run(async (ctx) => ctx.db.query("pos_recount_state").first());
+    expect(state!.last_recount_at).toBeTypeOf("number");
+    await drainScheduled(t);
+  });
+
+  it("skips SKUs where entered === on_hand", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 40, updated_at: Date.now() });
+    });
+    await t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-2", sessionId, counts: [{ skuId, entered: 40 }],
+    });
+    const mv = await t.run(async (ctx) =>
+      ctx.db.query("pos_stock_movements").withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", skuId)).collect(),
+    );
+    expect(mv.filter((m: any) => m.source === "recount")).toHaveLength(0);
+    await drainScheduled(t);
+  });
+
+  it("first-ever count with no level row inserts on_hand = entered", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-4", sessionId, counts: [{ skuId, entered: 10 }],
+    });
+    const lvl = await t.run(async (ctx) =>
+      ctx.db.query("pos_stock_levels").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(lvl!.on_hand).toBe(10);
+    await drainScheduled(t);
+  });
+
+  it("rejects negative entered", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await expect(t.mutation(api.inventory.public.recordRecount, {
+      idempotencyKey: "rc-3", sessionId, counts: [{ skuId, entered: -1 }],
+    })).rejects.toThrow();
+  });
+
+  it("idempotent replay does not double-apply", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 0);
+    const { sessionId } = await seedStaffSession(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now() });
+    });
+    const args = { idempotencyKey: "rc-dup", sessionId, counts: [{ skuId, entered: 30 }] };
+    await t.mutation(api.inventory.public.recordRecount, args);
+    await t.mutation(api.inventory.public.recordRecount, args);
+    const lvl = await t.run(async (ctx) =>
+      ctx.db.query("pos_stock_levels").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(lvl!.on_hand).toBe(30); // idempotent: still 30, not 10 (would be if double-applied)
     await drainScheduled(t);
   });
 });

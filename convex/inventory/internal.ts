@@ -406,3 +406,50 @@ export const _dispatchLowStockAlert_internal = internalAction({
     });
   },
 });
+
+/**
+ * Scheduled dispatch for recount manager-notice (v0.5.2, ADR-041). Routes
+ * through the Telegram chat-registry to the `managers` role and sends a
+ * `recount_notice` template with the per-SKU before/after/delta lines.
+ * Scheduled — never inline — so Telegram outages can't roll back the recount
+ * mutation that spawned it.
+ *
+ * Fail-isolated: same pattern as `_dispatchLowStockAlert_internal` — if the
+ * `managers` role isn't bound, swallow the exact-string error from
+ * `getChatIdByRole`; other errors propagate to surface real outages.
+ *
+ * idempotencyKey = `recount:<recorded_at_iso>` dedups multi-millisecond
+ * reschedules; in practice impossible for the same operator to fire two
+ * recounts in one ms.
+ */
+export const _dispatchRecountNotice_internal = internalAction({
+  args: {
+    staff_name: v.string(),
+    recorded_at_iso: v.string(),
+    lines: v.array(v.object({
+      sku_name: v.string(),
+      before: v.number(),
+      after: v.number(),
+      delta: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    let chatId: string;
+    try {
+      chatId = await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatIdByRole, {
+        role: "managers",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("No Telegram chat assigned to role")) return;
+      throw err;
+    }
+    await ctx.runAction(api.telegram.send.sendTemplate, {
+      role: "managers",
+      kind: "recount_notice",
+      payload: args,
+      idempotencyKey: `recount:${args.recorded_at_iso}`,
+      chatIdOverride: chatId,
+    });
+  },
+});
