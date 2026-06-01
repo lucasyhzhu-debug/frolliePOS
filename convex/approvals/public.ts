@@ -58,7 +58,29 @@ type ManualPaymentOverrideResult = {
   resolved_at?: number;
 } & DenyDetails;
 
-type GetByTokenResult = StaffPinResetResult | ManualPaymentOverrideResult;
+type RefundResult = {
+  kind: "refund";
+  display: {
+    receipt_number: string;
+    total_refund: number;
+    reason: string;
+    lines: Array<{
+      product_name: string;
+      refund_qty: number;
+      refund_amount: number;
+    }>;
+    requester_name?: string;
+  };
+  status: EffectiveStatus;
+  triggered_at: number;
+  token_expires_at: number;
+  resolved_at?: number;
+} & DenyDetails;
+
+type GetByTokenResult =
+  | StaffPinResetResult
+  | ManualPaymentOverrideResult
+  | RefundResult;
 
 /**
  * Resolve an approval request by its raw token (for the off-booth approval page).
@@ -163,6 +185,56 @@ export const getByToken = query({
           ...(ctx2?.receipt_preview !== undefined
             ? { receipt_preview: ctx2.receipt_preview }
             : {}),
+          ...(requester_name !== undefined ? { requester_name } : {}),
+        },
+        ...base,
+        ...denyDetails,
+      };
+    }
+
+    if (req.kind === "refund") {
+      const ctx2 = req.context as
+        | {
+            receipt_number?: string;
+            total_refund?: number;
+            reason?: string;
+            lines?: Array<{
+              product_name?: string;
+              refund_qty?: number;
+              refund_amount?: number;
+            }>;
+          }
+        | undefined;
+
+      const receipt_number = ctx2?.receipt_number ?? "";
+      const total_refund: number = ctx2?.total_refund ?? 0;
+      const reason: string = ctx2?.reason ?? req.reason ?? "";
+      // Strip line_id from the public surface — storage-internal per the
+      // existing pattern (see ManualPayment which never exposes context).
+      const lines = Array.isArray(ctx2?.lines)
+        ? ctx2.lines.map((l) => ({
+            product_name: l.product_name ?? "",
+            refund_qty: l.refund_qty ?? 0,
+            refund_amount: l.refund_amount ?? 0,
+          }))
+        : [];
+
+      let requester_name: string | undefined;
+      if (req.requester_staff_id) {
+        const info = await ctx.runQuery(
+          internal.auth.internal._getStaffNameCode_internal,
+          { staffId: req.requester_staff_id },
+        );
+        requester_name = info?.name;
+      }
+
+      return {
+        kind: "refund",
+        display: {
+          receipt_number,
+          total_refund,
+          reason,
+          lines,
           ...(requester_name !== undefined ? { requester_name } : {}),
         },
         ...base,

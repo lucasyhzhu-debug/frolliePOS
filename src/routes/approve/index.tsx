@@ -42,6 +42,15 @@ function mapError(err: unknown): string {
   if (msg.includes("NEW_PIN_INVALID")) return "New PIN must be 4 digits";
   if (msg.includes("WRONG_KIND")) return "Approval type mismatch";
   if (msg.includes("TXN_NOT_AWAITING")) return "Transaction is no longer awaiting payment";
+  if (msg.includes("TXN_NOT_REFUNDABLE")) return "Transaction is not refundable";
+  if (msg.includes("LINE_NOT_FOUND")) return "Refund line no longer exists";
+  if (
+    msg.includes("REQUEST_MISSING_TXN") ||
+    msg.includes("REQUEST_MISSING_LINES") ||
+    msg.includes("REQUEST_MISSING_REQUESTER")
+  ) {
+    return "Refund request is incomplete — please re-request";
+  }
   return msg;
 }
 
@@ -806,6 +815,377 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// refund variant (v0.5.1 PR B / B25)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface RefundProps {
+  token: string;
+  request: {
+    kind: "refund";
+    display: {
+      receipt_number: string;
+      total_refund: number;
+      reason: string;
+      lines: Array<{
+        product_name: string;
+        refund_qty: number;
+        refund_amount: number;
+      }>;
+      requester_name?: string;
+    };
+    status: string;
+    token_expires_at: number;
+    deny_reason?: string;
+    denied_by_manager_name?: string;
+    denied_by_manager_code?: string;
+    denied_at?: number;
+  };
+}
+
+function RefundVariant({ token, request }: RefundProps) {
+  const [staffCode, setStaffCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  // Deny-flow state
+  const [showDenyReason, setShowDenyReason] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  const [denyPending, setDenyPending] = useState(false);
+
+  // Terminal outcome state
+  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+
+  const approveIntent = `approve-refund:${token}`;
+  const denyIntent = `deny-refund:${token}`;
+  const approveKey = useIdempotency(approveIntent);
+  const denyKey = useIdempotency(denyIntent);
+
+  const approveAction = useAction(api.approvals.actions.approveRefund);
+  const denyAction = useAction(api.approvals.actions.denyRequest);
+
+  // Token-gated active-managers list for the picker (ADR-029)
+  const managers = useQuery(api.approvals.public.listActiveManagers, { token });
+
+  function handleKeyPress(key: string) {
+    setError(undefined);
+    setManagerPin((prev) => {
+      if (key === "C") return "";
+      if (key === "⌫") return prev.slice(0, -1);
+      return prev.length < 4 ? prev + key : prev;
+    });
+  }
+
+  async function handleApprove(e: React.FormEvent) {
+    e.preventDefault();
+    if (!approveKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+
+    setPending(true);
+    setError(undefined);
+    try {
+      await approveAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        idempotencyKey: approveKey,
+      });
+      setOutcome("approved");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(approveIntent);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleConfirmDeny() {
+    if (!denyKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+    if (!denyReason.trim()) return;
+
+    setDenyPending(true);
+    setError(undefined);
+    try {
+      await denyAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        denyReason: denyReason.trim(),
+        idempotencyKey: denyKey,
+      });
+      setOutcome("denied");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(denyIntent);
+      }
+    } finally {
+      setDenyPending(false);
+    }
+  }
+
+  // ── Outcome screens ────────────────────────────────────────────────────────
+  if (outcome === "approved") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <p className="text-sm font-medium">
+          ✓ Approved — refund of {rp(request.display.total_refund)} committed.
+        </p>
+      </main>
+    );
+  }
+
+  if (outcome === "denied") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">Declined — refund request rejected.</p>
+      </main>
+    );
+  }
+
+  // ── Pending form ──────────────────────────────────────────────────────────
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
+      <header className="w-full max-w-sm text-center pt-6">
+        <h1 className="text-lg font-semibold">Manager approval needed — Refund</h1>
+      </header>
+
+      {/* Summary card */}
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Receipt</span>
+          <span className="font-medium tabular-nums">
+            {request.display.receipt_number}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Total refund</span>
+          <span className="font-semibold tabular-nums text-foreground">
+            {rp(request.display.total_refund)}
+          </span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-right">{request.display.reason}</span>
+        </div>
+        {request.display.requester_name && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Requested by</span>
+            <span>{request.display.requester_name}</span>
+          </div>
+        )}
+        {request.display.lines.length > 0 && (
+          <div className="pt-2 border-t border-border space-y-1">
+            {request.display.lines.map((l, i) => (
+              <div
+                key={`${l.product_name}-${i}`}
+                className="flex justify-between text-xs text-muted-foreground"
+              >
+                <span>
+                  {l.product_name} × {l.refund_qty}
+                </span>
+                <span className="tabular-nums">{rp(l.refund_amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <form
+        onSubmit={handleApprove}
+        className="flex w-full max-w-sm flex-col gap-5"
+        aria-label="Refund approval form"
+      >
+        {/* Manager identity picker (token-gated query — ADR-029) */}
+        <div className="space-y-1.5">
+          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Select
+            value={staffCode}
+            onValueChange={(value) => {
+              setStaffCode(value);
+              setError(undefined);
+            }}
+            disabled={pending || denyPending || managers === undefined || managers === null}
+          >
+            <SelectTrigger id="mgr-staff-code">
+              <SelectValue
+                placeholder={
+                  managers === undefined
+                    ? "Loading…"
+                    : managers === null
+                      ? "Link expired"
+                      : managers.length === 0
+                        ? "No managers configured"
+                        : "Select a manager"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {managers?.map((m) => (
+                <SelectItem key={m.code} value={m.code}>
+                  {m.code} — {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Manager PIN entry */}
+        <div className="space-y-2">
+          <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
+            <span className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Your manager PIN
+            </span>
+            {managerPin.length > 0 ? (
+              <PinDots value={managerPin} />
+            ) : (
+              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+            )}
+          </div>
+          <NumericKeypad
+            onPress={handleKeyPress}
+            onClear={() => handleKeyPress("C")}
+            onBackspace={() => handleKeyPress("⌫")}
+            size="compact"
+          />
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <p role="alert" className="text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {/* Deny reason input — revealed after clicking Deny */}
+        {showDenyReason && (
+          <div className="space-y-1.5">
+            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Input
+              id="deny-reason"
+              type="text"
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder="e.g. Items still in customer's possession"
+              disabled={denyPending}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-2">
+          {!showDenyReason ? (
+            <>
+              <Button
+                type="submit"
+                disabled={
+                  pending ||
+                  denyPending ||
+                  !approveKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4
+                }
+                className="w-full"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Approving…
+                  </>
+                ) : (
+                  "Approve"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => {
+                  setError(undefined);
+                  setShowDenyReason(true);
+                }}
+                disabled={pending || denyPending}
+              >
+                Deny
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirmDeny}
+                disabled={
+                  denyPending ||
+                  pending ||
+                  !denyKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4 ||
+                  denyReason.trim().length === 0
+                }
+              >
+                {denyPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Declining…
+                  </>
+                ) : (
+                  "Confirm Deny"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setShowDenyReason(false);
+                  setDenyReason("");
+                  setError(undefined);
+                }}
+                disabled={denyPending}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Root route component — dispatches on request.kind
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -857,6 +1237,16 @@ export default function Approve() {
           <CheckCircle2 className="h-8 w-8 text-teal-600" />
           <p className="text-sm font-medium">
             ✓ Payment of {rp(request.display.amount_idr)} already approved.
+          </p>
+        </main>
+      );
+    }
+    if (request.kind === "refund") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <CheckCircle2 className="h-8 w-8 text-teal-600" />
+          <p className="text-sm font-medium">
+            ✓ Refund of {rp(request.display.total_refund)} already approved.
           </p>
         </main>
       );
@@ -919,6 +1309,21 @@ export default function Approve() {
         </main>
       );
     }
+    if (request.kind === "refund") {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+          <XCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm font-medium">
+            Refund of {rp(request.display.total_refund)} was declined by {denierLabel}.
+          </p>
+          {reason && (
+            <p className="text-sm text-muted-foreground italic">
+              &ldquo;{reason}&rdquo;
+            </p>
+          )}
+        </main>
+      );
+    }
   }
 
   // ── Dispatch on kind ──────────────────────────────────────────────────────
@@ -930,6 +1335,10 @@ export default function Approve() {
 
   if (request.kind === "manual_payment_override") {
     return <ManualPaymentVariant token={token} request={request} />;
+  }
+
+  if (request.kind === "refund") {
+    return <RefundVariant token={token} request={request} />;
   }
 
   // Unknown kind — neutral fallback for future kinds not yet handled in UI

@@ -548,3 +548,74 @@ describe("Approve route — manual_payment_override variant", () => {
     expect(screen.queryByRole("button", { name: /^Approve$/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------- refund variant tests (v0.5.1 PR B / B25) -------------------------
+
+describe("Approve route — refund variant", () => {
+  const pendingRefundRequest = {
+    kind: "refund" as const,
+    display: {
+      receipt_number: "R-2026-0058",
+      total_refund: 43_333,
+      reason: "Customer changed mind",
+      lines: [
+        { product_name: "Dubai 1pc", refund_qty: 1, refund_amount: 43_333 },
+      ],
+      requester_name: "Dewi",
+    },
+    status: "pending",
+    triggered_at: Date.now() - 2 * 60 * 1000,
+    token_expires_at: Date.now() + 58 * 60 * 1000,
+  };
+
+  let mockApproveRefund: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    __resetForTests();
+    actionSlots.length = 0;
+    slotCounter = 0;
+    queryCounter = 0;
+    mockManagersReturn = DEFAULT_MANAGERS;
+    mockQueryReturn = pendingRefundRequest;
+    mockApproveRefund = vi
+      .fn()
+      .mockResolvedValue({ refundId: "rf_test", total_refund: 43_333 });
+    mockDenyRequest = vi.fn().mockResolvedValue({ denied: true });
+  });
+
+  it("renders receipt number, total, reason, and per-line breakdown when pending", () => {
+    stageActions(mockApproveRefund, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByRole("heading", { name: /Manager approval needed — Refund/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/R-2026-0058/)).toBeInTheDocument();
+    // rp(43333) === "Rp 43.333" — at least one occurrence (total + line break-down)
+    expect(screen.getAllByText(/Rp\s*43\.333/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Customer changed mind/i)).toBeInTheDocument();
+    expect(screen.getByText(/Dewi/i)).toBeInTheDocument();
+    // Per-line breakdown: product × qty
+    expect(screen.getByText(/Dubai 1pc × 1/)).toBeInTheDocument();
+  });
+
+  it("shows resolved screen when status is 'resolved' and hides the form", () => {
+    mockQueryReturn = {
+      ...pendingRefundRequest,
+      status: "resolved",
+      resolved_at: Date.now() - 60_000,
+    };
+    stageActions(mockApproveRefund, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByText(/Refund of Rp\s*43\.333 already approved/i),
+    ).toBeInTheDocument();
+    // No active approve form in terminal state
+    expect(
+      screen.queryByRole("button", { name: /^Approve$/i }),
+    ).not.toBeInTheDocument();
+  });
+});

@@ -270,6 +270,7 @@ export default function RefundDetail() {
             <Separator />
             <ApprovalPending
               requestId={approvalRequestId}
+              successMessage="Refund approved — committed."
               onResolved={handleApprovalResolved}
               onDenied={handleApprovalDenied}
               onExpired={handleApprovalExpired}
