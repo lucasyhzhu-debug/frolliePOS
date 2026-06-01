@@ -5,6 +5,8 @@
 //
 // sendTelegramHtml ported from convex-telegram-bot-starter for chatRegistry.ts
 
+import { formatWibDateTime } from "./time";
+
 interface TelegramSendResponse {
   ok: boolean;
   result?: { message_id: number };
@@ -191,7 +193,13 @@ export function renderRecountNotice(p: RecountNoticePayload): RenderedMessage {
   const rows = p.lines
     .map((l) => `• ${escapeHtml(l.sku_name)}: ${l.before} → ${l.after} (${l.delta >= 0 ? "+" : ""}${l.delta})`)
     .join("\n");
-  return { text: `📝 <b>Penghitungan ulang stok</b> oleh ${escapeHtml(p.staff_name)}\n${rows}` };
+  // v0.5.2 simplify: render the timestamp inline (was accepted in the payload
+  // but discarded). Operators reading the alert outside the booth need to know
+  // WHEN the recount was recorded, not just who did it.
+  const when = escapeHtml(formatWibDateTime(new Date(p.recorded_at_iso).getTime()));
+  return {
+    text: `📝 <b>Penghitungan ulang stok</b> oleh ${escapeHtml(p.staff_name)} · ${when}\n${rows}`,
+  };
 }
 
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.

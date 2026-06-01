@@ -53,9 +53,10 @@ type RecountResult = { ok: true; changed: number };
  * - Otherwise, patch (or insert) `pos_recount_state.last_recount_at` so the
  *   dashboard can show "last recount at X" and the daily summary can flag
  *   when a recount is overdue.
- * - Schedule `_dispatchRecountNotice_internal` via `runAfter(0, ...)` so a
- *   Telegram outage can't roll back the recount writes. The action is
- *   audited via the standard sendTemplate fail path.
+ * - Schedule `telegram.dispatch.dispatchRoleAlert` (recount_notice kind) via
+ *   `runAfter(0, ...)` so a Telegram outage can't roll back the recount
+ *   writes. The action is audited via the standard sendTemplate fail path
+ *   plus `telegram.skipped` on role-unbound.
  * - Run `_checkLowStock_internal` once per touched SKU. Recount can push a
  *   SKU below threshold (new alert) OR back above threshold (re-arm) — both
  *   are valid outcomes.
