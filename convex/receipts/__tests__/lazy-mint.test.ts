@@ -3,7 +3,15 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { describe, it, expect } from "vitest";
 
-describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 readiness)", () => {
+/**
+ * Lazy-mint behaviour. Pre-v0.5.3a these tests called the receipts-side
+ * `_lazyMintReceiptToken_internal` facade — that facade was a pure pass-through
+ * to `transactions._ensureReceiptTokenForPaidTxn_internal` and was deleted in
+ * the v0.5.3a simplification wave (one less hop). The behaviour being asserted
+ * (existing-token check, audit emit, status guard) lives in the owning-module
+ * helper, so the tests now call it directly.
+ */
+describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("mints a fresh token + audit row on a tokenless paid txn", async () => {
     const t = convexTest(schema);
     const { staffId, txnId } = await t.run(async (ctx) => {
@@ -21,7 +29,7 @@ describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 r
     });
 
     const { token } = await t.mutation(
-      internal.receipts.internal._lazyMintReceiptToken_internal,
+      internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
       { transactionId: txnId, actor: staffId },
     );
     expect(token.length).toBe(43);
@@ -51,7 +59,7 @@ describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 r
       return { staffId, txnId };
     });
     await expect(
-      t.mutation(internal.receipts.internal._lazyMintReceiptToken_internal, {
+      t.mutation(internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal, {
         transactionId: txnId, actor: staffId,
       }),
     ).rejects.toThrow("TXN_NOT_PAID");
@@ -72,7 +80,7 @@ describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 r
       return { staffId, fakeId: id };
     });
     await expect(
-      t.mutation(internal.receipts.internal._lazyMintReceiptToken_internal, {
+      t.mutation(internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal, {
         transactionId: fakeId, actor: staffId,
       }),
     ).rejects.toThrow("TXN_NOT_FOUND");
@@ -92,11 +100,11 @@ describe("_lazyMintReceiptToken_internal (dormant in v0.5.1, tested for v0.5.3 r
     });
 
     const r1 = await t.mutation(
-      internal.receipts.internal._lazyMintReceiptToken_internal,
+      internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
       { transactionId: txnId, actor: staffId },
     );
     const r2 = await t.mutation(
-      internal.receipts.internal._lazyMintReceiptToken_internal,
+      internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
       { transactionId: txnId, actor: staffId },
     );
     expect(r2.token).toBe(r1.token);

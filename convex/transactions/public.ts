@@ -601,9 +601,13 @@ export const shareReceipt = mutation({
     "transactions.shareReceipt",
     async (ctx, args): Promise<{ token: string }> => {
       const { staffId } = await resolveSessionStaff(ctx, args.sessionId);
+      // v0.5.3a simplification: call the owning-module helper directly. The
+      // receipts._lazyMintReceiptToken_internal facade was a pure pass-through
+      // (one extra runMutation hop) and was deleted to keep the ADR-034
+      // boundary clear — pos_transactions writes stay in transactions/.
       const { token } = await ctx.runMutation(
-        internal.receipts.internal._lazyMintReceiptToken_internal,
-        { transactionId: args.txnId, actor: staffId },
+        internal.transactions.internal._ensureReceiptTokenForPaidTxn_internal,
+        { transactionId: args.txnId, actor: staffId, isLazy: true },
       );
       return { token };
     },
