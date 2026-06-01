@@ -6,6 +6,15 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
+import { wibDayWindow } from "../lib/time";
+import type { DayTxn } from "./lib";
+
+/** Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window. */
+function windowForLabel(label: string): { dayStartMs: number; dayEndMs: number } {
+  const [y, m, d] = label.split("-").map(Number);
+  const dayStartMs = Date.UTC(y, m - 1, d) - 7 * 60 * 60 * 1000; // fixed WIB offset
+  return { dayStartMs, dayEndMs: dayStartMs + 86_400_000 };
+}
 
 /**
  * Resolve a sessionId to its staff + device via the auth module's internal
@@ -58,6 +67,28 @@ export const listDrafts = query({
       .order("desc")
       .filter((q) => q.eq(q.field("status"), "draft"))
       .collect();
+  },
+});
+
+/**
+ * v0.5.3a history list. Resolves session+role:
+ *  - role "manager" — may pass `day` (YYYY-MM-DD WIB); defaults to today.
+ *  - role "staff"   — `day` is ignored; ALWAYS server-today (today-collapse, no error).
+ * Returns [] for any invalid session so the UI degrades gracefully.
+ */
+export const listDayTransactions = query({
+  args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<DayTxn[]> => {
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return [];
+    const today = wibDayWindow(Date.now());
+    const win = who.role === "manager" && args.day ? windowForLabel(args.day) : today;
+    return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
+      dayStartMs: win.dayStartMs,
+      dayEndMs: win.dayEndMs,
+    });
   },
 });
 
