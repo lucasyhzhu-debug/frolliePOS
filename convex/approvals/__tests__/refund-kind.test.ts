@@ -84,6 +84,48 @@ describe("validateContext('refund', …)", () => {
       validateContext("refund", { ...VALID_REFUND_CONTEXT, reason: "   " }),
     ).toThrow(/CONTEXT_INVALID: reason/);
   });
+
+  it("B28a M1: rejects total_refund that doesn't match sum(lines[].refund_amount)", () => {
+    // Crafted-mismatch attack: lines sum to 50_000 but total_refund claims
+    // 999_999. Pre-M1 this would pass — the Telegram card + /approve UI would
+    // render the falsified Rp 999.999 to the manager, who'd then approve under
+    // a misleading total. (The commit recomputes from scratch, so the booked
+    // amount is still correct; the lie is at the manager-display layer.)
+    // M1 catches it at write time, before the row is inserted.
+    expect(() =>
+      validateContext("refund", {
+        ...VALID_REFUND_CONTEXT,
+        total_refund: 999_999, // lies — lines sum to 50_000
+      }),
+    ).toThrow(/CONTEXT_INVALID: total_refund mismatch/);
+
+    // Multi-line: 3 lines summing to 30_000 + 20_000 + 10_000 = 60_000, but
+    // total_refund claims 100_000.
+    expect(() =>
+      validateContext("refund", {
+        ...VALID_REFUND_CONTEXT,
+        lines: [
+          { line_id: "ln1", product_name: "A", refund_qty: 1, refund_amount: 30_000 },
+          { line_id: "ln2", product_name: "B", refund_qty: 1, refund_amount: 20_000 },
+          { line_id: "ln3", product_name: "C", refund_qty: 1, refund_amount: 10_000 },
+        ],
+        total_refund: 100_000,
+      }),
+    ).toThrow(/CONTEXT_INVALID: total_refund mismatch/);
+
+    // Matching multi-line is accepted.
+    expect(() =>
+      validateContext("refund", {
+        ...VALID_REFUND_CONTEXT,
+        lines: [
+          { line_id: "ln1", product_name: "A", refund_qty: 1, refund_amount: 30_000 },
+          { line_id: "ln2", product_name: "B", refund_qty: 1, refund_amount: 20_000 },
+          { line_id: "ln3", product_name: "C", refund_qty: 1, refund_amount: 10_000 },
+        ],
+        total_refund: 60_000,
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("KIND_AUDIT.refund", () => {

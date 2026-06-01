@@ -61,6 +61,16 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
       }
       if (typeof c.total_refund !== "number" || !Number.isInteger(c.total_refund) || c.total_refund <= 0) throw new Error("CONTEXT_INVALID: total_refund");
       if (typeof c.reason !== "string" || c.reason.trim() === "") throw new Error("CONTEXT_INVALID: reason");
+      // B28a M1: cross-check total_refund against the sum of line refund_amounts.
+      // Individual-field validation above lets a maliciously crafted payload pass
+      // total_refund: 999999 with lines summing to 50000 — the Telegram card +
+      // /approve UI would render the falsified total before the manager enters
+      // PIN. (The commit recomputes from scratch, so the booked amount is still
+      // correct; the lie is at the manager-display layer.) The cross-check rejects
+      // the mismatch at write time, BEFORE the row is inserted, so the manager
+      // never sees a fake total.
+      const sum = c.lines.reduce((s, l) => s + (l.refund_amount as number), 0);
+      if (sum !== c.total_refund) throw new Error("CONTEXT_INVALID: total_refund mismatch");
       return {
         txn_id: c.txn_id,
         receipt_number: c.receipt_number,
