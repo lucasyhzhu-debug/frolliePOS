@@ -4,7 +4,7 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Card } from "@/components/ui/card";
-import { rp } from "@/lib/format";
+import { rp, fmtDate, fmtTime } from "@/lib/format";
 
 export default function RefundList() {
   const navigate = useNavigate();
@@ -36,7 +36,7 @@ export default function RefundList() {
                 <span className="font-semibold">{rp(t.total)}</span>
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {new Date(t.paid_at ?? t.created_at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}
+                {fmtDate(t.paid_at ?? t.created_at)} · {fmtTime(t.paid_at ?? t.created_at)}
               </div>
             </button>
           ))
