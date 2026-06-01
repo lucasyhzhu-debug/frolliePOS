@@ -7,6 +7,8 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function SkuDetailScreen() {
   const { skuId } = useParams();
@@ -60,20 +62,16 @@ export default function SkuDetailScreen() {
       </div>
       {role === "manager" && (
         <div className="flex gap-2 p-4">
-          <input
+          <Input
             inputMode="numeric"
             value={lt}
             onChange={(e) => setLt(e.target.value.replace(/[^0-9]/g, ""))}
-            className="w-24 rounded-md border p-2"
+            className="w-24"
             placeholder="cth. 20"
           />
-          <button
-            disabled={lt === "" || !key}
-            onClick={save}
-            className="rounded-md bg-primary px-4 text-primary-foreground disabled:opacity-50"
-          >
+          <Button disabled={lt === "" || !key} onClick={save}>
             Simpan
-          </button>
+          </Button>
         </div>
       )}
       <ul className="divide-y">

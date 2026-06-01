@@ -7,6 +7,8 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function RecountScreen() {
   const session = useSession();
@@ -58,9 +60,9 @@ export default function RecountScreen() {
                 <p className="text-sm text-muted-foreground">Sistem: {r.on_hand}</p>
               </div>
               <div className="flex items-center gap-2">
-                <input
+                <Input
                   inputMode="numeric"
-                  className="w-20 rounded-md border p-2 text-right"
+                  className="w-20 text-right"
                   value={entered}
                   onChange={(e) =>
                     setCounts((c) => ({ ...c, [r.skuId]: e.target.value.replace(/[^0-9]/g, "") }))
@@ -78,13 +80,14 @@ export default function RecountScreen() {
         })}
       </ul>
       <div className="p-4">
-        <button
+        <Button
           disabled={busy || !key}
           onClick={submit}
-          className="w-full rounded-md bg-primary py-3 text-primary-foreground disabled:opacity-50"
+          size="lg"
+          className="w-full"
         >
           {busy ? "Menyimpan…" : "Simpan hitungan"}
-        </button>
+        </Button>
       </div>
     </SpokeLayout>
   );
