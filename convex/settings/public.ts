@@ -203,8 +203,16 @@ export const updateReceiptConfig = mutation({
           ...patch,
         });
       }
-      // TODO(T12): purge pos_receipt_html_cache here so the next /r/<token>
-      // render picks up the new branding.
+      // Purge the receipt HTML cache so the next /r/<token> render picks up
+      // the new branding. Full-scan delete is fine at v1 scale; see
+      // _purgeAllReceiptCache_internal for the upgrade path. Placed AFTER
+      // the patch/insert so a partial failure doesn't blow the cache for an
+      // un-applied change; placed BEFORE logAudit because the audit row just
+      // captures *that* the update happened.
+      await ctx.runMutation(
+        internal.receipts.internal._purgeAllReceiptCache_internal,
+        {},
+      );
       await logAudit(ctx, {
         actor_id: mgrId,
         action: "settings.receipt_updated",

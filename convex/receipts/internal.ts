@@ -214,3 +214,22 @@ export const _purgeReceiptCache_internal = internalMutation({
   },
 });
 
+/**
+ * Purge ALL cached receipt HTML rows. Called by `settings.updateReceiptConfig`
+ * (v0.5.3b T12) so a branding/footer change invalidates every cached receipt;
+ * the next /r/<token> request regenerates with the new config.
+ *
+ * Full-scan-delete is fine at v1 scale (Pakuwon booth: ~100 receipts/day,
+ * 24h TTL → ~100 live rows). If the cache grows huge later, switch to a
+ * version-marker strategy (settings_version bumped → cache key includes
+ * version; stale rows expire naturally).
+ */
+export const _purgeAllReceiptCache_internal = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("pos_receipt_html_cache").collect();
+    for (const r of rows) await ctx.db.delete(r._id);
+    return { purged: rows.length };
+  },
+});
+
