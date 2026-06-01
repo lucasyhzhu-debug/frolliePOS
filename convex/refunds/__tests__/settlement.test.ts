@@ -194,11 +194,18 @@ describe("listPendingSettlement", () => {
     ).rejects.toThrow(/MANAGER_ONLY/);
 
     // Manager: returns ONLY pending (refund2), not refund1.
+    // B28a M2: projection drops settlement_status — only refunds with
+    // settlement_status="pending" are returned (index-filtered), so the
+    // surfaced row IS the pending one by construction. Re-verify via the
+    // underlying DB row that refund1 was settled and refund2 is still pending.
     const pending = await t.query(api.refunds.public.listPendingSettlement, {
       sessionId: seed.mgrSession,
     });
     expect(pending.length).toBe(1);
     expect(pending[0]._id).toBe(refund2);
-    expect(pending[0].settlement_status).toBe("pending");
+    // Projection no longer surfaces settlement_status (M2) — assert at the
+    // table level instead.
+    const refund2Row = await t.run((ctx) => ctx.db.get(refund2));
+    expect(refund2Row?.settlement_status).toBe("pending");
   });
 });

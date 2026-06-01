@@ -253,17 +253,45 @@ export const markRefundSettled = mutation({
  *
  * pos_refunds is refunds-owned, so this query reads its own table directly
  * (intra-module, no ADR-034 boundary crossed).
+ *
+ * Projection (B28a M2): only display-needed fields (the frontend renders
+ * total_refund, reason, created_at). Capped at 200 via `.take(200)` — the
+ * realistic backlog is a handful, but this is a reactive subscription on
+ * /mgr/refunds-pending and the page re-runs whenever pos_refunds changes; the
+ * soft cap bounds the reactive payload without changing UX in any realistic
+ * operational state. If the backlog ever approaches 200, that's an ops issue,
+ * not a UI issue.
  */
 export const listPendingSettlement = query({
   args: { sessionId: v.id("staff_sessions") },
-  handler: async (ctx, args): Promise<Doc<"pos_refunds">[]> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    Array<{
+      _id: Id<"pos_refunds">;
+      _creationTime: number;
+      transaction_id: Id<"pos_transactions">;
+      total_refund: number;
+      reason: string;
+      created_at: number;
+    }>
+  > => {
     await requireManagerSession(ctx, args.sessionId);
-    return await ctx.db
+    const rows = await ctx.db
       .query("pos_refunds")
       .withIndex("by_settlement_status", (q) =>
         q.eq("settlement_status", "pending"),
       )
       .order("asc")
-      .collect();
+      .take(200);
+    return rows.map((r) => ({
+      _id: r._id,
+      _creationTime: r._creationTime,
+      transaction_id: r.transaction_id,
+      total_refund: r.total_refund,
+      reason: r.reason,
+      created_at: r.created_at,
+    }));
   },
 });

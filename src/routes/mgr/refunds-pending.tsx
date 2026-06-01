@@ -27,7 +27,15 @@ import { Card } from "@/components/ui/card";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { rp, fmtDate, fmtTime } from "@/lib/format";
 import { toast } from "sonner";
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { FunctionReturnType } from "convex/server";
+
+// B28a M2: listPendingSettlement now returns a projection (not full Doc).
+// Derive the element type from the API surface so the component stays in
+// sync without re-declaring the shape here.
+type PendingRefundRow = NonNullable<
+  FunctionReturnType<typeof api.refunds.public.listPendingSettlement>
+>[number];
 
 function errorMessage(err: unknown): string {
   if (err instanceof ConvexError) {
@@ -100,7 +108,7 @@ function MgrRefundsPendingInner({ sessionId }: { sessionId: Id<"staff_sessions">
   );
 }
 
-function SummaryHeader({ refunds }: { refunds: Doc<"pos_refunds">[] }) {
+function SummaryHeader({ refunds }: { refunds: PendingRefundRow[] }) {
   const count = refunds.length;
   const totalSum = refunds.reduce((acc, r) => acc + r.total_refund, 0);
   return (
@@ -120,7 +128,7 @@ function RefundRow({
   sessionId,
   markSettled,
 }: {
-  refund: Doc<"pos_refunds">;
+  refund: PendingRefundRow;
   sessionId: Id<"staff_sessions">;
   markSettled: ReturnType<typeof useMutation<typeof api.refunds.public.markRefundSettled>>;
 }) {
