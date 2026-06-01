@@ -2,7 +2,7 @@
  * WIB (Asia/Jakarta) is UTC+7 with no DST. Shared offset used by all helpers
  * here so they stay byte-identical when given the same UTC epoch.
  */
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+export const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 /**
  * Indonesian short month names, indexed 0-11 (Jan = 0). Used by the receipt
