@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
-import { rp, fmtTime, fmtDate } from "@/lib/format";
+import { rp, fmtTime, fmtDate, buildReceiptUrl } from "@/lib/format";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -74,15 +74,19 @@ export default function HistoryDetail() {
     if (session.status !== "active" || !txnId) return;
     setSharing(true);
     try {
+      // One-shot user action — fresh UUID per click (matches src/routes/sale/drafts.tsx
+      // convention; useIdempotency is for retried/replayed mutations like login + payment).
+      const idempotencyKey = crypto.randomUUID();
       const { token } = await shareReceipt({
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
         sessionId: session.sessionId,
         txnId,
       });
       // Open in a new tab — matches the standard "share receipt" affordance
       // (staff hands the device to the customer, or pastes the URL into the
-      // customer's WhatsApp).
-      window.open(`/r/${token}`, "_blank");
+      // customer's WhatsApp). buildReceiptUrl points at the Convex .convex.site
+      // httpAction route — the SPA's /r/ path is a stub.
+      window.open(buildReceiptUrl(token), "_blank");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Gagal membagikan struk";
       toast.error(msg);

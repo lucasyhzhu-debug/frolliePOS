@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
@@ -109,6 +109,12 @@ function renderRoute() {
 }
 
 describe("HistoryDetail route (/history/:txnId)", () => {
+  beforeAll(() => {
+    vi.stubEnv("VITE_CONVEX_URL", "https://test.convex.cloud");
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -162,7 +168,10 @@ describe("HistoryDetail route (/history/:txnId)", () => {
     expect(call.idempotencyKey.length).toBeGreaterThan(0);
 
     await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith("/r/tok_123", "_blank"),
+      expect(openSpy).toHaveBeenCalledWith(
+        "https://test.convex.site/r/tok_123",
+        "_blank",
+      ),
     );
 
     openSpy.mockRestore();

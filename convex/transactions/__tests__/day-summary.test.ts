@@ -3,7 +3,7 @@ import { computeDaySummary, type DayTxn } from "../lib";
 import { NEG_STOCK } from "../flags";
 
 const txn = (over: Partial<DayTxn>): DayTxn => ({
-  _id: "t1" as any, created_at: 0, total: 10_000, subtotal: 10_000,
+  _id: "t1" as any, created_at: 0, paid_at: 0, total: 10_000, subtotal: 10_000,
   voucher_discount: 0, voucher_code_snapshot: undefined, staff_id: "s1" as any,
   staff_name: "Sari", instrument: "qris", flags: 0,
   lines: [{ product_code_snapshot: "DUBAI8", product_name_snapshot: "Dubai 8pcs", qty: 1, refunded_qty: 0 }],
@@ -33,9 +33,9 @@ describe("computeDaySummary", () => {
     });
   });
 
-  it("buckets the hourly curve by WIB hour", () => {
+  it("buckets the hourly curve by WIB hour (on paid_at, not created_at)", () => {
     // 2026-06-01 02:00 UTC = 09:00 WIB → bucket 9
-    const s = computeDaySummary([txn({ created_at: Date.UTC(2026, 5, 1, 2, 0) })]);
+    const s = computeDaySummary([txn({ paid_at: Date.UTC(2026, 5, 1, 2, 0) })]);
     expect(s.hourlyCurve[9]).toBe(1);
   });
 

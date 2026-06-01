@@ -35,6 +35,12 @@ export type Instrument = "qris" | "bca_va" | "unknown";
 export type DayTxn = {
   _id: Id<"pos_transactions">;
   created_at: number;
+  /**
+   * Set by _confirmPaid (ADR-031), guaranteed for status="paid". Used by the
+   * hourly-curve bucket so cross-midnight late confirmations land in the hour
+   * they actually paid, not the hour the cart was opened.
+   */
+  paid_at: number;
   total: number;
   subtotal: number;
   voucher_discount: number;
@@ -87,7 +93,13 @@ export function computeDaySummary(txns: DayTxn[]): DaySummary {
     if (t.flags & NEG_STOCK) flagged++;
     paymentMix[t.instrument].count++;
     paymentMix[t.instrument].total += t.total;
-    hourlyCurve[wibHour(t.created_at)]++;
+    // hourlyCurve buckets by `paid_at` (not `created_at`) so a cart opened on
+    // day N and confirmed past midnight on day N+1 lands in the right hour for
+    // the day it actually paid. Matches the _dailySalesSummary_internal cron
+    // (founders shift-summary), which migrated off `created_at` for the same
+    // reason. paid_at is server-set inside _confirmPaid (ADR-031) and is
+    // guaranteed for status="paid" rows.
+    hourlyCurve[wibHour(t.paid_at)]++;
     if (t.voucher_discount > 0) { voucherCount++; voucherTotal += t.voucher_discount; }
     for (const l of t.lines) {
       const e = skuMap.get(l.product_code_snapshot) ?? { code: l.product_code_snapshot, name: l.product_name_snapshot, qty: 0 };

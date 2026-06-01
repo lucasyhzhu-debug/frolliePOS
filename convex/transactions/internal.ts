@@ -574,10 +574,14 @@ export const _listPaidTxnsSince_internal = internalQuery({
 export const _fetchDayWindow_internal = internalQuery({
   args: { dayStartMs: v.number(), dayEndMs: v.number() },
   handler: async (ctx, args): Promise<DayTxn[]> => {
+    // Window by paid_at (not created_at) so cross-midnight late confirmations
+    // land in the day they paid, matching _dailySalesSummary_internal (founders
+    // shift-summary). created_at would silently drop carts opened on day N and
+    // paid past midnight on day N+1.
     const txns = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_created", (q) =>
-        q.eq("status", "paid").gte("created_at", args.dayStartMs).lt("created_at", args.dayEndMs),
+      .withIndex("by_status_paid_at", (q) =>
+        q.eq("status", "paid").gte("paid_at", args.dayStartMs).lt("paid_at", args.dayEndMs),
       )
       .order("desc")
       .collect();
@@ -610,6 +614,9 @@ export const _fetchDayWindow_internal = internalQuery({
       out.push({
         _id: t._id,
         created_at: t.created_at,
+        // status === "paid" guarantees paid_at is set (_confirmPaid stamps it
+        // server-side, ADR-031). The bang is invariant-backed.
+        paid_at: t.paid_at!,
         total: t.total,
         subtotal: t.subtotal,
         voucher_discount: t.voucher_discount,
