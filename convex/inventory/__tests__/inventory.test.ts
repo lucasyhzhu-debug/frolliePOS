@@ -140,3 +140,26 @@ describe("inventory/internal", () => {
     expect(projected[setup.skuB]).toBe(-2);
   });
 });
+
+describe("inventory/schema v0.5.2", () => {
+  it("pos_low_stock_alerts + pos_recount_state round-trip; recount source accepted", async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      const skuId = await ctx.db.insert("pos_inventory_skus", {
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 20, active: true, created_at: Date.now(),
+      });
+      const flag = await ctx.db.insert("pos_low_stock_alerts", {
+        inventory_sku_id: skuId, alerted_at: Date.now(), updated_at: Date.now(),
+      });
+      expect((await ctx.db.get(flag))!.inventory_sku_id).toBe(skuId);
+
+      const state = await ctx.db.insert("pos_recount_state", { last_recount_at: 123 });
+      expect((await ctx.db.get(state))!.last_recount_at).toBe(123);
+
+      const mv = await ctx.db.insert("pos_stock_movements", {
+        inventory_sku_id: skuId, qty: 5, source: "recount", created_at: Date.now(),
+      });
+      expect((await ctx.db.get(mv))!.source).toBe("recount");
+    });
+  });
+});
