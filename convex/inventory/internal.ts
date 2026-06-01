@@ -334,6 +334,7 @@ export const _checkLowStock_internal = internalMutation({
         metadata: { on_hand: onHand, low_threshold: sku.low_threshold },
       });
       await ctx.scheduler.runAfter(0, internal.inventory.internal._dispatchLowStockAlert_internal, {
+        sku_id: skuId,
         sku_name: sku.name,
         on_hand: onHand,
         low_threshold: sku.low_threshold,
@@ -355,12 +356,14 @@ export const _checkLowStock_internal = internalMutation({
  * Swallow that one error string only — other errors propagate so genuine
  * Telegram outages surface in the Convex dashboard.
  *
- * idempotencyKey = `lowstock:<sku_name>:<on_hand>` so the same SKU at the same
+ * idempotencyKey = `lowstock:<sku_id>:<on_hand>` so the same SKU at the same
  * on_hand level never re-sends; crossing two thresholds (e.g. 5→4→3 against a
- * threshold of 20) DOES emit two messages.
+ * threshold of 20) DOES emit two messages. Keyed on sku_id (not sku_name) since
+ * display names are not guaranteed unique across SKUs.
  */
 export const _dispatchLowStockAlert_internal = internalAction({
   args: {
+    sku_id: v.id("pos_inventory_skus"),
     sku_name: v.string(),
     on_hand: v.number(),
     low_threshold: v.number(),
@@ -384,7 +387,7 @@ export const _dispatchLowStockAlert_internal = internalAction({
         on_hand: args.on_hand,
         low_threshold: args.low_threshold,
       },
-      idempotencyKey: `lowstock:${args.sku_name}:${args.on_hand}`,
+      idempotencyKey: `lowstock:${args.sku_id}:${args.on_hand}`,
       chatIdOverride: chatId,
     });
   },

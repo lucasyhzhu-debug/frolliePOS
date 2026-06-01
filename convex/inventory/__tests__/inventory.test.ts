@@ -281,4 +281,17 @@ describe("_checkLowStock_internal", () => {
     );
     expect(flag).toBeNull(); // 0 < 0 is false
   });
+
+  it("alerts when no level row exists yet (defaults to 0 < threshold)", async () => {
+    const t = convexTest(schema);
+    // global fetch stub from beforeEach still applies
+    const skuId = await seedSkuWithThreshold(t, "fresh", 20);
+    // NO pos_stock_levels insert — first-ever sale scenario
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flag = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(flag).not.toBeNull();
+    await drainScheduled(t);
+  });
 });
