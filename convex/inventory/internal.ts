@@ -401,7 +401,17 @@ export const _dispatchLowStockAlert_internal = internalAction({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) return;
+      if (msg.includes("No Telegram chat assigned to role")) {
+        // I6: surface the silent swallow as an audit row so ops can triage
+        // an unbound `inventory` role during setup. Distinct from a
+        // `telegram.send_failed` (transient outage) — this is intentional.
+        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+          action: "telegram.skipped",
+          reason: "role_unbound",
+          role: "inventory",
+        });
+        return;
+      }
       throw err;
     }
     await ctx.runAction(api.telegram.send.sendTemplate, {
@@ -452,7 +462,17 @@ export const _dispatchRecountNotice_internal = internalAction({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) return;
+      if (msg.includes("No Telegram chat assigned to role")) {
+        // I7: surface the silent swallow as an audit row — same rationale
+        // as the low-stock dispatch (I6). Distinguishes "role unbound" from
+        // "Telegram outage" for ops triage.
+        await ctx.runMutation(internal.telegram.internal._auditSkip_internal, {
+          action: "telegram.skipped",
+          reason: "role_unbound",
+          role: "managers",
+        });
+        return;
+      }
       throw err;
     }
     await ctx.runAction(api.telegram.send.sendTemplate, {
