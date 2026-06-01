@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeRefundAmount, computeTotalRefund, lineRefundable, lineRefundedQty } from "../lib";
+import { computeRefundAmount, lineRefundable, lineRefundedQty } from "../lib";
 import type { Doc } from "../../_generated/dataModel";
 
 function txn(subtotal: number, voucher: number): Doc<"pos_transactions"> {
@@ -46,7 +46,13 @@ describe("computeRefundAmount (ADR-040)", () => {
       { line: l1, qty: 3 },
       { line: l2, qty: 2 },
     ];
-    const total = computeTotalRefund(t, refundLines);
+    // Sum per-line refund amounts inline — the production funnel uses the
+    // same reduce shape inside _commitRefund_internal. N10 dropped the unused
+    // computeTotalRefund helper; the invariant still holds via computeRefundAmount.
+    const total = refundLines.reduce(
+      (sum, { line: l, qty }) => sum + computeRefundAmount(l, t, qty),
+      0,
+    );
     // ADR-040 §49: "Floor favours business by < 1 IDR per refund line." With 2
     // lines, the floored sum can be up to 2 IDR less than paid_total. Critical
     // invariant: never exceed paid_total.

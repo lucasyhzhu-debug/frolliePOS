@@ -29,22 +29,6 @@ export function computeRefundAmount(
 }
 
 /**
- * Total refund amount across a set of lines being refunded.
- */
-export function computeTotalRefund(
-  txn: Pick<Doc<"pos_transactions">, "total" | "subtotal">,
-  refundLines: Array<{
-    line: Pick<Doc<"pos_transaction_lines">, "line_subtotal" | "qty">;
-    qty: number;
-  }>,
-): number {
-  return refundLines.reduce(
-    (sum, { line, qty }) => sum + computeRefundAmount(line, txn, qty),
-    0,
-  );
-}
-
-/**
  * Helper to safely read refunded_qty (the field is v.optional so existing rows
  * have undefined). Treat undefined as 0.
  */

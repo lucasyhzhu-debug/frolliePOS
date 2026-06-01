@@ -52,10 +52,9 @@ export default function RefundDetail() {
       : "skip",
   );
 
-  // useRefund is keyed by line _id + refundable cap. Empty array until data
-  // resolves so hook order stays stable across renders (no conditional hook).
-  const linesForHook = data?.lines ?? [];
-  const refund = useRefund(linesForHook);
+  // useRefund is keyed by line _id at write time — no initial-list arg needed
+  // (N10). Hook always runs unconditionally so hook order stays stable.
+  const refund = useRefund();
 
   // Two namespaced intents so a stuck inline retry can't replay a Telegram blob
   // (and vice versa). clearIntent on retry-after-denial below.

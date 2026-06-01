@@ -5,18 +5,21 @@ export type RefundLineSelection = {
   qty: number;       // > 0; entries with qty=0 are filtered out by `lines`
 };
 
-export function useRefund(_initialLines: Array<{ _id: string; refundable: number }>) {
+/**
+ * Refund-selection hook. Manages per-line qty + reason for the refund detail
+ * route. State is keyed by `line_id` at write time, so the hook doesn't need
+ * the initial line list — callers just call `setQty(lineId, qty)`.
+ *
+ * N10 (B28b): dropped unused `_initialLines` arg + unused `totalQty` / `reset`
+ * returns — no production caller read them.
+ */
+export function useRefund() {
   const [selections, setSelections] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
 
   const setQty = useCallback((lineId: string, qty: number) => {
     setSelections((s) => ({ ...s, [lineId]: qty }));
   }, []);
-
-  const totalQty = useMemo(
-    () => Object.values(selections).reduce((sum, q) => sum + q, 0),
-    [selections],
-  );
 
   const lines: RefundLineSelection[] = useMemo(
     () =>
@@ -33,18 +36,11 @@ export function useRefund(_initialLines: Array<{ _id: string; refundable: number
     [selections],
   );
 
-  const reset = useCallback(() => {
-    setSelections({});
-    setReason("");
-  }, []);
-
   return {
     setQty,
     qtyFor,
     reason, setReason,
     lines,
-    totalQty,
     canSubmit,
-    reset,
   };
 }
