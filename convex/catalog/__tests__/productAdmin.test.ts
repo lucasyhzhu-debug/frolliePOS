@@ -113,3 +113,19 @@ describe("catalog.setProductComponents", () => {
     ).rejects.toThrow(/SKU_INACTIVE/);
   });
 });
+
+describe("catalog.archiveProduct", () => {
+  it("sets active=false and drops it from the public catalog", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { productId } = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "p11", sessionId, managerPin: "9999",
+      sku_family: "dubai", name: "Z", pack_label: "1 pc", price_idr: 20000, tax_rate: 0, sort_order: 9,
+    });
+    await t.mutation(api.catalog.public.archiveProduct, { idempotencyKey: "a1", sessionId, productId });
+    const pub = await t.query(api.catalog.public.catalog, {});
+    expect(pub.products.some((p) => p._id === productId)).toBe(false);
+    const admin = await t.query(api.catalog.public.listAllProducts, { sessionId });
+    expect(admin.products.find((p) => p._id === productId)?.active).toBe(false);
+  });
+});

@@ -244,3 +244,52 @@ export const setProductComponents = mutation({
     },
   ),
 });
+
+/**
+ * Soft-delete a product (active=false). Manager-session-gated, NO PIN — this
+ * is a catalog-curation action, not a money move (CLAUDE.md #9). Archived
+ * products disappear from the public `catalog` query (which filters
+ * `active: true`) but remain visible in admin `listAllProducts`.
+ *
+ * Historical pos_transaction_lines are unaffected — snapshot rule #1
+ * (CLAUDE.md): `unit_price` and `product_name_snapshot` are frozen at sale
+ * time so receipts/history render correctly for archived products.
+ */
+export const archiveProduct = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    productId: v.id("pos_products"),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      productId: Id<"pos_products">;
+    },
+    { ok: true }
+  >(
+    "catalog.archiveProduct",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const product = await ctx.db.get(args.productId);
+      if (!product) throw new Error("PRODUCT_NOT_FOUND");
+      await ctx.db.patch(args.productId, { active: false, updated_at: Date.now() });
+      // Historical pos_transaction_lines unaffected (snapshot rule #1).
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "product.archived",
+        entity_type: "pos_products",
+        entity_id: args.productId,
+        source: "booth_inline",
+        device_id: deviceId,
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
