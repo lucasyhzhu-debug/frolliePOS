@@ -103,6 +103,7 @@ export default function HistoryIndex() {
               <button
                 type="button"
                 onClick={() => setDay(undefined)}
+                aria-label="Reset to today"
                 className="text-xs text-muted-foreground underline"
               >
                 Hari ini

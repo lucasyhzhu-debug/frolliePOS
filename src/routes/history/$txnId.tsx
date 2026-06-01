@@ -16,12 +16,10 @@ import { toast } from "sonner";
 /**
  * v0.5.3a T9 — transaction detail.
  *
- * Reads `getTransactionDetail`, which scopes staff to server-today (throws
- * OUT_OF_SCOPE otherwise). useQuery surfaces a thrown handler error as the
- * query result — Convex renders the error via the React error boundary; we
- * guard with a narrow try/error UI by detecting the thrown message at use
- * time via useQuery's error state shape: we read the result and on undefined
- * + presence-of-error, render the friendly card.
+ * Reads `getTransactionDetail`, which scopes staff to server-today. The null
+ * return (missing or out-of-scope) renders a friendly "not found" card —
+ * staff tapping an old permalink see the same graceful card as for a missing
+ * txn, without an ErrorBoundary in the spoke tree.
  *
  * "Bagikan struk" mints a public receipt token via `shareReceipt` (one-off
  * idempotency key minted at click time per the sale/drafts.tsx convention)
@@ -46,6 +44,8 @@ const REFUND_BADGE = {
   },
 } as const;
 
+// "polling" is a legacy literal for pre-ADR-036 rows; v0.4+ writers emit only
+// "webhook" / "manual_override" / null. Kept so archived v0.3 receipts render.
 const CONFIRMED_VIA_LABEL: Record<"webhook" | "polling" | "manual", string> = {
   webhook: "Otomatis (webhook)",
   polling: "Otomatis (polling)",

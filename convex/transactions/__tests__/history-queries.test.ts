@@ -229,16 +229,15 @@ describe("getTransactionDetail", () => {
     expect(res).toBeNull();
   });
 
-  it("rejects a staff read of a prior-day txn (OUT_OF_SCOPE)", async () => {
+  it("returns null for a staff read of a prior-day txn (today-collapse semantics)", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, { name: "S3", role: "staff", code: "S3" });
     const sessionId = await seedSession(t, staffId);
     const todayWin = wibDayWindow(Date.now());
     const yesterdayStart = todayWin.dayStartMs - 86_400_000;
     const yTxnId = await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000 });
-    await expect(
-      t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId })
-    ).rejects.toThrow(/OUT_OF_SCOPE/);
+    const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId });
+    expect(res).toBeNull();
   });
 
   it("a manager may read a prior-day txn", async () => {

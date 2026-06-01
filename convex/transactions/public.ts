@@ -472,8 +472,7 @@ type TxnDetail = {
  *
  * Scope:
  *   - manager: any txn
- *   - staff:   only txns whose created_at falls in server-today (WIB)
- *     — throws OUT_OF_SCOPE otherwise.
+ *   - staff:   only txns whose created_at falls in server-today (WIB) — returns null otherwise (FE renders "not found").
  *   - null on invalid session OR missing txn (graceful UI degrade).
  */
 export const getTransactionDetail = query({
@@ -487,8 +486,12 @@ export const getTransactionDetail = query({
     if (!txn) return null;
     if (who.role !== "manager") {
       const today = wibDayWindow(Date.now());
+      // Out-of-scope: staff may only read txns from server-today (WIB). Returning
+      // null (not throwing) keeps the FE on the graceful "not found" path — the
+      // staff member tapping an old permalink sees the same friendly card as
+      // a hard-deleted txn, without an ErrorBoundary in the spoke tree.
       if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) {
-        throw new Error("OUT_OF_SCOPE");
+        return null;
       }
     }
     const lines = await ctx.db

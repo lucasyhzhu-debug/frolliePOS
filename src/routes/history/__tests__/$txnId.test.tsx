@@ -79,7 +79,6 @@ vi.mock("convex/react", async (importOriginal) => {
       return undefined;
     },
     useMutation: (mut: unknown) => {
-      const { getFunctionName } = require("convex/server");
       let name = "";
       try {
         name = getFunctionName(
