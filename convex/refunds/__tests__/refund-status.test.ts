@@ -16,4 +16,7 @@ describe("refundStatus", () => {
   it("treats undefined refunded_qty as 0", () => {
     expect(refundStatus([line(3)], true)).toBe("partial");
   });
+  it("returns full for an empty line set when refunds exist (vacuous truth)", () => {
+    expect(refundStatus([], true)).toBe("full");
+  });
 });
