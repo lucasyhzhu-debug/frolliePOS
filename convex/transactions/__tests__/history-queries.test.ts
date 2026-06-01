@@ -124,3 +124,65 @@ describe("listDayTransactions", () => {
     expect(res[0].total).toBe(12_345);
   });
 });
+
+describe("dashboardSummary", () => {
+  it("throws MANAGER_ONLY for a staff session", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
+    const sessionId = await seedSession(t, staffId);
+    await expect(
+      t.query(api.transactions.public.dashboardSummary, { sessionId })
+    ).rejects.toThrow(/MANAGER_ONLY/);
+  });
+
+  it("throws on an invalid session (NO_SESSION)", async () => {
+    const t = convexTest(schema);
+    const goneId = await t.run(async (ctx) => {
+      const sid = await ctx.db.insert("staff", { name: "X", role: "manager", active: true, pin_hash: "x", code: "X1", created_at: 0 } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      await ctx.db.delete(sess);
+      return sess;
+    });
+    await expect(
+      t.query(api.transactions.public.dashboardSummary, { sessionId: goneId })
+    ).rejects.toThrow();
+  });
+
+  it("returns an all-zero summary for a day with no sales", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M1" });
+    const sessionId = await seedSession(t, mgrId);
+    const s = await t.query(api.transactions.public.dashboardSummary, { sessionId });
+    expect(s.gross).toBe(0);
+    expect(s.refundsTotal).toBe(0);
+    expect(s.net).toBe(0);
+    expect(s.count).toBe(0);
+    expect(s.avgBasket).toBe(0);
+    expect(s.topSkus).toEqual([]);
+    expect(s.hourlyCurve).toHaveLength(24);
+    expect(s.hourlyCurve.every((n: number) => n === 0)).toBe(true);
+    expect(s.perStaff).toEqual([]);
+    expect(s.needsAttention).toEqual({ flagged: 0 });
+    expect(s.voucherUsage).toEqual({ count: 0, total: 0 });
+    expect(s.paymentMix).toEqual({
+      qris: { count: 0, total: 0 },
+      bca_va: { count: 0, total: 0 },
+      unknown: { count: 0, total: 0 },
+    });
+  });
+
+  it("aggregates a day's paid txns (gross/net/count/avgBasket)", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedStaff(t, { name: "Mgr2", role: "manager", code: "M2" });
+    const sessionId = await seedSession(t, mgrId);
+    const todayWin = wibDayWindow(Date.now());
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000 });
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 7_200_000, total: 20_000 });
+
+    const s = await t.query(api.transactions.public.dashboardSummary, { sessionId });
+    expect(s.gross).toBe(50_000);
+    expect(s.count).toBe(2);
+    expect(s.avgBasket).toBe(25_000);
+    expect(s.net).toBe(50_000); // no refunds
+  });
+});

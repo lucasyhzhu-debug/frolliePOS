@@ -7,7 +7,7 @@ import { logAudit } from "../audit/internal";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
 import { wibDayWindow } from "../lib/time";
-import type { DayTxn } from "./lib";
+import { computeDaySummary, type DayTxn, type DaySummary } from "./lib";
 
 /** Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window. */
 function windowForLabel(label: string): { dayStartMs: number; dayEndMs: number } {
@@ -89,6 +89,29 @@ export const listDayTransactions = query({
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
     });
+  },
+});
+
+/**
+ * v0.5.3a manager dashboard summary — aggregates the day's paid txns into the
+ * dashboard view-model. Throws MANAGER_ONLY for a staff session and NO_SESSION
+ * for an invalid session (per _requireManagerSession_internal semantics).
+ *
+ * Day picker: `day` is "YYYY-MM-DD" in WIB; defaults to server-today (WIB).
+ */
+export const dashboardSummary = query({
+  args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<DaySummary> => {
+    await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
+      sessionId: args.sessionId,
+    });
+    const today = wibDayWindow(Date.now());
+    const win = args.day ? windowForLabel(args.day) : today;
+    const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
+      dayStartMs: win.dayStartMs,
+      dayEndMs: win.dayEndMs,
+    });
+    return computeDaySummary(txns);
   },
 });
 
