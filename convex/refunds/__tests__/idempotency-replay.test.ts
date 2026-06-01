@@ -58,6 +58,16 @@ describe("_commitRefund_internal idempotency replay (C1)", () => {
         unit_price_snapshot: 50000, tax_rate_snapshot: 0,
         qty: 1, line_subtotal: 50000,
       });
+      // I3: _refundReCredit_internal now reads pos_stock_movements (the
+      // immutable sale-time record), so the fixture must seed one. qty -1 =
+      // component_qty (1) × line_qty (1).
+      await ctx.db.insert("pos_stock_movements", {
+        inventory_sku_id: skuId,
+        qty: -1,
+        source: "sale",
+        source_transaction_line_id: lineId,
+        created_at: Date.now(),
+      });
       return { staffId, mgrId, txnId, lineId, skuId };
     });
 

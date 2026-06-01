@@ -250,10 +250,18 @@ export const _commitRefund_internal = internalMutation({
       );
     }
 
-    // 5. Re-credit stock — delegated to inventory module per ADR-034.
+    // 5. Re-credit stock — delegated to inventory module per ADR-034. Pass
+    //    line_qty (snapshotted at sale time, immutable) so inventory can
+    //    derive per-unit components from the historic sale movements rather
+    //    than re-reading the current recipe (I3 — recipe-drift safety).
     await ctx.runMutation(internal.inventory.internal._refundReCredit_internal, {
       refundId,
-      lines: refundLineRows.map((r) => ({ line_id: r.line_id, qty: r.qty })),
+      transactionId: args.transactionId,
+      lines: lineDocs.map(({ line, qty }) => ({
+        line_id: line._id,
+        line_qty: line.qty,
+        qty,
+      })),
     });
 
     // 6. Purge cached receipt. Throws if no receipt_token (v0.5.1 invariant

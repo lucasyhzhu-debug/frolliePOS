@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 /**
@@ -149,40 +149,70 @@ export const _decrementOnHandUnchecked_internal = internalMutation({
 
 /**
  * Refund-flow stock re-credit per ADR-019. For each refunded line, look up the
- * product's SKU components and write POSITIVE movements (source: "refund") for
- * each component × refund_qty. Increments the on_hand cache (opposite of sale).
- * Default assumption: returned items go back on the shelf; if actually damaged,
- * staff uses the v0.5.2 spoilage flow as a second step.
+ * IMMUTABLE sale movements (the proof of what got decremented at sale time)
+ * and write POSITIVE counterpart movements (source: "refund"). Increments the
+ * on_hand cache (opposite of sale). Default assumption: returned items go back
+ * on the shelf; if actually damaged, staff uses the v0.5.2 spoilage flow as a
+ * second step.
  *
- * Mirrors _recordSaleMovement_internal's shape — same per-line, per-component
- * fan-out, same audit pattern — but with sign flipped and source = "refund".
+ * I3 (v0.5.1 PR B post-review): pre-I3 this re-derived components by querying
+ * pos_product_components for the line's product_id at refund-time. That broke
+ * recipe-drift safety — if a manager edited a product's recipe between sale and
+ * refund, the refund would re-credit the NEW recipe's SKUs/qtys, not what was
+ * actually decremented at sale time. Worse, it read pos_transaction_lines
+ * directly (ADR-034 violation — that table is transactions-owned). The fix
+ * reads pos_stock_movements (inventory-owned) and ratios down by qty: each
+ * sale movement carries the FULL line qty's decrement, so component_qty =
+ * abs(sale_movement.qty) / line.qty, and refund_qty's credit is
+ * component_qty * refund_qty. Avoids both the cross-module read AND the
+ * recipe-drift bug in one shot.
+ *
+ * Caller (refunds._commitRefund_internal) now passes line_qty for each line so
+ * we can do the per-unit ratio without reading pos_transaction_lines.
  */
 export const _refundReCredit_internal = internalMutation({
   args: {
     refundId: v.id("pos_refunds"),
+    transactionId: v.id("pos_transactions"),
     lines: v.array(v.object({
       line_id: v.id("pos_transaction_lines"),
-      qty: v.number(),
+      line_qty: v.number(),    // I3: original line qty (immutable post-paid) — needed
+                                // to ratio the sale movements down to per-unit components.
+      qty: v.number(),         // refund qty
     })),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    for (const { line_id, qty } of args.lines) {
-      const line = await ctx.db.get(line_id);
-      if (!line) throw new Error("LINE_NOT_FOUND");
+    for (const { line_id, line_qty, qty } of args.lines) {
+      // I3: read the historic sale movements for this line (immutable proof of
+      // what got decremented at sale time). by_line_and_sku index keys on
+      // source_transaction_line_id so this is a single indexed range scan.
+      const saleMovements = await ctx.db
+        .query("pos_stock_movements")
+        .withIndex("by_line_and_sku", (q) => q.eq("source_transaction_line_id", line_id))
+        .collect();
 
-      // ADR-034: cross-module read via catalog/internal; do not touch
-      // pos_product_components directly.
-      const components = await ctx.runQuery(
-        internal.catalog.internal._getComponentsForProducts_internal,
-        { productIds: [line.product_id] },
-      );
+      // Defensive: line_qty > 0 enforced upstream (REFUND_QTY_INVALID), but
+      // belt-and-braces here since this function trusts the caller's qty
+      // and a zero would NaN the ratio.
+      if (line_qty <= 0) throw new Error("LINE_QTY_INVALID");
 
-      for (const c of components) {
-        const movementQty = c.qty * qty;   // POSITIVE — re-credit (sale was negative)
+      for (const m of saleMovements) {
+        // Only credit sale-source movements. A future re-credit must never
+        // re-credit an earlier refund's own movement (filtering on source="sale"
+        // is the invariant that lets partial refunds compose safely).
+        if (m.source !== "sale") continue;
+
+        // sale movement qty is signed-negative (decrement). Per-unit consumption
+        // for THIS SKU on THIS line = abs(m.qty) / line_qty. Refund credit for
+        // refund_qty = per-unit * refund_qty. All integers — line_qty divides
+        // m.qty exactly because the sale wrote component_qty * line_qty.
+        const perUnit = Math.abs(m.qty) / line_qty;
+        const movementQty = perUnit * qty;  // POSITIVE — re-credit
+        const skuId: Id<"pos_inventory_skus"> = m.inventory_sku_id;
 
         await ctx.db.insert("pos_stock_movements", {
-          inventory_sku_id: c.skuId,
+          inventory_sku_id: skuId,
           qty: movementQty,
           source: "refund",
           source_transaction_line_id: line_id,
@@ -192,13 +222,13 @@ export const _refundReCredit_internal = internalMutation({
         // INCREMENT the denormalised on_hand cache (opposite of sale).
         const level = await ctx.db
           .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", c.skuId))
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
           .first();
         if (level) {
           await ctx.db.patch(level._id, { on_hand: level.on_hand + movementQty, updated_at: now });
         } else {
           await ctx.db.insert("pos_stock_levels", {
-            inventory_sku_id: c.skuId, on_hand: movementQty, updated_at: now,
+            inventory_sku_id: skuId, on_hand: movementQty, updated_at: now,
           });
         }
 
@@ -207,11 +237,11 @@ export const _refundReCredit_internal = internalMutation({
           actor_id: "system",
           action: "stock.refund_movement",
           entity_type: "pos_inventory_skus",
-          entity_id: c.skuId,
+          entity_id: skuId,
           source: "system",
           metadata: {
             refund_id: args.refundId,
-            transaction_id: line.transaction_id,
+            transaction_id: args.transactionId,
             line_id,
             qty: movementQty,
           },
