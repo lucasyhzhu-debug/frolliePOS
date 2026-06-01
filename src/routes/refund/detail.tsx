@@ -149,7 +149,11 @@ export default function RefundDetail() {
     if (raw.includes("TXN_NOT_PAID"))
       return "This transaction is not in a paid state";
     if (raw.includes("LINE_NOT_FOUND")) return "Refund line no longer exists";
-    if (raw.includes("NO_SESSION"))
+    if (raw.includes("REFUND_QTY_EXCEEDS_REFUNDABLE"))
+      return "Refund quantity exceeds what's refundable on this line";
+    if (raw.includes("REFUND_QTY_INVALID"))
+      return "Refund quantity must be a positive integer";
+    if (raw.includes("NO_SESSION") || raw.includes("SESSION_INVALID"))
       return "Session expired — please sign in again";
     if (raw.includes("POS_BASE_URL not set"))
       return "Server config missing: POS_BASE_URL not set (contact dev)";
