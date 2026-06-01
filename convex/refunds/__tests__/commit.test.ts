@@ -254,4 +254,32 @@ describe("_commitRefund_internal", () => {
       }),
     ).rejects.toThrow(/REFUND_QTY_EXCEEDS_REFUNDABLE/);
   });
+
+  it("rejects duplicate line_id entries in args (REFUND_LINES_DUPLICATE)", async () => {
+    // N1: a caller submitting [{A,1},{A,1}] against A.refundable=2 would have
+    // each entry individually pass `qty <= refundable` while the AGGREGATE
+    // exceeded it — double-commit + double stock credit. The dedup guard at
+    // the top of the validation loop rejects this shape outright.
+    const t = convexTest(schema);
+    const { staffId, mgrId, txnId, lineIds } = await seedPaidTxn(t, {
+      subtotal: 100000,
+      voucher: 0,
+      lines: [{ qty: 2, unit_price: 50000 }],
+    });
+
+    await expect(
+      t.mutation(internal.refunds.internal._commitRefund_internal, {
+        idempotencyKey: "commit-test-dup-line",
+        transactionId: txnId,
+        lines: [
+          { line_id: lineIds[0], qty: 1 },
+          { line_id: lineIds[0], qty: 1 },
+        ],
+        reason: "double-tap aggregator bypass",
+        requestedBy: staffId,
+        approverId: mgrId,
+        approvalSource: "booth_inline",
+      }),
+    ).rejects.toThrow(/REFUND_LINES_DUPLICATE/);
+  });
 });

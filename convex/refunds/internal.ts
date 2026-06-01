@@ -105,7 +105,16 @@ export const _computeRefundPreview_internal = internalQuery({
       refund_amount: number;
     }> = [];
     let total = 0;
+    // N1: dedupe-check args.lines BEFORE per-line validation. Two entries
+    // with the same line_id could each individually pass `qty <= refundable`
+    // but the AGGREGATE would exceed refundable, yielding a double commit.
+    // Reject at the args boundary so both preview + commit surfaces share one
+    // contract.
+    const seen = new Set<string>();
     for (const r of args.lines) {
+      const key = r.line_id as unknown as string;
+      if (seen.has(key)) throw new Error("REFUND_LINES_DUPLICATE");
+      seen.add(key);
       const line = linesById.get(r.line_id as unknown as string);
       if (!line) throw new Error("LINE_NOT_FOUND");
       const amount = computeRefundAmount(line, result.txn, r.qty);
@@ -204,7 +213,14 @@ export const _commitRefund_internal = internalMutation({
     for (const l of txnLines) lineById.set(l._id as unknown as string, l);
 
     const lineDocs: Array<{ line: Doc<"pos_transaction_lines">; qty: number }> = [];
+    // N1: dedupe-check args.lines so two same-line_id entries can't slip past
+    // the per-line refundable cap and double-commit. Mirrors the same check
+    // in _computeRefundPreview_internal — both writers share one contract.
+    const seenLineIds = new Set<string>();
     for (const r of args.lines) {
+      const key = r.line_id as unknown as string;
+      if (seenLineIds.has(key)) throw new Error("REFUND_LINES_DUPLICATE");
+      seenLineIds.add(key);
       const line = lineById.get(r.line_id as unknown as string);
       // LINE_NOT_FOUND covers both "no such line" AND "line belongs to a
       // different txn" — the lookup is scoped to txnLines, so a foreign
