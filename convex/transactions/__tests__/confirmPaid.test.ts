@@ -1,39 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
 
-// _checkLowStock_internal schedules _dispatchLowStockAlert_internal via runAfter(0)
-// when on_hand crosses below low_threshold. The dispatch action calls Telegram —
-// stub fetch + env vars so it's offline + deterministic, and drain the scheduler
-// in tests that trip a dispatch so it doesn't fire after teardown.
-const realFetch = globalThis.fetch;
-beforeEach(() => {
-  process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
-  process.env.TELEGRAM_CHAT_ID = "-1001234567";
-  process.env.POS_BASE_URL = "https://pos.dev";
-  globalThis.fetch = (async (url: string | URL | Request) => {
-    if (String(url).includes("telegram")) {
-      return {
-        ok: true, status: 200,
-        json: async () => ({ ok: true, result: { message_id: 1 } }),
-        text: async () => "{}",
-      } as unknown as Response;
-    }
-    return realFetch(url as RequestInfo);
-  }) as typeof fetch;
-});
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
-
-// runAfter(0) uses setTimeout(0): yield once so the job moves from pending →
-// inProgress, then drain. Same idiom as convex/auth/__tests__/auth.test.ts.
-async function drainScheduled(t: ReturnType<typeof convexTest>) {
-  await new Promise((r) => setTimeout(r, 0));
-  await t.finishInProgressScheduledFunctions();
-}
+// _checkLowStock_internal schedules a Telegram dispatch via runAfter(0) when
+// on_hand crosses below low_threshold. setupTelegramStub() stubs fetch + env so
+// the scheduled action is offline + deterministic. drainScheduled() flushes any
+// pending dispatches before teardown.
+setupTelegramStub();
 
 async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
