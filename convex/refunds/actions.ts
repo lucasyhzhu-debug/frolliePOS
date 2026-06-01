@@ -221,7 +221,27 @@ export const requestRefundApproval = action({
       { transactionId: args.transactionId },
     );
     if (existing) {
-      const out = { requestId: existing };
+      // N5: if the pending request's context differs from this request's
+      // (different lines/qty OR different reason), reject rather than silently
+      // shadow — the manager would otherwise approve the OLD message and commit
+      // the wrong qty. Same context = legitimate replay; return existing.
+      const existingLines = existing.context?.lines ?? [];
+      const newLines = preview.lines.map((l) => ({
+        line_id: l.line_id as unknown as string,
+        refund_qty: l.refund_qty,
+      }));
+      const sameLines =
+        existingLines.length === newLines.length &&
+        existingLines.every(
+          (el, i) =>
+            el.line_id === newLines[i].line_id &&
+            el.refund_qty === newLines[i].refund_qty,
+        );
+      const sameReason = (existing.context?.reason ?? "") === args.reason;
+      if (!sameLines || !sameReason) {
+        throw new Error("REFUND_REQUEST_PENDING_DIFFERENT");
+      }
+      const out = { requestId: existing.requestId };
       // Cache the dedup hit so a later retry under the same idempotency key
       // replays the same response without re-running the preview query.
       await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {

@@ -34,13 +34,32 @@ export const _listForTransaction_internal = internalQuery({
  */
 export const _findPendingRefundForTxn_internal = internalQuery({
   args: { transactionId: v.id("pos_transactions") },
-  handler: async (ctx, args): Promise<Id<"pos_approval_requests"> | null> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    requestId: Id<"pos_approval_requests">;
+    context: {
+      lines?: Array<{ line_id: string; refund_qty: number }>;
+      reason?: string;
+    } | undefined;
+  } | null> => {
     const rows = await ctx.runQuery(
       internal.approvals.internal._listPendingByKind_internal,
       { kind: "refund", entityId: args.transactionId },
     );
     const first = rows[0];
-    return first?._id ?? null;
+    if (!first) return null;
+    // N5: surface the existing context so the caller (requestRefundApproval)
+    // can detect context-mismatch (different lines/qty/reason) and reject
+    // instead of silently shadowing the prior approval request — otherwise
+    // staff submitting qty=1 then qty=3 would get the qty=1 result.
+    return {
+      requestId: first._id,
+      context: first.context as
+        | { lines?: Array<{ line_id: string; refund_qty: number }>; reason?: string }
+        | undefined,
+    };
   },
 });
 

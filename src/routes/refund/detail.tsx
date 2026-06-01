@@ -157,6 +157,8 @@ export default function RefundDetail() {
       return "Refund line listed twice — please reload and retry";
     if (raw.includes("REFUND_TOTAL_ZERO"))
       return "Refund amount is zero — voucher-covered lines cannot be refunded";
+    if (raw.includes("REFUND_REQUEST_PENDING_DIFFERENT"))
+      return "A different refund request for this transaction is already pending — wait for it to resolve or ask a manager to deny it before requesting again.";
     if (raw.includes("NO_SESSION") || raw.includes("SESSION_INVALID"))
       return "Session expired — please sign in again";
     if (raw.includes("POS_BASE_URL not set"))
