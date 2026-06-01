@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { argon2id } from "hash-wasm";
-import { verifyPinOrThrow } from "./verifyPin";
+import { verifyPinOrThrow, verifyManagerPinOrThrow } from "./verifyPin";
 
 const ARGON2_PARAMS = {
   parallelism: 1,
@@ -253,13 +253,6 @@ export const resetStaffPin = action({
       sessionId: args.sessionId,
     });
     if (!session) throw new Error("SESSION_INVALID");
-
-    const manager = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
-      staffId: session.staff._id,
-    });
-    if (!manager || !manager.active || manager.role !== "manager") {
-      throw new Error("NOT_MANAGER");
-    }
     if (session.staff._id === args.targetStaffId) {
       throw new Error("USE_CHANGE_PIN_FOR_SELF");
     }
@@ -269,14 +262,12 @@ export const resetStaffPin = action({
     });
     if (!target || !target.active) throw new Error("TARGET_NOT_FOUND");
 
-    // Lockout pre-check + argon2 verify + failed-attempt recording (shared funnel).
-    // SECURITY: verify against the MANAGER's hash (the caller), never the target's —
-    // a wrong manager PIN cannot reset. Lockout/fail are recorded against the manager.
-    await verifyPinOrThrow(ctx, {
-      staffId: session.staff._id,
-      deviceId: session.deviceId,
-      pinHash: manager.pin_hash,
-      pin: args.managerPin,
+    // Manager identity + PIN proof via the shared funnel (replaces the inline
+    // manager lookup + verifyPinOrThrow). SECURITY unchanged: verifies the
+    // MANAGER's hash, records lockout/fail against the manager.
+    const { managerId } = await verifyManagerPinOrThrow(ctx, {
+      sessionId: args.sessionId,
+      managerPin: args.managerPin,
       idempotencyKey: args.idempotencyKey,
     });
 
@@ -286,7 +277,7 @@ export const resetStaffPin = action({
     await ctx.runMutation(internal.auth.internal._changePinCommit_internal, {
       staffId: args.targetStaffId,
       newPinHash,
-      actor: { kind: "manager_reset", mgr_approver_id: session.staff._id },
+      actor: { kind: "manager_reset", mgr_approver_id: managerId },
     });
 
     const response = { reset: true } as const;

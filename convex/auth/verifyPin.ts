@@ -1,5 +1,5 @@
 import { argon2Verify } from "hash-wasm";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 
@@ -55,4 +55,39 @@ export async function verifyPinOrThrow(
     }
     throw new Error("INVALID_PIN");
   }
+}
+
+/**
+ * Manager-PIN gate for inline (at-portal) admin actions. Resolves the session,
+ * asserts the caller is an ACTIVE MANAGER, then runs the shared verifyPinOrThrow
+ * funnel against the MANAGER's own hash (lockout pre-check + argon2 + failed-attempt
+ * recording under `${idempotencyKey}:failed`). Returns the manager identity for
+ * audit attribution. Never logs PIN values. Inline-only — NOT the Telegram path.
+ */
+export async function verifyManagerPinOrThrow(
+  ctx: ActionCtx,
+  params: {
+    sessionId: Id<"staff_sessions">;
+    managerPin: string;
+    idempotencyKey: string;
+  },
+): Promise<{ managerId: Id<"staff">; deviceId: string }> {
+  const session = await ctx.runQuery(api.auth.public.getSession, {
+    sessionId: params.sessionId,
+  });
+  if (!session) throw new Error("SESSION_INVALID");
+  const manager = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
+    staffId: session.staff._id,
+  });
+  if (!manager || !manager.active || manager.role !== "manager") {
+    throw new Error("NOT_MANAGER");
+  }
+  await verifyPinOrThrow(ctx, {
+    staffId: session.staff._id,
+    deviceId: session.deviceId,
+    pinHash: manager.pin_hash,
+    pin: params.managerPin,
+    idempotencyKey: params.idempotencyKey,
+  });
+  return { managerId: session.staff._id, deviceId: session.deviceId };
 }
