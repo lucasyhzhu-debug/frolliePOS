@@ -480,3 +480,45 @@ describe("recordRecount", () => {
     await drainScheduled(t);
   });
 });
+
+describe("setLowThreshold", () => {
+  it("manager updates the catalog low_threshold", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 5);
+    const { sessionId } = await seedStaffSession(t, "manager");
+    await t.mutation(api.inventory.public.setLowThreshold, {
+      idempotencyKey: "lt-1", sessionId, skuId, lowThreshold: 25,
+    });
+    const got = await t.query(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
+    expect(got[0].low_threshold).toBe(25);
+  });
+  it("rejects non-manager", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "x", 5);
+    const { sessionId } = await seedStaffSession(t, "staff");
+    await expect(t.mutation(api.inventory.public.setLowThreshold, {
+      idempotencyKey: "lt-2", sessionId, skuId, lowThreshold: 25,
+    })).rejects.toThrow();
+  });
+});
+
+describe("listInventory", () => {
+  it("returns status per active SKU (ok/low/negative)", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedStaffSession(t);
+    const okSku = await seedSkuWithThreshold(t, "ok", 20);
+    const lowSku = await seedSkuWithThreshold(t, "low", 20);
+    const negSku = await seedSkuWithThreshold(t, "neg", 20);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: okSku, on_hand: 100, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: lowSku, on_hand: 5, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: negSku, on_hand: -2, updated_at: Date.now() });
+    });
+    const rows = await t.query(api.inventory.public.listInventory, { sessionId });
+    const byId: Record<string, "ok" | "low" | "negative"> = {};
+    for (const r of rows) byId[r.skuId] = r.status;
+    expect(byId[okSku]).toBe("ok");
+    expect(byId[lowSku]).toBe("low");
+    expect(byId[negSku]).toBe("negative");
+  });
+});
