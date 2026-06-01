@@ -3,21 +3,7 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 import { wibDayWindow } from "../../lib/time";
-
-// inline seed helpers — use `as any` for terseness on full-Doc inserts;
-// existing tests in this dir use the same pattern.
-
-async function seedStaff(t: ReturnType<typeof convexTest>, args: { name: string; role: "staff" | "manager"; code: string }) {
-  return await t.run(async (ctx) =>
-    ctx.db.insert("staff", { name: args.name, role: args.role, active: true, pin_hash: "x", code: args.code, created_at: 0 } as any)
-  );
-}
-
-async function seedSession(t: ReturnType<typeof convexTest>, staffId: any) {
-  return await t.run(async (ctx) =>
-    ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any)
-  );
-}
+import { seedStaff, seedSession } from "./_helpers";
 
 async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; createdAt: number; total?: number }) {
   return await t.run(async (ctx) => {
@@ -79,9 +65,8 @@ describe("listDayTransactions", () => {
     await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000 }); // yesterday
     await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000 }); // today
 
-    // Build yesterday's YYYY-MM-DD label
-    const wibYesterday = new Date(yesterdayStart + 7 * 60 * 60 * 1000);
-    const label = `${wibYesterday.getUTCFullYear()}-${String(wibYesterday.getUTCMonth() + 1).padStart(2, "0")}-${String(wibYesterday.getUTCDate()).padStart(2, "0")}`;
+    // F10: reuse wibDayWindow().dateLabel — same parser the BE uses.
+    const label = wibDayWindow(yesterdayStart).dateLabel;
 
     const res = await t.query(api.transactions.public.listDayTransactions, {
       sessionId, day: label,
@@ -101,8 +86,8 @@ describe("listDayTransactions", () => {
     await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 99_000 }); // yesterday
     await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 11_000 }); // today
 
-    const wibYesterday = new Date(yesterdayStart + 7 * 60 * 60 * 1000);
-    const label = `${wibYesterday.getUTCFullYear()}-${String(wibYesterday.getUTCMonth() + 1).padStart(2, "0")}-${String(wibYesterday.getUTCDate()).padStart(2, "0")}`;
+    // F10: reuse wibDayWindow().dateLabel — same parser the BE uses.
+    const label = wibDayWindow(yesterdayStart).dateLabel;
 
     const res = await t.query(api.transactions.public.listDayTransactions, {
       sessionId, day: label,

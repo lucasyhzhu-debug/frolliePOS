@@ -2,18 +2,7 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
-
-async function seedStaff(t: ReturnType<typeof convexTest>, args: { name: string; role: "staff" | "manager"; code: string }) {
-  return await t.run(async (ctx) =>
-    ctx.db.insert("staff", { name: args.name, role: args.role, active: true, pin_hash: "x", code: args.code, created_at: 0 } as any)
-  );
-}
-
-async function seedSession(t: ReturnType<typeof convexTest>, staffId: any) {
-  return await t.run(async (ctx) =>
-    ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any)
-  );
-}
+import { seedStaff, seedSession } from "./_helpers";
 
 async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; total?: number }) {
   return await t.run(async (ctx) => {
