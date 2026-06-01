@@ -57,6 +57,7 @@ export const _recordSaleMovement_internal = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const touched = new Set<Id<"pos_inventory_skus">>();
     for (const line of args.lines) {
       // ADR-026: dedup guard — skip if movement for this (line, sku) pair exists.
       const existing = await ctx.db
@@ -87,6 +88,19 @@ export const _recordSaleMovement_internal = internalMutation({
         source: "system",
         metadata: { transaction_id: args.transactionId, qty: -line.qty },
       });
+      // Track for the post-loop low-stock check. Populate ONLY in the non-dedup
+      // branch so a re-fired sale (webhook + retry) doesn't re-trigger alerts.
+      touched.add(line.skuId);
+    }
+    // v0.5.2 (ADR-042): low-stock check once per uniquely-decremented SKU.
+    // SKU-deduped (Set) so two lines sharing one SKU only trigger one check.
+    // "Fail-isolation" is at the Telegram-dispatch boundary (scheduled via
+    // runAfter(0) inside _checkLowStock_internal), NOT here — the check's own
+    // DB writes (flag, audit) are intentionally in the same transaction as the
+    // sale movement, so a write failure rolls back the sale. Do NOT wrap in
+    // try/catch.
+    for (const skuId of touched) {
+      await ctx.runMutation(internal.inventory.internal._checkLowStock_internal, { skuId });
     }
   },
 });

@@ -64,6 +64,28 @@ async function seedSkuWithThreshold(t: any, sku: string, low_threshold: number) 
   );
 }
 
+/**
+ * Seed a staff + product + transaction + one line. Used by v0.5.2 low-stock-
+ * injection test (Task 7). The two original _recordSaleMovement_internal tests
+ * keep their inline seed bodies — leaving them alone keeps regression surface
+ * zero.
+ */
+async function seedTxnAndLine(ctx: any) {
+  const staffId = await seedStaffId(ctx);
+  const productId = await seedProductId(ctx);
+  const txnId = await ctx.db.insert("pos_transactions", {
+    status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
+    total: 0, flags: 0, staff_id: staffId, created_at: Date.now(),
+  });
+  const lineId = await ctx.db.insert("pos_transaction_lines", {
+    transaction_id: txnId, product_id: productId,
+    product_code_snapshot: "DBP8", product_name_snapshot: "Dubai 8pc",
+    unit_price_snapshot: 200_000, tax_rate_snapshot: 0,
+    qty: 1, line_subtotal: 200_000,
+  });
+  return { txnId, lineId };
+}
+
 describe("inventory/internal", () => {
   it("_recordSaleMovement_internal: writes one movement row per line, decrements on_hand, updates updated_at", async () => {
     const t = convexTest(schema);
@@ -288,6 +310,28 @@ describe("_checkLowStock_internal", () => {
     const skuId = await seedSkuWithThreshold(t, "fresh", 20);
     // NO pos_stock_levels insert — first-ever sale scenario
     await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flag = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(flag).not.toBeNull();
+    await drainScheduled(t);
+  });
+});
+
+describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => {
+  it("triggers one low-stock check per unique decremented SKU", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "dubai-decr", 20);
+    const setup = await t.run(async (ctx) => {
+      const seeded = await seedTxnAndLine(ctx);
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 21, updated_at: Date.now() });
+      return seeded;
+    });
+    // 21 → 16 crosses threshold-20.
+    await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
+      transactionId: setup.txnId,
+      lines: [{ lineId: setup.lineId, skuId, qty: 5 }],
+    });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
