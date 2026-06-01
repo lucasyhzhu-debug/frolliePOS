@@ -22,6 +22,7 @@ export const _createRequest_internal = internalMutation({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
+      v.literal("refund"),   // v0.5.1 PR B: refund-approval requests funnel here too.
     ),
     requester_staff_id: v.optional(v.id("staff")),
     entity_type: v.optional(v.string()),

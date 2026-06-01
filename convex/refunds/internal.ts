@@ -44,6 +44,88 @@ export const _findPendingRefundForTxn_internal = internalQuery({
 });
 
 /**
+ * Compute the refund preview (per-line product_name + refund_qty +
+ * refund_amount, plus total) for an off-booth approval request. Used by
+ * requestRefundApproval (B9) to populate the approval-request `context` so the
+ * Telegram card + /approve UI show exactly what's being approved before the
+ * manager enters PIN.
+ *
+ * Routes through transactions' canonical aggregate
+ * (_getPaidTxnWithLinesForReceipt_internal) per ADR-034 — refunds never reads
+ * pos_transactions / pos_transaction_lines directly. Same null-handling shape
+ * as _commitRefund_internal so the two paths surface identical error codes
+ * (TXN_NOT_REFUNDABLE for "missing or not paid", LINE_NOT_FOUND for bad
+ * line_id).
+ *
+ * Stateless: no DB writes; the caller (action) uses the returned preview as
+ * input to `_createRequest_internal`'s context payload.
+ */
+export const _computeRefundPreview_internal = internalQuery({
+  args: {
+    transactionId: v.id("pos_transactions"),
+    lines: v.array(
+      v.object({
+        line_id: v.id("pos_transaction_lines"),
+        qty: v.number(),
+      }),
+    ),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    receipt_number: string;
+    lines: Array<{
+      line_id: Id<"pos_transaction_lines">;
+      product_name: string;
+      refund_qty: number;
+      refund_amount: number;
+    }>;
+    total_refund: number;
+  }> => {
+    const result = await ctx.runQuery(
+      internal.transactions.internal._getPaidTxnWithLinesForReceipt_internal,
+      { transactionId: args.transactionId },
+    );
+    if (!result) throw new Error("TXN_NOT_REFUNDABLE");
+    // receipt_number is stamped at paid-commit; a paid txn without one is a
+    // schema-invariant violation rather than a user-facing error.
+    if (!result.txn.receipt_number) throw new Error("TXN_NOT_PAID");
+
+    const linesById = new Map<string, Doc<"pos_transaction_lines">>();
+    for (const l of result.lines) {
+      linesById.set(l._id as unknown as string, l);
+    }
+
+    const previewLines: Array<{
+      line_id: Id<"pos_transaction_lines">;
+      product_name: string;
+      refund_qty: number;
+      refund_amount: number;
+    }> = [];
+    let total = 0;
+    for (const r of args.lines) {
+      const line = linesById.get(r.line_id as unknown as string);
+      if (!line) throw new Error("LINE_NOT_FOUND");
+      const amount = computeRefundAmount(line, result.txn, r.qty);
+      previewLines.push({
+        line_id: line._id,
+        product_name: line.product_name_snapshot,
+        refund_qty: r.qty,
+        refund_amount: amount,
+      });
+      total += amount;
+    }
+
+    return {
+      receipt_number: result.txn.receipt_number,
+      lines: previewLines,
+      total_refund: total,
+    };
+  },
+});
+
+/**
  * The single writer for refund commits — both inline (booth-PIN) and off-booth
  * (Telegram-PIN) paths funnel through here per v0.5.0 cross-path-parity lesson.
  *
