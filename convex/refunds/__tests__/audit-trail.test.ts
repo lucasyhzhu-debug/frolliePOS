@@ -132,6 +132,7 @@ describe("refund audit trail", () => {
     const { staffId, mgrId, txnId, lineId } = await seedPaidTxnWithRealManager(t);
 
     await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "audit-commit-booth-1",
       transactionId: txnId,
       lines: [{ line_id: lineId, qty: 1 }],
       reason: "booth path",
@@ -156,6 +157,7 @@ describe("refund audit trail", () => {
     const { staffId, mgrId, txnId, lineId } = await seedPaidTxnWithRealManager(t);
 
     await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "audit-commit-tg-1",
       transactionId: txnId,
       lines: [{ line_id: lineId, qty: 1 }],
       reason: "telegram path",
@@ -183,6 +185,7 @@ describe("refund audit trail", () => {
     const { refundId } = await t.mutation(
       internal.refunds.internal._commitRefund_internal,
       {
+        idempotencyKey: "audit-commit-settle-1",
         transactionId: txnId,
         lines: [{ line_id: lineId, qty: 1 }],
         reason: "to-be-settled",

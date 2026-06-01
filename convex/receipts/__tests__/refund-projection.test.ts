@@ -79,6 +79,7 @@ describe("receipt refund-projection (ADR-039)", () => {
 
     // Step 2: commit a partial refund (1 of 3 units).
     await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "receipts-refund-projection-1",
       transactionId: txnId,
       lines: [{ line_id: lineId, qty: 1 }],
       reason: "wrong order",
@@ -137,6 +138,7 @@ describe("receipt refund-projection (ADR-039)", () => {
 
     // Full refund: both units.
     await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "receipts-refund-projection-full-1",
       transactionId: txnId,
       lines: [{ line_id: lineId, qty: 2 }],
       reason: "all wrong",

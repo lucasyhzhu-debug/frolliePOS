@@ -4,6 +4,7 @@ import { Id, Doc } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { computeRefundAmount, lineRefundable } from "./lib";
 import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 
 /**
  * Cross-module read surface: receipts module calls this to list refunds for a
@@ -151,6 +152,14 @@ export const _computeRefundPreview_internal = internalQuery({
  */
 export const _commitRefund_internal = internalMutation({
   args: {
+    // v0.5.1 PR B C1: derived idempotency key (callers pass `${topKey}:commit`).
+    // Wrapping the funnel with withIdempotency closes the "action-retry double-
+    // commit" hole — if the outer action retried AFTER this mutation committed
+    // but BEFORE the action-level cache row was written, a same-`:commit`-key
+    // retry now short-circuits at the wrapper's cache lookup and returns the
+    // original { refundId, total_refund } instead of re-inserting a second
+    // pos_refunds row + second stock movements + second audit row.
+    idempotencyKey: v.string(),
     transactionId: v.id("pos_transactions"),
     lines: v.array(v.object({
       line_id: v.id("pos_transaction_lines"),
@@ -162,8 +171,22 @@ export const _commitRefund_internal = internalMutation({
     approvalSource: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
     approvalRequestId: v.optional(v.id("pos_approval_requests")),
   },
-  handler: async (ctx, args): Promise<{ refundId: Id<"pos_refunds">; total_refund: number }> => {
-    // 1. Validate txn + lines via transactions owning-module helper (ADR-034).
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      transactionId: Id<"pos_transactions">;
+      lines: Array<{ line_id: Id<"pos_transaction_lines">; qty: number }>;
+      reason: string;
+      requestedBy: Id<"staff">;
+      approverId: Id<"staff">;
+      approvalSource: "booth_inline" | "telegram_approval";
+      approvalRequestId?: Id<"pos_approval_requests">;
+    },
+    { refundId: Id<"pos_refunds">; total_refund: number }
+  >(
+    "refunds._commitRefund_internal",
+    async (ctx, args): Promise<{ refundId: Id<"pos_refunds">; total_refund: number }> => {
+      // 1. Validate txn + lines via transactions owning-module helper (ADR-034).
     //    Helper returns null if txn missing OR not paid, so a single null check
     //    covers TXN_NOT_FOUND + TXN_NOT_PAID. We surface them as one error code
     //    rather than two — callers (B8 booth-PIN, B10 telegram-PIN, B9 approval-
@@ -258,6 +281,7 @@ export const _commitRefund_internal = internalMutation({
       },
     });
 
-    return { refundId, total_refund };
-  },
+      return { refundId, total_refund };
+    },
+  ),
 });

@@ -600,9 +600,12 @@ export const approveRefund = action({
       line_id: l.line_id as unknown as Id<"pos_transaction_lines">,
       qty: l.refund_qty,
     }));
+    // C1: pass derived `:commit` idempotency key so the wrapped funnel can
+    // short-circuit on action-retry without double-committing the refund.
     const result = await ctx.runMutation(
       internal.refunds.internal._commitRefund_internal,
       {
+        idempotencyKey: `${args.idempotencyKey}:commit`,
         transactionId: txnId,
         lines: commitLines,
         reason: ctxBag.reason ?? req.reason ?? "Refund (off-booth approval)",

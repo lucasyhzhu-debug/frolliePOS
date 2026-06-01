@@ -101,6 +101,7 @@ describe("_commitRefund_internal", () => {
     const { refundId, total_refund } = await t.mutation(
       internal.refunds.internal._commitRefund_internal,
       {
+        idempotencyKey: "commit-test-partial-1",
         transactionId: txnId,
         lines: [{ line_id: lineIds[0], qty: 1 }],
         reason: "wrong flavour",
@@ -136,6 +137,7 @@ describe("_commitRefund_internal", () => {
     });
     await expect(
       t.mutation(internal.refunds.internal._commitRefund_internal, {
+        idempotencyKey: "commit-test-overrefund",
         transactionId: txnId,
         lines: [{ line_id: lineIds[0], qty: 2 }],
         reason: "x",
@@ -179,6 +181,7 @@ describe("_commitRefund_internal", () => {
 
     await expect(
       t.mutation(internal.refunds.internal._commitRefund_internal, {
+        idempotencyKey: "commit-test-not-paid",
         transactionId: txnId,
         lines: [{ line_id: lineId, qty: 1 }],
         reason: "x",
@@ -201,6 +204,7 @@ describe("_commitRefund_internal", () => {
 
     // First refund: 1 unit.
     const r1 = await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "commit-test-multi-1",
       transactionId: txnId,
       lines: [{ line_id: lineIds[0], qty: 1 }],
       reason: "first",
@@ -214,6 +218,7 @@ describe("_commitRefund_internal", () => {
     // to still have receipt_token — set unchanged on the paid row.
     // Second refund: 2 units.
     const r2 = await t.mutation(internal.refunds.internal._commitRefund_internal, {
+      idempotencyKey: "commit-test-multi-2",
       transactionId: txnId,
       lines: [{ line_id: lineIds[0], qty: 2 }],
       reason: "second",
@@ -239,6 +244,7 @@ describe("_commitRefund_internal", () => {
     // A third refund attempt should fail — nothing left to refund.
     await expect(
       t.mutation(internal.refunds.internal._commitRefund_internal, {
+        idempotencyKey: "commit-test-multi-3-overrefund",
         transactionId: txnId,
         lines: [{ line_id: lineIds[0], qty: 1 }],
         reason: "over",

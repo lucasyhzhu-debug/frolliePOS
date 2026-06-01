@@ -58,6 +58,7 @@ async function commitOneRefund(
   const { refundId } = await t.mutation(
     internal.refunds.internal._commitRefund_internal,
     {
+      idempotencyKey: `settlement-test-commit-${Math.random()}`,
       transactionId: seed.txnId,
       lines: [{ line_id: seed.lineId, qty: 1 }],
       reason: "test",
@@ -166,6 +167,7 @@ describe("listPendingSettlement", () => {
     const { refundId: refund2 } = await t.mutation(
       internal.refunds.internal._commitRefund_internal,
       {
+        idempotencyKey: "settlement-test-refund2",
         transactionId: await t.run(async (ctx) => {
           // Look up the txn id for the second paid row.
           const txns = await ctx.db.query("pos_transactions").collect();
