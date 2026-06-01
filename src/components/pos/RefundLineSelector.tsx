@@ -26,7 +26,7 @@ export function RefundLineSelector({
         {qty} sold{refunded_qty > 0 ? ` · ${refunded_qty} already refunded` : ""} · {refundable} refundable · {rp(unitPrice)}/ea
       </div>
       <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" size="icon" onClick={dec} disabled={value === 0}>−</Button>
+        <Button type="button" variant="outline" size="icon" onClick={dec} disabled={value === 0} aria-label="Decrease quantity">−</Button>
         <Input
           type="number"
           min={0}
@@ -38,8 +38,9 @@ export function RefundLineSelector({
             onChange(Math.max(0, Math.min(refundable, n)));
           }}
           className="w-16 text-center"
+          aria-label={`Refund quantity for ${productName}`}
         />
-        <Button type="button" variant="outline" size="icon" onClick={inc} disabled={value === refundable}>+</Button>
+        <Button type="button" variant="outline" size="icon" onClick={inc} disabled={value === refundable} aria-label="Increase quantity">+</Button>
         <span className="text-xs text-muted-foreground ml-auto">of {refundable}</span>
       </div>
     </div>

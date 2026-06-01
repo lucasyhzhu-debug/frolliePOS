@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from "react";
 
 export type RefundLineSelection = {
   line_id: string;
-  qty: number;       // 0 = not refunded
+  qty: number;       // > 0; entries with qty=0 are filtered out by `lines`
 };
 
 export function useRefund(_initialLines: Array<{ _id: string; refundable: number }>) {
@@ -28,13 +28,23 @@ export function useRefund(_initialLines: Array<{ _id: string; refundable: number
 
   const canSubmit = lines.length > 0 && reason.trim().length > 0;
 
+  const qtyFor = useCallback(
+    (lineId: string) => selections[lineId] ?? 0,
+    [selections],
+  );
+
+  const reset = useCallback(() => {
+    setSelections({});
+    setReason("");
+  }, []);
+
   return {
     setQty,
-    qtyFor: (lineId: string) => selections[lineId] ?? 0,
+    qtyFor,
     reason, setReason,
     lines,
     totalQty,
     canSubmit,
-    reset: () => { setSelections({}); setReason(""); },
+    reset,
   };
 }
