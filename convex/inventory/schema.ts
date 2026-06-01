@@ -34,6 +34,7 @@ export const inventoryTables = {
 
   // v0.5.2 (ADR-042): low-stock dedup FLAG only. The threshold itself is the
   // catalog-owned pos_inventory_skus.low_threshold — NOT duplicated here.
+  // Row is DELETED (not flagged) when on_hand climbs back to/above threshold — re-arms the alert.
   pos_low_stock_alerts: defineTable({
     inventory_sku_id: v.id("pos_inventory_skus"),
     alerted_at: v.number(),
