@@ -185,9 +185,12 @@ export const recordRecount = mutation({
       // ADR-042: low-stock check per touched SKU. Recount can cross threshold
       // in either direction; the check is the single source of truth for
       // flag insertion + dispatch + re-arm.
-      for (const skuId of touched) {
-        await ctx.runMutation(internal.inventory.internal._checkLowStock_internal, { skuId });
-      }
+      //
+      // v0.5.2 simplify: batched so one runQuery against catalog covers all
+      // touched SKUs (was: one per SKU via the single-id _checkLowStock_internal).
+      await ctx.runMutation(internal.inventory.internal._checkLowStockBatch_internal, {
+        skuIds: touched,
+      });
       return { ok: true as const, changed: touched.length };
     },
     {

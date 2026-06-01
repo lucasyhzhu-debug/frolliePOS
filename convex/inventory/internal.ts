@@ -95,12 +95,17 @@ export const _recordSaleMovement_internal = internalMutation({
     // v0.5.2 (ADR-042): low-stock check once per uniquely-decremented SKU.
     // SKU-deduped (Set) so two lines sharing one SKU only trigger one check.
     // "Fail-isolation" is at the Telegram-dispatch boundary (scheduled via
-    // runAfter(0) inside _checkLowStock_internal), NOT here — the check's own
+    // runAfter(0) inside checkLowStockOne), NOT here — the check's own
     // DB writes (flag, audit) are intentionally in the same transaction as the
     // sale movement, so a write failure rolls back the sale. Do NOT wrap in
     // try/catch.
-    for (const skuId of touched) {
-      await ctx.runMutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    //
+    // v0.5.2 simplify: batched so one runQuery against catalog covers all
+    // touched SKUs (was: one per SKU via the single-id _checkLowStock_internal).
+    if (touched.size > 0) {
+      await ctx.runMutation(internal.inventory.internal._checkLowStockBatch_internal, {
+        skuIds: Array.from(touched),
+      });
     }
   },
 });
@@ -279,15 +284,10 @@ export const _refundReCredit_internal = internalMutation({
 // helper writes via the same `level._id` reference).
 
 /**
- * Reactive low-stock check for a single SKU (v0.5.2, ADR-042). Called from
- * stock-changing paths (sale decrement, refund credit, recount apply, stock-in)
- * via `ctx.scheduler.runAfter(0, ...)` so the side-effect is decoupled from the
- * mutation's primary writes.
- *
- * Reads catalog's `low_threshold` via the ADR-034 catalog internal (never
- * touches `pos_inventory_skus` directly from this module). Compares against
- * the denormalised `pos_stock_levels.on_hand`. The `pos_low_stock_alerts` row
- * is a dedup flag — its presence means "we've already alerted; don't spam".
+ * Reactive low-stock check body, factored out so the single-id and batch
+ * variants share the comparison + flag-write + dispatch-schedule logic.
+ * `sku` is the pre-fetched catalog row (name + low_threshold); callers
+ * are responsible for the catalog read.
  *
  * Three branches:
  * - `on_hand < threshold` AND no flag → insert flag, audit, schedule dispatch.
@@ -295,52 +295,99 @@ export const _refundReCredit_internal = internalMutation({
  *   operator already knows things recovered).
  * - Otherwise → no-op.
  */
+async function checkLowStockOne(
+  ctx: MutationCtx,
+  skuId: Id<"pos_inventory_skus">,
+  sku: { name: string; low_threshold: number },
+): Promise<void> {
+  const level = await ctx.db
+    .query("pos_stock_levels")
+    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+    .first();
+  const onHand = level?.on_hand ?? 0;
+  const flag = await ctx.db
+    .query("pos_low_stock_alerts")
+    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+    .first();
+
+  const below = onHand < sku.low_threshold;
+  if (below && !flag) {
+    const now = Date.now();
+    await ctx.db.insert("pos_low_stock_alerts", {
+      inventory_sku_id: skuId,
+      alerted_at: now,
+    });
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "stock.low_stock_alerted",
+      entity_type: "pos_inventory_skus",
+      entity_id: skuId,
+      source: "system",
+      metadata: { on_hand: onHand, low_threshold: sku.low_threshold },
+    });
+    // v0.5.2 simplify: dispatch through the shared `dispatchRoleAlert`
+    // helper. C2: thread `alerted_at` into the idempotency key so each
+    // flag-insert cycle is unique (keying on on_hand would collide
+    // across yo-yo bounces within the 24h action-cache window).
+    await ctx.scheduler.runAfter(0, internal.telegram.dispatch.dispatchRoleAlert, {
+      role: "inventory",
+      kind: "low_stock_alert",
+      payload: {
+        sku_name: sku.name,
+        on_hand: onHand,
+        low_threshold: sku.low_threshold,
+      },
+      idempotencyKey: `lowstock:${skuId}:${now}`,
+    });
+  } else if (!below && flag) {
+    await ctx.db.delete(flag._id);
+  }
+}
+
+/**
+ * Reactive low-stock check for a single SKU (v0.5.2, ADR-042). Called from
+ * stock-changing paths via `ctx.scheduler.runAfter(0, ...)` so the
+ * side-effect is decoupled from the mutation's primary writes.
+ *
+ * Reads catalog's `low_threshold` via the ADR-034 catalog internal (never
+ * touches `pos_inventory_skus` directly from this module). Compares against
+ * the denormalised `pos_stock_levels.on_hand`. The `pos_low_stock_alerts` row
+ * is a dedup flag — its presence means "we've already alerted; don't spam".
+ *
+ * Hot paths (`_recordSaleMovement_internal`, `recordRecount`) should use the
+ * batch variant `_checkLowStockBatch_internal` to avoid N catalog round-trips.
+ * This single-id mutation is retained for ad-hoc callers + tests.
+ */
 export const _checkLowStock_internal = internalMutation({
   args: { skuId: v.id("pos_inventory_skus") },
   handler: async (ctx, { skuId }) => {
     const [sku] = await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
     if (!sku) return;
-    const level = await ctx.db
-      .query("pos_stock_levels")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-      .first();
-    const onHand = level?.on_hand ?? 0;
-    const flag = await ctx.db
-      .query("pos_low_stock_alerts")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-      .first();
+    await checkLowStockOne(ctx, skuId, sku);
+  },
+});
 
-    const below = onHand < sku.low_threshold;
-    if (below && !flag) {
-      const now = Date.now();
-      await ctx.db.insert("pos_low_stock_alerts", {
-        inventory_sku_id: skuId,
-        alerted_at: now,
-      });
-      await logAudit(ctx, {
-        actor_id: "system",
-        action: "stock.low_stock_alerted",
-        entity_type: "pos_inventory_skus",
-        entity_id: skuId,
-        source: "system",
-        metadata: { on_hand: onHand, low_threshold: sku.low_threshold },
-      });
-      // v0.5.2 simplify: dispatch through the shared `dispatchRoleAlert`
-      // helper. C2: thread `alerted_at` into the idempotency key so each
-      // flag-insert cycle is unique (keying on on_hand would collide
-      // across yo-yo bounces within the 24h action-cache window).
-      await ctx.scheduler.runAfter(0, internal.telegram.dispatch.dispatchRoleAlert, {
-        role: "inventory",
-        kind: "low_stock_alert",
-        payload: {
-          sku_name: sku.name,
-          on_hand: onHand,
-          low_threshold: sku.low_threshold,
-        },
-        idempotencyKey: `lowstock:${skuId}:${now}`,
-      });
-    } else if (!below && flag) {
-      await ctx.db.delete(flag._id);
+/**
+ * Batch variant of `_checkLowStock_internal` (v0.5.2). Takes an array of
+ * SKU ids, reads catalog once via the existing batch seam, then runs the
+ * shared body per SKU. Saves N-1 catalog round-trips on the hot sale +
+ * recount paths.
+ */
+export const _checkLowStockBatch_internal = internalMutation({
+  args: { skuIds: v.array(v.id("pos_inventory_skus")) },
+  handler: async (ctx, { skuIds }) => {
+    if (skuIds.length === 0) return;
+    const skus = await ctx.runQuery(
+      internal.catalog.internal._getSkusByIds_internal,
+      { skuIds },
+    );
+    const skuByIdStr = new Map<string, { name: string; low_threshold: number }>(
+      skus.map((s) => [String(s.skuId), { name: s.name, low_threshold: s.low_threshold }]),
+    );
+    for (const skuId of skuIds) {
+      const sku = skuByIdStr.get(String(skuId));
+      if (!sku) continue;
+      await checkLowStockOne(ctx, skuId, sku);
     }
   },
 });
