@@ -14,6 +14,17 @@ import { NEG_STOCK } from "./flags";
  * Runtime-neutral (V8-safe): no Node-only imports. Pure functions only.
  */
 
+const HOURS_PER_DAY = 24;
+const TOP_SKUS_LIMIT = 5;
+
+/**
+ * Line shape carried in DayTxn.lines. Fetched once by _fetchDayWindow_internal and
+ * consumed by BOTH the day-summary aggregator (this file) and the history-list
+ * frontend (per-row refund badge via refundStatus). `refunded_qty` is included
+ * for the latter; computeDaySummary does not read it — topSkus is intentionally
+ * gross (units sold today), not net of refunds. Refunds surface separately
+ * via `refundsTotal` (per txn) and the manager dashboard.
+ */
 export type DayLine = Pick<
   Doc<"pos_transaction_lines">,
   "product_code_snapshot" | "product_name_snapshot" | "qty" | "refunded_qty"
@@ -48,7 +59,7 @@ export type DaySummary = {
   hourlyCurve: number[]; // length 24, indexed by WIB hour
   perStaff: { staffId: Id<"staff">; name: string; count: number; total: number }[];
   voucherUsage: { count: number; total: number };
-  needsAttention: { flagged: number };
+  needsAttention: { flagged: number };  // count of NEG_STOCK txns (only — see computeDaySummary)
 };
 
 function wibHour(epochMs: number): number {
@@ -61,7 +72,7 @@ export function computeDaySummary(txns: DayTxn[]): DaySummary {
     bca_va: { count: 0, total: 0 },
     unknown: { count: 0, total: 0 },
   };
-  const hourlyCurve = Array(24).fill(0);
+  const hourlyCurve = Array(HOURS_PER_DAY).fill(0);
   const skuMap = new Map<string, { code: string; name: string; qty: number }>();
   const staffMap = new Map<string, { staffId: Id<"staff">; name: string; count: number; total: number }>();
   let gross = 0, refundsTotal = 0, flagged = 0, voucherCount = 0, voucherTotal = 0;
@@ -69,6 +80,10 @@ export function computeDaySummary(txns: DayTxn[]): DaySummary {
   for (const t of txns) {
     gross += t.total;
     refundsTotal += t.refundsTotal;
+    // v0.5.3a: needsAttention scopes to NEG_STOCK only. VOUCHER_OVER_REDEEMED and
+    // PAYMENT_AMOUNT_MISMATCH are reconciled elsewhere (Xendit settlement view,
+    // voucher analytics) — surfacing them on the dashboard would conflate two
+    // different operational queues. Revisit if/when those flags get dashboards.
     if (t.flags & NEG_STOCK) flagged++;
     paymentMix[t.instrument].count++;
     paymentMix[t.instrument].total += t.total;
@@ -93,7 +108,7 @@ export function computeDaySummary(txns: DayTxn[]): DaySummary {
     count,
     avgBasket: count === 0 ? 0 : Math.floor(gross / count),
     paymentMix,
-    topSkus: [...skuMap.values()].sort((a, b) => b.qty - a.qty).slice(0, 5),
+    topSkus: [...skuMap.values()].sort((a, b) => b.qty - a.qty).slice(0, TOP_SKUS_LIMIT),
     hourlyCurve,
     perStaff: [...staffMap.values()].sort((a, b) => b.total - a.total),
     voucherUsage: { count: voucherCount, total: voucherTotal },

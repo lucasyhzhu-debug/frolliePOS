@@ -51,4 +51,25 @@ describe("computeDaySummary", () => {
     const s = computeDaySummary([txn({ flags: NEG_STOCK })]);
     expect(s.needsAttention.flagged).toBe(1);
   });
+
+  it("routes payments into the correct instrument buckets", () => {
+    const s = computeDaySummary([
+      txn({ total: 10_000, instrument: "qris" }),
+      txn({ total: 30_000, instrument: "bca_va" }),
+      txn({ total: 5_000, instrument: "unknown" }),
+    ]);
+    expect(s.paymentMix.qris).toEqual({ count: 1, total: 10_000 });
+    expect(s.paymentMix.bca_va).toEqual({ count: 1, total: 30_000 });
+    expect(s.paymentMix.unknown).toEqual({ count: 1, total: 5_000 });
+  });
+
+  it("ranks perStaff desc by total", () => {
+    const s = computeDaySummary([
+      txn({ staff_id: "a" as any, staff_name: "A", total: 10_000 }),
+      txn({ staff_id: "b" as any, staff_name: "B", total: 50_000 }),
+      txn({ staff_id: "a" as any, staff_name: "A", total: 30_000 }),
+    ]);
+    expect(s.perStaff[0]).toMatchObject({ name: "B", total: 50_000, count: 1 });
+    expect(s.perStaff[1]).toMatchObject({ name: "A", total: 40_000, count: 2 });
+  });
 });
