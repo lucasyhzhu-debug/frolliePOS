@@ -326,6 +326,26 @@ export const _resolveSession_internal = internalQuery({
   },
 });
 
+/**
+ * Like _resolveSession_internal but also includes the staff role. Non-throwing —
+ * returns null on missing / ended session, missing / inactive staff. Used by
+ * v0.5.3a reporting queries to fork manager-vs-staff behaviour without raising
+ * (queries return [] / null instead of throwing).
+ */
+export const _resolveSessionRole_internal = internalQuery({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" } | null> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.ended_at != null) return null;
+    const staff = await ctx.db.get(session.staff_id);
+    if (!staff || !staff.active) return null;
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role };
+  },
+});
+
 const changePinActorValidator = v.union(
   v.object({ kind: v.literal("self") }),
   v.object({ kind: v.literal("manager_reset"), mgr_approver_id: v.id("staff") }),
