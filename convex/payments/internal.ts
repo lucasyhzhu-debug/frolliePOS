@@ -349,6 +349,38 @@ export const _onPaidManual_internal = internalMutation({
 });
 
 /**
+ * Return the normalised payment instrument for a transaction:
+ *   "qris" — most-recent non-cancelled QRIS invoice
+ *   "bca_va" — most-recent non-cancelled BCA VA invoice
+ *   "unknown" — no invoice row, all invoices cancelled, or method unrecognised
+ *
+ * Day-window reporting reads this to bucket each txn into the paymentMix
+ * aggregate. ADR-034 surface: receipts + reporting must not touch
+ * pos_xendit_invoices directly — they go through this normaliser.
+ *
+ * Picks the most recently CREATED non-cancelled invoice (matches the receipts
+ * convention in _getPaidInvoiceForTxn_internal). A paid invoice that is later
+ * cancelled — e.g. during a retry that mints a new QR — should not poison the
+ * paymentMix; the active row is what the customer actually paid via.
+ */
+export const _instrumentForTxn_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<"qris" | "bca_va" | "unknown"> => {
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .collect();
+    const active = invoices
+      .filter((i) => i.cancelled_at == null)
+      .sort((a, b) => b.created_at - a.created_at)[0];
+    if (!active) return "unknown";
+    if (active.method === "QRIS") return "qris";
+    if (active.method === "BCA_VA") return "bca_va";
+    return "unknown";
+  },
+});
+
+/**
  * Paying invoice for a txn — the invoice that carries the payment_method + RRN
  * receipts needs to render. Independent of whether the invoice was later
  * cancelled (e.g. PR B's refund flow may stamp `cancelled_at` on the paying

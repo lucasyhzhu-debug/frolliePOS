@@ -461,6 +461,20 @@ export const _requireManagerSession_internal = internalQuery({
 });
 
 /**
+ * Return all staff (active + inactive) projected to { _id, name } for callers
+ * that need to label entities by staff. Used by v0.5.3a transactions._fetchDayWindow_internal
+ * to map staff_id → display name without per-row N+1 lookups. Includes inactive
+ * staff so historical txns by a now-deactivated staff member still get a name.
+ */
+export const _listStaffNames_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Array<{ _id: Id<"staff">; name: string }>> => {
+    const rows = await ctx.db.query("staff").collect();
+    return rows.map((s) => ({ _id: s._id, name: s.name }));
+  },
+});
+
+/**
  * List active managers (with codes) for the /approve manager-identity picker.
  * Lives here per ADR-034 — approvals does not read the `staff` table directly.
  *

@@ -7,6 +7,7 @@ import { withIdempotency } from "../idempotency/internal";
 import { wibYear } from "../lib/time";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } from "./flags";
+import type { DayTxn, Instrument } from "./lib";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -549,6 +550,85 @@ export const _listPaidTxnsSince_internal = internalQuery({
       )
       .order("desc")
       .collect();
+  },
+});
+
+/**
+ * Single day read used by v0.5.3a's three public queries
+ * (listDayTransactions, dashboardSummary). Resolves:
+ *   - paid txns in the [dayStartMs, dayEndMs) window via by_status_created
+ *   - their lines + refunds total (single sum per txn)
+ *   - the active Xendit payment instrument (qris / bca_va / unknown)
+ *   - the staff name (one upfront staff lookup avoids N+1)
+ *
+ * Cross-module reads route through owning-module internals per ADR-034:
+ *   pos_xendit_invoices → payments._instrumentForTxn_internal
+ *   staff (name lookup) → auth._listStaffNames_internal
+ *   pos_refunds          → refunds._listForTransaction_internal (verified
+ *                          signature: { transactionId } → Doc<"pos_refunds">[];
+ *                          field for refund total per row is `total_refund`)
+ *
+ * Does NOT gate role — callers (T5/T6) resolve session+role and decide which
+ * day window to pass.
+ */
+export const _fetchDayWindow_internal = internalQuery({
+  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  handler: async (ctx, args): Promise<DayTxn[]> => {
+    const txns = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_created", (q) =>
+        q.eq("status", "paid").gte("created_at", args.dayStartMs).lt("created_at", args.dayEndMs),
+      )
+      .order("desc")
+      .collect();
+
+    // Staff names up front (small set) → Map to avoid N+1.
+    const staffNames = await ctx.runQuery(internal.auth.internal._listStaffNames_internal, {});
+    const nameById = new Map(staffNames.map((s) => [String(s._id), s.name]));
+
+    const out: DayTxn[] = [];
+    for (const t of txns) {
+      const lines = await ctx.db
+        .query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+        .collect();
+
+      // Refunds total — pos_refunds is OWNED by the refunds module per ADR-034.
+      // Routes through refunds._listForTransaction_internal (same helper the
+      // receipts template uses). Per-row refund amount lives on `total_refund`.
+      const refundRows = await ctx.runQuery(
+        internal.refunds.internal._listForTransaction_internal,
+        { transactionId: t._id },
+      );
+      const refundsTotal = refundRows.reduce((s, r) => s + r.total_refund, 0);
+
+      const instrument: Instrument = await ctx.runQuery(
+        internal.payments.internal._instrumentForTxn_internal,
+        { txnId: t._id },
+      );
+
+      out.push({
+        _id: t._id,
+        created_at: t.created_at,
+        total: t.total,
+        subtotal: t.subtotal,
+        voucher_discount: t.voucher_discount,
+        voucher_code_snapshot: t.voucher_code_snapshot,
+        staff_id: t.staff_id,
+        staff_name: nameById.get(String(t.staff_id)) ?? "—",
+        instrument,
+        flags: t.flags,
+        lines: lines.map((l) => ({
+          product_code_snapshot: l.product_code_snapshot,
+          product_name_snapshot: l.product_name_snapshot,
+          qty: l.qty,
+          refunded_qty: l.refunded_qty,
+        })),
+        refundsTotal,
+        hasRefunds: refundRows.length > 0,
+      });
+    }
+    return out;
   },
 });
 
