@@ -663,6 +663,7 @@ refund.denied               # _markDenied_internal via denyRequest (kind=refund)
 refund.settled              # markRefundSettled — pending → settled bookkeeping flip (ADR-038, manager-session gated, source=booth_inline)
 # v0.5.3b admin slice (all source=booth_inline)
 staff.updated               # updateStaffName / setStaffRole — metadata={ field:"name"|"role", role? } (manager-session for name; manager-PIN for role)
+staff.created               # createStaff action — manager-PIN gated; new staff row inserted with role + pin_hash
 staff.deactivated           # deactivateStaff — manager-PIN gated; soft-delete via active=false
 product.created             # createProduct action — manager-PIN gated; metadata={ name, price_idr }
 product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count } | { price_idr:{ from, to } }
