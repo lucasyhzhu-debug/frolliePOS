@@ -12,6 +12,7 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { RefundLineSelector } from "@/components/pos/RefundLineSelector";
 import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { PinSheet } from "@/components/pos/PinSheet";
+import { ManagerPickerOverlay } from "@/components/pos/ManagerPickerOverlay";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -381,59 +382,19 @@ export default function RefundDetail() {
         )}
       </section>
 
-      {/* manager picker overlay (mirrors sale/charge.tsx pattern) */}
-      {pickerOpen && !pickedManager && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
-          data-testid="manager-picker"
-        >
-          <Card className="w-full max-w-sm p-5 pb-6">
-            <h3 className="mb-4 text-center text-base font-semibold">
-              Pick a manager
-            </h3>
-            {managers === undefined ? (
-              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Loading managers…</span>
-              </div>
-            ) : managers.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No active managers found.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {managers.map((m) => (
-                  <Button
-                    key={m.code}
-                    variant="outline"
-                    className="justify-between"
-                    data-testid={`pick-manager-${m.code}`}
-                    onClick={() => {
-                      setPickedManager(m);
-                      setPinError(undefined);
-                    }}
-                  >
-                    <span>{m.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {m.code}
-                    </span>
-                  </Button>
-                ))}
-              </div>
-            )}
-            <Button
-              variant="ghost"
-              className="mt-4 w-full"
-              onClick={() => {
-                setPickerOpen(false);
-                setPickedManager(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </Card>
-        </div>
-      )}
+      {/* manager picker overlay (shared with sale/charge.tsx via ManagerPickerOverlay) */}
+      <ManagerPickerOverlay
+        open={pickerOpen && !pickedManager}
+        managers={managers}
+        onPick={(m) => {
+          setPickedManager(m);
+          setPinError(undefined);
+        }}
+        onCancel={() => {
+          setPickerOpen(false);
+          setPickedManager(null);
+        }}
+      />
 
       {/* PIN sheet — opens after manager is picked */}
       <PinSheet

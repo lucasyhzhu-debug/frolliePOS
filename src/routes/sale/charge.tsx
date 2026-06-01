@@ -20,6 +20,7 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { ApprovalPending } from "@/components/pos/ApprovalPending";
+import { ManagerPickerOverlay } from "@/components/pos/ManagerPickerOverlay";
 import { toast } from "sonner";
 
 type Method = "QRIS" | "BCA_VA";
@@ -638,57 +639,20 @@ export default function SaleCharge() {
       />
 
       {/* Manager picker — shown before the PIN sheet when override is triggered.
-          Two-step: (1) pick which manager is at the booth, (2) enter their PIN. */}
-      {overrideOpen && !pickedManager && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
-          data-testid="manager-picker"
-        >
-          <Card className="w-full max-w-sm p-5 pb-6">
-            <h3 className="mb-4 text-center text-base font-semibold">
-              Pick a manager
-            </h3>
-            {managers === undefined ? (
-              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Loading managers…</span>
-              </div>
-            ) : managers.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No active managers found.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {managers.map((m) => (
-                  <Button
-                    key={m.code}
-                    variant="outline"
-                    className="justify-between"
-                    data-testid={`pick-manager-${m.code}`}
-                    onClick={() => {
-                      setPickedManager(m);
-                      setOverrideError(undefined);
-                    }}
-                  >
-                    <span>{m.name}</span>
-                    <span className="text-xs text-muted-foreground">{m.code}</span>
-                  </Button>
-                ))}
-              </div>
-            )}
-            <Button
-              variant="ghost"
-              className="mt-4 w-full"
-              onClick={() => {
-                setOverrideOpen(false);
-                setPickedManager(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </Card>
-        </div>
-      )}
+          Two-step: (1) pick which manager is at the booth, (2) enter their PIN.
+          Shared with /refund flow via ManagerPickerOverlay. */}
+      <ManagerPickerOverlay
+        open={overrideOpen && !pickedManager}
+        managers={managers}
+        onPick={(m) => {
+          setPickedManager(m);
+          setOverrideError(undefined);
+        }}
+        onCancel={() => {
+          setOverrideOpen(false);
+          setPickedManager(null);
+        }}
+      />
 
       {/* Manager override PIN sheet — shown after a manager is picked.
           Reason is REQUIRED before the PIN confirm fires. */}
