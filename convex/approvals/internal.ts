@@ -304,6 +304,7 @@ export const _listPendingByKind_internal = internalQuery({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
+      v.literal("refund"),   // v0.5.1 PR B: refund dedup guard reuses this helper.
     ),
     entityId: v.string(),
   },

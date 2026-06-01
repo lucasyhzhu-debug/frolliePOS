@@ -529,3 +529,30 @@ export const _cancelCommit_internal = internalMutation({
     },
   ),
 });
+
+/**
+ * Patch a transaction line's refunded_qty (additive). Owned by the transactions
+ * module because pos_transaction_lines is transactions-owned per ADR-034; the
+ * refunds module routes here via ctx.runMutation when committing a refund.
+ *
+ * Mirrors the _setCurrentInvoice_internal pattern (payments → transactions).
+ * Same Convex transaction as the caller, so the refund-row insert + this patch
+ * commit atomically.
+ *
+ * Throws LINE_NOT_FOUND if the line was deleted between read and patch (should
+ * be impossible — lines are append-only post-confirm — but failing loud is
+ * preferable to a silent no-op that drifts refunded_qty from the refunds rows).
+ */
+export const _patchLineRefundedQty_internal = internalMutation({
+  args: {
+    lineId: v.id("pos_transaction_lines"),
+    addQty: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const line = await ctx.db.get(args.lineId);
+    if (!line) throw new Error("LINE_NOT_FOUND");
+    await ctx.db.patch(args.lineId, {
+      refunded_qty: (line.refunded_qty ?? 0) + args.addQty,
+    });
+  },
+});
