@@ -159,7 +159,9 @@ export const _markResolved_internal = internalMutation({
     },
     { resolved: true }
   >(
-    "approvals.approveStaffPinReset",
+    // N9: generic mutationName so pos_idempotency rows for refund + manual-payment
+    // resolves are not misattributed to staff-pin-reset (a v0.4 leftover).
+    "approvals._markResolved_internal",
     async (ctx, args) => {
       // Single-use enforcement: if a concurrent approval (a different manager
       // opening the same /approve link with its own idempotencyKey) already
@@ -259,7 +261,9 @@ export const _markDenied_internal = internalMutation({
     },
     { denied: true }
   >(
-    "approvals.denyRequest",
+    // N9: generic mutationName so pos_idempotency rows for any kind's deny
+    // path are not misattributed to the original staff-pin-reset path label.
+    "approvals._markDenied_internal",
     async (ctx, args) => {
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
