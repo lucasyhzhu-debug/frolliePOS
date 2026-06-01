@@ -167,6 +167,33 @@ export function renderRefund(p: RefundPayload): RenderedMessage {
   };
 }
 
+export interface LowStockAlertPayload {
+  sku_name: string;
+  on_hand: number;
+  low_threshold: number;
+}
+export function renderLowStockAlert(p: LowStockAlertPayload): RenderedMessage {
+  const name = escapeHtml(p.sku_name);
+  return {
+    text:
+      `⚠️ <b>Stok menipis</b>\n` +
+      `SKU: <b>${name}</b>\n` +
+      `Sisa: <b>${p.on_hand}</b> pcs (ambang: ${p.low_threshold})`,
+  };
+}
+
+export interface RecountNoticePayload {
+  staff_name: string;
+  recorded_at_iso: string;
+  lines: Array<{ sku_name: string; before: number; after: number; delta: number }>;
+}
+export function renderRecountNotice(p: RecountNoticePayload): RenderedMessage {
+  const rows = p.lines
+    .map((l) => `• ${escapeHtml(l.sku_name)}: ${l.before} → ${l.after} (${l.delta >= 0 ? "+" : ""}${l.delta})`)
+    .join("\n");
+  return { text: `📝 <b>Penghitungan ulang stok</b> oleh ${escapeHtml(p.staff_name)}\n${rows}` };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {
