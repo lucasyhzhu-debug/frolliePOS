@@ -8,13 +8,17 @@ import { formatWibDateTime } from "../lib/time";
 import { escapeHtml } from "../lib/html";
 import { refundStatus, type RefundStatus } from "../refunds/lib";
 
-// Hardcoded business identity until v0.5.3 receipt-config UI; pulled from
-// pos_settings in the render caller.
+// Business identity pulled from pos_settings via _getSettings_internal in the
+// render caller (v0.5.3b — was hardcoded pre-T13). Defaults in
+// settings/internal.RECEIPT_DEFAULTS are byte-identical to the pre-v0.5.3b
+// constants so an absent/partial row renders receipts identically.
 export type ReceiptSettings = {
   business_name: string;
   address: string;
   contact: string;
   instagram_handle: string;          // e.g. "@frollie.id"
+  footer_text: string;               // v0.5.3b configurable; default "Terima kasih! 💛"
+  logo_url: string | null;           // v0.5.3b uploaded logo; null → emoji fallback
 };
 
 export type ReceiptLine = {
@@ -145,7 +149,9 @@ body { margin:0; padding:24px; background:#f3f4f6; font-family:system-ui,-apple-
 <body>
 <div class="receipt">
   <div style="text-align:center;margin-bottom:16px;padding-bottom:14px;border-bottom:1px dashed #d1d5db">
-    <div style="font-size:14px;color:#0f766e;font-weight:700;letter-spacing:1px;margin-bottom:4px">🍪 ${escapeHtml(vm.settings.business_name)}</div>
+    <div style="font-size:14px;color:#0f766e;font-weight:700;letter-spacing:1px;margin-bottom:4px">${vm.settings.logo_url
+      ? `<img src="${escapeHtml(vm.settings.logo_url)}" alt="" style="height:32px;vertical-align:middle;margin-right:6px">`
+      : "🍪"} ${escapeHtml(vm.settings.business_name)}</div>
     <div style="font-size:11px;color:#6b7280;line-height:1.4">${escapeHtml(vm.settings.address)}<br>${escapeHtml(vm.settings.contact)}</div>
   </div>
   <div style="text-align:center;background:${statusStyle.bg};color:${statusStyle.fg};padding:6px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:14px">${statusStyle.label}</div>
@@ -165,7 +171,7 @@ body { margin:0; padding:24px; background:#f3f4f6; font-family:system-ui,-apple-
     ${vm.rrn ? `<br><span style="font-size:10px">RRN: ${escapeHtml(vm.rrn)}</span>` : ""}
   </div>
   <div style="margin-top:14px;font-size:11px;color:#6b7280;text-align:center;line-height:1.5">
-    Terima kasih! 💛<br>
+    ${escapeHtml(vm.settings.footer_text)}<br>
     <span style="font-size:10px">${refundFooter}</span><br><br>
     <span style="font-size:11px">Follow us on Instagram! ${escapeHtml(vm.settings.instagram_handle)}</span>
   </div>

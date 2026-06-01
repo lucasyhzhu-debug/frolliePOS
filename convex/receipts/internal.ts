@@ -5,16 +5,6 @@ import { renderReceipt, type ReceiptViewModel } from "./template";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // ADR-022
 
-// Hardcoded business identity until v0.5.3 receipt-config UI. The pos_settings
-// table is owned by the settings module but does not yet expose these fields;
-// PR-future revisits when settings/internal exposes a getter.
-const RECEIPT_SETTINGS = {
-  business_name: "FROLLIE",
-  address: "Pakuwon Mall, Surabaya",
-  contact: "+62 821-xxxx-xxxx · frollie.id",
-  instagram_handle: "@frollie.id",
-} as const;
-
 /**
  * Map a pos_xendit_invoices row to a human-readable payment_method label.
  * Defined here so receipts owns the surface-facing wording; payments owns the
@@ -76,6 +66,16 @@ async function buildVmFromTxnWithLines(
     { transactionId: txn._id },
   );
 
+  // v0.5.3b T13: read branding from pos_settings (formerly a hardcoded const).
+  // One extra single-row read on the cache-MISS render path only — negligible
+  // (the 24h pos_receipt_html_cache covers most /r/<token> hits). Defaults in
+  // settings/internal.RECEIPT_DEFAULTS are byte-identical to the pre-v0.5.3b
+  // hardcoded strings so receipt-shape tests are unaffected.
+  const s = await ctx.runQuery(internal.settings.internal._getSettings_internal, {});
+  const logo_url = s.receipt.logo_storage_id
+    ? await ctx.storage.getUrl(s.receipt.logo_storage_id)
+    : null;
+
   return {
     receipt_number: txn.receipt_number,
     paid_at: txn.paid_at,
@@ -96,7 +96,14 @@ async function buildVmFromTxnWithLines(
       refund_amount: r.total_refund,
       refunded_at: r.created_at,
     })),
-    settings: RECEIPT_SETTINGS,
+    settings: {
+      business_name: s.receipt.business_name,
+      address: s.receipt.address,
+      contact: s.receipt.contact,
+      instagram_handle: s.receipt.instagram_handle,
+      footer_text: s.receipt.footer_text,
+      logo_url,
+    },
   };
 }
 
