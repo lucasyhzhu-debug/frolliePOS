@@ -72,9 +72,14 @@ async function buildVmFromTxnWithLines(
   // settings/internal.RECEIPT_DEFAULTS are byte-identical to the pre-v0.5.3b
   // hardcoded strings so receipt-shape tests are unaffected.
   const s = await ctx.runQuery(internal.settings.internal._getSettings_internal, {});
-  const logo_url = s.receipt.logo_storage_id
+  let logo_url = s.receipt.logo_storage_id
     ? await ctx.storage.getUrl(s.receipt.logo_storage_id)
     : null;
+  // Defense-in-depth: only ever inject https:// URLs into the receipt
+  // <img src>. ctx.storage.getUrl already returns Convex https URLs, but
+  // belt-and-braces against any future storage backend that returns relative
+  // or non-https URLs (which would bypass escapeHtml's quote-escape XSS guard).
+  if (logo_url && !logo_url.startsWith("https://")) logo_url = null;
 
   return {
     receipt_number: txn.receipt_number,
