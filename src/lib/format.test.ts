@@ -9,6 +9,14 @@ describe("rp", () => {
   it("handles zero", () => {
     expect(rp(0)).toBe("Rp 0");
   });
+  it("formats negatives with a leading minus before Rp (refund-summary display)", () => {
+    expect(rp(-43333)).toBe("-Rp 43.333");
+    expect(rp(-25000)).toBe("-Rp 25.000");
+    expect(rp(-1)).toBe("-Rp 1");
+  });
+  it("treats -0 as 0 (no leading minus)", () => {
+    expect(rp(-0)).toBe("Rp 0");
+  });
 });
 
 describe("fmtTime", () => {

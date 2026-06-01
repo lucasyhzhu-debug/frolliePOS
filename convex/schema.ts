@@ -6,6 +6,7 @@ import { auditTables } from "./audit/schema";
 import { telegramTables } from "./telegram/schema";
 import { transactionsTables } from "./transactions/schema";
 import { receiptsTables } from "./receipts/schema";
+import { refundsTables } from "./refunds/schema";
 import { paymentsTables } from "./payments/schema";
 import { inventoryTables } from "./inventory/schema";
 import { vouchersTables } from "./vouchers/schema";
@@ -20,6 +21,7 @@ export default defineSchema({
   ...telegramTables,
   ...transactionsTables,
   ...receiptsTables,
+  ...refundsTables,
   ...paymentsTables,
   ...inventoryTables,
   ...vouchersTables,

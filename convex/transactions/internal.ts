@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-import { Id } from "../_generated/dataModel";
+import { Id, Doc } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
@@ -528,4 +528,53 @@ export const _cancelCommit_internal = internalMutation({
       return { cancelled: true as const };
     },
   ),
+});
+
+/**
+ * List paid transactions since a UTC epoch ms threshold. Used by refunds/public
+ * `listTodaysRefundable` (Q1=B contract: paid txns from 00:00 WIB today; older
+ * txns unreachable in v0.5.1). Returns newest-first via the by_status_paid_at
+ * index so the refund picker shows recently paid rows at the top.
+ *
+ * Cross-module read surface (ADR-034): pos_transactions is transactions-owned;
+ * refunds/public routes here rather than querying directly.
+ */
+export const _listPaidTxnsSince_internal = internalQuery({
+  args: { sinceMs: v.number() },
+  handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
+    return await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        q.eq("status", "paid").gte("paid_at", args.sinceMs),
+      )
+      .order("desc")
+      .collect();
+  },
+});
+
+/**
+ * Patch a transaction line's refunded_qty (additive). Owned by the transactions
+ * module because pos_transaction_lines is transactions-owned per ADR-034; the
+ * refunds module routes here via ctx.runMutation when committing a refund.
+ *
+ * Mirrors the _setCurrentInvoice_internal pattern (payments → transactions).
+ * Same Convex transaction as the caller, so the refund-row insert + this patch
+ * commit atomically.
+ *
+ * Throws LINE_NOT_FOUND if the line was deleted between read and patch (should
+ * be impossible — lines are append-only post-confirm — but failing loud is
+ * preferable to a silent no-op that drifts refunded_qty from the refunds rows).
+ */
+export const _patchLineRefundedQty_internal = internalMutation({
+  args: {
+    lineId: v.id("pos_transaction_lines"),
+    addQty: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const line = await ctx.db.get(args.lineId);
+    if (!line) throw new Error("LINE_NOT_FOUND");
+    await ctx.db.patch(args.lineId, {
+      refunded_qty: (line.refunded_qty ?? 0) + args.addQty,
+    });
+  },
 });

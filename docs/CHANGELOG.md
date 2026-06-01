@@ -31,6 +31,18 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 Reverting PR A leaves orphan `receipt_token` values on already-confirmed transactions; the public route 404s for them. Tokens are stable (field is optional, immutable when set) so re-deploying PR A restores access without migration.
 
+### PR B — refund subsystem + settlement surface (shipped 2026-06-01)
+
+- Full refund flow: staff initiate, manager approves (inline PIN at booth, OR Telegram URL+PIN off-booth per ADR-035), refund logged as a new row (ADR-008).
+- Stock re-credited automatically on refund commit (positive movements, `source: "refund"`, per ADR-019). Spoilage flow deferred to v0.5.2.
+- Voucher attribution on partial refunds: proportional, floor-rounded (ADR-040, drafted on main pre-PR-B). Single helper `computeRefundAmount(line, txn, refundQty)` used by both `_commitRefund_internal` and the receipt-template net-retained math. The /refund form's live preview total uses the same single-floor formula client-side so the displayed total matches the eventual committed amount.
+- Receipt auto-reprojects on refund commit (purge-on-commit per ADR-039); the original `receipt_token` stays stable across refunds, so the customer's saved URL always reflects current state.
+- Settlement tracked separately via `settlement_status: pending → settled` per ADR-038. `markRefundSettled` is **manager-session gated** (NOT PIN). `/mgr/refunds-pending` is the FIFO settlement surface — managers process the bank transfers in batch.
+- New approval kind `refund` wired through the 4-touchpoint pattern (schema literal, `kinds.ts`, Telegram template, `/approve/:token` UI).
+- New audit verbs: `refund.requested`, `refund.committed`, `refund.denied`, `refund.settled`.
+- New routes: `/refund` (today's recent list), `/refund/:txnId` (refund form), `/mgr/refunds-pending` (settlement surface).
+- `src/lib/format.ts` `rp()` handles negative amounts (`rp(-43333) === "-Rp 43.333"`) for refund-summary displays.
+
 ## v0.5.0.1 — Housekeeping hotfix (2026-05-31)
 
 > The squash commit for this work landed on `main` titled `v0.5.1 — Housekeeping (#7)`. Renumbered here to `v0.5.0.1` so `v0.5.1` can refer to the **Refunds + customer receipts** feature phase (the canonical use in `docs/PROGRESS.md`, ADR-038, ADR-039). The git history is fixed; this header is the source of truth for the version label.

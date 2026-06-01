@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 /**
@@ -142,6 +143,110 @@ export const _decrementOnHandUnchecked_internal = internalMutation({
       await ctx.db.insert("pos_stock_levels", {
         inventory_sku_id: args.skuId, on_hand: -args.qty, updated_at: now,
       });
+    }
+  },
+});
+
+/**
+ * Refund-flow stock re-credit per ADR-019. For each refunded line, look up the
+ * IMMUTABLE sale movements (the proof of what got decremented at sale time)
+ * and write POSITIVE counterpart movements (source: "refund"). Increments the
+ * on_hand cache (opposite of sale). Default assumption: returned items go back
+ * on the shelf; if actually damaged, staff uses the v0.5.2 spoilage flow as a
+ * second step.
+ *
+ * I3 (v0.5.1 PR B post-review): pre-I3 this re-derived components by querying
+ * pos_product_components for the line's product_id at refund-time. That broke
+ * recipe-drift safety — if a manager edited a product's recipe between sale and
+ * refund, the refund would re-credit the NEW recipe's SKUs/qtys, not what was
+ * actually decremented at sale time. Worse, it read pos_transaction_lines
+ * directly (ADR-034 violation — that table is transactions-owned). The fix
+ * reads pos_stock_movements (inventory-owned) and ratios down by qty: each
+ * sale movement carries the FULL line qty's decrement, so component_qty =
+ * abs(sale_movement.qty) / line.qty, and refund_qty's credit is
+ * component_qty * refund_qty. Avoids both the cross-module read AND the
+ * recipe-drift bug in one shot.
+ *
+ * Caller (refunds._commitRefund_internal) now passes line_qty for each line so
+ * we can do the per-unit ratio without reading pos_transaction_lines.
+ */
+export const _refundReCredit_internal = internalMutation({
+  args: {
+    refundId: v.id("pos_refunds"),
+    transactionId: v.id("pos_transactions"),
+    lines: v.array(v.object({
+      line_id: v.id("pos_transaction_lines"),
+      line_qty: v.number(),    // I3: original line qty (immutable post-paid) — needed
+                                // to ratio the sale movements down to per-unit components.
+      qty: v.number(),         // refund qty
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const { line_id, line_qty, qty } of args.lines) {
+      // I3: read the historic sale movements for this line (immutable proof of
+      // what got decremented at sale time). by_line_and_sku index keys on
+      // source_transaction_line_id so this is a single indexed range scan.
+      const saleMovements = await ctx.db
+        .query("pos_stock_movements")
+        .withIndex("by_line_and_sku", (q) => q.eq("source_transaction_line_id", line_id))
+        .collect();
+
+      // Defensive: line_qty > 0 enforced upstream (REFUND_QTY_INVALID), but
+      // belt-and-braces here since this function trusts the caller's qty
+      // and a zero would NaN the ratio.
+      if (line_qty <= 0) throw new Error("LINE_QTY_INVALID");
+
+      for (const m of saleMovements) {
+        // Only credit sale-source movements. A future re-credit must never
+        // re-credit an earlier refund's own movement (filtering on source="sale"
+        // is the invariant that lets partial refunds compose safely).
+        if (m.source !== "sale") continue;
+
+        // sale movement qty is signed-negative (decrement). Per-unit consumption
+        // for THIS SKU on THIS line = abs(m.qty) / line_qty. Refund credit for
+        // refund_qty = per-unit * refund_qty. All integers — line_qty divides
+        // m.qty exactly because the sale wrote component_qty * line_qty.
+        const perUnit = Math.abs(m.qty) / line_qty;
+        const movementQty = perUnit * qty;  // POSITIVE — re-credit
+        const skuId: Id<"pos_inventory_skus"> = m.inventory_sku_id;
+
+        await ctx.db.insert("pos_stock_movements", {
+          inventory_sku_id: skuId,
+          qty: movementQty,
+          source: "refund",
+          source_transaction_line_id: line_id,
+          created_at: now,
+        });
+
+        // INCREMENT the denormalised on_hand cache (opposite of sale).
+        const level = await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .first();
+        if (level) {
+          await ctx.db.patch(level._id, { on_hand: level.on_hand + movementQty, updated_at: now });
+        } else {
+          await ctx.db.insert("pos_stock_levels", {
+            inventory_sku_id: skuId, on_hand: movementQty, updated_at: now,
+          });
+        }
+
+        // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
+        await logAudit(ctx, {
+          actor_id: "system",
+          action: "stock.refund_movement",
+          entity_type: "pos_inventory_skus",
+          entity_id: skuId,
+          source: "system",
+          metadata: {
+            refund_id: args.refundId,
+            transaction_id: args.transactionId,
+            line_id,
+            qty: movementQty,
+          },
+        });
+      }
     }
   },
 });

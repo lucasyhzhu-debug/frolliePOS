@@ -11,6 +11,7 @@ export const inventoryTables = {
       v.literal("stock_in"),                       // v0.5
       v.literal("spoilage"),                       // v0.6
       v.literal("adjustment"),                     // v0.5
+      v.literal("refund"),                         // v0.5.1 PR B
     ),
 
     source_transaction_line_id: v.optional(v.id("pos_transaction_lines")),

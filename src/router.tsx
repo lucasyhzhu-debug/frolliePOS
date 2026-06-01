@@ -44,6 +44,7 @@ const Stock = lazy(() => import("@/routes/stock"));
 const StockIn = lazy(() => import("@/routes/stock/in"));
 const Lock = lazy(() => import("@/routes/lock"));
 const Refund = lazy(() => import("@/routes/refund"));
+const RefundDetail = lazy(() => import("@/routes/refund/detail"));
 const History = lazy(() => import("@/routes/history"));
 const Settlements = lazy(() => import("@/routes/settlements"));
 
@@ -51,6 +52,7 @@ const MgrHome = lazy(() => import("@/routes/mgr/home"));
 const MgrDashboard = lazy(() => import("@/routes/mgr/dashboard"));
 const MgrProducts = lazy(() => import("@/routes/mgr/products"));
 const MgrReceipt = lazy(() => import("@/routes/mgr/receipt"));
+const MgrRefundsPending = lazy(() => import("@/routes/mgr/refunds-pending"));
 const MgrTelegramChats = lazy(() => import("@/routes/mgr/telegram-chats"));
 
 const Wait = lazy(() => import("@/routes/wait"));
@@ -80,7 +82,8 @@ const routes: RouteObject[] = [
       { path: "stock", element: <Stock /> },
       { path: "stock/in", element: <StockIn /> },
       { path: "lock", element: <Lock /> },
-      { path: "refund/:txnId", element: <Refund /> },
+      { path: "refund", element: <Refund /> },
+      { path: "refund/:txnId", element: <RefundDetail /> },
       { path: "history", element: <History /> },
       { path: "settlements", element: <Settlements /> },
       { path: "wait/:requestId", element: <Wait /> },
@@ -88,6 +91,7 @@ const routes: RouteObject[] = [
       { path: "mgr/dashboard", element: <MgrDashboard /> },
       { path: "mgr/products", element: <MgrProducts /> },
       { path: "mgr/receipt", element: <MgrReceipt /> },
+      { path: "mgr/refunds-pending", element: <MgrRefundsPending /> },
       { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
     ],
   },

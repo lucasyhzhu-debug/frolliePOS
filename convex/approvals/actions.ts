@@ -472,6 +472,179 @@ export const approveManualPayment = action({
 });
 
 /**
+ * Off-booth refund approval via the Telegram link. Spec §"approveRefund" (v0.5.1
+ * PR B / Task B10). Mirrors approveManualPayment's envelope exactly — same
+ * security guards, same constant-time token compare, same per-token PIN-attempt
+ * cap, same lockout-self-approve carve-out. The only divergence is the commit
+ * step: instead of confirming payment, it calls _commitRefund_internal (the
+ * single writer used by BOTH the booth-PIN path (commitRefundInline) and this
+ * off-booth path — v0.5.0 cross-path-parity lesson).
+ *
+ *   1. Action-level idempotency pre-check (ADR-013). Same key replay returns
+ *      the cached { refundId, total_refund } blob without re-firing the funnel.
+ *   2. sha256 the raw token, lookup the request by token hash, then constant-
+ *      time compare (defense-in-depth even though the index already matched).
+ *   3. Status === pending, token not expired, kind === "refund".
+ *   4. Resolve approving manager by staff code (active manager only).
+ *   5. argon2-verify managerPin against the MANAGER's hash. On fail, record a
+ *      failed attempt against the manager + bump the per-token PIN-attempt cap
+ *      (auto-deny at 5 misses → REQUEST_REVOKED), otherwise throw INVALID_PIN.
+ *   6. Commit the refund via _commitRefund_internal — the single writer. Pass
+ *      approvalSource="telegram_approval" so the pos_refunds row + refund.committed
+ *      audit row record this path correctly. requested_by = requester_staff_id
+ *      from the approval request; approver_id = the manager who entered PIN.
+ *      `_commitRefund_internal` is NOT idempotency-wrapped, but the action-level
+ *      pre-check (step 1) guarantees we only reach this branch once per key —
+ *      same-key retries short-circuit at the cached blob.
+ *   7. Mark the request resolved. We deliberately pass a DERIVED idempotency
+ *      key (`:resolve` suffix) rather than the top-level one — _markResolved_internal's
+ *      withIdempotency cache writes `{ resolved: true }`, which DOES NOT match
+ *      this action's `{ refundId, total_refund }` return shape. Using a derived
+ *      key keeps both cache rows independent: the resolve mutation has its own
+ *      replay guard, and the action's top-level cache (step 8) stores the
+ *      response shape callers actually expect.
+ *   8. Write the action-level idempotency cache with the real response shape.
+ *
+ * Locked-out manager self-approve (mirrors approveManualPayment Improvement #6):
+ * INTENTIONAL. argon2Verify only consults the manager's pin_hash; lockout is not
+ * checked. Token + correct PIN are sufficient authority.
+ *
+ * Audit: the success audit row (refund.committed, source: telegram_approval) is
+ * emitted by _commitRefund_internal — no additional audit in this action. The
+ * resolve mutation also emits its own refund.committed audit per KIND_AUDIT.
+ *
+ * Never logs PIN or token values.
+ */
+export const approveRefund = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ refundId: Id<"pos_refunds">; total_refund: number }> => {
+    // I5 (v0.5.1 PR B post-review): token auth BEFORE cache lookup. Token
+    // validation is one indexed query + a constant-time compare — cheap. The
+    // argon2 PIN verify stays after the cache (expensive). Pre-I5 a caller
+    // without a valid token but with a leaked idempotencyKey could replay
+    // the cached { refundId, total_refund }. Mirrors CLAUDE.md rule #21.
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // State guards (still part of auth — must reject before cache replay).
+    if (req.kind !== "refund") throw new Error("WRONG_KIND");
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Step 1: action-level idempotency pre-check (after token auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { refundId: Id<"pos_refunds">; total_refund: number };
+
+    // Extract the refund payload from the validated context. The context was
+    // written by requestRefundApproval (B9) via _createRequest_internal, which
+    // runs validateContext("refund", ...) — so shape is guaranteed here. We
+    // still defensively narrow because context is stored as v.any().
+    const ctxBag = (req.context ?? {}) as {
+      txn_id?: string;
+      lines?: Array<{ line_id: string; refund_qty: number }>;
+      reason?: string;
+    };
+    if (!ctxBag.txn_id) throw new Error("REQUEST_MISSING_TXN");
+    if (!Array.isArray(ctxBag.lines) || ctxBag.lines.length === 0) {
+      throw new Error("REQUEST_MISSING_LINES");
+    }
+    if (!req.requester_staff_id) throw new Error("REQUEST_MISSING_REQUESTER");
+    const txnId = ctxBag.txn_id as unknown as Id<"pos_transactions">;
+
+    // Step 4: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 5: argon2-verify manager PIN; record failed attempt on miss
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
+      });
+      const capResult = await ctx.runMutation(
+        internal.approvals.internal._recordTokenPinFailure_internal,
+        { requestId: req._id },
+      );
+      if (capResult.capped) throw new Error("REQUEST_REVOKED");
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 6: commit the refund via the single writer. Map the context's
+    // {line_id, refund_qty} shape to _commitRefund_internal's {line_id, qty}
+    // shape. line_id was stored as a string in context (schema is v.any());
+    // cast back to Id<"pos_transaction_lines"> for the mutation.
+    const commitLines = ctxBag.lines.map((l) => ({
+      line_id: l.line_id as unknown as Id<"pos_transaction_lines">,
+      qty: l.refund_qty,
+    }));
+    // C1: pass derived `:commit` idempotency key so the wrapped funnel can
+    // short-circuit on action-retry without double-committing the refund.
+    const result = await ctx.runMutation(
+      internal.refunds.internal._commitRefund_internal,
+      {
+        idempotencyKey: `${args.idempotencyKey}:commit`,
+        transactionId: txnId,
+        lines: commitLines,
+        reason: ctxBag.reason ?? req.reason ?? "Refund (off-booth approval)",
+        requestedBy: req.requester_staff_id,
+        approverId: manager._id,
+        approvalSource: "telegram_approval",
+        approvalRequestId: req._id,
+      },
+    );
+
+    // Step 7: mark request resolved. Use a DERIVED idempotency key so the
+    // resolve mutation's withIdempotency cache (`{ resolved: true }`) does
+    // not collide with the action-level cache below (`{ refundId, total_refund }`).
+    await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: `${args.idempotencyKey}:resolve`,
+      requestId: req._id,
+      resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
+    });
+
+    // Step 8: cache action-level response. The top-level idempotencyKey stores
+    // the `{ refundId, total_refund }` blob the UI consumes; same-key retries
+    // replay this blob via step 1 without re-running the commit.
+    const out = { refundId: result.refundId, total_refund: result.total_refund };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.approveRefund",
+      response: JSON.stringify(out),
+    });
+
+    return out;
+  },
+});
+
+/**
  * Off-booth deny — kind-agnostic. Works for any pending approval request
  * (staff_pin_reset, manual_payment_override, and any future kind). There is
  * intentionally NO `kind` guard here: a manager can deny any pending request

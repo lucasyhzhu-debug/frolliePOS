@@ -133,6 +133,40 @@ export function renderStaffPinReset(payload: StaffPinResetPayload): RenderedMess
   };
 }
 
+export type RefundPayload = {
+  receipt_number: string;
+  total_refund: number;
+  lines: Array<{ product_name: string; refund_qty: number; refund_amount: number }>;
+  reason: string;
+  request_url: string;
+};
+
+export function renderRefund(p: RefundPayload): RenderedMessage {
+  const linesText = p.lines
+    .map(
+      (l) =>
+        `• ${l.refund_qty} × ${escapeHtml(l.product_name)} — Rp ${formatIdr(l.refund_amount)}`,
+    )
+    .join("\n");
+
+  const text = [
+    `💸 <b>Permintaan pengembalian dana</b>`,
+    `Struk: <code>${escapeHtml(p.receipt_number)}</code>`,
+    `Total: <b>Rp ${formatIdr(p.total_refund)}</b>`,
+    ``,
+    linesText,
+    ``,
+    `Alasan: ${escapeHtml(p.reason)}`,
+    ``,
+    `<i>Buka tautan untuk setujui (login + PIN diperlukan).</i>`,
+  ].join("\n");
+
+  return {
+    text,
+    inline_keyboard: [[{ text: "✓ Tinjau & setujui", url: p.request_url }]],
+  };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

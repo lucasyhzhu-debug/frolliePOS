@@ -62,6 +62,10 @@ export const transactionsTables = {
     tax_rate_snapshot: v.number(),               // schema-ready per ADR-000 §4 (0 today)
     qty: v.number(),
     line_subtotal: v.number(),
+    // v0.5.1 PR B: optional so pre-PR-B rows (every line shipped v0.3-v0.5.0.1)
+    // stay schema-valid. All reads go through helper `lineRefundedQty(line) =
+    // line.refunded_qty ?? 0`. Patch writes set a number, not undefined.
+    refunded_qty: v.optional(v.number()),
   })
     .index("by_transaction", ["transaction_id"]),
 

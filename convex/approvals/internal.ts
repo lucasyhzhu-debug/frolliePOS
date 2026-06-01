@@ -22,6 +22,7 @@ export const _createRequest_internal = internalMutation({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
+      v.literal("refund"),   // v0.5.1 PR B: refund-approval requests funnel here too.
     ),
     requester_staff_id: v.optional(v.id("staff")),
     entity_type: v.optional(v.string()),
@@ -158,7 +159,9 @@ export const _markResolved_internal = internalMutation({
     },
     { resolved: true }
   >(
-    "approvals.approveStaffPinReset",
+    // N9: generic mutationName so pos_idempotency rows for refund + manual-payment
+    // resolves are not misattributed to staff-pin-reset (a v0.4 leftover).
+    "approvals._markResolved_internal",
     async (ctx, args) => {
       // Single-use enforcement: if a concurrent approval (a different manager
       // opening the same /approve link with its own idempotencyKey) already
@@ -258,7 +261,9 @@ export const _markDenied_internal = internalMutation({
     },
     { denied: true }
   >(
-    "approvals.denyRequest",
+    // N9: generic mutationName so pos_idempotency rows for any kind's deny
+    // path are not misattributed to the original staff-pin-reset path label.
+    "approvals._markDenied_internal",
     async (ctx, args) => {
       const req = await ctx.db.get(args.requestId);
       if (!req) throw new Error("REQUEST_NOT_FOUND");
@@ -304,6 +309,7 @@ export const _listPendingByKind_internal = internalQuery({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
+      v.literal("refund"),   // v0.5.1 PR B: refund dedup guard reuses this helper.
     ),
     entityId: v.string(),
   },

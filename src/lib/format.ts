@@ -13,8 +13,13 @@ export function rp(amount: number): string {
   //   "Rp  25.000" — nbsp + narrow nbsp (Node 22 on Windows)
   // Normalise: strip all Unicode whitespace between "Rp" and the digits,
   // then re-insert exactly one regular space.
-  const raw = IDR.format(amount);
-  return raw.replace(/^Rp[\s  ]*/u, "Rp ");
+  //
+  // Negatives are handled explicitly so the output is always "-Rp N" regardless
+  // of where the ICU locale puts the minus sign (some emit "Rp -N", some "-Rp N").
+  // Used by the v0.5.1 refund-summary displays (e.g. "-Rp 43.333").
+  const sign = amount < 0 ? "-" : "";
+  const raw = IDR.format(Math.abs(amount));
+  return sign + raw.replace(/^Rp[\s  ]*/u, "Rp ");
 }
 
 // Single-stall, single-timezone for v1. When multi-stall lands (post-v1),

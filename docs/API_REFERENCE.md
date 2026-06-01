@@ -82,15 +82,37 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | q | `getPayment` | `{ paymentId }` | `Payment` | |
 | q | `getActivePayment` | `{ txId }` | `Payment \| null` | Latest non-expired/non-cancelled |
 
-## `refunds.ts`
+## `refunds/` *(v0.5.1 PR B — shipped surface)*
+
+Refund ledger + settlement surface. Both authorisation paths (booth-PIN inline, Telegram-PIN off-booth) funnel through the single internal writer `_commitRefund_internal` (v0.5.0 cross-path-parity). The `approveRefund` action lives in `convex/approvals/actions.ts` (not `refunds/`) because it is dispatched from the `/approve/:token` flow — listed here for completeness.
+
+Stale pre-v0.5.1 design (Xendit refund API, `pos_refund_lines`, `reason_code` enum, `status: pending|succeeded|failed`) did **not** ship — refunds are manager-authorised, server-side bookkeeping with manual money movement tracked via `settlement_status`.
+
+### Public
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| m | `initiate` | `{ txId, amount, isPartial, lines?, reasonCode, reasonNotes?, idempotencyKey }` | `{ refundId, approvalRequestId }` | Creates `pos_refunds` (`status: pending`) + an approval request ([ADR-027](./ADR/027-wa-approval-via-staff-own-wa.md)) |
-| a | `executeAfterApproval_internal` | `{ refundId }` | `void` | Called by approvals.approve when refund is approved; calls Xendit refund API |
-| m | `markComplete_internal` | `{ refundId, xenditRefundId }` | `void` | Called from webhook handler; writes positive `pos_stock_movements` ([ADR-019](./ADR/019-refund-re-credits-stock.md)); logs `refund.completed` |
-| q | `list` | `{ range?, sessionId }` | `Refund[]` | Manager-only or own-only depending on session |
-| q | `get` | `{ refundId, sessionId }` | `Refund & lines[]` | |
+| q | `refunds.public.listTodaysRefundable` | `{ sessionId }` | `Doc<"pos_transactions">[]` | Session-gated. Today's paid txns (since 00:00 WIB via `wibDayWindow`), newest-first. Older txns are unreachable in v0.5.1 — refund window is intentionally small. Cross-module read routed through `transactions/internal._listPaidTxnsSince_internal` per ADR-034. |
+| q | `refunds.public.listForTransaction` | `{ sessionId, transactionId }` | `{ txn, lines: (Line & { refundable: number })[], refunds: Refund[] } \| { txn: null, lines: [], refunds: [] }` | Session-gated. Aggregate for the refund form: txn + lines (each annotated with `refundable = lineRefundable(line)`) + existing refunds. Returns the empty-state shape (`null` txn) for not-found / not-paid so the caller renders an empty state rather than throws. |
+| m | `refunds.public.markRefundSettled` | `{ sessionId, idempotencyKey, refundId }` | `{ settled_by: Id<"staff">, settled_at: number }` | **Manager-session gated, NOT PIN** (ADR-038, CLAUDE.md rule #22). Flips `settlement_status: pending → settled`, sets `settled_by` + `settled_at` together. Idempotent — a second call on an already-settled refund returns the original settler/timestamp without re-patching or re-auditing. `authCheck` runs before the idempotency cache lookup so a non-manager replay cannot read back the cached response. Logs `refund.settled` (source=`booth_inline`). |
+| q | `refunds.public.listPendingSettlement` | `{ sessionId }` | `Doc<"pos_refunds">[]` | **Manager-session gated.** Refunds with `settlement_status: "pending"`, oldest-first via the `by_settlement_status` composite index. Powers `/mgr/refunds-pending` so managers sweep outstanding refund money-movements in FIFO order. |
+
+### Actions (Node runtime)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| a | `refunds.actions.commitRefundInline` | `{ sessionId, idempotencyKey, transactionId, lines: { line_id, qty }[], reason, managerStaffCode, managerPin }` | `{ refundId: Id<"pos_refunds">, total_refund: number }` | Booth-PIN refund commit. Action-level idempotency (`_lookup_internal` → `_writeCache_internal`). Session establishes "someone is logged in"; the manager identity is supplied independently as `managerStaffCode` (stable `S-NNNN` external surface, never `_id`) — same pattern as `approveManualPayment`. argon2-verifies the manager PIN via `verifyPinOrThrow`; wrong PIN counts toward THIS manager's ADR-002 lockout, not the session staff's. On success, delegates to `_commitRefund_internal` with `approvalSource: "booth_inline"`. Session staffer recorded as `requested_by`; manager recorded as `approver_id` (may equal `requested_by` if the manager is logged in). |
+| a | `refunds.actions.requestRefundApproval` | `{ sessionId, idempotencyKey, transactionId, lines: { line_id, qty }[], reason }` | `{ requestId: Id<"pos_approval_requests"> }` | Off-booth refund approval (Telegram path). Structural sibling of `requestManualPaymentApproval`. Steps: action-level idempotency pre-check → resolve session (no PIN at this stage) → `_computeRefundPreview_internal` (validates + computes preview for Telegram card) → dedup via `_findPendingRefundForTxn_internal` (one live pending refund per txn) → mint 32-byte URL-safe token (only SHA-256 hash persisted, ADR-029) → `_createRequest_internal` with `kind: "refund"` and `RefundContext` payload → `sendTemplate` Telegram card (deletes the request row on send failure so the next attempt retries cleanly) → `_markNotified_internal` + best-effort `_linkTelegramMessage_internal` → write idempotency cache. Errors surface the same TXN_NOT_REFUNDABLE / LINE_NOT_FOUND codes as the booth path. |
+| a | `approvals.actions.approveRefund` | `{ token, managerStaffCode, managerPin, idempotencyKey }` | `{ refundId: Id<"pos_refunds">, total_refund: number }` | **Lives in `convex/approvals/actions.ts`, not `refunds/`.** The `/approve/:token` PIN-submit endpoint for `kind: "refund"`. Verifies token (constant-time SHA-256 compare) + argon2 manager PIN; increments `failed_pin_attempts` on wrong PIN with auto-deny at `TOKEN_PIN_ATTEMPT_CAP` (5). On success, dispatches to `_commitRefund_internal` with `approvalSource: "telegram_approval"` + the originating `approval_request_id`, then `_markResolved_internal` flips the request. KIND_AUDIT.refund.resolved = `"refund.committed"` by design (one verb for both paths). |
+
+### Internal (single-writer + cross-module read surface — see `convex/refunds/internal.ts` for full signatures)
+
+| Helper | Notes |
+|---|---|
+| `_commitRefund_internal` | **The single writer for `pos_refunds`.** Both `commitRefundInline` and `approveRefund` funnel here. Pipeline: validate txn paid + per-line qty ≤ `lineRefundable(line)` → compute per-line `refund_amount` via ADR-040 `computeRefundAmount` → insert `pos_refunds` (`settlement_status: "pending"`) → patch each `line.refunded_qty += qty` via `transactions/internal._patchLineRefundedQty_internal` → re-credit stock via `inventory/internal._refundReCredit_internal` (positive `pos_stock_movements`, `source: "refund"`, ADR-019) → purge cached receipt HTML via `receipts/internal._purgeReceiptCache_internal` (ADR-039) → audit `refund.committed` with source = `approvalSource` arg. Errors: `TXN_NOT_REFUNDABLE`, `LINE_NOT_FOUND`, `REFUND_QTY_INVALID`, `REFUND_QTY_EXCEEDS_REFUNDABLE`. |
+| `_computeRefundPreview_internal` | Pure-read preview: validates txn + line ids, returns `{ receipt_number, lines: [{ line_id, product_name, refund_qty, refund_amount }], total_refund }`. Used by `requestRefundApproval` to populate the Telegram card's `RefundContext` (and by extension the `/approve/:token` UI). No DB writes. Surfaces the same error codes as `_commitRefund_internal` so callers see one error surface across paths. |
+| `_listForTransaction_internal` | Cross-module read used by the receipts module to render the refund block + status header on `/r/<token>` (ADR-039). Returns refund rows for a txn (`by_transaction` index). |
+| `_findPendingRefundForTxn_internal` | Telegram-path dedup guard. Returns the existing live pending refund `requestId` for a txn (via `approvals/internal._listPendingByKind_internal` — refunds never reads `pos_approval_requests` directly per ADR-034). |
 
 ## `stock.ts`
 

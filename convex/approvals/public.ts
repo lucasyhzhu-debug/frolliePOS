@@ -58,7 +58,29 @@ type ManualPaymentOverrideResult = {
   resolved_at?: number;
 } & DenyDetails;
 
-type GetByTokenResult = StaffPinResetResult | ManualPaymentOverrideResult;
+type RefundResult = {
+  kind: "refund";
+  display: {
+    receipt_number: string;
+    total_refund: number;
+    reason: string;
+    lines: Array<{
+      product_name: string;
+      refund_qty: number;
+      refund_amount: number;
+    }>;
+    requester_name?: string;
+  };
+  status: EffectiveStatus;
+  triggered_at: number;
+  token_expires_at: number;
+  resolved_at?: number;
+} & DenyDetails;
+
+type GetByTokenResult =
+  | StaffPinResetResult
+  | ManualPaymentOverrideResult
+  | RefundResult;
 
 /**
  * Resolve an approval request by its raw token (for the off-booth approval page).
@@ -163,6 +185,86 @@ export const getByToken = query({
           ...(ctx2?.receipt_preview !== undefined
             ? { receipt_preview: ctx2.receipt_preview }
             : {}),
+          ...(requester_name !== undefined ? { requester_name } : {}),
+        },
+        ...base,
+        ...denyDetails,
+      };
+    }
+
+    if (req.kind === "refund") {
+      const ctx2 = req.context as
+        | {
+            receipt_number?: string;
+            total_refund?: number;
+            reason?: string;
+            lines?: Array<{
+              product_name?: string;
+              refund_qty?: number;
+              refund_amount?: number;
+            }>;
+          }
+        | undefined;
+
+      // B28a I2: validateContext("refund", ...) GUARANTEES these fields are
+      // present and well-formed BEFORE the row is written. If any are missing
+      // at READ time, the row was corrupted post-insert (manual DB edit, future
+      // migration regression, etc.) — throw CONTEXT_CORRUPTED rather than
+      // silently degrading to "Refund of Rp 0 approved" in the manager UI.
+      // Distinct prefix from CONTEXT_INVALID (write-time) so the breadcrumb
+      // names the failure mode (read-time on an already-persisted row).
+      // Per v0.5.1a MEMORY lesson: hardcoded deferred values become
+      // customer-facing lies; fail loud instead.
+      if (typeof ctx2?.receipt_number !== "string" || ctx2.receipt_number === "") {
+        throw new Error("CONTEXT_CORRUPTED: receipt_number");
+      }
+      if (typeof ctx2.total_refund !== "number" || !Number.isInteger(ctx2.total_refund) || ctx2.total_refund <= 0) {
+        throw new Error("CONTEXT_CORRUPTED: total_refund");
+      }
+      if (typeof ctx2.reason !== "string" || ctx2.reason.trim() === "") {
+        throw new Error("CONTEXT_CORRUPTED: reason");
+      }
+      if (!Array.isArray(ctx2.lines) || ctx2.lines.length === 0) {
+        throw new Error("CONTEXT_CORRUPTED: lines");
+      }
+      const receipt_number = ctx2.receipt_number;
+      const total_refund: number = ctx2.total_refund;
+      const reason: string = ctx2.reason;
+      // Strip line_id from the public surface — storage-internal per the
+      // existing pattern (see ManualPayment which never exposes context).
+      const lines = ctx2.lines.map((l) => {
+        if (typeof l.product_name !== "string") {
+          throw new Error("CONTEXT_CORRUPTED: line.product_name");
+        }
+        if (!Number.isInteger(l.refund_qty) || (l.refund_qty as number) <= 0) {
+          throw new Error("CONTEXT_CORRUPTED: line.refund_qty");
+        }
+        if (!Number.isInteger(l.refund_amount) || (l.refund_amount as number) < 0) {
+          throw new Error("CONTEXT_CORRUPTED: line.refund_amount");
+        }
+        return {
+          product_name: l.product_name,
+          refund_qty: l.refund_qty as number,
+          refund_amount: l.refund_amount as number,
+        };
+      });
+
+      let requester_name: string | undefined;
+      if (req.requester_staff_id) {
+        const info = await ctx.runQuery(
+          internal.auth.internal._getStaffNameCode_internal,
+          { staffId: req.requester_staff_id },
+        );
+        requester_name = info?.name;
+      }
+
+      return {
+        kind: "refund",
+        display: {
+          receipt_number,
+          total_refund,
+          reason,
+          lines,
           ...(requester_name !== undefined ? { requester_name } : {}),
         },
         ...base,

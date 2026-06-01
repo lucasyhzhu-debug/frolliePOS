@@ -6,6 +6,8 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 type Props = {
   requestId: Id<"pos_approval_requests"> | null;
+  /** Override the default "Approved" copy on the resolved screen. */
+  successMessage?: string;
   onResolved?: () => void;
   onDenied?: () => void;
   onExpired?: () => void;
@@ -13,6 +15,7 @@ type Props = {
 
 export function ApprovalPending({
   requestId,
+  successMessage,
   onResolved,
   onDenied,
   onExpired,
@@ -58,7 +61,7 @@ export function ApprovalPending({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
         <CheckCircle2 className="h-6 w-6 text-teal-600" />
-        <p className="text-sm font-medium">Approved</p>
+        <p className="text-sm font-medium">{successMessage ?? "Approved"}</p>
       </div>
     );
   }

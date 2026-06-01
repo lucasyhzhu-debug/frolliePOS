@@ -7,6 +7,7 @@ import {
   renderManualPaymentApproval,
   renderFoundersSummary,
   renderStaffPinReset,
+  renderRefund,
   type RenderedMessage,
 } from "../lib/telegramHtml";
 
@@ -25,6 +26,7 @@ export const sendTemplate = action({
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
       v.literal("shift_summary"),
+      v.literal("refund"),
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -47,6 +49,20 @@ export const sendTemplate = action({
         totalSalesIdr: v.number(),
         txnCount: v.number(),
         flaggedCount: v.number(),
+      }),
+      // refund — matches RefundPayload
+      v.object({
+        receipt_number: v.string(),
+        total_refund: v.number(),
+        lines: v.array(
+          v.object({
+            product_name: v.string(),
+            refund_qty: v.number(),
+            refund_amount: v.number(),
+          }),
+        ),
+        reason: v.string(),
+        request_url: v.string(),
       }),
     ),
     idempotencyKey: v.string(),
@@ -103,6 +119,21 @@ export const sendTemplate = action({
             totalSalesIdr: number;
             txnCount: number;
             flaggedCount: number;
+          },
+        );
+        break;
+      case "refund":
+        rendered = renderRefund(
+          args.payload as {
+            receipt_number: string;
+            total_refund: number;
+            lines: Array<{
+              product_name: string;
+              refund_qty: number;
+              refund_amount: number;
+            }>;
+            reason: string;
+            request_url: string;
           },
         );
         break;
