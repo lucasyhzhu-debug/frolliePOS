@@ -621,7 +621,8 @@ approval.notification_failed # Telegram send failed; pending row deleted, trail 
 approval.resolved           # manager approved off-booth PIN reset (wa_approval source)
 # refunds/ (v0.5.1 PR B)
 refund.requested            # _createRequest_internal (kind=refund) — Telegram approval request created (source=system)
-refund.committed            # _commitRefund_internal — pos_refunds row inserted, stock re-credited, receipt cache purged. Source = approvalSource arg (booth_inline | telegram_approval). KIND_AUDIT.refund.resolved is the SAME verb so dashboards see one bucket for both paths
+refund.committed            # _commitRefund_internal — pos_refunds row inserted, stock re-credited, receipt cache purged. Source = approvalSource arg (booth_inline | telegram_approval). Exactly one per committed refund (entity_type=pos_refunds)
+refund.approval_resolved    # Emitted when an approval request of kind=refund is marked resolved on the Telegram path (_markResolved_internal). Entity_type=pos_approval_requests. The corresponding refund.committed is emitted separately by the refund commit funnel — verbs are distinct (C2, v0.5.1 PR B post-review) so dashboards count refunds without double-counting Telegram-path rows.
 refund.denied               # _markDenied_internal via denyRequest (kind=refund) — manager denied the off-booth refund request (source=telegram_approval)
 refund.settled              # markRefundSettled — pending → settled bookkeeping flip (ADR-038, manager-session gated, source=booth_inline)
 ```

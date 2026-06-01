@@ -10,18 +10,20 @@ import { Id } from "../../_generated/dataModel";
 /**
  * End-to-end audit verification for the refund subsystem.
  *
- *   refund.requested   ← _createRequest_internal (kind=refund) → source=system
- *                        (KIND_AUDIT[refund].requested; emitted in the requested
- *                        helper with source: "system" per current implementation.)
- *   refund.committed   ← _commitRefund_internal → source=approvalSource arg
- *                        (booth_inline | telegram_approval). approveRefund also
- *                        triggers _markResolved_internal which emits ANOTHER
- *                        refund.committed (KIND_AUDIT[refund].resolved is the
- *                        SAME verb "refund.committed" — by design so dashboards
- *                        filtering refunds-by-action surface both).
- *   refund.denied      ← _markDenied_internal via denyRequest → source=telegram_approval
- *                        (KIND_AUDIT[refund].denied).
- *   refund.settled     ← markRefundSettled → source=booth_inline (manager session).
+ *   refund.requested        ← _createRequest_internal (kind=refund) → source=system
+ *                              (KIND_AUDIT[refund].requested; emitted in the requested
+ *                              helper with source: "system" per current implementation.)
+ *   refund.committed        ← _commitRefund_internal → source=approvalSource arg
+ *                              (booth_inline | telegram_approval). Always emitted
+ *                              once per committed refund — booth path emits ONLY this.
+ *   refund.approval_resolved ← _markResolved_internal (Telegram path only) →
+ *                              source=telegram_approval. C2 (post-review): pre-C2 this
+ *                              emitted "refund.committed" too, double-counting refunds
+ *                              on dashboards. Now distinct: counts approval-row state
+ *                              transitions, not refunds.
+ *   refund.denied           ← _markDenied_internal via denyRequest → source=telegram_approval
+ *                              (KIND_AUDIT[refund].denied).
+ *   refund.settled          ← markRefundSettled → source=booth_inline (manager session).
  */
 
 function sha256Hex(s: string): string {
@@ -210,6 +212,70 @@ describe("refund audit trail", () => {
     expect(rows.length).toBe(1);
     expect(rows[0].source).toBe("booth_inline");
     expect(rows[0].actor_id).toBe(mgrId);
+  });
+
+  it("approveRefund (telegram path) → emits ONE refund.committed + ONE refund.approval_resolved (C2)", async () => {
+    // C2 regression: pre-C2, KIND_AUDIT.refund.resolved === "refund.committed",
+    // so the Telegram path emitted refund.committed TWICE (once from
+    // _commitRefund_internal, once from _markResolved_internal). After C2 the
+    // resolve verb is "refund.approval_resolved", so the two events are now
+    // distinguishable: exactly one of each per Telegram-approved refund.
+    const t = convexTest(schema);
+    const { staffId, txnId, lineId } = await seedPaidTxnWithRealManager(t);
+
+    const rawToken = "audit-c2-tg-token";
+    await t.mutation(internal.approvals.internal._createRequest_internal, {
+      kind: "refund",
+      requester_staff_id: staffId,
+      entity_type: "pos_transactions",
+      entity_id: txnId as unknown as string,
+      context: {
+        txn_id: txnId as unknown as string,
+        receipt_number: "R-2026-0500",
+        lines: [
+          {
+            line_id: lineId as unknown as string,
+            product_name: "Dubai 1pc",
+            refund_qty: 1,
+            refund_amount: 50000,
+          },
+        ],
+        total_refund: 50000,
+        reason: "telegram path c2 check",
+      },
+      reason: "telegram path c2 check",
+      triggered_by_event: "refund_request",
+      triggered_at: Date.now(),
+      token_hash: sha256Hex(rawToken),
+      token_expires_at: Date.now() + 3_600_000,
+    });
+
+    await t.action(api.approvals.actions.approveRefund, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: MGR_PIN,
+      idempotencyKey: "audit-c2-approve-1",
+    });
+
+    const committedRows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.committed"))
+        .collect(),
+    );
+    const resolvedRows = await t.run((ctx) =>
+      ctx.db
+        .query("audit_log")
+        .withIndex("by_action_date", (q) => q.eq("action", "refund.approval_resolved"))
+        .collect(),
+    );
+    // Exactly one of each — proves verbs are now distinct (no double-emit).
+    expect(committedRows.length).toBe(1);
+    expect(committedRows[0].source).toBe("telegram_approval");
+    expect(committedRows[0].entity_type).toBe("pos_refunds");
+    expect(resolvedRows.length).toBe(1);
+    expect(resolvedRows[0].source).toBe("telegram_approval");
+    expect(resolvedRows[0].entity_type).toBe("pos_approval_requests");
   });
 
   it("denyRequest (refund kind) → emits refund.denied with source=telegram_approval", async () => {

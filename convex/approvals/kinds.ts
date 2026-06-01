@@ -79,7 +79,13 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
 export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: string; denied: string }> = {
   staff_pin_reset:         { requested: "staff_pin_reset.requested",         resolved: "staff_pin_reset.resolved",         denied: "staff_pin_reset.denied" },
   manual_payment_override: { requested: "manual_payment_override.requested", resolved: "manual_payment_override.resolved", denied: "manual_payment_override.denied" },
-  refund:                  { requested: "refund.requested",                  resolved: "refund.committed",                  denied: "refund.denied" },
+  // refund.resolved emits "refund.approval_resolved" — distinct from
+  // "refund.committed" (which _commitRefund_internal emits when the refund row
+  // is inserted). Pre-C2 both used "refund.committed", which double-emitted on
+  // the Telegram path because _markResolved_internal AND _commitRefund_internal
+  // both fired it. Separating verbs lets dashboards count refunds (committed)
+  // distinctly from approval-row state transitions (approval_resolved).
+  refund:                  { requested: "refund.requested",                  resolved: "refund.approval_resolved",         denied: "refund.denied" },
 };
 
 /** Maps kind → telegram template id (send.ts) AND → /approve UI variant id. */

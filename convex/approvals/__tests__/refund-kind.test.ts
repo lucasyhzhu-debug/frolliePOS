@@ -87,13 +87,17 @@ describe("validateContext('refund', …)", () => {
 });
 
 describe("KIND_AUDIT.refund", () => {
-  it("uses refund.committed (not .resolved) as the success verb", () => {
-    // ADR-040 / KIND_AUDIT design: the success verb is "refund.committed" so a
-    // dashboard filter by audit.action surfaces refunds distinctly from other
-    // approval kinds. "resolved" is the registry key (mirrors the other kinds'
-    // shape), but the value is "refund.committed".
+  it("resolved verb is refund.approval_resolved (distinct from refund.committed)", () => {
+    // C2 (v0.5.1 PR B post-review): on the Telegram path, _commitRefund_internal
+    // emits refund.committed (entity: pos_refunds) AND _markResolved_internal
+    // emits the KIND_AUDIT.refund.resolved verb (entity: pos_approval_requests).
+    // Pre-C2 both verbs were "refund.committed", producing two rows with the
+    // same action string — a dashboard counting refunds would double-count
+    // every Telegram-path refund. Splitting the verbs ends the double-emit:
+    // refund.committed counts refunds, refund.approval_resolved counts
+    // approval-row state transitions.
     expect(KIND_AUDIT.refund.requested).toBe("refund.requested");
-    expect(KIND_AUDIT.refund.resolved).toBe("refund.committed");
+    expect(KIND_AUDIT.refund.resolved).toBe("refund.approval_resolved");
     expect(KIND_AUDIT.refund.denied).toBe("refund.denied");
   });
 });
