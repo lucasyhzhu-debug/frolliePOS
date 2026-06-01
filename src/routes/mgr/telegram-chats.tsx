@@ -12,7 +12,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
-import { ConvexError } from "convex/values";
 import { api } from "../../../convex/_generated/api";
 import { KNOWN_TELEGRAM_ROLES } from "../../../convex/telegram/config";
 import { useSession } from "@/hooks/useSession";
@@ -30,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
 import type { Doc } from "../../../convex/_generated/dataModel";
 
@@ -37,14 +37,6 @@ type Chat = Doc<"telegramChats">;
 
 const NONE_VALUE = "__none__";
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function errorMessage(err: unknown): string {
-  if (err instanceof ConvexError) {
-    return typeof err.data === "string" ? err.data : String(err.data);
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
 
 function relativeTime(ms: number): string {
   const diff = Date.now() - ms;

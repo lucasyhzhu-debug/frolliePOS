@@ -19,13 +19,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
-import { ConvexError } from "convex/values";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { rp, fmtDate, fmtTime } from "@/lib/format";
+import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -36,14 +36,6 @@ import type { FunctionReturnType } from "convex/server";
 type PendingRefundRow = NonNullable<
   FunctionReturnType<typeof api.refunds.public.listPendingSettlement>
 >[number];
-
-function errorMessage(err: unknown): string {
-  if (err instanceof ConvexError) {
-    return typeof err.data === "string" ? err.data : String(err.data);
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
 
 export default function MgrRefundsPending() {
   const navigate = useNavigate();
