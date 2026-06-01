@@ -11,3 +11,14 @@ export const REFUND_BADGE = {
   partial: { label: "SEBAGIAN DIKEMBALIKAN", cls: "bg-amber-100 text-amber-800 border-transparent" },
   full: { label: "DIKEMBALIKAN", cls: "bg-red-100 text-red-800 border-transparent" },
 } as const;
+
+/**
+ * Confirmation-source label for the history detail card.
+ * "polling" is a legacy literal for pre-ADR-036 rows; v0.4+ writers emit only
+ * "webhook" / "manual" / null. Kept so archived v0.3 receipts render.
+ */
+export const CONFIRMED_VIA_LABEL: Record<"webhook" | "polling" | "manual", string> = {
+  webhook: "Otomatis (webhook)",
+  polling: "Otomatis (polling)",
+  manual: "Manual (manajer)",
+};

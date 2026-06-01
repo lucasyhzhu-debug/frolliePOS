@@ -20,8 +20,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { rp } from "@/lib/format";
 import { INSTRUMENT_LABEL } from "@/lib/pos-labels";
-
-const HOURLY_LABELS = [0, 6, 12, 18, 24];
+import { DayPicker } from "@/components/pos/DayPicker";
 
 export default function MgrDashboard() {
   const session = useSession();
@@ -59,31 +58,7 @@ export default function MgrDashboard() {
   return (
     <SpokeLayout title="Dashboard" backTo="/">
       <div className="flex flex-col gap-3 p-3 lg:mx-auto lg:max-w-6xl">
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="dashboard-day"
-            className="text-xs font-medium text-muted-foreground"
-          >
-            Tanggal
-          </label>
-          <input
-            id="dashboard-day"
-            type="date"
-            value={day ?? ""}
-            onChange={(e) => setDay(e.target.value || undefined)}
-            className="rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
-          {day !== undefined && (
-            <button
-              type="button"
-              onClick={() => setDay(undefined)}
-              aria-label="Reset to today"
-              className="text-xs text-muted-foreground underline"
-            >
-              Hari ini
-            </button>
-          )}
-        </div>
+        <DayPicker value={day} onChange={setDay} id="dashboard-day" />
 
         {summary === undefined ? (
           <DashboardSkeleton />
@@ -212,7 +187,7 @@ function HourlyCurveCard({ s }: { s: DaySummary }) {
         ))}
       </div>
       <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
-        {HOURLY_LABELS.map((h) => (
+        {[0, 6, 12, 18, 24].map((h) => (
           <span key={h}>{h}</span>
         ))}
       </div>

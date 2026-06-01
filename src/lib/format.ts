@@ -64,7 +64,11 @@ export function buildReceiptUrl(token: string): string {
   if (!convexUrl) {
     return `/r/${token}`;
   }
-  const siteOrigin = convexUrl.replace(/\.convex\.cloud(\/.*)?$/, ".convex.site");
+  // VITE_CONVEX_URL is always the bare origin (no path) for the WS endpoint.
+  // The previous regex had an optional path group that never matched in
+  // practice — tighten so any future surprise shape surfaces in tests rather
+  // than silently stripping data.
+  const siteOrigin = convexUrl.replace(/\.convex\.cloud$/, ".convex.site");
   return `${siteOrigin}/r/${token}`;
 }
 

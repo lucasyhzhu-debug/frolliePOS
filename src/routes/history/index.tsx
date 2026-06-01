@@ -7,6 +7,7 @@ import { rp, fmtTime } from "@/lib/format";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DayPicker } from "@/components/pos/DayPicker";
 import { INSTRUMENT_LABEL, REFUND_BADGE } from "@/lib/pos-labels";
 
 /**
@@ -64,30 +65,8 @@ export default function HistoryIndex() {
     <SpokeLayout title="Riwayat" backTo="/">
       <section className="flex-1 overflow-y-auto p-4">
         {role === "manager" ? (
-          <div className="mb-4 flex items-center gap-2">
-            <label
-              htmlFor="history-day"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Tanggal
-            </label>
-            <input
-              id="history-day"
-              type="date"
-              value={day ?? ""}
-              onChange={(e) => setDay(e.target.value || undefined)}
-              className="rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            {day !== undefined && (
-              <button
-                type="button"
-                onClick={() => setDay(undefined)}
-                aria-label="Reset to today"
-                className="text-xs text-muted-foreground underline"
-              >
-                Hari ini
-              </button>
-            )}
+          <div className="mb-4">
+            <DayPicker value={day} onChange={setDay} id="history-day" />
           </div>
         ) : null}
 
