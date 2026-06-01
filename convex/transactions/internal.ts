@@ -622,7 +622,15 @@ export const _fetchDayWindow_internal = internalQuery({
         voucher_discount: t.voucher_discount,
         voucher_code_snapshot: t.voucher_code_snapshot,
         staff_id: t.staff_id,
-        staff_name: nameById.get(String(t.staff_id)) ?? "—",
+        // M2: ?? on invariant-guaranteed fields = silent corruption (MEMORY).
+        // Staff are soft-deleted (active:false), never hard-deleted, so a
+        // missing staff name means the staff row was hard-deleted out from
+        // under a transaction — failing loud surfaces the corruption.
+        staff_name: (() => {
+          const n = nameById.get(String(t.staff_id));
+          if (!n) throw new Error(`STAFF_MISSING_FOR_TXN — txn ${t._id} references staff ${t.staff_id} which is not in pos_staff`);
+          return n;
+        })(),
         instrument,
         flags: t.flags,
         lines: lines.map((l) => ({

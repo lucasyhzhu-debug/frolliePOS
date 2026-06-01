@@ -6,14 +6,29 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { NEG_STOCK, withFlag } from "./flags";
-import { wibDayWindow } from "../lib/time";
+import { wibDayWindow, WIB_OFFSET_MS } from "../lib/time";
 import { computeDaySummary, type DayTxn, type DaySummary } from "./lib";
 import { refundStatus, type RefundStatus } from "../refunds/lib";
 
-/** Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window. */
+/**
+ * Parse a "YYYY-MM-DD" WIB label into that day's [start,end) ms window.
+ * Throws INVALID_DAY for any malformed or overflow date — silent NaN math
+ * would produce an empty window with no UI feedback (manager sees "no sales"
+ * for a typo'd date instead of a clear error).
+ */
 function windowForLabel(label: string): { dayStartMs: number; dayEndMs: number } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) throw new Error("INVALID_DAY");
   const [y, m, d] = label.split("-").map(Number);
-  const dayStartMs = Date.UTC(y, m - 1, d) - 7 * 60 * 60 * 1000; // fixed WIB offset
+  // Round-trip via Date.UTC to reject overflows (e.g. "2026-02-30" → Mar 2).
+  const reconstructed = new Date(Date.UTC(y, m - 1, d));
+  if (
+    reconstructed.getUTCFullYear() !== y ||
+    reconstructed.getUTCMonth() !== m - 1 ||
+    reconstructed.getUTCDate() !== d
+  ) {
+    throw new Error("INVALID_DAY");
+  }
+  const dayStartMs = Date.UTC(y, m - 1, d) - WIB_OFFSET_MS;
   return { dayStartMs, dayEndMs: dayStartMs + 86_400_000 };
 }
 
@@ -463,7 +478,6 @@ type TxnDetail = {
   txn: Doc<"pos_transactions">;
   lines: Doc<"pos_transaction_lines">[];
   refundStatus: RefundStatus;
-  receipt_token: string | null;
 };
 
 /**
@@ -502,11 +516,14 @@ export const getTransactionDetail = query({
       internal.refunds.internal._listForTransaction_internal,
       { transactionId: args.txnId },
     );
+    // Note: receipt_token is intentionally NOT returned. The FE goes through
+    // shareReceipt to mint/fetch the token, which narrows the capability
+    // surface (a Doc read at any other public seam can't accidentally leak the
+    // signed-URL secret — ADR-021).
     return {
       txn,
       lines,
       refundStatus: refundStatus(lines, refunds.length > 0),
-      receipt_token: txn.receipt_token ?? null,
     };
   },
 });

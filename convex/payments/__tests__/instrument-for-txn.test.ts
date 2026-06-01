@@ -49,7 +49,10 @@ describe("_instrumentForTxn_internal", () => {
     expect(r).toBe("bca_va");
   });
 
-  it("falls back to 'unknown' if all invoices are cancelled", async () => {
+  it("still returns 'qris' even if the invoice was later cancelled", async () => {
+    // I3: matches receipt semantics (_getPaidInvoiceForTxn_internal also
+    // ignores cancelled_at). The customer paid via this instrument regardless
+    // of whether refunds later stamp cancelled_at on the paying invoice.
     const t = convexTest(schema);
     const txnId = await seedTxn(t);
     await t.run(async (ctx) => {
@@ -60,10 +63,10 @@ describe("_instrumentForTxn_internal", () => {
       } as any);
     });
     const r = await t.query(internal.payments.internal._instrumentForTxn_internal, { txnId });
-    expect(r).toBe("unknown");
+    expect(r).toBe("qris");
   });
 
-  it("picks the most recently created non-cancelled invoice when several exist", async () => {
+  it("picks the most recently created invoice (cancelled state ignored — matches receipt semantics)", async () => {
     const t = convexTest(schema);
     const txnId = await seedTxn(t);
     await t.run(async (ctx) => {

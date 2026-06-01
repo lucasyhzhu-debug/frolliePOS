@@ -350,18 +350,16 @@ export const _onPaidManual_internal = internalMutation({
 
 /**
  * Return the normalised payment instrument for a transaction:
- *   "qris" — most-recent non-cancelled QRIS invoice
- *   "bca_va" — most-recent non-cancelled BCA VA invoice
- *   "unknown" — no invoice row, all invoices cancelled, or method unrecognised
+ *   "qris" — most-recent invoice with method QRIS
+ *   "bca_va" — most-recent invoice with method BCA_VA
+ *   "unknown" — no invoice row OR method unrecognised
  *
- * Day-window reporting reads this to bucket each txn into the paymentMix
- * aggregate. ADR-034 surface: receipts + reporting must not touch
- * pos_xendit_invoices directly — they go through this normaliser.
- *
- * Picks the most recently CREATED non-cancelled invoice (matches the receipts
- * convention in _getPaidInvoiceForTxn_internal). A paid invoice that is later
- * cancelled — e.g. during a retry that mints a new QR — should not poison the
- * paymentMix; the active row is what the customer actually paid via.
+ * Mirrors _getPaidInvoiceForTxn_internal's "ignore cancelled_at" choice — the
+ * customer paid via this instrument regardless of whether the refund flow later
+ * stamps cancelled_at on the paying invoice (per PR B's refund commit). Day-
+ * window reporting reads this to bucket each txn into the paymentMix aggregate.
+ * ADR-034 surface: receipts + reporting must not touch pos_xendit_invoices
+ * directly — they go through this normaliser.
  */
 export const _instrumentForTxn_internal = internalQuery({
   args: { txnId: v.id("pos_transactions") },
@@ -370,12 +368,10 @@ export const _instrumentForTxn_internal = internalQuery({
       .query("pos_xendit_invoices")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
       .collect();
-    const active = invoices
-      .filter((i) => i.cancelled_at == null)
-      .sort((a, b) => b.created_at - a.created_at)[0];
-    if (!active) return "unknown";
-    if (active.method === "QRIS") return "qris";
-    if (active.method === "BCA_VA") return "bca_va";
+    const latest = invoices.slice().sort((a, b) => b.created_at - a.created_at)[0];
+    if (!latest) return "unknown";
+    if (latest.method === "QRIS") return "qris";
+    if (latest.method === "BCA_VA") return "bca_va";
     return "unknown";
   },
 });

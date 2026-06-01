@@ -123,6 +123,18 @@ describe("listDayTransactions", () => {
     expect(res).toHaveLength(1);
     expect(res[0].total).toBe(12_345);
   });
+
+  it("throws INVALID_DAY for a malformed day label (manager)", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M9" });
+    const sessionId = await seedSession(t, mgrId);
+    await expect(
+      t.query(api.transactions.public.listDayTransactions, { sessionId, day: "not-a-date" })
+    ).rejects.toThrow(/INVALID_DAY/);
+    await expect(
+      t.query(api.transactions.public.listDayTransactions, { sessionId, day: "2026-02-30" })
+    ).rejects.toThrow(/INVALID_DAY/);
+  });
 });
 
 describe("dashboardSummary", () => {
@@ -169,6 +181,15 @@ describe("dashboardSummary", () => {
       bca_va: { count: 0, total: 0 },
       unknown: { count: 0, total: 0 },
     });
+  });
+
+  it("throws INVALID_DAY for a malformed day label", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M9" });
+    const sessionId = await seedSession(t, mgrId);
+    await expect(
+      t.query(api.transactions.public.dashboardSummary, { sessionId, day: "garbage" })
+    ).rejects.toThrow(/INVALID_DAY/);
   });
 
   it("aggregates a day's paid txns (gross/net/count/avgBasket)", async () => {
@@ -250,11 +271,10 @@ describe("getTransactionDetail", () => {
     const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId });
     expect(res?.txn.total).toBe(77_000);
     expect(res?.refundStatus).toBe("none");
-    expect(res?.receipt_token).toBeNull();
     expect(res?.lines).toHaveLength(1);
   });
 
-  it("returns refundStatus 'none' and null receipt_token for a today txn without those", async () => {
+  it("returns refundStatus 'none' for a today txn without refunds", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, { name: "S4", role: "staff", code: "S4" });
     const sessionId = await seedSession(t, staffId);
@@ -262,7 +282,6 @@ describe("getTransactionDetail", () => {
     const txnId = await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 7_200_000, total: 25_000 });
     const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId });
     expect(res?.refundStatus).toBe("none");
-    expect(res?.receipt_token).toBeNull();
     expect(res?.lines).toHaveLength(1);
   });
 });

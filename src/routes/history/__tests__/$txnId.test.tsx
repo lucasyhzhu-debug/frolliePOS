@@ -49,7 +49,6 @@ const DEFAULT_DETAIL = {
   txn: DEFAULT_TXN,
   lines: DEFAULT_LINES,
   refundStatus: "none" as const,
-  receipt_token: null,
 };
 
 let mockSessionReturn: unknown = {
