@@ -902,8 +902,8 @@ Builds on `pos_stock_movements` (already shipped v0.3). Adds `recount` source li
 - 🔨 Home screen — hourly recount-nudge banner
 
 ### Cross-cutting
-- 🔨 [ADR-041](./ADR/041-recount-adjust-distinction.md) — recount vs adjust distinction
-- 🔨 [ADR-042](./ADR/042-low-stock-detection.md) — reactive low-stock detection reuses catalog `low_threshold`
+- 🔨 [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md) — recount vs adjust distinction
+- 🔨 [ADR-042](./ADR/042-low-stock-detection-inventory-telegram.md) — reactive low-stock detection reuses catalog `low_threshold`
 - 🔨 Schema: `pos_low_stock_alerts` + `pos_recount_state` tables; `pos_stock_movements.source` gains `recount`
 - 🔨 SCHEMA.md audit enum: `stock.recount`, `stock.low_stock_alerted`, `stock.low_threshold_set`
 - 🔨 New Telegram role `inventory` (in `KNOWN_TELEGRAM_ROLES`); bind via `/mgr/telegram-chats` post-deploy

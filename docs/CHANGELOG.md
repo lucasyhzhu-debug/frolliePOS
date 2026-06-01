@@ -22,12 +22,12 @@ FPOS-internal inventory slice: a stock-check screen, a staff absolute-recount fl
 - Catalog cross-module seams: `_getSkusByIds_internal` + `_setLowThreshold_internal` per ADR-034.
 
 ### ADRs
-- [ADR-041](./ADR/041-recount-adjust-distinction.md) — recount vs adjust distinction (`recount` is a new `pos_stock_movements.source`; staff-allowed; always-notify Telegram is the control).
-- [ADR-042](./ADR/042-low-stock-detection.md) — reactive low-stock detection reuses catalog `pos_inventory_skus.low_threshold`; no threshold duplication on the new `pos_low_stock_alerts` table.
+- [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md) — recount vs adjust distinction (`recount` is a new `pos_stock_movements.source`; staff-allowed; always-notify Telegram is the control).
+- [ADR-042](./ADR/042-low-stock-detection-inventory-telegram.md) — reactive low-stock detection reuses catalog `pos_inventory_skus.low_threshold`; no threshold duplication on the new `pos_low_stock_alerts` table.
 
 ### Deploy notes
 - No frontend/backend deploy ordering changes — backend additive.
-- One new Telegram role to bind post-deploy: `inventory` (via `/mgr/telegram-chats`). Until bound, low-stock + recount dispatches will audit `telegram.send_failed` and continue silently.
+- One new Telegram role to bind post-deploy: `inventory` (via `/mgr/telegram-chats`). Until bound, low-stock + recount dispatches will audit `telegram.skipped` (`metadata.reason: "role_unbound"`) and continue silently.
 
 ## v0.5.1c — Housekeeping (2026-06-01)
 

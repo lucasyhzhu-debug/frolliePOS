@@ -116,7 +116,7 @@ Stale pre-v0.5.1 design (Xendit refund API, `pos_refund_lines`, `reason_code` en
 
 ## Inventory (v0.5.2)
 
-Public surface for the FPOS-internal inventory slice — stock-check screen, staff absolute recount, manager threshold edit, hourly recount nudge. Lives in `convex/inventory/public.ts` (queries) + `convex/inventory/actions.ts` (recount action). See [ADR-041](./ADR/041-recount-adjust-distinction.md) (recount source) and [ADR-042](./ADR/042-low-stock-detection.md) (reactive low-stock check reuses catalog `low_threshold`).
+Public surface for the FPOS-internal inventory slice — stock-check screen, staff absolute recount, manager threshold edit, hourly recount nudge. Lives in `convex/inventory/public.ts` (queries) + `convex/inventory/actions.ts` (recount action). See [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md) (recount source) and [ADR-042](./ADR/042-low-stock-detection-inventory-telegram.md) (reactive low-stock check reuses catalog `low_threshold`).
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|

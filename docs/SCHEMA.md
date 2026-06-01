@@ -295,7 +295,7 @@ Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-so
 | `_id` | `Id<"pos_stock_movements">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
 | `qty` | `number` | Signed; **negative for sale** |
-| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment" \| "refund" \| "recount"` | `sale` (v0.3), `refund` (v0.5.1 PR B), `recount` *(v0.5.2 — staff absolute recount per [ADR-041](./ADR/041-recount-adjust-distinction.md); signed delta = `entered − before`)*. `stock_in` / `spoilage` / `adjustment` reserved (v0.5.2b / v0.6) |
+| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment" \| "refund" \| "recount"` | `sale` (v0.3), `refund` (v0.5.1 PR B), `recount` *(v0.5.2 — staff absolute recount per [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md); signed delta = `entered − before`)*. `stock_in` / `spoilage` / `adjustment` reserved (v0.5.2b / v0.6) |
 | `source_transaction_line_id` | `Id<"pos_transaction_lines">?` | Set for `sale` movements; the ADR-026 dedup key |
 | `created_at` | `number` | |
 | `recorded_by_staff_id` | `Id<"staff">?` | Staff who triggered the movement |

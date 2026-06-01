@@ -47,7 +47,7 @@ The notification is the *audit control*. Replacing manager-PIN with manager-noti
 ## Affects other ADRs
 
 - **Extends [ADR-007](./007-audit-log-append-only.md):** every recount writes a `stock.recounted` audit row in addition to the movement; both are append-only.
-- **Relates to [ADR-018](./018-negative-stock-allowed-flagged.md):** recounts can drive `on_hand` negative if the entered value is `< 0` (rare but legal — same NEG_STOCK flag semantics apply). `"recount"` and `"adjustment"` remain distinct sources.
+- **Relates to [ADR-018](./018-negative-stock-allowed-flagged.md):** Negative `entered` values are REJECTED at the public mutation layer (`NEGATIVE_COUNT`). A negative shelf count is physically impossible; this is a defensive invariant — distinct from the sale-path NEG_STOCK semantics in ADR-018, which permit on-hand to drift negative when actual decrements outpace the recorded receipts. `"recount"` and `"adjustment"` remain distinct sources.
 - **Relates to [ADR-034](./034-deep-modules-surface-apis.md):** `_applyLevelDelta_internal` (inventory-owned) is the single writer used by sale decrement, refund re-credit, manager adjustment, AND recount. Recount does not bypass the seam.
 - **Relates to [ADR-035](./035-telegram-as-internal-comms.md):** recount notifications route to the `managers` Telegram role via `sendTemplate`, following the existing role-indirection pattern ([ADR-037](./037-telegram-self-registration-role-indirection.md)).
 - **Upstream control for [ADR-042](./042-low-stock-detection-inventory-telegram.md):** low-stock detection consumes the recount-driven `on_hand` correctness. Without periodic recounts, low-stock alerts misfire; without low-stock alerts, recount accuracy has no consumer. The two ADRs are designed in tandem.
