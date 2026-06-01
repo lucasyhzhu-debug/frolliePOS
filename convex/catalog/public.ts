@@ -1,6 +1,8 @@
+import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { api } from "../_generated/api";
 import { Doc } from "../_generated/dataModel";
+import { requireManagerSession } from "../auth/sessions";
 
 /**
  * Single payload for the catalog screen + offline cache. Persisted to IDB
@@ -58,5 +60,37 @@ export const catalog = query({
     }));
 
     return { products, skus, components, stockLevels, vouchers };
+  },
+});
+
+/**
+ * Manager-only admin view of the catalog. Mirrors `catalog` but returns ALL
+ * products (including `active: false` / archived) so the product-admin UI
+ * (Task 15, v0.5.3b) can list and edit them. Active inventory SKUs only
+ * (matches `catalog`'s scope — admin doesn't manage SKU lifecycle here).
+ *
+ * Gated by `requireManagerSession` (manager-only). Returns all components so
+ * the UI can render recipe rows for every product, archived or not.
+ */
+export const listAllProducts = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    products: Doc<"pos_products">[];
+    skus: Doc<"pos_inventory_skus">[];
+    components: Doc<"pos_product_components">[];
+  }> => {
+    await requireManagerSession(ctx, args.sessionId);
+    const [products, skus, components] = await Promise.all([
+      ctx.db.query("pos_products").collect(),
+      ctx.db
+        .query("pos_inventory_skus")
+        .withIndex("by_active", (q) => q.eq("active", true))
+        .collect(),
+      ctx.db.query("pos_product_components").collect(),
+    ]);
+    return { products, skus, components };
   },
 });
