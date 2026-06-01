@@ -1,8 +1,39 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
+
+// _checkLowStock_internal schedules _dispatchLowStockAlert_internal via runAfter(0)
+// when on_hand crosses below low_threshold. The dispatch action calls Telegram —
+// stub fetch + env vars so it's offline + deterministic, and drain the scheduler
+// in tests that trip a dispatch so it doesn't fire after teardown.
+const realFetch = globalThis.fetch;
+beforeEach(() => {
+  process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+  process.env.TELEGRAM_CHAT_ID = "-1001234567";
+  process.env.POS_BASE_URL = "https://pos.dev";
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).includes("telegram")) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1 } }),
+        text: async () => "{}",
+      } as unknown as Response;
+    }
+    return realFetch(url as RequestInfo);
+  }) as typeof fetch;
+});
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+// runAfter(0) uses setTimeout(0): yield once so the job moves from pending →
+// inProgress, then drain. Same idiom as convex/auth/__tests__/auth.test.ts.
+async function drainScheduled(t: ReturnType<typeof convexTest>) {
+  await new Promise((r) => setTimeout(r, 0));
+  await t.finishInProgressScheduledFunctions();
+}
 
 async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -157,6 +188,8 @@ describe("_confirmPaid_internal funnel", () => {
     await t.mutation(internal.transactions.internal._confirmPaid_internal, { txnId: s.txn, source: "webhook" });
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.flags).toBe(1);
+    // on_hand drains from 5 → -3, threshold 0 → -3 < 0 schedules low-stock dispatch.
+    await drainScheduled(t);
   });
 
   it("voucher redeemed through funnel: redemption row written, used_count incremented, no over-redeem flag", async () => {

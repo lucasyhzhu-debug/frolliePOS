@@ -132,6 +132,8 @@ describe("inventory/internal", () => {
     expect(result.movements[0].source).toBe("sale");
     expect(result.level?.on_hand).toBe(2);
     expect(result.level?.updated_at).toBeGreaterThan(Date.now() - 5000);
+    // on_hand 10 → 2, threshold 5 → 2 < 5 schedules low-stock dispatch.
+    await drainScheduled(t);
   });
 
   it("_recordSaleMovement_internal: ADR-026 dedup — same line_id+sku_id call twice writes only one movement", async () => {
@@ -336,6 +338,50 @@ describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => 
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
     expect(flag).not.toBeNull();
+    await drainScheduled(t);
+  });
+
+  it("two lines on the same SKU trigger ONE low-stock check (Set dedup)", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "dubai-dedup", 20);
+    const setup = await t.run(async (ctx) => {
+      const staffId = await seedStaffId(ctx);
+      const productId = await seedProductId(ctx);
+      const txnId = await ctx.db.insert("pos_transactions", {
+        status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
+        total: 0, flags: 0, staff_id: staffId, created_at: Date.now(),
+      });
+      const lineA = await ctx.db.insert("pos_transaction_lines", {
+        transaction_id: txnId, product_id: productId,
+        product_code_snapshot: "A", product_name_snapshot: "A",
+        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100,
+      });
+      const lineB = await ctx.db.insert("pos_transaction_lines", {
+        transaction_id: txnId, product_id: productId,
+        product_code_snapshot: "B", product_name_snapshot: "B",
+        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100,
+      });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 25, updated_at: Date.now() });
+      return { txnId, lineA, lineB };
+    });
+    // Two lines, same SKU. 25 → 20 → 18 crosses threshold-20 on the second decrement.
+    await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
+      transactionId: setup.txnId,
+      lines: [
+        { lineId: setup.lineA, skuId, qty: 5 },
+        { lineId: setup.lineB, skuId, qty: 2 },
+      ],
+    });
+    // Assert exactly one alert audit row (proves Set dedup — without it, two would fire).
+    const audit = await t.run(async (ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "stock.low_stock_alerted")).collect(),
+    );
+    expect(audit).toHaveLength(1);
+    // And exactly one flag row (which would be the case anyway because the flag is dedup-by-sku).
+    const flags = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).collect(),
+    );
+    expect(flags).toHaveLength(1);
     await drainScheduled(t);
   });
 });
