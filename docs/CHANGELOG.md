@@ -2,6 +2,32 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.3a — Reporting (transaction history + manager dashboard) (unreleased)
+
+Read-mostly reporting slice: staff get a same-day transaction history, managers get any-day plus a laptop-first dashboard. Customer receipts can be re-shared from history via `shareReceipt` — the first real caller of the v0.5.1 dormant lazy-mint seam. Zero schema change; reports are a pure function of `(WIB calendar date, role)` (ADR-031).
+
+### Frontend
+- New `/history` — list of today's paid sales (staff) or any picked WIB day (manager-only date picker). Each row shows time, total, payment instrument, refund-status badge.
+- New `/history/:txnId` — transaction detail with snapshot lines, totals, payment method, refund badge, "Bagikan struk" button (mints + opens `/r/<token>` in a new tab).
+- New `/mgr/dashboard` — seven cards: Totals, PaymentMix, NeedsAttention, TopSkus, HourlyCurve (pure-CSS bar row — no chart lib), VoucherUsage, PerStaff. Manager-only; staff session sees a "Hanya manajer" gate card. Laptop-first `lg:grid-cols-3`; single-column on phone.
+
+### Backend
+- New `transactions/lib.ts` pure aggregators: `computeDaySummary(DayTxn[]) → DaySummary` + supporting types (`DayLine`, `Instrument`, `DayTxn`).
+- New deep `transactions` query surface: `listDayTransactions`, `dashboardSummary`, `getTransactionDetail`, `shareReceipt`. One internal day-window fetch (`_fetchDayWindow_internal`) feeds all three queries.
+- New cross-module helpers per ADR-034: `auth._listStaffNames_internal`, `auth._resolveSessionRole_internal`, `payments._instrumentForTxn_internal`.
+- New shared helper `refunds.refundStatus(lines, hasRefunds) → "none"|"partial"|"full"` (extracted from the receipt template; now consumed by both the receipt template and the FE history badge — single derivation).
+- Staff `getTransactionDetail` for prior-day txns returns `null` (FE renders "tidak ditemukan") rather than throwing — graceful UI degrade matches the existing not-found path.
+- `WIB_OFFSET_MS` now exported from `convex/lib/time.ts` so reporting aggregators can compute WIB hours without re-deriving the offset.
+
+### Tests
+- 7 new vitest suites (refund-status, day-summary, resolve-session-role, list-staff-names, instrument-for-txn, history-queries, share-receipt) + 3 new FE component tests. Backend suite: 514 tests across 86 files green.
+
+### ADRs
+- None new — slice is a pure function over already-shipped tables/indexes (`by_status_created`, `by_transaction`, `by_receipt_token`). No schema or audit-enum additions.
+
+### Deploy notes
+- Read-mostly + zero schema change. Backend before frontend (`npx convex deploy` first, then Vercel) so the FE's new queries find their backend handler. `shareReceipt` only mints a token on a paid txn lacking one — forward-compatible and idempotent at two layers (cache + mint check).
+
 ## v0.5.2 — FPOS-internal inventory slice (unreleased)
 
 FPOS-internal inventory slice: a stock-check screen, a staff absolute-recount flow, and reactive low-stock alerting to a new `inventory` Telegram group. Scopes out FPro-driven stock-in/out — that work moved to v0.5.2b once the cross-deployment integration pattern (ADR-043, to be drafted) lands.

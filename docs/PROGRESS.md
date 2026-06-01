@@ -939,6 +939,45 @@ Plan not yet written. Tasks get added at planning time (per CLAUDE.md convention
 
 ---
 
+## v0.5.3a — Reporting (transaction history + manager dashboard) ✅ SHIPPED
+**Outcome:** Read-mostly reporting slice. Staff see today's sales on `/history`; managers see any day plus the laptop-first `/mgr/dashboard`. Customer receipts re-shareable from history via `shareReceipt` — first real caller of the v0.5.1 dormant lazy-mint seam. Zero schema change.
+**Target:** shipped 2026-06-01 on `feat/v0.5.3a-reporting`
+
+**You'll be able to:**
+- Open `/history` and see today's paid sales (staff) or any picked WIB day (manager picker)
+- Tap a row to see snapshot lines + totals + payment method + refund badge
+- Tap "Bagikan struk" to mint a `/r/<token>` URL and re-share a customer receipt
+- Open `/mgr/dashboard` (manager-only) and see Totals, PaymentMix, NeedsAttention, TopSkus, HourlyCurve, VoucherUsage, PerStaff cards
+
+**Still not yet:**
+- Edit staff or product taxonomy in-app (v0.5.3)
+- Configure the receipt template (v0.5.3)
+- Reconcile Xendit settlements (v0.5.3)
+
+### Backend (`convex/`)
+- ✅ `convex/transactions/lib.ts` — pure `computeDaySummary` aggregator + `DayTxn` / `DaySummary` / `Instrument` / `DayLine` types
+- ✅ `convex/transactions/internal.ts::_fetchDayWindow_internal` — single day read powering the three reporting queries
+- ✅ `convex/transactions/public.ts` — `listDayTransactions` / `dashboardSummary` / `getTransactionDetail` / `shareReceipt`
+- ✅ `convex/auth/internal.ts::_resolveSessionRole_internal` — non-throwing resolve+role
+- ✅ `convex/auth/internal.ts::_listStaffNames_internal` — projection for day-window staff-name labeling
+- ✅ `convex/payments/internal.ts::_instrumentForTxn_internal` — ADR-034 normaliser returning qris / bca_va / unknown
+- ✅ `convex/refunds/lib.ts::refundStatus` — extracted from receipt template; now shared by template + FE history badge
+- ✅ `convex/lib/time.ts` — `WIB_OFFSET_MS` exported for the WIB-hour bucketing in the aggregator
+
+### Frontend (`src/`)
+- ✅ `src/routes/history/index.tsx` — list (manager date picker; staff today-only)
+- ✅ `src/routes/history/$txnId.tsx` — detail + "Bagikan struk"
+- ✅ `src/routes/mgr/dashboard.tsx` — 7 cards (manager-gated; non-manager sees "Hanya manajer")
+- ✅ `src/router.tsx` — `/history/:txnId` lazy route registered
+
+### Cross-cutting
+- ✅ No new schema, indexes, or audit verbs — pure function over already-shipped tables
+- ✅ Reuses `pos_transactions.by_status_created` for the day window
+- ✅ Activates the dormant v0.5.1 `_lazyMintReceiptToken_internal` seam (first real caller)
+- ✅ Plan: `docs/superpowers/plans/2026-06-01-v0.5.3a-reporting.md`
+
+---
+
 ## v0.5.3 — Manager dashboard + in-app admin + Xendit settlements 🗂️ BACKLOG
 **Outcome:** Managers run daily ops from a laptop-first dashboard, edit staff/products in-app, configure the receipt template, view full transaction history, and reconcile Xendit settlements — closing the v1.0 settlement-risk register item.
 **Target:** TBD

@@ -24,6 +24,8 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
+> **v0.5.3a note:** the reporting slice added **no** tables, indexes, or audit verbs. The history list, manager dashboard, and `shareReceipt` mutation are pure functions over the existing schema. `shareReceipt` writes one field (`pos_transactions.receipt_token`) on first share — the same write the v0.5.1 dormant `_lazyMintReceiptToken_internal` was designed for. The day-window query uses the existing `pos_transactions.by_status_created` index.
+
 Cross-module direct `ctx.db` access is a CI lint block (see `tools/eslint-rules/no-cross-module-db-access.js`).
 
 ## Conventions
