@@ -1,7 +1,38 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
+
+// _checkLowStock_internal schedules _dispatchLowStockAlert_internal via runAfter(0)
+// when on_hand crosses below low_threshold. The dispatch action calls Telegram —
+// stub fetch + env vars so it's offline + deterministic, and drain the scheduler
+// in tests that trip a dispatch so it doesn't fire after teardown.
+const realFetch = globalThis.fetch;
+beforeEach(() => {
+  process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+  process.env.TELEGRAM_CHAT_ID = "-1001234567";
+  process.env.POS_BASE_URL = "https://pos.dev";
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).includes("telegram")) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1 } }),
+        text: async () => "{}",
+      } as unknown as Response;
+    }
+    return realFetch(url as RequestInfo);
+  }) as typeof fetch;
+});
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+// runAfter(0) uses setTimeout(0): yield once so the job moves from pending →
+// inProgress, then drain. Same idiom as convex/auth/__tests__/auth.test.ts.
+async function drainScheduled(t: ReturnType<typeof convexTest>) {
+  await new Promise((r) => setTimeout(r, 0));
+  await t.finishInProgressScheduledFunctions();
+}
 
 /** Insert a minimal staff row so pos_transactions.staff_id validates. */
 async function seedStaffId(ctx: any) {
@@ -199,5 +230,55 @@ describe("inventory/schema v0.5.2", () => {
       );
       expect(lvl!.on_hand).toBe(7);
     });
+  });
+});
+
+describe("_checkLowStock_internal", () => {
+  it("inserts a flag row + schedules alert the first time on_hand < low_threshold", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "dubai", 20);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 3, updated_at: Date.now() });
+    });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flag = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(flag).not.toBeNull();
+    // dedup: second call does not add a second flag
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flags = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).collect(),
+    );
+    expect(flags).toHaveLength(1);
+    // Drain the scheduled dispatch so it doesn't fire after teardown.
+    await drainScheduled(t);
+  });
+
+  it("re-arms (deletes flag) when on_hand climbs back to/above low_threshold", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "dubai", 20);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 100, updated_at: Date.now() });
+      await ctx.db.insert("pos_low_stock_alerts", { inventory_sku_id: skuId, alerted_at: 999, updated_at: 999 });
+    });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flag = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(flag).toBeNull();
+  });
+
+  it("low_threshold 0: only negative on_hand alerts", async () => {
+    const t = convexTest(schema);
+    const skuId = await seedSkuWithThreshold(t, "dubai0", 0);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 0, updated_at: Date.now() });
+    });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    const flag = await t.run(async (ctx) =>
+      ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
+    );
+    expect(flag).toBeNull(); // 0 < 0 is false
   });
 });

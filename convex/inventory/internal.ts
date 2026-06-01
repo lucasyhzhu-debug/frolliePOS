@@ -1,7 +1,8 @@
-import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+import { internal, api } from "../_generated/api";
 
 /**
  * Upsert pattern for pos_stock_levels — the denormalised cache reconciled by
@@ -281,5 +282,110 @@ export const _applyLevelDelta_internal = internalMutation({
     }
     await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: delta, updated_at: now });
     return delta;
+  },
+});
+
+/**
+ * Reactive low-stock check for a single SKU (v0.5.2, ADR-042). Called from
+ * stock-changing paths (sale decrement, refund credit, recount apply, stock-in)
+ * via `ctx.scheduler.runAfter(0, ...)` so the side-effect is decoupled from the
+ * mutation's primary writes.
+ *
+ * Reads catalog's `low_threshold` via the ADR-034 catalog internal (never
+ * touches `pos_inventory_skus` directly from this module). Compares against
+ * the denormalised `pos_stock_levels.on_hand`. The `pos_low_stock_alerts` row
+ * is a dedup flag — its presence means "we've already alerted; don't spam".
+ *
+ * Three branches:
+ * - `on_hand < threshold` AND no flag → insert flag, audit, schedule dispatch.
+ * - `on_hand >= threshold` AND flag exists → delete flag (re-arm; silent — the
+ *   operator already knows things recovered).
+ * - Otherwise → no-op.
+ */
+export const _checkLowStock_internal = internalMutation({
+  args: { skuId: v.id("pos_inventory_skus") },
+  handler: async (ctx, { skuId }) => {
+    const [sku] = await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
+    if (!sku) return;
+    const level = await ctx.db
+      .query("pos_stock_levels")
+      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+      .first();
+    const onHand = level?.on_hand ?? 0;
+    const flag = await ctx.db
+      .query("pos_low_stock_alerts")
+      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+      .first();
+
+    const below = onHand < sku.low_threshold;
+    if (below && !flag) {
+      const now = Date.now();
+      await ctx.db.insert("pos_low_stock_alerts", {
+        inventory_sku_id: skuId,
+        alerted_at: now,
+        updated_at: now,
+      });
+      await logAudit(ctx, {
+        actor_id: "system",
+        action: "stock.low_stock_alerted",
+        entity_type: "pos_inventory_skus",
+        entity_id: skuId,
+        source: "system",
+        metadata: { on_hand: onHand, low_threshold: sku.low_threshold },
+      });
+      await ctx.scheduler.runAfter(0, internal.inventory.internal._dispatchLowStockAlert_internal, {
+        sku_name: sku.name,
+        on_hand: onHand,
+        low_threshold: sku.low_threshold,
+      });
+    } else if (!below && flag) {
+      await ctx.db.delete(flag._id);
+    }
+  },
+});
+
+/**
+ * Scheduled dispatch for low-stock alerts (v0.5.2, ADR-042). Routes through
+ * the Telegram chat-registry to the `inventory` role and sends a `low_stock_alert`
+ * template. Scheduled — never inline — so Telegram outages can't roll back the
+ * flag-insert mutation that spawned it.
+ *
+ * Fail-isolated: if the `inventory` role isn't bound yet (common during early
+ * setup), `getChatIdByRole` throws `"No Telegram chat assigned to role 'inventory'"`.
+ * Swallow that one error string only — other errors propagate so genuine
+ * Telegram outages surface in the Convex dashboard.
+ *
+ * idempotencyKey = `lowstock:<sku_name>:<on_hand>` so the same SKU at the same
+ * on_hand level never re-sends; crossing two thresholds (e.g. 5→4→3 against a
+ * threshold of 20) DOES emit two messages.
+ */
+export const _dispatchLowStockAlert_internal = internalAction({
+  args: {
+    sku_name: v.string(),
+    on_hand: v.number(),
+    low_threshold: v.number(),
+  },
+  handler: async (ctx, args) => {
+    let chatId: string;
+    try {
+      chatId = await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatIdByRole, {
+        role: "inventory",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("No Telegram chat assigned to role")) return;
+      throw err;
+    }
+    await ctx.runAction(api.telegram.send.sendTemplate, {
+      role: "inventory",
+      kind: "low_stock_alert",
+      payload: {
+        sku_name: args.sku_name,
+        on_hand: args.on_hand,
+        low_threshold: args.low_threshold,
+      },
+      idempotencyKey: `lowstock:${args.sku_name}:${args.on_hand}`,
+      chatIdOverride: chatId,
+    });
   },
 });
