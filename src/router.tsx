@@ -42,6 +42,8 @@ const SaleCharge = lazy(() => import("@/routes/sale/charge"));
 const SaleChargeSuccess = lazy(() => import("@/routes/sale/charge-success"));
 const Stock = lazy(() => import("@/routes/stock"));
 const StockIn = lazy(() => import("@/routes/stock/in"));
+const StockRecount = lazy(() => import("@/routes/stock/recount"));
+const StockDetail = lazy(() => import("@/routes/stock/$skuId"));
 const Lock = lazy(() => import("@/routes/lock"));
 const Refund = lazy(() => import("@/routes/refund"));
 const RefundDetail = lazy(() => import("@/routes/refund/detail"));
@@ -81,6 +83,8 @@ const routes: RouteObject[] = [
       { path: "sale/charge/:txnId/success", element: <SaleChargeSuccess /> },
       { path: "stock", element: <Stock /> },
       { path: "stock/in", element: <StockIn /> },
+      { path: "stock/recount", element: <StockRecount /> },
+      { path: "stock/:skuId", element: <StockDetail /> },
       { path: "lock", element: <Lock /> },
       { path: "refund", element: <Refund /> },
       { path: "refund/:txnId", element: <RefundDetail /> },
