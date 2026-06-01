@@ -312,8 +312,7 @@ Dedup flag for the reactive low-stock alert. The threshold is NOT here — it li
 |---|---|---|
 | `_id` | `Id<"pos_low_stock_alerts">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
-| `alerted_at` | `number` | ms epoch; when the alert first fired |
-| `updated_at` | `number` | ms epoch; currently mirrors `alerted_at`. Reserved for future last-seen tracking |
+| `alerted_at` | `number` | ms epoch; when the alert first fired. Row's existence is the flag — no `updated_at`. |
 
 Index: `by_sku` on `inventory_sku_id`.
 
@@ -326,8 +325,7 @@ Singleton holding the timestamp of the most recent recount. Drives the hourly re
 | Field | Type | Note |
 |---|---|---|
 | `_id` | `Id<"pos_recount_state">` | |
-| `last_recount_at` | `number` | ms epoch |
-| `updated_by_staff_id` | `Id<"staff">?` | Optional; populated by `recordRecount` |
+| `last_recount_at` | `number` | ms epoch. Actor identity lives on the matching `audit_log` row (`stock.recount`). |
 
 No index — singleton (always one row, fetched via `.first()`).
 

@@ -214,7 +214,7 @@ describe("inventory/schema v0.5.2", () => {
         sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 20, active: true, created_at: Date.now(),
       });
       const flag = await ctx.db.insert("pos_low_stock_alerts", {
-        inventory_sku_id: skuId, alerted_at: Date.now(), updated_at: Date.now(),
+        inventory_sku_id: skuId, alerted_at: Date.now(),
       });
       expect((await ctx.db.get(flag))!.inventory_sku_id).toBe(skuId);
 
@@ -225,23 +225,6 @@ describe("inventory/schema v0.5.2", () => {
         inventory_sku_id: skuId, qty: 5, source: "recount", created_at: Date.now(),
       });
       expect((await ctx.db.get(mv))!.source).toBe("recount");
-    });
-  });
-
-  describe("_applyLevelDelta_internal", () => {
-    it("inserts when absent, patches when present", async () => {
-      const t = convexTest(schema);
-      const skuId = await t.run(async (ctx) =>
-        ctx.db.insert("pos_inventory_skus", {
-          sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: true, created_at: Date.now(),
-        }),
-      );
-      await t.mutation(internal.inventory.internal._applyLevelDelta_internal, { skuId, delta: 10 });
-      await t.mutation(internal.inventory.internal._applyLevelDelta_internal, { skuId, delta: -3 });
-      const lvl = await t.run(async (ctx) =>
-        ctx.db.query("pos_stock_levels").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
-      );
-      expect(lvl!.on_hand).toBe(7);
     });
   });
 });
@@ -273,7 +256,7 @@ describe("_checkLowStock_internal", () => {
     const skuId = await seedSkuWithThreshold(t, "dubai", 20);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 100, updated_at: Date.now() });
-      await ctx.db.insert("pos_low_stock_alerts", { inventory_sku_id: skuId, alerted_at: 999, updated_at: 999 });
+      await ctx.db.insert("pos_low_stock_alerts", { inventory_sku_id: skuId, alerted_at: 999 });
     });
     await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
     const flag = await t.run(async (ctx) =>

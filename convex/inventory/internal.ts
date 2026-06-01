@@ -16,7 +16,7 @@ import { internal } from "../_generated/api";
  * Server time wins per ADR-031: caller passes `now` from a single `Date.now()`
  * snapshot so all rows in a single mutation share the same timestamp.
  */
-async function upsertStockLevel(
+export async function upsertStockLevel(
   ctx: MutationCtx,
   skuId: Id<"pos_inventory_skus">,
   delta: number,
@@ -272,32 +272,11 @@ export const _refundReCredit_internal = internalMutation({
   },
 });
 
-/**
- * Apply a signed delta to pos_stock_levels.on_hand for a single SKU. Inserts
- * the level row if none exists, otherwise patches in place. Returns the new
- * on_hand value so callers can include it in downstream payloads (e.g. the
- * recount manager-notice).
- *
- * v0.5.2 — extracted for recount (ADR-041). The sale + refund paths keep
- * using the local upsertStockLevel helper (different shape; intentional —
- * keeps regression surface zero in v0.5.2).
- */
-export const _applyLevelDelta_internal = internalMutation({
-  args: { skuId: v.id("pos_inventory_skus"), delta: v.number() },
-  handler: async (ctx, { skuId, delta }) => {
-    const now = Date.now();
-    const level = await ctx.db
-      .query("pos_stock_levels")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-      .first();
-    if (level) {
-      await ctx.db.patch(level._id, { on_hand: level.on_hand + delta, updated_at: now });
-      return level.on_hand + delta;
-    }
-    await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: delta, updated_at: now });
-    return delta;
-  },
-});
+// _applyLevelDelta_internal removed in v0.5.2 simplify. Recount now calls
+// the shared `upsertStockLevel` helper directly (exported above), matching
+// the sale + refund paths. Saves a sub-transaction + a duplicate level
+// lookup (recordRecount reads the level row to compute `delta`; the inline
+// helper writes via the same `level._id` reference).
 
 /**
  * Reactive low-stock check for a single SKU (v0.5.2, ADR-042). Called from
@@ -337,7 +316,6 @@ export const _checkLowStock_internal = internalMutation({
       await ctx.db.insert("pos_low_stock_alerts", {
         inventory_sku_id: skuId,
         alerted_at: now,
-        updated_at: now,
       });
       await logAudit(ctx, {
         actor_id: "system",

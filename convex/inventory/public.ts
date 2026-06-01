@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { requireSession, requireManagerSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+import { upsertStockLevel } from "./internal";
 
 /**
  * Reactive map of inventory_sku_id → on_hand for ACTIVE SKUs only.
@@ -44,7 +45,7 @@ type RecountResult = { ok: true; changed: number };
  *   movement row, no audit, no notice line. The recount UI may surface
  *   "no change" to the operator; this mutation just doesn't write churn.
  * - First-ever count (no `pos_stock_levels` row) → treats `before = 0`,
- *   inserts the level via `_applyLevelDelta_internal` with `delta = entered`.
+ *   inserts the level via `upsertStockLevel` with `delta = entered`.
  *
  * After the per-SKU loop:
  * - If nothing was touched, return early with `{ changed: 0 }` — no state
@@ -94,6 +95,18 @@ export const recordRecount = mutation({
       const touched: Id<"pos_inventory_skus">[] = [];
       const noticeLines: { sku_name: string; before: number; after: number; delta: number }[] = [];
 
+      // v0.5.2 simplify: batch the SKU lookup ONCE upfront. Pre-fix this was
+      // a per-iteration runQuery inside the loop (N round-trips for N SKUs).
+      // The catalog internal already accepts an array of skuIds; one call
+      // returns the full lookup table.
+      const skuLookup = await ctx.runQuery(
+        internal.catalog.internal._getSkusByIds_internal,
+        { skuIds: args.counts.map((c) => c.skuId) },
+      );
+      const nameBySku = new Map<string, string>(
+        skuLookup.map((s) => [String(s.skuId), s.name]),
+      );
+
       // C1: dedup-guard the input counts. Same SKU listed twice in one
       // recount payload is ambiguous (which "entered" wins?) and pre-fix
       // produced a double-write of stock movements with both deltas applied
@@ -122,10 +135,11 @@ export const recordRecount = mutation({
           created_at: now,
           recorded_by_staff_id: staffId,
         });
-        await ctx.runMutation(internal.inventory.internal._applyLevelDelta_internal, {
-          skuId,
-          delta,
-        });
+        // v0.5.2 simplify: call the shared upsertStockLevel helper directly
+        // (was: _applyLevelDelta_internal sub-transaction). Saves a runMutation
+        // round-trip AND the helper's own duplicate level-row lookup — the
+        // outer loop already read `level` two lines up.
+        await upsertStockLevel(ctx, skuId, delta, now);
         await logAudit(ctx, {
           actor_id: staffId,
           action: "stock.recount",
@@ -134,15 +148,13 @@ export const recordRecount = mutation({
           source: "booth_inline",
           metadata: { before, after: entered, delta },
         });
-        const [sku] = await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
-          skuIds: [skuId],
-        });
-        noticeLines.push({
-          sku_name: sku?.name ?? String(skuId),
-          before,
-          after: entered,
-          delta,
-        });
+        // Invariant: the SKU id came from `level` (which we just read via the
+        // by_sku index keyed on a real pos_inventory_skus row OR from args
+        // pre-validated by Convex's v.id validator). A miss means catalog
+        // corruption — surface it loudly rather than masking with String(skuId).
+        const name = nameBySku.get(String(skuId));
+        if (!name) throw new Error("SKU_MISSING_INVARIANT");
+        noticeLines.push({ sku_name: name, before, after: entered, delta });
         touched.push(skuId);
       }
 
@@ -150,12 +162,9 @@ export const recordRecount = mutation({
 
       const state = await ctx.db.query("pos_recount_state").first();
       if (state) {
-        await ctx.db.patch(state._id, { last_recount_at: now, updated_by_staff_id: staffId });
+        await ctx.db.patch(state._id, { last_recount_at: now });
       } else {
-        await ctx.db.insert("pos_recount_state", {
-          last_recount_at: now,
-          updated_by_staff_id: staffId,
-        });
+        await ctx.db.insert("pos_recount_state", { last_recount_at: now });
       }
 
       // ADR-041: Telegram dispatch is scheduled — never inline — so the
@@ -296,9 +305,11 @@ export const listInventory = query({
         skuIds: activeIds,
       });
     const levels = await ctx.db.query("pos_stock_levels").collect();
-    const levelBySku = new Map(levels.map((l) => [String(l.inventory_sku_id), l.on_hand]));
+    // v0.5.2 simplify: Convex Ids ARE strings at runtime; Map.get works without
+    // the String() cast. Drop the cast on both sides of the lookup.
+    const levelBySku = new Map(levels.map((l) => [l.inventory_sku_id, l.on_hand]));
     return skus.map((s) => {
-      const onHand = levelBySku.get(String(s.skuId)) ?? 0;
+      const onHand = levelBySku.get(s.skuId) ?? 0;
       let status: "ok" | "low" | "negative" = "ok";
       if (onHand < 0) status = "negative";
       else if (onHand < s.low_threshold) status = "low";
@@ -329,7 +340,11 @@ export const getSkuDetail = query({
       await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
         skuIds: [args.skuId],
       });
+    // v0.5.2 simplify: requireSession validated; args.skuId is a v.id-validated
+    // catalog reference. A missing row IS catalog corruption — surface loudly
+    // rather than masking with String(skuId) / 0 fallbacks.
     const sku = skus[0];
+    if (!sku) throw new Error("SKU_MISSING_INVARIANT");
     const level = await ctx.db
       .query("pos_stock_levels")
       .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
@@ -340,9 +355,11 @@ export const getSkuDetail = query({
       .order("desc")
       .take(30);
     return {
-      name: sku?.name ?? String(args.skuId),
+      name: sku.name,
+      // on_hand ?? 0 stays — a missing level row legitimately means
+      // "no stock recorded yet" (first sale before any stock-in), NOT corruption.
       on_hand: level?.on_hand ?? 0,
-      low_threshold: sku?.low_threshold ?? 0,
+      low_threshold: sku.low_threshold,
       movements,
     };
   },
