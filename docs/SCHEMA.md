@@ -20,6 +20,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `telegram/` *(v0.4)* | `telegram_log` (debug-trail only), `telegramChats`, `telegramUpdates` |
 | `settings/` *(v0.4)* | `pos_settings` |
 | `receipts/` *(v0.5.1 PR A)* | `pos_receipt_html_cache` |
+| `refunds/` *(v0.5.1 PR B)* | `pos_refunds` |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -205,6 +206,7 @@ Line items. **Prices snapshotted at sale time** (never recomputed). The v0.5 des
 | `tax_rate_snapshot` | `number` | Schema-ready ([strategic foundations §4](./ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)); `0` today |
 | `qty` | `number` | Integer pack units (e.g. 2 boxes of "Dubai 3pcs") |
 | `line_subtotal` | `number` | `qty * unit_price_snapshot` |
+| `refunded_qty` | `number?` | *(v0.5.1 PR B)* Denormalised count of units already refunded across all refund rows for this line; used by `lineRefundable(line)` to compute remaining refund capacity. Patched by `_commitRefund_internal` (refunds module) through `transactions/internal._patchLineRefundedQty_internal`. Optional because pre-v0.5.1 rows have `undefined`; `lineRefundedQty()` treats `undefined` as `0`. |
 
 Indexes: `by_transaction` on `transaction_id`.
 
@@ -260,41 +262,30 @@ History of all Xendit invoices created for a transaction, including cancelled on
 
 Indexes: `by_transaction` on `transaction_id`, `by_xendit_invoice_id` on `xendit_invoice_id` (webhook dedup).
 
-### `pos_refunds`
-Refund operations ([ADR-008](./ADR/008-refunds-as-new-rows.md)).
+### `pos_refunds` — v0.5.1 PR B shipped *(owned by `refunds/`)*
+Refund ledger ([ADR-008](./ADR/008-refunds-as-new-rows.md)). One row per refund event; multiple refunds against the same txn compose. Per-line subset embedded inline (no separate `pos_refund_lines` table — that was a pre-v0.5.1 design that didn't ship). Per-line `refund_amount` is computed via the ADR-040 single-floor helper `computeRefundAmount` at commit time and frozen on the row.
+
+Both the booth-PIN (`commitRefundInline`) and Telegram-PIN (`approveRefund`) paths funnel through `_commitRefund_internal` — the single writer for this table (v0.5.0 cross-path-parity).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_refunds">` | |
-| `transaction_id` | `Id<"pos_transactions">` | |
-| `payment_id` | `Id<"pos_payments">` | The successful payment being refunded |
-| `refunded_by` | `Id<"staff">` | Staff who initiated |
-| `approved_by` | `Id<"staff">` | Manager who approved (PIN re-entered or via WA) |
-| `approval_request_id` | `Id<"pos_approval_requests">?` | Set when approval came via WA flow |
-| `amount` | `number` | |
-| `reason_code` | `"customer_changed_mind" \| "wrong_item" \| "damaged" \| "out_of_stock" \| "duplicate_charge" \| "other"` | |
-| `reason_notes` | `string?` | Required when `reason_code = "other"` |
-| `is_partial` | `boolean` | True if not refunding the full transaction |
-| `xendit_refund_id` | `string?` | Set after API call |
-| `status` | `"pending" \| "succeeded" \| "failed"` | |
-| `created_at` | `number` | |
-| `completed_at` | `number?` | When Xendit confirmed |
-| `failure_reason` | `string?` | |
+| `transaction_id` | `Id<"pos_transactions">` | Original paid txn being refunded |
+| `lines` | `Array<{ line_id: Id<"pos_transaction_lines">, qty: number, refund_amount: number }>` | Per-line subset. `qty` ≤ `lineRefundable(line)`; `refund_amount` is ADR-040 floor-rounded integer rupiah |
+| `total_refund` | `number` | Sum of `lines[].refund_amount`, integer rupiah ([ADR-015](./ADR/015-idr-integer-rupiah.md)) |
+| `reason` | `string` | Free-text supplied by staff at request time |
+| `requested_by` | `Id<"staff">` | Staff who initiated the refund (session staff) |
+| `approver_id` | `Id<"staff">` | Manager whose PIN authorised the refund (may equal `requested_by` if a manager is logged in at the booth) |
+| `approval_source` | `"booth_inline" \| "telegram_approval"` | Which authorisation path was used |
+| `approval_request_id` | `Id<"pos_approval_requests">?` | Set for `telegram_approval` path; absent for `booth_inline` |
+| `settlement_status` | `"pending" \| "settled"` | ADR-038 two-stage bookkeeping. Inserted as `pending`; flipped to `settled` by `markRefundSettled` (manager-session, NOT PIN) |
+| `settled_by` | `Id<"staff">?` | Manager who marked the refund settled; set together with `settled_at` |
+| `settled_at` | `number?` | ms epoch when `markRefundSettled` ran |
+| `created_at` | `number` | Server-set per [ADR-031](./ADR/031-convex-server-time-wins.md) |
 
-Indexes: `by_transaction` on `transaction_id`, `by_status` on `status`.
-
-### `pos_refund_lines`
-Line-level refund detail for partial refunds. Empty for full refunds.
-
-| Field | Type | Notes |
-|---|---|---|
-| `_id` | `Id<"pos_refund_lines">` | |
-| `refund_id` | `Id<"pos_refunds">` | |
-| `transaction_line_id` | `Id<"pos_transaction_lines">` | |
-| `qty_refunded` | `number` | Cannot exceed `pos_transaction_lines.qty - pos_transaction_lines.refunded_qty` |
-| `amount` | `number` | Per-line refund amount |
-
-Indexes: `by_refund` on `refund_id`.
+Indexes:
+- `by_transaction` on `transaction_id` (receipt rendering — list all refunds for a txn)
+- `by_settlement_status` on `[settlement_status, created_at]` (composite — powers `/mgr/refunds-pending` FIFO list)
 
 ### `pos_stock_movements` — v0.3 shipped *(owned by `inventory/`)*
 Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-source-enum.md)). The v0.3 shape ships the `sale` source path only; `stock_in`, `spoilage`, and `adjustment` are reserved enum members wired up in v0.5/v0.6. Sale movements reference their originating transaction line; the `by_line_and_sku` index gives the ADR-026 reconciliation-dedup guard (no second decrement for the same line+SKU).
@@ -628,6 +619,11 @@ approval.created            # pos_approval_requests row inserted (system actor)
 approval.notified           # Telegram lockout link sent (system actor)
 approval.notification_failed # Telegram send failed; pending row deleted, trail kept (system actor)
 approval.resolved           # manager approved off-booth PIN reset (wa_approval source)
+# refunds/ (v0.5.1 PR B)
+refund.requested            # _createRequest_internal (kind=refund) — Telegram approval request created (source=system)
+refund.committed            # _commitRefund_internal — pos_refunds row inserted, stock re-credited, receipt cache purged. Source = approvalSource arg (booth_inline | telegram_approval). KIND_AUDIT.refund.resolved is the SAME verb so dashboards see one bucket for both paths
+refund.denied               # _markDenied_internal via denyRequest (kind=refund) — manager denied the off-booth refund request (source=telegram_approval)
+refund.settled              # markRefundSettled — pending → settled bookkeeping flip (ADR-038, manager-session gated, source=booth_inline)
 ```
 
 ## Relationship to Frollie Pro tables
