@@ -62,6 +62,54 @@ export const listActiveManagers = query({
   },
 });
 
+/**
+ * Rename a staff member. Session-gated (manager session required), NO PIN.
+ * v0.5.3b Task 5 — names are low-sensitivity admin metadata; the manager session
+ * itself is the proof of authority. Role changes use the PIN-gated action.
+ */
+export const updateStaffName = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    staffId: v.id("staff"),
+    name: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      staffId: Id<"staff">;
+      name: string;
+    },
+    { ok: true }
+  >(
+    "staff.updateStaffName",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const name = args.name.trim();
+      if (name.length === 0 || name.length > 60) throw new Error("NAME_INVALID");
+      const before = await ctx.db.get(args.staffId);
+      if (!before) throw new Error("STAFF_NOT_FOUND");
+      await ctx.db.patch(args.staffId, { name });
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "staff.updated",
+        entity_type: "staff",
+        entity_id: args.staffId,
+        source: "booth_inline",
+        device_id: deviceId,
+        metadata: { field: "name" },
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
 export const generateDeviceSetupCode = mutation({
   args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
   handler: withIdempotency<

@@ -43,3 +43,41 @@ describe("auth.createStaff (PIN-gated)", () => {
     ).rejects.toThrow(/INVALID_PIN/);
   });
 });
+
+describe("staff role + name edits", () => {
+  it("renames a staffer (session-gated)", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const sId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Sari", pin: "1111", role: "staff",
+    });
+    await t.mutation(api.staff.public.updateStaffName, {
+      idempotencyKey: "n1", sessionId, staffId: sId, name: "Sari W.",
+    });
+    const rows = await t.query(api.staff.public.listStaff, { sessionId });
+    expect(rows.find((r) => r._id === sId)?.name).toBe("Sari W.");
+  });
+
+  it("refuses to demote the last active manager", async () => {
+    const t = convexTest(schema);
+    const { sessionId, managerId } = await seedManagerSession(t);
+    await expect(
+      t.action(api.staff.actions.setStaffRole, {
+        idempotencyKey: "r1", sessionId, staffId: managerId, role: "staff", managerPin: "9999",
+      }),
+    ).rejects.toThrow(/LAST_ACTIVE_MANAGER/);
+  });
+
+  it("promotes a staffer to manager with PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const sId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+      name: "Sari", pin: "1111", role: "staff",
+    });
+    await t.action(api.staff.actions.setStaffRole, {
+      idempotencyKey: "r2", sessionId, staffId: sId, role: "manager", managerPin: "9999",
+    });
+    const rows = await t.query(api.staff.public.listStaff, { sessionId });
+    expect(rows.find((r) => r._id === sId)?.role).toBe("manager");
+  });
+});
