@@ -31,7 +31,17 @@ export const listStaff = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args) => {
     await requireManagerSession(ctx, args.sessionId);
-    return ctx.db.query("staff").collect();
+    const rows = await ctx.db.query("staff").collect();
+    // v0.2 follow-up: never expose pin_hash to the admin UI.
+    return rows.map((s) => ({
+      _id: s._id,
+      name: s.name,
+      code: s.code ?? null,
+      role: s.role,
+      active: s.active,
+      last_login_at: s.last_login_at ?? null,
+      created_at: s.created_at,
+    }));
   },
 });
 
