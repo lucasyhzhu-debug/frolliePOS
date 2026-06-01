@@ -5,20 +5,10 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { verifyPinOrThrow } from "../auth/verifyPin";
-import { createHash } from "node:crypto";
 import { mintUrlSafeToken } from "../lib/tokens";
+import { sha256Hex } from "../lib/tokenHash";
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min per ADR-029
-
-/**
- * SHA-256 hex of a string. Tokens are high-entropy (32 random bytes), so a
- * salt-less SHA-256 is appropriate (ADR-029) — argon2id is reserved for
- * low-entropy PINs. Runs in the Node runtime ("use node"), so node:crypto is
- * available here. Mirrors the helper in approvals/actions.ts.
- */
-function sha256Hex(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
 
 /**
  * Booth-inline refund commit (manager at the booth). The manager hands the
