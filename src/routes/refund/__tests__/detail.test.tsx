@@ -46,6 +46,7 @@ const DEFAULT_LINE = {
 const DEFAULT_TXN = {
   _id: FAKE_TXN_ID,
   _creationTime: 0,
+  subtotal: 150_000,
   total: 150_000,
   status: "paid",
   paid_at: Date.now(),
@@ -164,6 +165,41 @@ describe("RefundDetail route (/refund/:txnId)", () => {
     });
     await waitFor(() => expect(inlineBtn).not.toBeDisabled());
     expect(tgBtn).not.toBeDisabled();
+  });
+
+  it("preview total uses ADR-040 voucher-attribution math", async () => {
+    // Voucher sale: subtotal 150K - 20K voucher = 130K paid.
+    // One line of 3 @ 50K (line_subtotal 150K), refundable 3.
+    // Refund 1 of 3 → floor(150000 × 130000 × 1 / (150000 × 3)) = 43333.
+    // Naive math (50K × 1) would render Rp 50.000 — the bug we're fixing.
+    mockListReturn = {
+      txn: {
+        ...DEFAULT_TXN,
+        subtotal: 150_000,
+        total: 130_000,
+      },
+      lines: [
+        {
+          ...DEFAULT_LINE,
+          qty: 3,
+          line_subtotal: 150_000,
+          unit_price_snapshot: 50_000,
+          refunded_qty: 0,
+          refundable: 3,
+        },
+      ],
+      refunds: [],
+    };
+
+    renderRoute();
+    await screen.findByLabelText(
+      /Refund quantity for Dubai Chocolate 8pcs/i,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Increase quantity/i }));
+
+    const totalEl = await screen.findByTestId("refund-total-preview");
+    expect(totalEl.textContent).toBe("Rp 43.333");
   });
 
   it("renders both submit paths when canSubmit", async () => {

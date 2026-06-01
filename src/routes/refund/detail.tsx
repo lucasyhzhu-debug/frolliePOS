@@ -130,11 +130,18 @@ export default function RefundDetail() {
   }
 
   // ---- compute preview total from current selections ----
-  // Map line_id → unit_price for quick lookup; selections carry only qty.
+  // ADR-040 single-floor proportional math — kept in sync with
+  // convex/refunds/lib.ts `computeRefundAmount`. The voucher-math unit test in
+  // convex/refunds/__tests__/voucher-math.test.ts is the spec; mirror exactly.
   const lineById = new Map(data.lines.map((l) => [l._id, l]));
   const totalPreviewIdr = refund.lines.reduce((sum, sel) => {
     const line = lineById.get(sel.line_id as Id<"pos_transaction_lines">);
-    return sum + (line ? line.unit_price_snapshot * sel.qty : 0);
+    if (!line) return sum;
+    // floor(line_subtotal × paid_total × refund_qty / (subtotal_pre_voucher × line.qty))
+    return sum + Math.floor(
+      (line.line_subtotal * data.txn!.total * sel.qty) /
+      (data.txn!.subtotal * line.qty),
+    );
   }, 0);
 
   // ---- error mapping (shared inline + telegram) ----
