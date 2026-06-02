@@ -1136,36 +1136,122 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.6 — vouchers + reconciliation + spoilage + e2e 🗂️ BACKLOG
-**Outcome:** Vouchers redeem, spoilage is tracked, end-to-end browser tests pass on a real Android device.
+## v0.6 — vouchers + spoilage + nightly stock-recon + Playwright 📋 PLANNED
+**Outcome:** Manager-portal voucher CRUD with ADR-009 offline reject banner; spoilage at booth (manager-PIN) or off-booth (Telegram approval); nightly cron rebuilds `pos_stock_levels` from the movements ledger and alerts on drift (report-only, no silent correction); first Playwright E2E suite proving the transactional golden path.
+**Spec:** [`docs/superpowers/specs/2026-06-02-v0.6-design.md`](./superpowers/specs/2026-06-02-v0.6-design.md) (staffreview-validated)
+**Plan:** [`docs/superpowers/plans/2026-06-02-v0.6.md`](./superpowers/plans/2026-06-02-v0.6.md) (staffreview-validated; 41 tasks across 5 waves)
 **Target:** TBD
-Plan not yet written.
 
 **You'll be able to:**
-- Create promo codes from the manager portal; staff apply at sale (one per transaction, cached offline)
-- Log spoilage with manager gating — real margin numbers stop drifting from reported margins
-- Watch nightly auto-reconciliation keep stock counts honest without manual intervention
-- Trust that E2E browser tests have proven the full sale → payment → refund loop on real Android Chrome
+- (Manager) Create % or amount vouchers from `/mgr/vouchers` with PIN, edit meta without PIN, deactivate, see redemption history with receipt numbers
+- (Staff) Apply a voucher offline against the cached list and either commit cleanly OR see a clear ADR-009 banner if the voucher expired/deactivated between cart-build and payment
+- (Manager) Log multi-SKU spoilage at the booth with PIN, OR request via Telegram with a single-use approval URL — both paths converge on one ledger writer
+- Watch the nightly 02:00 WIB cron rebuild `on_hand` from `pos_stock_movements` and Telegram-alert the `inventory` role if any SKU drifts
+- (DevX/CI) Trust that 7 Playwright specs prove the golden path on real Chromium mobile against the dev backend on every push
 
 **Still not yet:**
-- Run in production (v1.0)
-- See polished PWA install + empty/error states (v1.0)
-- Lean on an operational runbook for incidents (v1.0)
+- `stock_in` and manager `adjustment` mutations (deferred — not in v0.6 scope per the explicit decomposition)
+- Voucher stacking (ADR-010 — permanent decision)
+- Line-level vouchers (ADR-024)
+- Silent drift auto-correction (ADR-044 — permanent decision, report-only by design)
+- Production launch with operational polish (v1.0)
 
-### Backend (`convex/`)
-- 🗂️ `vouchers.ts` / `discounts.ts` — CRUD + redemption (ADR-009 cache offline, ADR-010 no stacking)
-- 🗂️ Spoilage tracking (manager-gated)
-- 🗂️ Nightly reconciliation jobs (stock_levels denorm cache rebuild)
+### Wave 1 — Vouchers (parallel within)
 
-### Frontend (`src/`)
-- 🗂️ Voucher management UI in `routes/mgr/`
-- 🗂️ Spoilage entry UI
-- 🗂️ Playwright e2e suite covering: offline catalog hydration, device activation, full sale flow, refund via Telegram approval
+- 📋 **[v06-be-voucher-validate-lib]** `convex/lib/voucher-validate.ts` — shared reason-code helper (FE+BE parity)
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V1](./superpowers/plans/2026-06-02-v0.6.md)
+- 📋 **[v06-be-fetch-receipts-helper]** `transactions._fetchReceiptByTxnIds_internal` — batch receipt lookup for voucher history
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V2]
+- 📋 **[v06-be-voucher-create-internal]** `vouchers._createVoucher_internal` — pure write + audit
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V3]
+- 📋 **[v06-be-voucher-create-action]** `vouchers.actions.createVoucher` — PIN-gated, idempotent
+  - **agent:** `convex-expert` · **deps:** `v06-be-voucher-create-internal` · **docs:** [Plan Task V4]
+- 📋 **[v06-be-voucher-update-meta]** `vouchers.public.updateVoucherMeta` — manager-session
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V5]
+- 📋 **[v06-be-voucher-archive]** `vouchers.public.archiveVoucher` — manager-session
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V6]
+- 📋 **[v06-be-voucher-list-admin]** `vouchers.public.{listAllVouchers, getVoucherRedemptions}` — manager-session queries
+  - **agent:** `convex-expert` · **deps:** `v06-be-fetch-receipts-helper` · **docs:** [Plan Task V7]
+- 📋 **[v06-be-voucher-reject-signal]** `transactions.public.commitCart` — additive `voucher_rejected` return
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task V8]
+- 📋 **[v06-fe-mgr-vouchers]** `src/routes/mgr/vouchers.tsx` — manager CRUD route
+  - **agent:** `ui-component-builder` · **deps:** `v06-be-voucher-create-action`, `v06-be-voucher-update-meta`, `v06-be-voucher-archive`, `v06-be-voucher-list-admin` · **docs:** [Plan Task V9]
+- 📋 **[v06-fe-voucher-offline-fallback]** `src/routes/sale/voucher.tsx` — cached-validate fallback
+  - **agent:** `frontend-integrator` · **deps:** `v06-be-voucher-validate-lib` · **docs:** [Plan Task V10]
+- 📋 **[v06-fe-voucher-reject-banner]** charge screen — ADR-009 banner
+  - **agent:** `frontend-integrator` · **deps:** `v06-be-voucher-reject-signal` · **docs:** [Plan Task V11]
 
-### Cross-cutting
-- 🗂️ ADR-009 (voucher cache offline + server re-validates on sync)
-- 🗂️ ADR-010 (no voucher stacking)
-- 🗂️ E2E infra: Playwright config, fixtures, device emulation
+### Wave 2 — Spoilage (sequential within where noted)
+
+- 📋 **[v06-xc-spoilage-schema]** `pos_stock_movements.spoilage_reason?` + `spoilage_event_id?`
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task S1]
+- 📋 **[v06-be-spoilage-approval-kind]** APPROVAL_KINDS "spoilage" (4 touchpoints + 2 internal validator unions per plan staffreview)
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task S2]
+- 📋 **[v06-be-spoilage-writer]** `inventory._recordSpoilage_internal` — single writer
+  - **agent:** `convex-expert` · **deps:** `v06-xc-spoilage-schema` · **docs:** [Plan Task S3]
+- 📋 **[v06-be-spoilage-action-booth]** `inventory.actions.recordSpoilage` — manager-PIN
+  - **agent:** `convex-expert` · **deps:** `v06-be-spoilage-writer` · **docs:** [Plan Task S4]
+- 📋 **[v06-be-spoilage-approval-actions]** `approvals.actions.{requestSpoilageApproval, approveSpoilage}`
+  - **agent:** `convex-expert` · **deps:** `v06-be-spoilage-approval-kind`, `v06-be-spoilage-writer` · **docs:** [Plan Task S5]
+- 📋 **[v06-fe-mgr-spoilage]** `src/routes/mgr/spoilage.tsx` — entry form (both CTAs)
+  - **agent:** `ui-component-builder` · **deps:** `v06-be-spoilage-action-booth`, `v06-be-spoilage-approval-actions` · **docs:** [Plan Task S6]
+- 📋 **[v06-fe-approve-spoilage-variant]** `/approve/:token` UI variant
+  - **agent:** `frontend-integrator` · **deps:** `v06-be-spoilage-approval-actions` · **docs:** [Plan Task S7]
+
+### Wave 3 — Nightly stock-reconciliation (parallel within where noted)
+
+- 📋 **[v06-xc-drift-log-schema]** `pos_stock_drift_log` table
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task R1]
+- 📋 **[v06-be-active-skus-helper]** `catalog._getActiveSkus_internal`
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task R2]
+- 📋 **[v06-be-recon-lib]** `convex/inventory/lib.ts` — pure helpers
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task R3]
+- 📋 **[v06-be-recon-internal]** `_runStockRecon_internal` + `_resolveDrift_internal` + `_auditStockReconSkip_internal`
+  - **agent:** `convex-expert` · **deps:** `v06-xc-drift-log-schema`, `v06-be-active-skus-helper`, `v06-be-recon-lib` · **docs:** [Plan Task R4]
+- 📋 **[v06-be-recon-action]** `sendStockReconResilient` — chatIdOverride race-close pattern
+  - **agent:** `convex-expert` · **deps:** `v06-be-recon-internal` · **docs:** [Plan Task R5]
+- 📋 **[v06-be-drift-alert-template]** Telegram `stock_drift_alert` template
+  - **agent:** `convex-expert` · **deps:** `v06-be-recon-action` · **docs:** [Plan Task R6]
+- 📋 **[v06-xc-recon-cron]** Cron registration at 02:00 WIB / 19:00 UTC
+  - **agent:** `—` · **deps:** `v06-be-recon-action` · **docs:** [Plan Task R7]
+- 📋 **[v06-be-drift-public-api]** `inventory.public.{listStockDrift, resolveDrift}`
+  - **agent:** `convex-expert` · **deps:** `v06-be-recon-internal` · **docs:** [Plan Task R8]
+- 📋 **[v06-fe-stock-drift-tab]** `/mgr/stock` drift log tab
+  - **agent:** `frontend-integrator` · **deps:** `v06-be-drift-public-api` · **docs:** [Plan Task R9]
+
+### Wave 4 — Playwright E2E (sequential after Waves 1-3)
+
+- 📋 **[v06-xc-playwright-install]** Install Playwright + `playwright.config.ts`
+  - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task P1]
+- 📋 **[v06-xc-playwright-fixtures]** Fixtures + globalSetup + Xendit simulate helper
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-install` · **docs:** [Plan Task P2]
+- 📋 **[v06-xc-playwright-auth-spec]** `e2e/specs/auth.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures` · **docs:** [Plan Task P3]
+- 📋 **[v06-xc-playwright-sale-qris-spec]** `e2e/specs/sale-qris.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures` · **docs:** [Plan Task P4]
+- 📋 **[v06-xc-playwright-sale-bca-spec]** `e2e/specs/sale-bca-va.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures` · **docs:** [Plan Task P5]
+- 📋 **[v06-xc-playwright-voucher-online-spec]** `e2e/specs/voucher-online.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures`, `v06-fe-mgr-vouchers` · **docs:** [Plan Task P6]
+- 📋 **[v06-xc-playwright-voucher-offline-spec]** `e2e/specs/voucher-offline.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures`, `v06-fe-voucher-offline-fallback`, `v06-fe-voucher-reject-banner` · **docs:** [Plan Task P7]
+- 📋 **[v06-xc-playwright-refund-spec]** `e2e/specs/refund.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures` · **docs:** [Plan Task P8]
+- 📋 **[v06-xc-playwright-spoilage-spec]** `e2e/specs/spoilage.spec.ts`
+  - **agent:** `general-purpose` · **deps:** `v06-xc-playwright-fixtures`, `v06-fe-mgr-spoilage` · **docs:** [Plan Task P9]
+- 📋 **[v06-xc-playwright-ci]** `.github/workflows/e2e.yml`
+  - **agent:** `general-purpose` · **deps:** all P3-P9 · **docs:** [Plan Task P10]
+
+### Wave 5 — Docs
+
+- 📋 **[v06-xc-adr-044]** ADR-044 nightly stock recon (report-only)
+  - **agent:** `—` · **deps:** `v06-be-recon-internal` · **docs:** [Plan Task D1]
+- 📋 **[v06-xc-schema-doc]** `docs/SCHEMA.md` updates (new fields + table + verbs)
+  - **agent:** `—` · **deps:** `v06-xc-spoilage-schema`, `v06-xc-drift-log-schema` · **docs:** [Plan Task D2]
+- 📋 **[v06-xc-claude-md]** `CLAUDE.md` rule #22 v0.6 additions + Telegram kinds
+  - **agent:** `—` · **deps:** `v06-be-voucher-create-action`, `v06-be-spoilage-action-booth`, `v06-be-drift-public-api` · **docs:** [Plan Task D3]
+- 📋 **[v06-xc-changelog]** `docs/CHANGELOG.md` v0.6 entry
+  - **agent:** `—` · **deps:** `v06-xc-adr-044`, `v06-xc-schema-doc`, `v06-xc-claude-md` · **docs:** [Plan Task D4]
 
 ---
 
