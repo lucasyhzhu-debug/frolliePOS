@@ -53,4 +53,23 @@ export const inventoryTables = {
   pos_recount_state: defineTable({
     last_recount_at: v.number(),
   }),
+
+  // v0.6 (R1): append-only drift log written by the nightly stock-recon cron (R7)
+  // when the ledger reconstruction of pos_stock_movements disagrees with the
+  // cached pos_stock_levels.on_hand. sku_code is snapshotted at detection time
+  // (immutable — CLAUDE.md rule #1 spirit). resolved_* fields populated by
+  // resolveDrift (R8). Indefinite retention.
+  pos_stock_drift_log: defineTable({
+    inventory_sku_id: v.id("pos_inventory_skus"),
+    sku_code: v.string(),                       // snapshot, immutable (mirrors voucher code_snapshot rationale)
+    cached_on_hand: v.number(),
+    reconstructed_on_hand: v.number(),
+    delta: v.number(),                          // cached - reconstructed
+    detected_at: v.number(),
+    resolved_at: v.optional(v.number()),
+    resolved_by_staff_id: v.optional(v.id("staff")),
+    resolution_note: v.optional(v.string()),
+  })
+    .index("by_sku_detected", ["inventory_sku_id", "detected_at"])
+    .index("by_unresolved", ["resolved_at"]),   // for "still-open drifts" list
 };
