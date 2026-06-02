@@ -729,3 +729,317 @@ export const denyRequest = action({
     });
   },
 });
+
+/**
+ * Off-booth spoilage approval request (v0.6 Task S5). Manager-initiated at
+ * /mgr/spoilage when "Request via Telegram" is tapped (vs the booth-inline
+ * manager-PIN path in S4 — same _recordSpoilage_internal writer, different
+ * authorisation envelope).
+ *
+ * Mirrors requestRefundApproval / requestManualPaymentApproval exactly:
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. Resolve session — MANAGER ONLY (spoilage is manager-initiated; the
+ *      Telegram path exists for off-booth approval, not staff escalation).
+ *   3. Validate args at the action boundary (lines non-empty, qty positive
+ *      integer, reason non-blank). `_recordSpoilage_internal` re-validates
+ *      at commit time — this catches bad input before the row is created.
+ *   4. Mint a fresh spoilage_event_id (this is the entity_id on the approval
+ *      row AND the spoilage_event_id stamped on each pos_stock_movements
+ *      row at commit time, grouping multi-line spoilage events).
+ *   5. Mint 32-byte URL-safe token; persist only its SHA-256 hash (ADR-029).
+ *   6. Create the request row via _createRequest_internal with kind="spoilage"
+ *      and the SpoilageContext payload (validated by approvals/kinds.ts).
+ *   7. Send the Telegram card to the managers group. On failure, delete the
+ *      request row (recovery mirrors requestRefundApproval / notifyStaffLockout)
+ *      so the next attempt mints a fresh request cleanly.
+ *   8. Mark notified + best-effort link telegram_message_id.
+ *   9. Write the action-level idempotency cache.
+ *
+ * No dedup-by-entity guard here: each spoilage_event_id is freshly minted, so
+ * two requests will never collide on (kind, entity_id). Same-key replay still
+ * short-circuits via step 1's cache lookup.
+ *
+ * Never logs PIN values; the raw token appears only in the Telegram URL.
+ */
+export const requestSpoilageApproval = action({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    lines: v.array(v.object({
+      inventory_sku_id: v.id("pos_inventory_skus"),
+      sku_code: v.string(),
+      qty: v.number(),
+    })),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ requestId: Id<"pos_approval_requests"> }> => {
+    // I5 (auth BEFORE cache; rule #21): resolve session + manager-role check
+    // is one indexed query — cheap. Closes the cached-response-to-unauthorised
+    // caller hole. Use _resolveSessionRole_internal so we get role in one shot.
+    const requester = await ctx.runQuery(
+      internal.auth.internal._resolveSessionRole_internal,
+      { sessionId: args.sessionId },
+    );
+    if (!requester) throw new Error("NO_SESSION");
+    if (requester.role !== "manager") throw new Error("NOT_MANAGER");
+
+    // Step 1: action-level idempotency pre-check (after auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> };
+
+    // Step 3: validate args at the action boundary. The commit path
+    // (_recordSpoilage_internal) revalidates these — duplication is intentional
+    // so a bad payload fails BEFORE the request row + Telegram send fire.
+    if (args.lines.length === 0) throw new Error("LINES_EMPTY");
+    if (args.reason.trim().length === 0) throw new Error("REASON_INVALID");
+    for (const line of args.lines) {
+      if (!Number.isInteger(line.qty) || line.qty <= 0) throw new Error("QTY_INVALID");
+    }
+    const total_qty = args.lines.reduce((s, l) => s + l.qty, 0);
+
+    const baseUrl = process.env.POS_BASE_URL;
+    if (!baseUrl) throw new Error("POS_BASE_URL not set");
+
+    // Step 4: mint event_id — entity_id on the approval row AND
+    // spoilage_event_id on each movement row written at commit time (S3 groups
+    // multi-line events by this id). 16 bytes = collision-resistant for v1.
+    const event_id = mintUrlSafeToken(16);
+
+    // Step 5: mint approval token (only hash persisted — ADR-029)
+    const rawToken = mintUrlSafeToken();
+    const tokenHash = sha256Hex(rawToken);
+    const now = Date.now();
+
+    // Step 6: create the request row. Context carries inventory_sku_id +
+    // sku_code per line + total_qty so the Telegram card and /approve UI
+    // render a preview BEFORE the manager enters PIN (validateContext in
+    // kinds.ts cross-checks total_qty against the line sum to catch
+    // tampering at the manager-display layer).
+    const { requestId } = await ctx.runMutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "spoilage",
+        requester_staff_id: requester.staffId,
+        entity_type: "pos_stock_movements",
+        entity_id: event_id,
+        context: {
+          spoilage_event_id: event_id,
+          lines: args.lines.map((l) => ({
+            inventory_sku_id: l.inventory_sku_id as unknown as string,
+            sku_code: l.sku_code,
+            qty: l.qty,
+          })),
+          total_qty,
+          reason: args.reason,
+        },
+        reason: args.reason,
+        triggered_by_event: "spoilage_request",
+        triggered_at: now,
+        token_hash: tokenHash,
+        token_expires_at: now + TOKEN_TTL_MS,
+      },
+    );
+
+    // Step 7: send the Telegram card. On failure, delete the request row so the
+    // next attempt mints a fresh request cleanly (mirrors requestRefundApproval).
+    // The spoilage.requested audit row stays as a forensic trace (append-only).
+    let messageId: number | undefined;
+    try {
+      const sendRes = await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
+        kind: "spoilage",
+        payload: {
+          spoilage_event_id: event_id,
+          lines: args.lines.map((l) => ({ sku_code: l.sku_code, qty: l.qty })),
+          total_qty,
+          reason: args.reason,
+          request_url: `${baseUrl}/approve/${rawToken}`,
+        },
+        idempotencyKey: `${args.idempotencyKey}:send`,
+      });
+      messageId = sendRes.message_id;
+    } catch (err) {
+      await ctx.runMutation(internal.approvals.internal._deleteRequest_internal, {
+        requestId,
+      });
+      throw err;
+    }
+
+    // Step 8: mark notified + best-effort link telegram_message_id.
+    await ctx.runMutation(internal.approvals.internal._markNotified_internal, { requestId });
+    try {
+      await ctx.runMutation(internal.approvals.internal._linkTelegramMessage_internal, {
+        requestId,
+        messageId,
+        chatId: undefined,
+      });
+    } catch {
+      // best-effort — never fail the request over a missing message link
+    }
+
+    // Step 9: cache the action-level response.
+    const out = { requestId };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.requestSpoilageApproval",
+      response: JSON.stringify(out),
+    });
+
+    return out;
+  },
+});
+
+/**
+ * Off-booth spoilage approval via the Telegram link (v0.6 Task S5). Mirrors
+ * approveRefund's envelope exactly — same token-auth-before-cache, same
+ * constant-time compare, same per-token PIN-attempt cap, same lockout-self-
+ * approve carve-out. The divergence is at commit: instead of _commitRefund_internal,
+ * this calls inventory._recordSpoilage_internal (S3) — the single writer shared
+ * with the booth-PIN path (S4), source distinguished by the `source` arg.
+ *
+ *   1. Token auth BEFORE cache (CLAUDE.md rule #21 / I5). A leaked
+ *      idempotencyKey without a valid token must not replay the cached commit.
+ *   2. Constant-time token compare (defense-in-depth; the index already matched).
+ *   3. State guards: kind === "spoilage", status === "pending", token not expired.
+ *   4. Action-level idempotency pre-check (after token auth).
+ *   5. Narrow context (already validated by validateContext at insert time).
+ *   6. Resolve approving manager by staff code (active manager only).
+ *   7. argon2-verify managerPin against the MANAGER's hash. On fail, record a
+ *      failed attempt + bump the per-token PIN-attempt cap. Token auto-revokes
+ *      at the cap (REQUEST_REVOKED).
+ *   8. Commit via inventory._recordSpoilage_internal with source="telegram_approval"
+ *      so the audit row records the off-booth origin (vs booth_inline for S4).
+ *   9. Mark request resolved with a DERIVED idempotency key (`:resolve` suffix).
+ *      _markResolved_internal's withIdempotency cache writes { resolved: true },
+ *      which doesn't match this action's { event_id, line_count, total_qty }
+ *      shape — using a derived key keeps both cache rows independent.
+ *   10. Write action-level idempotency cache with the real response shape.
+ *
+ * Locked-out manager self-approve (mirrors approveRefund Improvement #6):
+ * INTENTIONAL. argon2Verify only consults the manager's pin_hash; lockout is
+ * not checked. Token + correct PIN are sufficient authority.
+ *
+ * Never logs PIN or token values.
+ */
+export const approveSpoilage = action({
+  args: {
+    token: v.string(),
+    managerStaffCode: v.string(),
+    managerPin: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ event_id: string; line_count: number; total_qty: number }> => {
+    // Step 1: token auth BEFORE cache (rule #21 / I5). Token validation is one
+    // indexed query + a constant-time compare — cheap. argon2 PIN verify stays
+    // after the cache (expensive). Pre-I5 a caller without a valid token but
+    // with a leaked idempotencyKey could replay the cached commit.
+    const tokenHash = sha256Hex(args.token);
+    const req = await ctx.runQuery(
+      internal.approvals.internal._getByTokenHash_internal,
+      { tokenHash },
+    );
+    if (!req) throw new Error("TOKEN_INVALID");
+
+    const a = Buffer.from(tokenHash, "hex");
+    const b = Buffer.from(req.token_hash, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new Error("TOKEN_INVALID");
+    }
+
+    // Step 3: state guards (still part of auth — must reject before cache replay).
+    if (req.kind !== "spoilage") throw new Error("WRONG_KIND");
+    if (req.status !== "pending") throw new Error("REQUEST_RESOLVED");
+    if (req.token_expires_at <= Date.now()) throw new Error("TOKEN_EXPIRED");
+
+    // Step 4: action-level idempotency pre-check (after token auth)
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { event_id: string; line_count: number; total_qty: number };
+
+    // Step 5: narrow context. validateContext("spoilage", ...) already ran at
+    // insert time (single-writer invariant on _createRequest_internal), so the
+    // shape is guaranteed here — defensive narrowing only because context is
+    // stored as v.any().
+    const ctxBag = (req.context ?? {}) as {
+      spoilage_event_id?: string;
+      lines?: Array<{ inventory_sku_id: string; sku_code: string; qty: number }>;
+      reason?: string;
+    };
+    if (!ctxBag.spoilage_event_id) throw new Error("REQUEST_MISSING_EVENT_ID");
+    if (!Array.isArray(ctxBag.lines) || ctxBag.lines.length === 0) {
+      throw new Error("REQUEST_MISSING_LINES");
+    }
+    if (!ctxBag.reason) throw new Error("REQUEST_MISSING_REASON");
+
+    // Step 6: resolve approving manager
+    const manager = await ctx.runQuery(internal.auth.internal._getByCode_internal, {
+      code: args.managerStaffCode,
+    });
+    if (!manager || !manager.active || manager.role !== "manager") {
+      throw new Error("NOT_MANAGER");
+    }
+
+    // Step 7: argon2-verify manager PIN; record failed attempt + per-token cap on miss
+    const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
+    if (!ok) {
+      await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
+        idempotencyKey: `${args.idempotencyKey}:failed`,
+        staffId: manager._id,
+        deviceId: OFF_BOOTH_DEVICE_ID,
+        source: "telegram_approval",
+      });
+      const capResult = await ctx.runMutation(
+        internal.approvals.internal._recordTokenPinFailure_internal,
+        { requestId: req._id },
+      );
+      if (capResult.capped) throw new Error("REQUEST_REVOKED");
+      throw new Error("INVALID_PIN");
+    }
+
+    // Step 8: commit via the single writer (S3). source="telegram_approval"
+    // threads through to the stock.spoilage audit row so dashboards can tell
+    // off-booth approvals apart from booth-inline (S4).
+    const result = await ctx.runMutation(
+      internal.inventory.internal._recordSpoilage_internal,
+      {
+        spoilage_event_id: ctxBag.spoilage_event_id,
+        lines: ctxBag.lines.map((l) => ({
+          inventory_sku_id: l.inventory_sku_id as unknown as Id<"pos_inventory_skus">,
+          qty: l.qty,
+        })),
+        reason: ctxBag.reason,
+        actor_id: manager._id,
+        source: "telegram_approval",
+      },
+    );
+
+    // Step 9: mark request resolved. DERIVED idempotency key so the resolve
+    // mutation's withIdempotency cache ({ resolved: true }) does not collide
+    // with the action-level cache below ({ event_id, line_count, total_qty }).
+    // Mirrors approveRefund's derived-key pattern.
+    await ctx.runMutation(internal.approvals.internal._markResolved_internal, {
+      idempotencyKey: `${args.idempotencyKey}:resolve`,
+      requestId: req._id,
+      resolved_by_manager_id: manager._id,
+      source: "telegram_approval",
+    });
+
+    // Step 10: cache action-level response. Top-level idempotencyKey stores the
+    // { event_id, line_count, total_qty } blob the UI consumes; same-key retries
+    // replay this blob via step 4 without re-running the commit.
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.approveSpoilage",
+      response: JSON.stringify(result),
+    });
+
+    return result;
+  },
+});
