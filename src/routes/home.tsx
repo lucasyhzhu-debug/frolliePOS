@@ -6,6 +6,7 @@ import { useIdempotency } from "@/hooks/useIdempotency";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
 import { useRecountNudge } from "@/hooks/useRecountNudge";
 import { ConnDot } from "@/components/layout/ConnDot";
+import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +77,10 @@ export default function HomeRoute() {
             {catalog == null ? "Loading catalog…" : `${catalog.products.length} products · ${catalog.skus.length} SKUs`}
           </p>
         </div>
-        <ConnDot />
+        <div className="flex items-center gap-2">
+          <PrinterSheet />
+          <ConnDot />
+        </div>
       </header>
 
       {nudge && (

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { type PrinterStatus } from "@/hooks/useThermalPrinter";
 import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt, SAMPLE_RECEIPT } from "@/lib/escpos";
+import { cn } from "@/lib/utils";
 
 const LABEL: Record<PrinterStatus, string> = {
   unsupported: "Tidak didukung",
@@ -14,6 +15,17 @@ const LABEL: Record<PrinterStatus, string> = {
   connected: "Terhubung",
   printing: "Mencetak…",
   error: "Error",
+};
+
+// Glanceable status dot on the header chip — green = linked, amber pulse =
+// working, grey = not linked, red = error (mirrors ConnDot's palette).
+const DOT: Record<PrinterStatus, string> = {
+  unsupported: "bg-slate-300",
+  disconnected: "bg-slate-400",
+  connecting: "bg-amber-500 animate-pulse",
+  connected: "bg-emerald-500",
+  printing: "bg-amber-500 animate-pulse",
+  error: "bg-red-500",
 };
 
 export function PrinterSheet() {
@@ -37,8 +49,28 @@ export function PrinterSheet() {
 
   return (
     <>
-      <Button variant="ghost" size="icon" aria-label="Printer" onClick={() => setOpen(true)}>
-        <Printer className={status === "connected" ? "text-teal-600" : "text-muted-foreground"} />
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Printer: ${LABEL[status]}`}
+        title={`Printer: ${LABEL[status]}`}
+        className="relative"
+        onClick={() => setOpen(true)}
+      >
+        <Printer
+          className={
+            status === "connected" || status === "printing"
+              ? "text-teal-600"
+              : "text-muted-foreground"
+          }
+        />
+        <span
+          aria-hidden
+          className={cn(
+            "absolute right-0.5 top-0.5 h-2 w-2 rounded-full ring-1 ring-background",
+            DOT[status],
+          )}
+        />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
