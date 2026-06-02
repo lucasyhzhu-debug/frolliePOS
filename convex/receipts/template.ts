@@ -49,7 +49,7 @@ export type ReceiptViewModel = {
   settings: ReceiptSettings;
 };
 
-const STATUS_LABELS = {
+export const STATUS_LABELS = {
   paid: { label: "LUNAS", bg: "#d1fae5", fg: "#065f46" },
   partial_refund: { label: "SEBAGIAN DIKEMBALIKAN", bg: "#fef3c7", fg: "#92400e" },
   refunded: { label: "DIKEMBALIKAN", bg: "#fee2e2", fg: "#991b1b" },

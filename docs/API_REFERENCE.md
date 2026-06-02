@@ -274,7 +274,7 @@ Not a public surface — provides the wrappers used by every public mutation and
 | h | `/xendit/webhook` | POST | Verifies `x-callback-token` header; routes by event type (`invoice.paid`, `refund.succeeded`, `settlement.completed`); returns 200 fast, processes idempotently |
 | h | `/r/:receiptToken` | GET | Public receipt HTML render ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)); reads `pos_transactions` by `receipt_token`; expired HTML cache regenerates and re-caches |
 
-## `receipts.ts` *(v0.5.1 PR A + v0.5.3b)*
+## `receipts.ts` *(v0.5.1 PR A + v0.5.3b + v0.5.4)*
 
 ### HTTP
 
@@ -284,6 +284,12 @@ Returns the HTML receipt page for the txn with matching `receipt_token`. 200 + c
 Routed via `pathPrefix: "/r/"` in `convex/http.ts`; handler is `handleReceiptRoute` (`convex/receipts/http.ts`).
 
 **v0.5.3b:** `template.ts` now reads receipt branding (business name, address, contact, instagram handle, footer text, logo) from `pos_settings._getSettings_internal` instead of hardcoded consts. `_purgeAllReceiptCache_internal` is invoked from `settings.updateReceiptConfig` so a branding change flushes the 24h cache for all txns.
+
+### Queries
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `receipts.public.getReceiptForPrint` | `{ sessionId, txnId }` | `{ viewModel, status, statusLabel } \| null` | **v0.5.4.** Session-gated, role/today-scoped — mirrors `transactions.getTransactionDetail` (staff: server-today only; manager: any day). Returns the same `ReceiptViewModel` that backs `/r/<token>` plus a pre-derived `statusLabel` (from the now-exported `template.STATUS_LABELS`), so the Web Bluetooth print path (ADR-043) consumes the server-side money/line math instead of re-deriving it. Returns `null` for not-found / not-paid / out-of-scope. Routes the cross-module txn read through `transactions/internal` per ADR-034. **Returns NO token or URL** (ADR-021) — the digital-receipt QR token is minted separately via `transactions.shareReceipt`. Read-only; not audited. |
 
 ### Internal (not callable from public clients)
 

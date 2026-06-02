@@ -7,6 +7,10 @@ import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { useSession } from "@/hooks/useSession";
+import { usePrinter } from "@/components/pos/PrinterProvider";
+import { encodeReceipt } from "@/lib/escpos";
+import { toast } from "sonner";
 
 /**
  * Charge-success screen — shown after a transaction reaches "paid" status.
@@ -28,6 +32,29 @@ export default function SaleChargeSuccess() {
     api.transactions.public.getById,
     txnId ? { txnId } : "skip",
   );
+
+  const session = useSession();
+  const sessionId = session.status === "active" ? session.sessionId : undefined;
+  const { status: printerStatus, connect, print } = usePrinter();
+
+  const printData = useQuery(
+    api.receipts.public.getReceiptForPrint,
+    sessionId && txnId ? { sessionId, txnId } : "skip",
+  );
+
+  const onPrint = async () => {
+    if (!printData) return;
+    try {
+      // The QR is a static follow-us Instagram link derived from the receipt
+      // settings (ADR-043 amended), so no per-print shareReceipt token mint is
+      // needed. The /r/<token> digital receipt is still reachable via history share.
+      const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
+      await print(bytes);
+      toast.success("Struk dicetak");
+    } catch {
+      toast.error("Gagal mencetak struk");
+    }
+  };
 
   // No txnId param in the URL. Checked BEFORE the loading guard: with no txnId the
   // query is "skip" and result stays undefined forever, so the loading branch would
@@ -125,6 +152,15 @@ export default function SaleChargeSuccess() {
       </div>
 
       {/* CTA */}
+      <Button
+        className="w-full max-w-xs"
+        size="lg"
+        variant="outline"
+        onClick={printerStatus === "connected" ? onPrint : connect}
+        disabled={printerStatus === "printing" || printerStatus === "unsupported" || !printData}
+      >
+        {printerStatus === "connected" || printerStatus === "printing" ? "Cetak struk" : "Hubungkan & cetak"}
+      </Button>
       <Button
         className="w-full max-w-xs"
         size="lg"

@@ -88,7 +88,7 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `vouchers/` | `pos_vouchers` + `_redemptions`; inline discount, one per txn |
 | `approvals/` | Off-booth flow: `pos_approval_requests`, `kinds.ts` (`APPROVAL_KINDS`), `lib.ts` (`effectiveStatus`, `TOKEN_PIN_ATTEMPT_CAP`) |
 | `settings/` | `pos_settings` singleton; `_getSettings_internal` returns defaults when row absent. **v0.5.3b:** receipt-branding fields (`receipt_*`) + manager-session receipt-config CRUD (update purges receipt cache) — see `docs/API_REFERENCE.md`. |
-| `receipts/` | `/r/<token>` httpAction + `pos_receipt_html_cache` + `template.ts` (ADR-039, 24h cache). *(v0.5.3a: `_lazyMintReceiptToken_internal` facade deleted; `shareReceipt` calls `transactions._ensureReceiptTokenForPaidTxn_internal` directly.)* **v0.5.3b:** template reads branding from `pos_settings`; `_purgeAllReceiptCache_internal` fires on every receipt-config update. |
+| `receipts/` | `/r/<token>` httpAction + `pos_receipt_html_cache` + `template.ts` (ADR-039, 24h cache). *(v0.5.3a: `_lazyMintReceiptToken_internal` facade deleted; `shareReceipt` calls `transactions._ensureReceiptTokenForPaidTxn_internal` directly.)* **v0.5.3b:** template reads branding from `pos_settings`; `_purgeAllReceiptCache_internal` fires on every receipt-config update. **v0.5.4 (ADR-043):** `public.ts::getReceiptForPrint` = print view-model query (view-model + status label only, NO token); `template.ts::STATUS_LABELS` now exported for server-side label derivation. |
 | `refunds/` | `pos_refunds`; `lib.ts` pure helpers (`computeRefundAmount` ADR-040, `lineRefundable`, `lineRefundedQty`, `refundStatus` — shared by commit funnel, receipt template, FE preview, history badge); `_commitRefund_internal` = single writer for both booth + Telegram paths |
 | `telegram/` | Production Telegram (v0.4 rewrite): `send.ts` (`sendTemplate`), `chatRegistry/` (role routing + admin mutations at `api.telegram.chatRegistry.public.mgr*`), `webhook.ts`, `commands.ts`, `config.ts`, `foundersSummary.ts` |
 | `crons.ts` | `founders-shift-summary` daily 22:00 WIB / 15:00 UTC |
@@ -103,9 +103,9 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin). Stubbed: refund, settlements, remaining `mgr/*` |
 | `components/ui/` | shadcn primitives (new-york/stone) |
 | `components/layout/` | `RootLayout` (shell + session gate), `Stub`, `AppHeader`, `SpokeLayout` |
-| `components/pos/` | `NumericKeypad` (canonical PIN/qty), `PinSheet`, `ApprovalPending`, `AbandonCartDialog` |
-| `hooks/` | `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (IDB-backed), `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op), `useApproval`, `useLastStaff`, `useCountdown` |
-| `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`) |
+| `components/pos/` | `NumericKeypad` (canonical PIN/qty), `PinSheet`, `ApprovalPending`, `AbandonCartDialog`, `PrinterSheet` (v0.5.4 — connect/status/test-print sheet, wraps `Dialog`, ADR-043) |
+| `hooks/` | `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (IDB-backed), `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op), `useApproval`, `useLastStaff`, `useCountdown`, `useThermalPrinter` (v0.5.4 — Web Bluetooth connect/auto-reconnect/print + pure `chunkBytes`, ADR-043) |
+| `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`), `escpos.ts` (v0.5.4 — pure ESC/POS `encodeReceipt` + `SAMPLE_RECEIPT`, ADR-043) |
 | `pwa/` | Service worker bootstrap |
 
 **`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`.

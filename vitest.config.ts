@@ -5,7 +5,20 @@ import path from "node:path";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // esc-pos-encoder's default export condition pulls in the native `canvas`
+      // module (intentionally unbuilt); its "browser" build is canvas-free.
+      // Alias the test resolution straight to that browser bundle — the same
+      // one `vite build` picks via the browser export condition. Scoped to this
+      // package so we don't change resolution for convex/react & co (a global
+      // resolve.conditions:["browser"] flips their build and triggers spurious
+      // WebSocket-teardown promise-rejection warnings in the React tests).
+      "esc-pos-encoder": path.resolve(
+        __dirname,
+        "./node_modules/esc-pos-encoder/dist/esc-pos-encoder.esm.js",
+      ),
+    },
   },
   test: {
     globals: true,
