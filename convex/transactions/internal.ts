@@ -691,3 +691,22 @@ export const _patchLineRefundedQty_internal = internalMutation({
     });
   },
 });
+
+/**
+ * Batch-fetch receipt_number for an array of transaction ids.
+ * Used by vouchers.getVoucherRedemptions to annotate redemption rows.
+ * Returns null for ids that don't exist or aren't paid (no receipt_number).
+ * ADR-034: vouchers reads transactions through this internal query, never
+ * directly.
+ */
+export const _fetchReceiptByTxnIds_internal = internalQuery({
+  args: { txnIds: v.array(v.id("pos_transactions")) },
+  handler: async (ctx, args): Promise<Record<string, string | null>> => {
+    const out: Record<string, string | null> = {};
+    for (const id of args.txnIds) {
+      const t = await ctx.db.get(id);
+      out[id] = t?.receipt_number ?? null;
+    }
+    return out;
+  },
+});
