@@ -818,10 +818,9 @@ Decomposition rationale: [staffreview 2026-05-30](./reviews/staffreview-v0.5-spl
 
 ---
 
-## v0.5.1 — Refunds + customer receipts 🔨 IN PROGRESS
+## v0.5.1 — Refunds + customer receipts ✅ SHIPPED
 **Outcome:** Staff issue refunds; customers get a shareable signed-URL receipt that correctly reflects refunded lines without ever mutating the original sale.
-**Target:** TBD
-Depends on v0.5.0 nav shell. Plan not yet written.
+Merged 2026-06-01 via PR #8 (receipts, commit `1e80eda`) + PR #9 (refunds + settlement, commit `88470b0`) + PR #10 (housekeeping, commit `1e4388f`).
 
 **You'll be able to:**
 - Issue refunds end-to-end — staff initiate, manager approves via Telegram, refund logged as a new row
@@ -849,31 +848,33 @@ Depends on v0.5.0 nav shell. Plan not yet written.
 - ✅ `v05-be-receipt-http` — `GET /r/:token` httpAction (24h cache, status guard, 404 page) [`97e0e92`]
 - ✅ `v05-doc-pr-a` — PR A CHANGELOG + SCHEMA + CLAUDE + API_REFERENCE + PROGRESS [`5d2de88`]
 
-### PR B — refund subsystem + settlement surface (planned)
+### PR B — refund subsystem + settlement surface (shipped 2026-06-01)
 
 ### Backend (`convex/`)
-- 🗂️ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8); on approval write the ledger (row + stock re-credit + audit) at `settlement_status: pending` (ADR-038)
-- 🗂️ `markRefundSettled` mutation — manager flips `settlement_status` pending → settled after moving cash out-of-band; **manager-session gated, not manager-PIN** (the PIN gate is at refund approval; settling is a bookkeeping ack), second audit stamp (who settled, when) per ADR-038. No Xendit refund/disbursement API call in v1
-- 🗂️ `receipt.ts` — receipt token generation + public lookup + 24h cache; **purge cached HTML on refund commit** so the receipt re-projects refund state (ADR-039)
-- 🗂️ Schema: `pos_refunds` (incl. `settlement_status` field — ADR-038)
+- ✅ `refunds.ts` — refund as new row (ADR-008), never mutate paid txn status; new `refund` approval kind (4-touchpoint pattern per CLAUDE.md §how-to-add-a-feature #8); on approval write the ledger (row + stock re-credit + audit) at `settlement_status: pending` (ADR-038) [`88470b0`]
+- ✅ `markRefundSettled` mutation — manager flips `settlement_status` pending → settled after moving cash out-of-band; **manager-session gated, not manager-PIN** (the PIN gate is at refund approval; settling is a bookkeeping ack), second audit stamp (who settled, when) per ADR-038. No Xendit refund/disbursement API call in v1 [`88470b0`]
+- ✅ `receipt.ts` — receipt token generation + public lookup + 24h cache; **purge cached HTML on refund commit** so the receipt re-projects refund state (ADR-039) [`88470b0`]
+- ✅ Schema: `pos_refunds` (incl. `settlement_status` field — ADR-038) [`88470b0`]
 
 ### Frontend (`src/`)
-- 🗂️ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4)
-- 🗂️ `routes/receipt/[receiptNumber].tsx` — public receipt page `/r/:n` (signed URL)
-- 🗂️ `rp()` negative-amount handling (v0.2 follow-up)
+- ✅ `routes/refund/[txnId].tsx` — refund flow (mgr-PIN gated via Telegram from v0.4) [`88470b0`]
+- ✅ `routes/receipt/[receiptNumber].tsx` — public receipt page `/r/:n` (signed URL) [`97e0e92`]
+- ✅ `rp()` negative-amount handling (v0.2 follow-up) [`88470b0`]
 
 ### Cross-cutting
-- 🗂️ ADR-008 honoured (refunds as new rows, status computed on read)
+- ✅ ADR-008 honoured (refunds as new rows, status computed on read) [`88470b0`]
 - ✅ ADR-038 (refund settlement: POS is system-of-record, money moves manually in v1; `settlement_status` seam for v1.1 automated disbursements; `markRefundSettled` is manager-session-gated) — locked 2026-05-31
 - ✅ ADR-039 (receipt-after-refund display contract — resolves staffreview Critical 2: refund re-projects the receipt not mutates it; cache purged on refund commit; original token stays valid; partial-refund lines preserved + annotated; settlement_status excluded from public receipt) — locked 2026-05-31
-- 🗂️ SCHEMA.md audit enum: `refund.*`
+- ✅ SCHEMA.md audit enum: `refund.*` [`88470b0`]
+
+### PR C — Housekeeping (shipped 2026-06-01)
+- ✅ Shared `tokenHash` helper, `upsertStockLevel`, terminal-state config [`1e4388f`]
 
 ---
 
-## v0.5.2 — FPOS-internal inventory slice 🔨 IN PROGRESS
+## v0.5.2 — FPOS-internal inventory slice ✅ SHIPPED
 **Outcome:** FPOS-internal inventory slice — stock-check screen, staff recount flow, reactive low-stock alerting to a new `inventory` Telegram group.
-**Target:** TBD
-Builds on `pos_stock_movements` (already shipped v0.3). Adds `recount` source literal, two new tables (`pos_low_stock_alerts`, `pos_recount_state`), and the reactive low-stock check seam. Plan: see `docs/superpowers/plans/2026-06-01-v0.5.2-inventory.md`.
+Merged 2026-06-01 via PR #12 (commit `23f4de1`). Builds on `pos_stock_movements` (already shipped v0.3); added `recount` source literal, two new tables (`pos_low_stock_alerts`, `pos_recount_state`), and the reactive low-stock check seam. Plan: `docs/superpowers/plans/2026-06-01-v0.5.2-inventory.md`.
 
 **You'll be able to:**
 - See current stock levels per SKU at a glance on `/stock` (status: ok / low / negative)
@@ -891,22 +892,22 @@ Builds on `pos_stock_movements` (already shipped v0.3). Adds `recount` source li
 - Rely on nightly auto-reconciliation of stock counts (v0.6)
 
 ### Backend (`convex/`)
-- 🔨 `convex/inventory/` — `recordRecount` (action), `setLowThreshold` (manager mutation), `listInventory` / `getSkuDetail` / `getRecountState` (queries)
-- 🔨 `convex/inventory/internal.ts` — `_checkLowStock_internal` (reactive check), `_dispatchLowStockAlert_internal` + `_dispatchRecountNotice_internal` (Telegram dispatch)
-- 🔨 `convex/catalog/internal.ts` — `_getSkusByIds_internal` + `_setLowThreshold_internal` cross-module seams (ADR-034)
+- ✅ `convex/inventory/` — `recordRecount` (action), `setLowThreshold` (manager mutation), `listInventory` / `getSkuDetail` / `getRecountState` (queries) [`23f4de1`]
+- ✅ `convex/inventory/internal.ts` — `_checkLowStock_internal` (reactive check), `_dispatchLowStockAlert_internal` + `_dispatchRecountNotice_internal` (Telegram dispatch) [`23f4de1`]
+- ✅ `convex/catalog/internal.ts` — `_getSkusByIds_internal` + `_setLowThreshold_internal` cross-module seams (ADR-034) [`23f4de1`]
 
 ### Frontend (`src/`)
-- 🔨 `routes/stock/index.tsx` — inventory list
-- 🔨 `routes/stock/recount.tsx` — staff absolute recount flow
-- 🔨 `routes/stock/[skuId].tsx` — SKU detail + manager threshold edit
-- 🔨 Home screen — hourly recount-nudge banner
+- ✅ `routes/stock/index.tsx` — inventory list [`23f4de1`]
+- ✅ `routes/stock/recount.tsx` — staff absolute recount flow [`23f4de1`]
+- ✅ `routes/stock/[skuId].tsx` — SKU detail + manager threshold edit [`23f4de1`]
+- ✅ Home screen — hourly recount-nudge banner [`23f4de1`]
 
 ### Cross-cutting
-- 🔨 [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md) — recount vs adjust distinction
-- 🔨 [ADR-042](./ADR/042-low-stock-detection-inventory-telegram.md) — reactive low-stock detection reuses catalog `low_threshold`
-- 🔨 Schema: `pos_low_stock_alerts` + `pos_recount_state` tables; `pos_stock_movements.source` gains `recount`
-- 🔨 SCHEMA.md audit enum: `stock.recount`, `stock.low_stock_alerted`, `stock.low_threshold_set`
-- 🔨 New Telegram role `inventory` (in `KNOWN_TELEGRAM_ROLES`); bind via `/mgr/telegram-chats` post-deploy
+- ✅ [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md) — recount vs adjust distinction [`23f4de1`]
+- ✅ [ADR-042](./ADR/042-low-stock-detection-inventory-telegram.md) — reactive low-stock detection reuses catalog `low_threshold` [`23f4de1`]
+- ✅ Schema: `pos_low_stock_alerts` + `pos_recount_state` tables; `pos_stock_movements.source` gains `recount` [`23f4de1`]
+- ✅ SCHEMA.md audit enum: `stock.recount`, `stock.low_stock_alerted`, `stock.low_threshold_set` [`23f4de1`]
+- ✅ New Telegram role `inventory` (in `KNOWN_TELEGRAM_ROLES`); bind via `/mgr/telegram-chats` post-deploy [`23f4de1`]
 
 ---
 
