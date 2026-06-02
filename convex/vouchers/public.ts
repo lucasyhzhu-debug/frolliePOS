@@ -1,6 +1,7 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { computeVoucherDiscount } from "../lib/voucher";
 import { requireManagerSession } from "../auth/sessions";
 import { withIdempotency } from "../idempotency/internal";
@@ -207,4 +208,71 @@ export const archiveVoucher = mutation({
       },
     },
   ),
+});
+
+/**
+ * List ALL vouchers (active + archived) for the /mgr/vouchers admin UI.
+ * Manager-session-gated. Unlike `getActiveVouchers` (booth cart-build cache),
+ * this surfaces archived rows so managers can audit historical voucher
+ * configuration. The UI groups by `active` status; backend returns the raw
+ * set.
+ */
+export const listAllVouchers = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, args): Promise<Doc<"pos_vouchers">[]> => {
+    await requireManagerSession(ctx, args.sessionId);
+    return await ctx.db.query("pos_vouchers").collect();
+  },
+});
+
+/**
+ * Per-voucher redemption history for the manager UI. Manager-session-gated.
+ * Bounded at 500 (default 50) — `pos_voucher_redemptions` is unbounded over
+ * time so we cap the page size on the backend. Returns rows newest-first.
+ *
+ * Cross-module read via internal query (ADR-034): annotates each row with
+ * `receipt_number` from `pos_transactions` through
+ * `internal.transactions.internal._fetchReceiptByTxnIds_internal` rather
+ * than reading the transactions table directly. The receipt may be `null`
+ * for cancelled/draft transactions (no `receipt_number` allocated until
+ * `_confirmPaid`).
+ */
+export const getVoucherRedemptions = query({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    voucherId: v.id("pos_vouchers"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{
+    _id: Id<"pos_voucher_redemptions">;
+    transaction_id: Id<"pos_transactions">;
+    code_snapshot: string;
+    discount_amount: number;
+    redeemed_at: number;
+    receipt_number: string | null;
+  }>> => {
+    await requireManagerSession(ctx, args.sessionId);
+    const limit = args.limit ?? 50;
+    if (limit < 1 || limit > 500) throw new Error("LIMIT_OUT_OF_RANGE");
+    const redemptions = await ctx.db
+      .query("pos_voucher_redemptions")
+      .withIndex("by_voucher", (q) => q.eq("voucher_id", args.voucherId))
+      .order("desc")
+      .take(limit);
+    const receipts = await ctx.runQuery(
+      internal.transactions.internal._fetchReceiptByTxnIds_internal,
+      { txnIds: redemptions.map((r) => r.transaction_id) },
+    );
+    return redemptions.map((r) => ({
+      _id: r._id,
+      transaction_id: r.transaction_id,
+      code_snapshot: r.code_snapshot,
+      discount_amount: r.discount_amount,
+      redeemed_at: r.redeemed_at,
+      receipt_number: receipts[r.transaction_id] ?? null,
+    }));
+  },
 });
