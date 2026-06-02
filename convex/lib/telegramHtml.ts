@@ -235,6 +235,40 @@ export function renderSpoilageApproval(p: SpoilageApprovalPayload): RenderedMess
   };
 }
 
+// v0.6 R5/R6: stock-drift alert. Informational — no URL button (ADR-044 spirit:
+// the cron is a passive observer; resolution happens at the booth via the
+// manager's /mgr/stock-recon route, not via a Telegram action). R5 lands this
+// minimal renderer so its cron entry-point typechecks end-to-end; R6 may
+// enrich the body without touching the sendTemplate union signature.
+export type StockDriftAlertPayload = {
+  drifted: Array<{
+    sku_code: string;
+    delta: number;
+    cached: number;
+    reconstructed: number;
+  }>;
+  detected_at: number; // epoch ms — formatted into WIB inline
+};
+
+export function renderStockDriftAlert(p: StockDriftAlertPayload): RenderedMessage {
+  const rows = p.drifted
+    .map(
+      (d) =>
+        `• <b>${escapeHtml(d.sku_code)}</b>: cache ${d.cached} vs ledger ${d.reconstructed} (Δ ${d.delta >= 0 ? "+" : ""}${d.delta})`,
+    )
+    .join("\n");
+  const when = escapeHtml(formatWibDateTime(p.detected_at));
+  const text = [
+    `📊 <b>Stok drift terdeteksi</b> · ${when}`,
+    `${p.drifted.length} SKU dengan selisih cache vs ledger:`,
+    ``,
+    rows,
+    ``,
+    `<i>Buka /mgr/stock-recon di POS untuk meninjau & resolve.</i>`,
+  ].join("\n");
+  return { text };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {
