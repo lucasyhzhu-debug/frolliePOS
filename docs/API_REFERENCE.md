@@ -1,11 +1,11 @@
 # API Reference
 
-Convex function inventory for Frollie POS. Updated as functions are implemented. This file describes the **planned v0.5 surface**; route stubs and scaffolding exist but most functions are not yet built.
+Convex function inventory for Frollie POS, updated as functions ship. The backend is organized by **domain module** per [ADR-034](./ADR/034-deep-modules-surface-apis.md) — section headers below name the logical surface (e.g. `auth`, `transactions`), but the code lives in `convex/<module>/{public,internal,actions,schema}.ts`, not flat files. Surfaces through **v0.5.3a are shipped** (auth, staff, transactions + reporting, payments, refunds, inventory, vouchers, approvals, telegram, receipts, settings, dashboard); sections marked *planned* are not yet built. When a section and the code disagree, the code wins — flag the drift.
 
 ## Conventions
 
 - **Queries** (`q`) are reactive, read-only.
-- **Mutations** (`m`) are transactional writes. **Every public mutation accepts `idempotencyKey: string`** ([ADR-013](./ADR/013-idempotency-keys.md)) — wrapped by the harness in `convex/idempotency.ts`.
+- **Mutations** (`m`) are transactional writes. **Every public mutation accepts `idempotencyKey: string`** ([ADR-013](./ADR/013-idempotency-keys.md)) — wrapped by the harness in `convex/idempotency/`.
 - **Actions** (`a`) are non-transactional, used for external API calls (Xendit), argon2id hashing, scheduled jobs.
 - **HTTP Actions** (`h`) are public endpoints (Xendit webhook, receipt page, approval landing data).
 - `_internal` suffix denotes a function not callable from the client (internal call only).
@@ -19,30 +19,56 @@ Convex function inventory for Frollie POS. Updated as functions are implemented.
 | a | `verifyPinAction_internal` | `{ staffId, pin }` | `{ ok: true } \| { ok: false, lockedUntil?: number }` | argon2id verify + lockout counter ([ADR-002](./ADR/002-lockout-policy.md), [ADR-004](./ADR/004-pin-hashing-server-side.md)) |
 | m | `loginWithPin` | `{ staffId, pin, deviceId, idempotencyKey }` | `{ sessionId, role }` | Calls verify action internally; writes `staff_sessions` row; logs `staff.login` or `staff.failed_pin`/`staff.locked_out` |
 | m | `logout` | `{ sessionId, idempotencyKey }` | `void` | Sets `ended_at`, `end_reason: "manual_lock"`; logs `staff.logout` |
+| a | `auth.actions.createStaff` | `{ idempotencyKey, sessionId, name, role, pin, managerPin }` | `{ _id, name, role }` | *(v0.5.3b)* Manager-PIN gated (now requires `managerPin` arg). Hashes the new staff PIN via argon2id; logs `staff.created`. |
+
+### Helpers
+
+| Helper | Notes |
+|---|---|
+| `verifyManagerPinOrThrow(ctx, { sessionId, managerPin, idempotencyKey })` | *(v0.5.3b)* Single manager-PIN funnel at `convex/auth/verifyPin.ts`. Resolves the session, requires manager role, argon2-verifies the supplied PIN under that manager's identity, and threads ADR-002 lockout counting onto the manager (not the session staff). Used by every PIN-gated v0.5.3b admin write (`createStaff`, `setStaffRole`, `deactivateStaff`, `createProduct`, `updateProductPricing`). Sibling `verifyPinOrThrow` is the manager-by-staff_code variant used by `commitRefundInline` / `approveManualPayment` where the manager identity is independent of the session. |
 
 ## `staff.ts`
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `listStaff` | `{ sessionId }` | `Staff[]` | Manager-only |
+| q | `listStaff` | `{ sessionId }` | `Staff[]` | Manager-only. *(v0.5.3b)* Server-side projection strips `pin_hash` before returning — the admin UI never sees the hash even via reactive subscription. |
 | q | `staff.public.listActiveManagers` | `{ sessionId }` | `{ name, code }[]` | *(v0.5.0)* Session-gated (any role). Returns all active managers. Used by the booth manager-picker on the charge screen for manager-PIN override flows. Does not expose pin_hash. |
-| m | `createStaff` | `{ name, role, pin, idempotencyKey }` | `Staff` | Manager-only; hashes PIN via internal action; logs |
-| m | `updateStaff` | `{ id, patch, idempotencyKey }` | `Staff` | Manager-only; PIN reset uses `resetPin` separately |
+| m | `updateStaff` | `{ id, patch, idempotencyKey }` | `Staff` | *(planned)* Manager-only; PIN reset uses `resetPin` separately |
 | m | `resetPin` | `{ id, newPin, idempotencyKey }` | `void` | Manager-only; logs `staff.pin_reset` |
-| m | `deactivateStaff` | `{ id, idempotencyKey }` | `void` | Soft delete |
 | m | `generateDeviceSetupCode` | `{ idempotencyKey }` | `{ code, expiresAt }` | Manager-only; 6-digit, 1h TTL |
 | m | `activateDevice` | `{ code, deviceLabel, idempotencyKey }` | `RegisteredDevice` | Public (pre-auth); consumes setup code |
 | q | `listDevices` | `{ sessionId }` | `RegisteredDevice[]` | Manager-only |
 | m | `deactivateDevice` | `{ id, idempotencyKey }` | `void` | Manager-only |
 
-## `products.ts`
+### v0.5.3b admin (`staff/actions.ts` + `staff/public.ts`)
+
+In-app staff admin (`/mgr/staff`). PIN-gated mutations live in `actions.ts` so they can `verifyManagerPinOrThrow` (argon2 = action-only); session-only mutations live in `public.ts`. Action-level idempotency via `withActionCache` + a derived `${idempotencyKey}:commit` key on the internal writer.
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `catalog` | `{}` | `{ products: Product[], skus: InventorySku[], components: ProductComponent[], stockLevels: StockLevel[], vouchers: Voucher[] }` | Single payload for catalog cache + offline support ([ADR-025](./ADR/025-service-worker-cache.md)). Available client-side for the cart-build flow even when offline |
-| m | `upsertSku` | `{ patch, idempotencyKey }` | `InventorySku` | Manager-only ([ADR-016](./ADR/016-product-inventory-separation.md)) |
-| m | `upsertProduct` | `{ patch, components, idempotencyKey }` | `Product` | Manager-only; updates `pos_products` + replaces `pos_product_components` for the product atomically |
-| m | `deactivateProduct` | `{ id, idempotencyKey }` | `void` | Manager-only |
+| a | `staff.actions.setStaffRole` | `{ idempotencyKey, sessionId, staffId, role, managerPin }` | `{ ok: true }` | Manager-PIN gated. Promotes/demotes a staff member. `LAST_ACTIVE_MANAGER` guard lives in `_setStaffRoleCommit_internal` so the read+patch is atomic. Logs `staff.updated` (`field: "role"`). |
+| a | `staff.actions.deactivateStaff` | `{ idempotencyKey, sessionId, staffId, managerPin }` | `{ ok: true }` | Manager-PIN gated. Soft-deletes a staff member. `SELF_DEACTIVATE` + `LAST_ACTIVE_MANAGER` guards in `_deactivateStaffCommit_internal`. Logs `staff.deactivated`. |
+| m | `staff.public.updateStaffName` | `{ idempotencyKey, sessionId, staffId, name }` | `{ ok: true }` | Manager-session gated, NO PIN — names are low-sensitivity metadata. 1–60 chars after trim. Logs `staff.updated` (`field: "name"`). |
+
+## `catalog.ts` (`products.ts`)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `catalog` | `{}` | `{ products: Product[], skus: InventorySku[], components: ProductComponent[], stockLevels: StockLevel[], vouchers: Voucher[] }` | Single payload for catalog cache + offline support ([ADR-025](./ADR/025-service-worker-cache.md)). Available client-side for the cart-build flow even when offline. Filters `active: true`. |
+| m | `upsertSku` | `{ patch, idempotencyKey }` | `InventorySku` | *(planned)* Manager-only ([ADR-016](./ADR/016-product-inventory-separation.md)) |
+
+### v0.5.3b admin (`catalog/actions.ts` + `catalog/public.ts`)
+
+In-app product admin (`/mgr/products`). Same PIN-vs-session tiering as staff admin: money fields (price + tax_rate) are PIN-gated; metadata / components / archive are session-only. Snapshot-on-line rule (CLAUDE.md #1) means pricing edits never rewrite past `pos_transaction_lines`.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `catalog.public.listAllProducts` | `{ sessionId }` | `{ products: Doc<"pos_products">[], skus: Doc<"pos_inventory_skus">[], components: Doc<"pos_product_components">[] }` | Manager-session. Includes inactive (archived) products — distinct from public `catalog` which filters `active: true`. |
+| a | `catalog.actions.createProduct` | `{ idempotencyKey, sessionId, managerPin, sku_family, name, pack_label, price_idr, tax_rate, sort_order, initials?, hue? }` | `{ productId }` | Manager-PIN gated. Mints a new product row; component wiring is a separate call (`setProductComponents`). Logs `product.created`. |
+| a | `catalog.actions.updateProductPricing` | `{ idempotencyKey, sessionId, managerPin, productId, price_idr, tax_rate }` | `{ ok: true }` | Manager-PIN gated. Changes `price_idr` and/or `tax_rate`. Snapshot rule: past lines unchanged. Logs `product.updated` (`field: "pricing"`). |
+| m | `catalog.public.updateProductMeta` | `{ idempotencyKey, sessionId, productId, name, pack_label, sort_order, sku_family?, initials?, hue? }` | `{ ok: true }` | Manager-session, NO PIN. Edits non-money metadata. 1–80 chars on name. Logs `product.updated` (`field: "meta"`). |
+| m | `catalog.public.setProductComponents` | `{ idempotencyKey, sessionId, productId, components: { inventory_sku_id, qty }[] }` | `{ ok: true }` | Manager-session, NO PIN. Replace-set: validates every row (qty integer > 0, SKU exists + active) BEFORE any delete/insert (fail-before-write atomicity), then deletes existing component rows via `by_product` index and inserts the new set. Logs `product.updated` (`components_changed: true`). |
+| m | `catalog.public.archiveProduct` | `{ idempotencyKey, sessionId, productId }` | `{ ok: true }` | Manager-session, NO PIN. Soft-delete (`active: false`). Disappears from public `catalog`; remains in `listAllProducts`. Historical lines unaffected (snapshot rule #1). Logs `product.archived`. |
 
 ## `transactions.ts`
 
@@ -189,7 +215,9 @@ The `mgr*` functions are the **public** manager-session-gated surface. They live
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
 | q | `list` | `{ filter, range, limit, sessionId }` | `AuditLog[]` | Manager-only; dashboard surface |
-| internal helper | `logAudit` | (inside other mutations) | | Required to be called from every state-changing mutation ([ADR-007](./ADR/007-audit-log-append-only.md)) |
+| internal helper | `logAudit` | (inside other mutations) | | Required to be called from every state-changing mutation ([ADR-007](./ADR/007-audit-log-append-only.md)). `audit_log.action` is a free `v.string()` — no code enum to keep in sync; canonical verb vocab lives in `docs/SCHEMA.md`. |
+
+**v0.5.3b verbs added:** `staff.created`, `staff.updated`, `staff.deactivated`, `product.created`, `product.updated`, `product.archived`, `settings.receipt_updated`.
 
 ## `dashboard.ts`
 
@@ -212,20 +240,31 @@ The `mgr*` functions are the **public** manager-session-gated surface. They live
 | a | `pollDaily_scheduled` | `{}` | `{ count }` | Scheduled 06:00 Jakarta |
 | q | `list` | `{ range }` | `Settlement[]` | Visible to staff + managers ([ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)) |
 
-## `settings.ts` *(v0.4)*
+## `settings.ts` *(v0.4 + v0.5.3b)*
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
 | q | `settings.public.getSettings` | `{}` | `{ founders_summary_enabled: boolean }` | Public-readable. Returns `true` if the `pos_settings` row is absent (default-on). |
 | m | `settings.public.setFoundersSummaryEnabled` | `{ sessionId, enabled }` | `{ ok: true }` | Manager-only. Upserts the `pos_settings` singleton. Logs `settings.founders_summary_toggled`. |
 
+### Receipt branding (v0.5.3b)
+
+In-app receipt config (`/mgr/receipt`). All three are manager-session gated — receipt branding is curation, not a money move (CLAUDE.md #9). The update path purges the receipt HTML cache (`_purgeAllReceiptCache_internal`) so customers see new branding on the next `/r/<token>` view.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `settings.public.getReceiptConfig` | `{ sessionId }` | `{ business_name, address, contact, instagram_handle, footer_text, logo_storage_id, logo_url }` | Manager-session. Resolves `logo_url` from the storage id via `ctx.storage.getUrl` so the form can preview without a second round-trip. |
+| m | `settings.public.generateLogoUploadUrl` | `{ idempotencyKey, sessionId }` | `{ uploadUrl }` | Manager-session. Returns a short-lived Convex storage upload URL. Cached by idempotency key so a retry returns the same target. |
+| m | `settings.public.updateReceiptConfig` | `{ idempotencyKey, sessionId, business_name, address, contact, instagram_handle, footer_text, logo_storage_id? }` | `{ ok: true }` | Manager-session. Upserts the `pos_settings` singleton with `receipt_*` fields. Each user-supplied string bounded to 120 chars (`FIELD_TOO_LONG:<key>` on overflow). Calls `_purgeAllReceiptCache_internal` AFTER the patch so a partial failure doesn't blow the cache. Logs `settings.receipt_updated`. |
+
 ## `idempotency.ts` *(new in v0.5 — mutation harness)*
 
-Not a public surface — provides the `withIdempotency()` wrapper used by every public mutation. See [ADR-013](./ADR/013-idempotency-keys.md). Exposes:
+Not a public surface — provides the wrappers used by every public mutation and PIN-gated action. See [ADR-013](./ADR/013-idempotency-keys.md). Exposes:
 
 | Helper | Notes |
 |---|---|
-| `withIdempotency(handler)` | Wraps a mutation handler; checks `pos_idempotency` for the key; replays stored response or executes + stores |
+| `withIdempotency(handler)` | Wraps a **mutation** handler; checks `pos_idempotency` for the key; replays stored response or executes + stores. Pair with `authCheck` so unauthorised retries don't read cached success (see `docs/PATTERNS/idempotency-dual-call-authcheck.md`). |
+| `withActionCache(ctx, { key, mutationName }, fn)` | *(v0.5.3b)* Action-level cache at `convex/idempotency/action.ts`. Wraps an **action** body that itself ends in an idempotent `runMutation` (the canonical pattern: PIN-verify in the action, then dispatch to an internal mutation with a derived `${key}:commit` key — see `staff/actions.ts`, `catalog/actions.ts`, `refunds/actions.ts`). Survives the auth-before-cache rule because the PIN verification runs inside `fn` before the cache write. |
 | `purgeExpired_scheduled` | Scheduled action; deletes `pos_idempotency` rows past `expires_at` |
 
 ## HTTP actions
@@ -235,7 +274,7 @@ Not a public surface — provides the `withIdempotency()` wrapper used by every 
 | h | `/xendit/webhook` | POST | Verifies `x-callback-token` header; routes by event type (`invoice.paid`, `refund.succeeded`, `settlement.completed`); returns 200 fast, processes idempotently |
 | h | `/r/:receiptToken` | GET | Public receipt HTML render ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)); reads `pos_transactions` by `receipt_token`; expired HTML cache regenerates and re-caches |
 
-## `receipts.ts` *(v0.5.1 PR A)*
+## `receipts.ts` *(v0.5.1 PR A + v0.5.3b)*
 
 ### HTTP
 
@@ -243,6 +282,8 @@ Not a public surface — provides the `withIdempotency()` wrapper used by every 
 Returns the HTML receipt page for the txn with matching `receipt_token`. 200 + cached HTML on hit, 200 + freshly rendered + cached on miss, 404 + Indonesian "Struk tidak ditemukan" page on unknown token or non-paid txn status.
 
 Routed via `pathPrefix: "/r/"` in `convex/http.ts`; handler is `handleReceiptRoute` (`convex/receipts/http.ts`).
+
+**v0.5.3b:** `template.ts` now reads receipt branding (business name, address, contact, instagram handle, footer text, logo) from `pos_settings._getSettings_internal` instead of hardcoded consts. `_purgeAllReceiptCache_internal` is invoked from `settings.updateReceiptConfig` so a branding change flushes the 24h cache for all txns.
 
 ### Internal (not callable from public clients)
 
