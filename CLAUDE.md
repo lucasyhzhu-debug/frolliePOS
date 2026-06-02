@@ -66,7 +66,7 @@ Full rationale in the cited ADR. These are the "don't break this" constraints:
 19. **`APPROVAL_KINDS` is the add-a-kind mechanism** — `convex/approvals/kinds.ts` (`ApprovalKind` union + `validateContext` switch + `KIND_AUDIT` + `KIND_TEMPLATE`). `validateContext` is the single-writer invariant. Keep schema/internal validators, Telegram renderer, and `/approve` UI in sync (see [How to add a feature](#how-to-add-a-feature) #8).
 20. **Public mutations require `idempotencyKey` + `withIdempotency` + `authCheck`** ([ADR-013](./docs/ADR/013-idempotency-keys.md)). ESLint-enforced. The handler re-calls `require*Session(...)` so `authCheck` runs BEFORE the cache lookup; the duplication is intentional — don't collapse it. See [`docs/PATTERNS/idempotency-dual-call-authcheck.md`](./docs/PATTERNS/idempotency-dual-call-authcheck.md).
 21. **`markRefundSettled` is manager-session, NOT manager-PIN** ([ADR-038](./docs/ADR/038-refund-settlement-manual-v1.md)) — it's a bookkeeping ack that the already-authorised transfer completed; moves no money. Still audited (`refund.settled`). Same logic guides any "tally what already happened" mutation.
-22. **Manager-admin writes are tiered** (v0.5.3b): **manager-PIN** for identity/money (`createStaff`, `setStaffRole`, `deactivateStaff`, `createProduct`, `updateProductPricing`); **manager-session** for low-stakes config (`updateStaffName`, `updateProductMeta`, `setProductComponents`, `archiveProduct`, receipt-config CRUD). PIN-gated admin actions funnel through `verifyManagerPinOrThrow` (`convex/auth/verifyPin.ts`).
+22. **Manager-admin writes are tiered** (v0.5.3b): **manager-PIN** for identity/money (`createStaff`, `setStaffRole`, `deactivateStaff`, `createProduct`, `updateProductPricing`); **manager-session** for low-stakes config (`updateStaffName`, `updateProductMeta`, `setProductComponents`, `archiveProduct`, receipt-config CRUD). PIN-gated admin actions funnel through `verifyManagerPinOrThrow` (`convex/auth/verifyPin.ts`). **v0.6 adds:** **manager-PIN** for `createVoucher`, `recordSpoilage`, `approveSpoilage` (identity/money: voucher mint + stock decrement); **manager-session** for `updateVoucherMeta`, `archiveVoucher`, `listAllVouchers`, `getVoucherRedemptions`, `listStockDrift`, `resolveDrift` (low-stakes config + read-only drift triage).
 
 ## File locations
 
@@ -84,9 +84,9 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `idempotency/` | Mutation harness + dedupe helpers |
 | `transactions/` | `pos_transactions`/`_lines`/`_receipt_counters`; cart commit + `_confirmPaid`; `flags.ts` (`NEG_STOCK`); `cancelAwaitingPayment`. **Reporting (v0.5.3a):** `lib.ts` pure day aggregators (`computeDaySummary`, V8-safe), `_fetchDayWindow_internal` (single day read, role-neutral — callers fork), public queries `listDayTransactions`/`dashboardSummary`/`getTransactionDetail`/`shareReceipt` (staff = same-day, manager = any day) |
 | `payments/` | Xendit charge + `pos_xendit_invoices`; `webhook.ts` = signature-verified httpAction; `instrumentFromInvoice` (pure helper → `"qris"\|"bca_va"\|"unknown"`) |
-| `inventory/` | `pos_stock_movements` + `_stock_levels` + `_low_stock_alerts` (ADR-042) + `_recount_state` (ADR-041). Recount, low-threshold, low-stock dispatch, `/stock` queries |
+| `inventory/` | `pos_stock_movements` + `_stock_levels` + `_low_stock_alerts` (ADR-042) + `_recount_state` (ADR-041). Recount, low-threshold, low-stock dispatch, `/stock` queries. **v0.6:** `actions.ts` (PIN-gated `recordSpoilage` — spoilage stock decrement, S4) + `cronActions.ts` (R5 resilient cron entry for stock-drift reconciliation) + drift queries (`listStockDrift`, `resolveDrift`) |
 | `vouchers/` | `pos_vouchers` + `_redemptions`; inline discount, one per txn |
-| `approvals/` | Off-booth flow: `pos_approval_requests`, `kinds.ts` (`APPROVAL_KINDS`), `lib.ts` (`effectiveStatus`, `TOKEN_PIN_ATTEMPT_CAP`) |
+| `approvals/` | Off-booth flow: `pos_approval_requests`, `kinds.ts` (`APPROVAL_KINDS`), `lib.ts` (`effectiveStatus`, `TOKEN_PIN_ATTEMPT_CAP`). **v0.6:** `kinds.ts` gained `"spoilage"` union member (S2); `actions.ts` gained `requestSpoilageApproval` + `approveSpoilage` (S5) |
 | `settings/` | `pos_settings` singleton; `_getSettings_internal` returns defaults when row absent. **v0.5.3b:** receipt-branding fields (`receipt_*`) + manager-session receipt-config CRUD (update purges receipt cache) — see `docs/API_REFERENCE.md`. |
 | `receipts/` | `/r/<token>` httpAction + `pos_receipt_html_cache` + `template.ts` (ADR-039, 24h cache). *(v0.5.3a: `_lazyMintReceiptToken_internal` facade deleted; `shareReceipt` calls `transactions._ensureReceiptTokenForPaidTxn_internal` directly.)* **v0.5.3b:** template reads branding from `pos_settings`; `_purgeAllReceiptCache_internal` fires on every receipt-config update. **v0.5.4 (ADR-043):** `public.ts::getReceiptForPrint` = print view-model query (view-model + status label only, NO token); `template.ts::STATUS_LABELS` now exported for server-side label derivation. |
 | `refunds/` | `pos_refunds`; `lib.ts` pure helpers (`computeRefundAmount` ADR-040, `lineRefundable`, `lineRefundedQty`, `refundStatus` — shared by commit funnel, receipt template, FE preview, history badge); `_commitRefund_internal` = single writer for both booth + Telegram paths |
@@ -160,7 +160,11 @@ In `convex/crons.ts`. Currently one: **`founders-shift-summary`** at 22:00 WIB /
 
 ## Telegram
 
-Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts). Set env vars on **both** dev and prod.
+Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts + **v0.6** `stock_drift_alert`). Set env vars on **both** dev and prod.
+
+**Template kinds (v0.6 additions):**
+- `spoilage` — approval template, URL button → `/approve/:token` (ADR-035); routes to `managers` role.
+- `stock_drift_alert` — informational template (no URL button); routes to `inventory` role.
 
 ## How to add a feature
 
