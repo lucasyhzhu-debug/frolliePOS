@@ -26,7 +26,6 @@ export function PrinterSheet() {
           SAMPLE_RECEIPT.viewModel,
           SAMPLE_RECEIPT.status,
           SAMPLE_RECEIPT.statusLabel,
-          "https://frollie.id/r/contoh",
         ),
       );
       toast.success("Tes cetak terkirim");

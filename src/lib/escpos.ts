@@ -17,18 +17,38 @@ function row(left: string, right: string): string {
   return l + " ".repeat(pad) + right;
 }
 
+/**
+ * Build the Instagram URL the printed QR encodes (v0.5.4 — was the digital
+ * receipt /r/<token> URL; the booth wanted a follow-us QR instead, ADR-043
+ * amended). Derived from the `instagram_handle` receipt setting so it stays
+ * editable via /mgr/receipt with no code change:
+ *   "@frollie.id"            → "https://www.instagram.com/frollie.id/"
+ *   "frollie.id"             → "https://www.instagram.com/frollie.id/"
+ *   "https://linktr.ee/x"    → passed through unchanged (already a URL)
+ *   "" / "@"                 → null (no QR rendered)
+ */
+export function instagramUrl(handle: string): string | null {
+  const raw = handle.trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const h = raw.replace(/^@/, "").trim();
+  if (!h) return null;
+  return `https://www.instagram.com/${h}/`;
+}
+
 export function encodeReceipt(
   vm: ReceiptViewModel,
   _status: ReceiptStatus,
   statusLabel: string,
-  receiptUrl: string,
 ): Uint8Array {
   const e = new EscPosEncoder();
   e.initialize();
 
+  // Header — business name (large), then address only if configured. Empty
+  // fields are skipped so clearing a value in /mgr/receipt removes the line
+  // rather than printing a blank one.
   e.align("center").bold(true).width(2).height(2).line(ascii(vm.settings.business_name)).width(1).height(1).bold(false);
-  e.line(ascii(vm.settings.address));
-  e.line(ascii(vm.settings.instagram_handle));
+  const address = ascii(vm.settings.address);
+  if (address) e.line(address);
   e.line("-".repeat(COLS));
   e.line(`[ ${ascii(statusLabel)} ]`);
   e.align("left");
@@ -58,9 +78,17 @@ export function encodeReceipt(
   e.line(`Dibayar via ${ascii(vm.payment_method)}`);
   if (vm.rrn) e.line(`RRN: ${ascii(vm.rrn)}`);
 
-  e.align("center").qrcode(receiptUrl).line("Scan untuk struk digital");
-  e.line("Terima kasih!");
-  e.line(ascii(vm.settings.instagram_handle));
+  // Footer — Instagram follow QR (derived from the handle), then the
+  // configurable footer line. Both come from /mgr/receipt settings.
+  e.align("center");
+  const ig = instagramUrl(vm.settings.instagram_handle);
+  if (ig) {
+    e.qrcode(ig);
+    const handle = ascii(vm.settings.instagram_handle);
+    e.line(handle ? `Follow ${handle}` : "Follow us on Instagram");
+  }
+  const footer = ascii(vm.settings.footer_text);
+  if (footer) e.line(footer);
   e.newline().newline().newline();
 
   return e.encode();

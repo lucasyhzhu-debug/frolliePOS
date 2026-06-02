@@ -1,9 +1,9 @@
 import { useNavigate, useParams } from "react-router";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery } from "convex/react";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { rp, buildReceiptUrl } from "@/lib/format";
+import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
@@ -37,7 +37,6 @@ export default function SaleChargeSuccess() {
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : undefined;
   const { status: printerStatus, connect, print } = useThermalPrinter();
-  const shareReceipt = useMutation(api.transactions.public.shareReceipt);
 
   const printData = useQuery(
     api.receipts.public.getReceiptForPrint,
@@ -45,16 +44,12 @@ export default function SaleChargeSuccess() {
   );
 
   const onPrint = async () => {
-    if (!sessionId || !txnId || !printData) return;
+    if (!printData) return;
     try {
-      // One-shot user action → fresh UUID per click (matches history/$txnId.tsx +
-      // drafts convention; useIdempotency is reserved for retried/replayed
-      // mutations). shareReceipt is idempotent BY TXN, so reprints reuse the same
-      // token → stable QR regardless of the key.
-      const { token } = await shareReceipt({ idempotencyKey: crypto.randomUUID(), sessionId, txnId });
-      const bytes = encodeReceipt(
-        printData.viewModel, printData.status, printData.statusLabel, buildReceiptUrl(token),
-      );
+      // The QR is a static follow-us Instagram link derived from the receipt
+      // settings (ADR-043 amended), so no per-print shareReceipt token mint is
+      // needed. The /r/<token> digital receipt is still reachable via history share.
+      const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
       await print(bytes);
       toast.success("Struk dicetak");
     } catch {
