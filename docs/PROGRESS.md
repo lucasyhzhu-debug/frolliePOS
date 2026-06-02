@@ -1059,7 +1059,7 @@ Plan not yet written. Closes the load-bearing "Xendit settlement timing" risk un
 
 ## v0.5.4 — Bluetooth thermal receipt printing 📋 PLANNED
 **Outcome:** Staff print 58mm ESC/POS receipts to the EPPOS EP5811AI over Web Bluetooth — one tap on the sale-complete screen, an auto-reconnecting printer, and a test-print path. Fully client-side; QR on paper links to the digital receipt.
-**Target:** plan landed on `main` 2026-06-02 (PR #16, `f5d5bae`); revised 2026-06-02 (post-v0.5.3b drift); not yet executed
+**Target:** all 6 tasks executed on branch `worktree-exec-v0.5.4` 2026-06-02 (9-task SDD pipeline; typecheck + build + 764 tests green). Phase flips to ✅ SHIPPED after merge + on-device QA (Android Chrome, real printer). Plan: PR #16, `f5d5bae`.
 Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md) · spec + 2× staffreview. Device verified on-device (dual-mode BLE, service `0x18f0` / write char `0x2af1`).
 
 **You'll be able to:**
@@ -1076,62 +1076,64 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 - iOS / non-Chrome printing (POS is Android-Chrome single-device)
 
 ### Backend (`convex/`)
-- 📋 **[v054-be-print-query]** `receipts.getReceiptForPrint` (+ export `STATUS_LABELS`)
+- ✅ **[v054-be-print-query]** `receipts.getReceiptForPrint` (+ export `STATUS_LABELS`) (0a8c21c)
   - **agent:** `convex-expert`
   - **deps:** `v054-xc-deps`
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md), [ADR-021](./ADR/021-receipt-token-capability.md), [ADR-029](./ADR/029-token-authorizes-view-pin-authorizes-act.md)
   - **subtasks:**
-    - [ ] Export `STATUS_LABELS` from `receipts/template.ts` (still module-private on main)
-    - [ ] `getReceiptForPrint(sessionId, txnId)` → view-model + status label; **no token/URL** (ADR-021)
-    - [ ] Mirror `getTransactionDetail` role+today scope (staff: today only; manager: any)
-    - [ ] convex-test: paid / invalid-session→null / staff-out-of-today→null / manager-any
+    - [x] Export `STATUS_LABELS` from `receipts/template.ts` (still module-private on main)
+    - [x] `getReceiptForPrint(sessionId, txnId)` → view-model + status label; **no token/URL** (ADR-021)
+    - [x] Mirror `getTransactionDetail` role+today scope (staff: today only; manager: any)
+    - [x] convex-test: paid / invalid-session→null / staff-out-of-today→null / manager-any
   - **notes:** QR token comes from existing `transactions.public.shareReceipt`, not this query. Reuses `_buildViewModel_internal` (settings now sourced from `pos_settings` via v0.5.3b — branding flows through free).
 
 ### Frontend (`src/`)
-- 📋 **[v054-fe-escpos]** `src/lib/escpos.ts` ESC/POS encoder (pure)
+- ✅ **[v054-fe-escpos]** `src/lib/escpos.ts` ESC/POS encoder (pure) (48b61b6)
   - **agent:** `frontend-integrator`
   - **deps:** `v054-xc-deps`
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md)
   - **subtasks:**
-    - [ ] `encodeReceipt(vm, status, label, url)` via `@point-of-sale/esc-pos-encoder` (classic)
-    - [ ] Reuse `src/lib/format` (`rp`/`fmtDate`/`fmtTime`); ASCII-fold; QR of receipt URL
-    - [ ] Exported `SAMPLE_RECEIPT` fixture (incl. `logo_url: null`); golden byte tests (fixed `paid_at`)
-  - **notes:** verify encoder method names post-install; native-QR vs raster fallback isolated here.
-- 📋 **[v054-fe-printer-hook]** `useThermalPrinter` + pure `chunkBytes`
+    - [x] `encodeReceipt(vm, status, label, url)` via `esc-pos-encoder` v2.1.0 (classic chainable)
+    - [x] Reuse `src/lib/format` (`rp`/`fmtDate`/`fmtTime`); ASCII-fold; QR of receipt URL
+    - [x] Exported `SAMPLE_RECEIPT` fixture (incl. `footer_text` + `logo_url: null`); golden byte tests (fixed `paid_at`)
+  - **notes:**
+    - 2026-06-02: pkg `@point-of-sale/esc-pos-encoder` does not exist on npm → used classic unscoped `esc-pos-encoder@^2.1.0` (+ `@types/esc-pos-encoder`). `.size(w,h)` → `.width(n).height(n)`. Vitest aliases the canvas-free browser build (node build top-level-imports native `canvas`); prod `vite build` resolves it automatically. Native `.qrcode()` used; raster fallback still isolated in escpos.ts pending on-device check.
+- ✅ **[v054-fe-printer-hook]** `useThermalPrinter` + pure `chunkBytes` (0dc85fe)
   - **agent:** `frontend-integrator`
   - **deps:** `v054-xc-deps`
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md)
   - **subtasks:**
-    - [ ] `chunkBytes` pure + unit tests (empty / < / exact / > MTU)
-    - [ ] connect (filtered chooser) + `getDevices()` silent auto-reconnect
-    - [ ] chunked paced `writeWithoutResponse` to char `0x2af1`; `unsupported` feature-detect
-  - **notes:** BLE layer is manual on-device; `chunkBytes` is the tested core.
-- 📋 **[v054-fe-print-ui]** `PrinterSheet` + charge-success print button
+    - [x] `chunkBytes` pure + unit tests (empty / < / exact / > MTU)
+    - [x] connect (filtered chooser) + `getDevices()` silent auto-reconnect
+    - [x] chunked paced `writeWithoutResponse` to char `0x2af1`; `unsupported` feature-detect
+  - **notes:**
+    - 2026-06-02: auto-reconnect effect guards on `status !== "disconnected"` (plan's `unsupported`-only guard looped connecting↔connected + stacked listeners); also yields free reconnect-on-drop. `print()` copies each chunk via `new Uint8Array(chunk)` for `BufferSource` under TS 5.7+ typed-array generics. BLE layer manual on-device; `chunkBytes` is the tested core.
+- ✅ **[v054-fe-print-ui]** `PrinterSheet` + charge-success print button (ad28d55)
   - **agent:** `ui-component-builder`
   - **deps:** `v054-be-print-query`, `v054-fe-escpos`, `v054-fe-printer-hook`
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md)
   - **subtasks:**
-    - [ ] `PrinterSheet` on the existing `Dialog` primitive (mirror `PinSheet`)
-    - [ ] charge-success: `useSession`, `shareReceipt` ∥ `getReceiptForPrint` → encode → print
-    - [ ] One-shot `crypto.randomUUID()` for the shareReceipt key; toasts; smoke test
+    - [x] `PrinterSheet` on the existing `Dialog` primitive (mirror `PinSheet`)
+    - [x] charge-success: `useSession`, `shareReceipt` ∥ `getReceiptForPrint` → encode → print
+    - [x] One-shot `crypto.randomUUID()` for the shareReceipt key; toasts; smoke test
   - **notes:** _(empty)_
 
 ### Cross-cutting
-- 📋 **[v054-xc-deps]** deps + types
+- ✅ **[v054-xc-deps]** deps + types (f3ddce0)
   - **agent:** `—`
   - **deps:** _(none)_
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md)
   - **subtasks:**
-    - [ ] `@point-of-sale/esc-pos-encoder` (dep) + `@types/web-bluetooth` (dev)
-    - [ ] Add `"web-bluetooth"` to tsconfig `types`
+    - [x] `esc-pos-encoder@^2.1.0` + `@types/esc-pos-encoder` (dep) + `@types/web-bluetooth` (dev)
+    - [x] Add `"web-bluetooth"` to tsconfig `types`
   - **notes:** Task-0 gate — unblocks all client typecheck.
-- 📋 **[v054-xc-adr043]** ADR-043 + docs
+- ✅ **[v054-xc-adr043]** ADR-043 + docs (29d200a)
   - **agent:** `—`
   - **deps:** `v054-be-print-query`, `v054-fe-print-ui`
   - **docs:** [plan](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md)
   - **subtasks:**
-    - [ ] ADR-043 (Web Bluetooth ESC/POS printing; not audited; raster/ISSC fallbacks)
-    - [ ] API_REFERENCE (`getReceiptForPrint`), CHANGELOG, CLAUDE.md file locations
+    - [x] ADR-043 (Web Bluetooth ESC/POS printing; not audited; raster/ISSC fallbacks)
+    - [x] API_REFERENCE (`getReceiptForPrint`), CHANGELOG, CLAUDE.md file locations
   - **notes:** _(empty)_
 
 ---
