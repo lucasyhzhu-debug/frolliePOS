@@ -302,3 +302,29 @@ npx convex run telegram/foundersSummary:sendFoundersSummary
 ```
 
 This calls the same logic as the 22:00 WIB cron but skips the resilient retry wrapper. If it returns `{ skipped: "disabled" }`, check the `founders_summary_enabled` toggle in `/mgr/telegram-chats`. If it throws `"No Telegram chat assigned to role 'founders'"`, bind the founders chat first.
+
+---
+
+## Environment variable reference
+
+Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env set KEY VALUE --prod`). PowerShell mangles negative chat IDs — see [LESSON 8](#lesson-8--powershell-mangles-negative-chat-ids).
+
+| Variable | Required | Notes |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | Yes | From BotFather. Never share. Use separate bots for dev and prod. |
+| `TELEGRAM_WEBHOOK_SECRET` | Yes | Random string; passed as `secret_token` to `setWebhook`. Verified on every inbound update. |
+| `POS_BASE_URL` | Yes | Base URL of the frontend (e.g. `https://frollie-pos.vercel.app`). Used to build `/approve/:token` URLs in Telegram messages. |
+| `TELEGRAM_CHAT_ID` | Fallback only | Legacy env-fallback for the `managers` role until `getChatIdByRole` finds a bound row. Required during initial setup before `/mgr/telegram-chats` assigns roles. Keep set during prod cutover. |
+| `TELEGRAM_FALLBACK_ROLE` | Fallback only | Which role the `TELEGRAM_CHAT_ID` fallback applies to (usually `managers`). Must match `TELEGRAM_CHAT_ID` to work. |
+| `TELEGRAM_BOT_USERNAME` | Optional | Used in `/start` help text and test-message copy. Defaults to `FrolliePOS_Bot` in `config.ts`. |
+| `TELEGRAM_ADMIN_URL` | Optional | URL to the `/mgr/telegram-chats` admin UI. Shown in `/register` confirmation messages. Defaults to `POS_BASE_URL/mgr/telegram-chats`. |
+
+## Telegram roles
+
+`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`. Roles are bound to registered chats via `/mgr/telegram-chats`. `sendTemplate` dispatches by role (with the legacy `TELEGRAM_CHAT_ID` env-fallback for `managers` only).
+
+| Role | Purpose |
+|---|---|
+| `managers` | Off-booth approval requests (PIN resets, manual payment overrides, refunds). Bind first. |
+| `founders` | Daily shift-summary cron at 22:00 WIB (ADR-033). Opt-out via `pos_settings.founders_summary_enabled`. |
+| `inventory` *(v0.5.2)* | Operations chat that receives recount notices + low-stock alerts. Bind via `/mgr/telegram-chats`. |
