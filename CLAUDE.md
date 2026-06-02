@@ -136,6 +136,8 @@ Add tables in `convex/schema.ts` here — POS tables are POS-owned. Pattern afte
 
 ## Xendit integration
 
+> **Before researching any external/third-party API (Xendit) behaviour, read [`docs/xendit-reference/`](./docs/xendit-reference/) first.** It is our source-cited external-API knowledge base — hard-won facts (which endpoint, which webhook field, what does NOT exist) captured so we don't re-research every phase. New API findings go *there*, not in `docs/API_REFERENCE.md` (that file is our own Convex function inventory). Current contents: `README.md` (QRIS QR Codes API diagnosis + working pattern), `settlement-reconciliation.md` (settlement/payout facts), `qris-protocol-research.md` (EMVCo protocol background).
+
 Full design: [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md). Load-bearing facts:
 
 - **QRIS** = QR Codes API (`POST /qr_codes`, inline `qr_string`). **BCA VA** = FVA API (`POST /callback_virtual_accounts`, inline `account_number`). Both render in-POS, no hosted invoice page. Invoice API **not used**.
@@ -144,6 +146,7 @@ Full design: [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md). Load-bea
 - **No polling.** Confirmation = webhook + manager-PIN override only.
 - **Idempotency at two levels:** client `idempotencyKey` per mutation; webhook also dedupes by `xendit_invoice_id` (Xendit retries).
 - **Single active invoice per txn (local supersede):** on retry, mint fresh QR/VA, mark prior row cancelled + `replaced_by_invoice_id` locally. No Xendit cancel-API call for QR codes.
+- **Settlement has NO webhook** ([`settlement-reconciliation.md`](./docs/xendit-reference/settlement-reconciliation.md)). Payout of collected funds is knowable only via the **List Transactions API** (`GET /transactions`, per-txn `settlement_status` ∈ `PENDING`/`SETTLED`/`EARLY_SETTLED`/`null` + `settlement_date` + `fee`) or Balance/Transactions report CSVs — matched on our `reference_id`. v0.5.3c ingests via a nightly poll-cron, not a webhook. The "settlement webhook" wording in foundations §7 / ADR-012 is superseded (verified false 2026-06-02). `pos_settlements` (Xendit→merchant) ≠ `pos_refunds.settlement_status` (merchant→customer, ADR-038).
 
 ## Auth
 
