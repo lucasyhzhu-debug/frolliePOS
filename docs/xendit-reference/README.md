@@ -230,6 +230,7 @@ predates knowing the Invoice API can't feed an inline QR.
 ```
 docs/xendit-reference/
 ├── README.md                       ← this file (start here — diagnosis + working pattern)
+├── settlement-reconciliation.md    Settlement/payout API facts: NO settlement webhook; poll List Transactions API ²
 ├── qris-protocol-research.md       Protocol background: EMVCo TLV, NMID, MPM vs CPM, dynamic vs static ¹
 └── reference-impl/                 ← verbatim working code (NOT compiled)
     ├── provider.ts                 Provider-agnostic interface (swap aggregators later)
@@ -247,3 +248,9 @@ docs/xendit-reference/
 static QR). **Skip / discount §3** — it documents a *poll-based* aggregator (qris.online /
 InterActive) that was **not** chosen; the shipped integration is Xendit's webhook-based QR
 Codes API as described in this README. The doc's own header banner flags this too.
+
+² `settlement-reconciliation.md` captures how Xendit exposes *settlement* (the daily
+payout of collected funds to your bank) — researched for v0.5.3c. The one fact to
+internalise: **there is no settlement webhook.** Settlement is per-transaction
+(`settlement_status` + `settlement_date`), readable only via the List Transactions API or
+the Balance/Transactions reports. Read it before touching anything that reconciles payouts.
