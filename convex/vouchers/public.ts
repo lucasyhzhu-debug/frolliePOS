@@ -155,3 +155,56 @@ export const updateVoucherMeta = mutation({
     },
   ),
 });
+
+/**
+ * Soft-delete a voucher. Sets `active:false`; preserves all
+ * `pos_voucher_redemptions` rows (refund / audit trails depend on the
+ * historical voucher row remaining intact — ADR-008 refunds-as-rows applies
+ * transitively to voucher provenance).
+ *
+ * Manager-session-gated (no PIN) per CLAUDE.md rule #22: archival is a
+ * low-stakes config edit. To "change" a voucher's value, archive and recreate
+ * — `value` is birth-immutable (ADR-010 voucher static-by-design).
+ *
+ * Idempotent-by-state: second archive on an already-inactive voucher is a
+ * true no-op (no second audit row). Uses the same withIdempotency +
+ * authCheck pattern as updateVoucherMeta (rule #20).
+ */
+export const archiveVoucher = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    voucherId: v.id("pos_vouchers"),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      voucherId: Id<"pos_vouchers">;
+    },
+    { ok: true }
+  >(
+    "vouchers.archiveVoucher",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const row = await ctx.db.get(args.voucherId);
+      if (!row) throw new Error("VOUCHER_NOT_FOUND");
+      if (row.active === false) return { ok: true as const }; // no-op
+      await ctx.db.patch(args.voucherId, { active: false });
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "voucher.deactivated",
+        entity_type: "pos_vouchers",
+        entity_id: args.voucherId,
+        source: "booth_inline",
+        device_id: deviceId,
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
