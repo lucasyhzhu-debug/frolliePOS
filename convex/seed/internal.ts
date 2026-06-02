@@ -52,9 +52,24 @@ export const _reset_internal = internalMutation({
       inserted++;
     }
     const mgrCode = `S-${String(staffCounter).padStart(4, "0")}`;
-    await ctx.db.insert("staff", {
+    const lucasId = await ctx.db.insert("staff", {
       name: "Lucas", code: mgrCode, pin_hash: args.mgrPinHash, role: "manager",
       active: true, created_at: now,
+    });
+    inserted++;
+
+    // DEV-ONLY: pre-register a fixed device so dev / Chrome-MCP loads skip the
+    // /activate gate. The id matches DEV_DEVICE_ID in src/lib/storage-keys.ts
+    // (the two runtimes cannot share a module — keep them in sync). registered_devices
+    // is wiped above, so re-running reset replaces this row. Never seeded by
+    // `bootstrap` (the prod path), and `reset` is prod-guarded by deployment slug.
+    await ctx.db.insert("registered_devices", {
+      device_id: "dev-booth-device",
+      label: "Dev Booth Device",
+      activated_by: lucasId,
+      activated_at: now,
+      last_seen_at: now,
+      active: true,
     });
     inserted++;
 

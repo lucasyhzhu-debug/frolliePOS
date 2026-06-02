@@ -2,6 +2,10 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## Dev tooling (unreleased)
+
+- `seed:reset` now pre-registers a fixed dev device (`dev-booth-device`), and `useDeviceId` returns that id under the Vite dev server, so local / Chrome-MCP loads skip the `/activate` device-registration gate. No production impact — gated on `import.meta.env.MODE === "development"`, so the prod build and the test runner keep the random per-install UUID path. Dev credentials after seed: Lucas (manager, PIN 9999), Bayu/Citra/Dewi/Eka (staff, PIN 0000).
+
 ## v0.5.3b — In-app admin (staff + product CRUD + receipt config) (unreleased)
 
 - Managers can create/edit/deactivate staff in-app under a tiered manager gate (manager-PIN for identity writes, manager-session for low-stakes config).

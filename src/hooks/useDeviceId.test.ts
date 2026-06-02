@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { openDB } from "idb";
-import { DEVICE_ID_KEY } from "@/lib/storage-keys";
+import { DEVICE_ID_KEY, DEV_DEVICE_ID } from "@/lib/storage-keys";
 import { useDeviceId } from "./useDeviceId";
 
 const DB = "frollie-device";
@@ -18,6 +18,13 @@ async function clearAll() {
 
 describe("useDeviceId", () => {
   beforeEach(async () => { await clearAll(); });
+
+  // The seed (convex/seed/internal.ts) registers this exact literal as the dev
+  // device. If the two ever diverge, the dev RootLayout gate would bounce to
+  // /activate. Pin it here so a frontend-side typo fails the suite.
+  it("exposes the fixed dev device id literal", () => {
+    expect(DEV_DEVICE_ID).toBe("dev-booth-device");
+  });
 
   it("returns null initially, then a UUID after IDB resolves (Fix 8)", async () => {
     const { result } = renderHook(() => useDeviceId());
