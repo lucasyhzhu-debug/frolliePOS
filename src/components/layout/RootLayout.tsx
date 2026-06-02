@@ -5,6 +5,7 @@ import { useDeviceId } from "@/hooks/useDeviceId";
 import { useStartupReconciliation } from "@/hooks/useStartupReconciliation";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { PrinterProvider } from "@/components/pos/PrinterProvider";
 
 /**
  * App shell. Gates everything under "/" behind:
@@ -50,9 +51,13 @@ export function RootLayout() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-background">
-      <Suspense fallback={<RouteFallback />}>
-        <Outlet />
-      </Suspense>
+      {/* PrinterProvider sits above the Outlet so one BLE connection survives
+          route changes (connect once per shift, not per screen). */}
+      <PrinterProvider>
+        <Suspense fallback={<RouteFallback />}>
+          <Outlet />
+        </Suspense>
+      </PrinterProvider>
     </div>
   );
 }

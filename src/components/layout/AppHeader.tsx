@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 import { useSession } from "@/hooks/useSession";
 import { ConnDot } from "@/components/layout/ConnDot";
+import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 
@@ -33,6 +34,9 @@ export function AppHeader({ title, backTo = "/", onBack, rightSlot, hideBack }: 
       <h1 className="text-sm font-medium">{title}</h1>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {rightSlot}
+        {/* Global printer chip — shared connection (PrinterProvider), so staff
+            connect once at shift start from any screen. */}
+        {session.status === "active" && <PrinterSheet />}
         {session.status === "active" && <span>{session.staff.name}</span>}
         <ConnDot />
       </div>

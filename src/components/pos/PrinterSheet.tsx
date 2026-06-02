@@ -3,7 +3,8 @@ import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useThermalPrinter, type PrinterStatus } from "@/hooks/useThermalPrinter";
+import { type PrinterStatus } from "@/hooks/useThermalPrinter";
+import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt, SAMPLE_RECEIPT } from "@/lib/escpos";
 
 const LABEL: Record<PrinterStatus, string> = {
@@ -17,7 +18,7 @@ const LABEL: Record<PrinterStatus, string> = {
 
 export function PrinterSheet() {
   const [open, setOpen] = useState(false);
-  const { status, connect, disconnect, print } = useThermalPrinter();
+  const { status, connect, disconnect, print } = usePrinter();
 
   const onTest = async () => {
     try {

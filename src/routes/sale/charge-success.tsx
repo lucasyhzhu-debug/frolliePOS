@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { useSession } from "@/hooks/useSession";
-import { useThermalPrinter } from "@/hooks/useThermalPrinter";
-import { PrinterSheet } from "@/components/pos/PrinterSheet";
+import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt } from "@/lib/escpos";
 import { toast } from "sonner";
 
@@ -36,7 +35,7 @@ export default function SaleChargeSuccess() {
 
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : undefined;
-  const { status: printerStatus, connect, print } = useThermalPrinter();
+  const { status: printerStatus, connect, print } = usePrinter();
 
   const printData = useQuery(
     api.receipts.public.getReceiptForPrint,
@@ -112,7 +111,7 @@ export default function SaleChargeSuccess() {
     : "Paid";
 
   return (
-    <SpokeLayout title="Sale complete" hideBack rightSlot={<PrinterSheet />}>
+    <SpokeLayout title="Sale complete" hideBack>
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
       {/* Success mark */}
       <div className="flex flex-col items-center gap-2">
