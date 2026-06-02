@@ -53,43 +53,65 @@ Three small, isolated changes.
 A single literal `"dev-booth-device"` referenced by both runtimes:
 
 - **Frontend:** export `DEV_DEVICE_ID = "dev-booth-device"` from
-  `src/lib/storage-keys.ts` (existing home for device/storage keys).
+  `src/lib/storage-keys.ts` (the hook already imports `DEVICE_ID_KEY` from there).
+  Add a one-line comment marking it as a *dev-only fixed device-id value* — that
+  file otherwise holds localStorage *key* names, and this is a value.
 - **Backend:** redeclare the same literal in `convex/seed/internal.ts` with a
   comment cross-referencing `src/lib/storage-keys.ts`. The frontend (`src/`) and
   Convex (`convex/`) cannot share a module, so the literal is duplicated by
   necessity. A divergence simply re-triggers the activate gate — loud and obvious,
   not silent.
 
-### 2. `useDeviceId` — DEV short-circuit
+### 2. `useDeviceId` — dev-server short-circuit
 
-When `import.meta.env.DEV` is `true`, return `DEV_DEVICE_ID` immediately and skip
-the IDB/localStorage reconcile entirely. This guarantees the dev client always
+When `import.meta.env.MODE === "development"`, return `DEV_DEVICE_ID` immediately and
+skip the IDB/localStorage reconcile entirely. This guarantees the dev client always
 presents the same id the seed registered — even in a fresh incognito/MCP profile
 with empty IndexedDB.
 
-When `import.meta.env.DEV` is `false` (prod build), the existing UUID
-reconcile logic is **untouched**.
+**Gate on `MODE === "development"`, NOT `import.meta.env.DEV`.** `DEV` is `true` under
+vitest (empirically probed: `{"DEV":true,"PROD":false,"MODE":"test"}`), so a `DEV`
+gate would fire *inside the test runner* and break the existing `useDeviceId.test.ts`
+suite (which asserts UUID / null-first / IDB persistence). `MODE` cleanly separates the
+three contexts:
 
-Implementation note: the hook still returns `string | null`. In DEV it can return
-the constant synchronously on first render (no async resolve needed), but to keep
-the return contract and avoid a same-render state churn, set it via the existing
-state path. Either is acceptable as long as DEV never falls through to UUID
-generation.
+| Context | `MODE` | Short-circuit |
+|---|---|---|
+| `npm run dev` (vite) | `"development"` | **ON** (intended) |
+| `vitest` | `"test"` | off — existing tests stay green |
+| `vite build` (prod) | `"production"` | off — prod UUID logic untouched |
+
+(Verify during implementation that `package.json`'s `dev` script has no `--mode`
+override; the Vite default for `vite dev` is `"development"`.)
+
+Implementation note: the hook still returns `string | null`. In the dev-server branch
+it can return the constant synchronously on first render (no async resolve needed), but
+to keep the return contract and avoid a same-render state churn, set it via the existing
+state path. Either is acceptable as long as the dev-server branch never falls through to
+UUID generation.
 
 ### 3. `seed:reset` — insert an active `registered_devices` row
 
 In `_reset_internal` (`convex/seed/internal.ts`), after seeding staff, insert one
-row:
+row. **First capture the manager's id** — the existing manager insert at
+`internal.ts:55` discards its return value, but `registered_devices.activated_by`
+is a required `v.id("staff")`:
 
 ```ts
+// change the existing manager insert to capture its id:
+const lucasId = await ctx.db.insert("staff", { name: "Lucas", code: mgrCode, /* ... */ });
+inserted++;
+
+// ...then, after the manager insert, register the dev device:
 await ctx.db.insert("registered_devices", {
   device_id: DEV_DEVICE_ID,           // "dev-booth-device"
   label: "Dev Booth Device",
-  activated_by: lucasId,              // the manager id created just above
+  activated_by: lucasId,
   activated_at: now,
   last_seen_at: now,
   active: true,
 });
+inserted++;
 ```
 
 - `registered_devices` is **already** in the wipe list (`internal.ts:28`), so
@@ -124,13 +146,31 @@ Device: `dev-booth-device` (pre-registered, label "Dev Booth Device").
 
 ## Tests
 
-Dev-only tooling — no tests strictly required. But the seed change touches a tested
-module (`convex/seed/__tests__/`):
+- **Create `convex/seed/__tests__/reset.test.ts`** (no reset test exists today — the
+  only seed test is `bootstrap.test.ts`, so this is a new file, not an extension).
+  Drive `_reset_internal` directly with dummy hashes (lighter than the `reset` action,
+  which would run two real argon2 hashes) and assert exactly one **active**
+  `registered_devices` row exists with `device_id === "dev-booth-device"` and a valid
+  `activated_by`. There is no existing `inserted`-count assertion to update.
+- **`useDeviceId.test.ts` must stay green** — the `MODE === "development"` gate (not
+  `DEV`) ensures the short-circuit does not fire under vitest (`MODE === "test"`). This
+  is the live regression guarded by Change #2.
+- *Optional:* add a `useDeviceId` test for the dev-server branch using
+  `vi.stubEnv("MODE", "development")` before `renderHook`, asserting the hook returns
+  `"dev-booth-device"`. Restore with `vi.unstubAllEnvs()` in `afterEach`. Dev-only
+  branch, so optional.
 
-- Keep the existing seed suite green (the `inserted` count assertion, if any, must
-  account for the new row).
-- Add a one-line assertion that `_reset_internal` creates an active
-  `registered_devices` row with `device_id === "dev-booth-device"`.
+### Pre-merge verification
+
+- `npm run typecheck`
+- `npx vitest run convex/seed src/hooks/useDeviceId.test.ts`
+
+## Documentation
+
+- `docs/CHANGELOG.md` — add a dev-tooling entry (per CLAUDE.md "How to add a feature" #9).
+- CLAUDE.md (Auth / seed notes) — one line that `seed:reset` now pre-registers
+  `dev-booth-device`, so dev skips the `/activate` gate. Helps the next agent.
+- No `docs/SCHEMA.md` change — reuses the existing `registered_devices` table.
 
 ## Out of scope
 
