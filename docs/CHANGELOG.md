@@ -6,6 +6,52 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 - `seed:reset` now pre-registers a fixed dev device (`dev-booth-device`), and `useDeviceId` returns that id under the Vite dev server, so local / Chrome-MCP loads skip the `/activate` device-registration gate. No production impact — gated on `import.meta.env.MODE === "development"`, so the prod build and the test runner keep the random per-install UUID path. Dev credentials after seed: Lucas (manager, PIN 9999), Bayu/Citra/Dewi/Eka (staff, PIN 0000).
 
+## v0.6 — Vouchers + spoilage + nightly stock-recon (unreleased)
+
+Manager voucher CRUD, a new `spoilage` approval kind (booth + Telegram paths sharing one writer), and a nightly report-only stock-drift cron ([ADR-044](./ADR/044-nightly-stock-recon-report-only.md)). Wave 4 (Playwright E2E suite) is **deferred to v0.6.1** — implementation depends on the v0.6 backend being deployed to the dev Convex deployment first. Plan + task manifest at `docs/superpowers/plans/2026-06-02-v0.6.md` (tasks P1–P10).
+
+### Vouchers
+
+- New `/mgr/vouchers` — manager portal: create (PIN-gated), update meta (manager-session), archive (manager-session), redemption history with receipt-number annotation.
+- Offline cart-build fallback: when live `validateVoucher` is unavailable, the FE validates against the IDB-cached catalog snapshot via the shared pure helper `convex/lib/voucherValidate.ts` so BE (`validateVoucher`) and FE (offline path) cannot drift on `NOT_FOUND` / `INACTIVE` / `EXPIRED` / `MIN_CART_VALUE` semantics. Server re-validates on charge per [ADR-009](./ADR/009-voucher-cache-offline.md).
+- ADR-009 reject banner on `/sale/charge`: when `commitCart` silently drops a stale voucher, the charge screen surfaces a humanized banner with a "Pick a different voucher" affordance — replaces the previous silent-drop behaviour.
+
+### Spoilage
+
+- New approval kind `APPROVAL_KINDS["spoilage"]` ([rule #19](../CLAUDE.md), 5 touchpoints wired).
+- Booth path: new `/mgr/spoilage` route + manager-PIN `recordSpoilage` action.
+- Off-booth path: `requestSpoilageApproval` mints a Telegram approval card → manager taps `/approve/:token` → `approveSpoilage` commits via the same `_recordSpoilage_internal` writer used by the booth path. Single writer, two callers.
+- `pos_stock_movements` gains optional `spoilage_reason` + `spoilage_event_id` (groups multi-line spoilage events).
+- `/approve/:token` page extended with the `kind:"spoilage"` discriminator + dispatch.
+- New Telegram template `spoilage_approval`.
+- New audit verbs: `stock.spoilage`, `spoilage.requested`, `spoilage.approval_resolved`, `spoilage.denied`.
+
+### Nightly stock-reconciliation
+
+- New `pos_stock_drift_log` table + indexes `by_sku_detected` and `by_unresolved`.
+- New daily cron at 02:00 WIB (19:00 UTC) — `sendStockReconResilient` (linear retry, `RESILIENT_MAX_ATTEMPTS=3`) reconstructs `on_hand` per active SKU by replaying `pos_stock_movements`, compares to cached `pos_stock_levels.on_hand`, and on mismatch writes a `pos_stock_drift_log` row + audit + alerts the `inventory` role via Telegram template `stock_drift_alert`.
+- **Report-only by design** ([ADR-044](./ADR/044-nightly-stock-recon-report-only.md)) — never silently auto-corrects the cache. Manager triages via the `/mgr/stock` drift tab and resolves with a note (audited as `stock.recon_drift_resolved`).
+- New audit verbs: `stock.recon_drift`, `stock.recon_skip`, `stock.recon_drift_resolved`.
+
+### ADRs
+
+- [ADR-044](./ADR/044-nightly-stock-recon-report-only.md) — nightly stock-recon is report-only (drift_log + Telegram alert + manager triage), never auto-corrects the `pos_stock_levels` cache. Rationale: silent auto-correction would mask spoilage / theft / movement-write bugs that the cache divergence is the only surfaceable signal for.
+
+### Docs
+
+- SCHEMA.md — v0.6 fields (`pos_stock_movements.spoilage_reason`, `spoilage_event_id`), new table `pos_stock_drift_log`, new audit verbs.
+- CLAUDE.md — rule #22 v0.6 additions (spoilage + recon-resolve gates) + new Telegram template literals.
+
+### Deploy notes
+
+- Backend additive (one new table, two optional movement fields, one new cron, one new approval kind). Deploy backend before frontend so the FE's new mutations / routes find their handlers.
+- New cron starts firing on first deploy at 02:00 WIB. Pre-existing drift between movements and the `pos_stock_levels` cache will appear in the first run's drift_log — expected, triage via `/mgr/stock`.
+- New Telegram templates (`spoilage_approval`, `stock_drift_alert`) route through the existing `managers` + `inventory` role bindings — no new role to bind.
+
+### Not in v0.6 (deferred)
+
+- **Wave 4 — Playwright E2E suite** deferred to v0.6.1 pending v0.6 backend on dev Convex. Plan at `docs/superpowers/plans/2026-06-02-v0.6.md` (P1–P10).
+
 ## v0.5.4 — Bluetooth thermal receipt printing (unreleased)
 
 - Print 58mm receipts to the EPPOS EP5811AI over Web Bluetooth (ESC/POS), one tap on sale-complete. **Verified working end-to-end on-device** (connect → print full paid receipt).
