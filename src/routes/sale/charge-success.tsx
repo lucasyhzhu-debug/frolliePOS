@@ -1,12 +1,17 @@
 import { useNavigate, useParams } from "react-router";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { rp } from "@/lib/format";
+import { rp, buildReceiptUrl } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { useSession } from "@/hooks/useSession";
+import { useThermalPrinter } from "@/hooks/useThermalPrinter";
+import { PrinterSheet } from "@/components/pos/PrinterSheet";
+import { encodeReceipt } from "@/lib/escpos";
+import { toast } from "sonner";
 
 /**
  * Charge-success screen — shown after a transaction reaches "paid" status.
@@ -28,6 +33,34 @@ export default function SaleChargeSuccess() {
     api.transactions.public.getById,
     txnId ? { txnId } : "skip",
   );
+
+  const session = useSession();
+  const sessionId = session.status === "active" ? session.sessionId : undefined;
+  const { status: printerStatus, connect, print } = useThermalPrinter();
+  const shareReceipt = useMutation(api.transactions.public.shareReceipt);
+
+  const printData = useQuery(
+    api.receipts.public.getReceiptForPrint,
+    sessionId && txnId ? { sessionId, txnId } : "skip",
+  );
+
+  const onPrint = async () => {
+    if (!sessionId || !txnId || !printData) return;
+    try {
+      // One-shot user action → fresh UUID per click (matches history/$txnId.tsx +
+      // drafts convention; useIdempotency is reserved for retried/replayed
+      // mutations). shareReceipt is idempotent BY TXN, so reprints reuse the same
+      // token → stable QR regardless of the key.
+      const { token } = await shareReceipt({ idempotencyKey: crypto.randomUUID(), sessionId, txnId });
+      const bytes = encodeReceipt(
+        printData.viewModel, printData.status, printData.statusLabel, buildReceiptUrl(token),
+      );
+      await print(bytes);
+      toast.success("Struk dicetak");
+    } catch {
+      toast.error("Gagal mencetak struk");
+    }
+  };
 
   // No txnId param in the URL. Checked BEFORE the loading guard: with no txnId the
   // query is "skip" and result stays undefined forever, so the loading branch would
@@ -84,7 +117,7 @@ export default function SaleChargeSuccess() {
     : "Paid";
 
   return (
-    <SpokeLayout title="Sale complete" hideBack>
+    <SpokeLayout title="Sale complete" hideBack rightSlot={<PrinterSheet />}>
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
       {/* Success mark */}
       <div className="flex flex-col items-center gap-2">
@@ -125,6 +158,15 @@ export default function SaleChargeSuccess() {
       </div>
 
       {/* CTA */}
+      <Button
+        className="w-full max-w-xs"
+        size="lg"
+        variant="outline"
+        onClick={printerStatus === "connected" ? onPrint : connect}
+        disabled={printerStatus === "printing" || printerStatus === "unsupported" || !printData}
+      >
+        {printerStatus === "connected" || printerStatus === "printing" ? "Cetak struk" : "Hubungkan & cetak"}
+      </Button>
       <Button
         className="w-full max-w-xs"
         size="lg"
