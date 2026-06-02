@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useCart } from "@/hooks/useCart";
+import { useCatalogCache } from "@/hooks/useCatalogCache";
+import {
+  validateVoucherAgainst,
+  type VoucherForValidate,
+} from "../../../convex/lib/voucherValidate";
 import { rp } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +21,12 @@ const REASON_MESSAGES: Record<string, string> = {
   MIN_CART_VALUE: "Cart below minimum for this voucher",
 };
 
+// Narrowed catalog-snapshot shape — we only read `vouchers` here.
+// The full snapshot has products/skus/components/stockLevels too.
+type CatalogSnapshot = {
+  vouchers: VoucherForValidate[];
+} & Record<string, unknown>;
+
 export default function SaleVoucher() {
   const navigate = useNavigate();
   const { subtotal, voucherCode, setVoucher, clearVoucher } = useCart();
@@ -23,10 +34,30 @@ export default function SaleVoucher() {
 
   const upperCode = code.toUpperCase();
 
-  const validation = useQuery(
+  // Live BE validation — undefined while loading OR when the WebSocket is
+  // disconnected (offline). When undefined we fall back to the cached
+  // catalog snapshot below; the server still re-validates on commit (V8).
+  const live = useQuery(
     api.vouchers.public.validateVoucher,
     upperCode.length > 0 ? { code: upperCode, cartSubtotal: subtotal } : "skip",
   );
+
+  // Catalog cache already includes active + non-expired vouchers
+  // (convex/catalog/public.ts), so an offline lookup is a local find().
+  const liveCatalog = useQuery(api.catalog.public.catalog, {});
+  const { snapshot } = useCatalogCache<CatalogSnapshot>(
+    liveCatalog as CatalogSnapshot | undefined,
+  );
+
+  const cachedValidation = useMemo(() => {
+    if (upperCode.length === 0) return undefined;
+    if (!snapshot) return undefined;
+    const v = snapshot.vouchers.find((x) => x.code === upperCode) ?? null;
+    return validateVoucherAgainst(v, subtotal, Date.now());
+  }, [upperCode, snapshot, subtotal]);
+
+  const validation = live ?? cachedValidation;
+  const usingCache = live === undefined && cachedValidation !== undefined;
 
   const handleApply = () => {
     if (!validation?.valid) return;
@@ -60,7 +91,14 @@ export default function SaleVoucher() {
           </Button>
         </div>
 
-        {/* Live validation feedback */}
+        {/* Offline-fallback hint — only when actually falling back. */}
+        {usingCache && (
+          <p className="text-xs text-muted-foreground">
+            Offline — applying from cached list. Server re-validates on commit.
+          </p>
+        )}
+
+        {/* Validation feedback (live or cached) */}
         {upperCode.length > 0 && validation !== undefined && (
           <div className="rounded-md border px-4 py-3">
             {validation.valid ? (
