@@ -18,6 +18,7 @@
 1. **`@point-of-sale/esc-pos-encoder` API** — there are **two** Niels-Leenheer successor packages with **different APIs**: the classic chainable `@point-of-sale/esc-pos-encoder` (`new EscPosEncoder().initialize().line().qrcode().encode()`) and the newer `@point-of-sale/receipt-printer-encoder` (`ReceiptPrinterEncoder`, multi-language, different method set). **Use the classic `@point-of-sale/esc-pos-encoder`** (Task 0 installs it). Before Task 3, confirm against its installed README/types: default export name; whether scaling is `.size(w,h)` vs `.width(n).height(n)`; and whether `.line(str)` exists or you must use `.text(str).newline()`. The encoder calls in Task 3 follow the classic API but MUST be reconciled with the installed version (`npm run typecheck` + the golden test catch mismatches — the test asserts on decoded text substrings + the `ESC @` prefix, so it's robust to method-name differences as long as output is correct).
 2. **Native ESC/POS QR** (`.qrcode()` → `GS ( k`) renders on the CEVA FW. If not, switch the QR step to the raster fallback (`qrcode` lib → `GS v 0`) — isolated in `escpos.ts`.
 3. **`navigator.bluetooth.getDevices()`** is available in the target Android Chrome build (it is in current stable; confirm on the actual device).
+4. **`ReceiptSettings` shape (re-validated against `main` 2026-06-02, post-v0.5.3b).** v0.5.3b added a **required** `logo_url: string \| null` field to `ReceiptSettings` (`convex/receipts/template.ts:21`) and moved receipt branding to `pos_settings` via `_getSettings_internal` (the old hardcoded `RECEIPT_SETTINGS` is gone). Consequences: (a) the `SAMPLE_RECEIPT` fixture **must** include `logo_url: null` or it won't satisfy `ReceiptViewModel` (fixed in Task 3); (b) the text-mode encoder **ignores** `settings.logo_url` (v1 prints no raster logo — fast-follow); (c) **bonus** — because `getReceiptForPrint` reuses `_buildViewModel_internal`, the in-app receipt branding configured via `/mgr/receipt` (v0.5.3b) flows through to the printed receipt automatically, no extra work. `STATUS_LABELS` is still module-private (Task 1's export still required).
 
 These are flagged in the handoff's verify-first list.
 
@@ -437,6 +438,7 @@ export const SAMPLE_RECEIPT: {
       address: "Pakuwon Mall, Surabaya",
       contact: "frollie.id",
       instagram_handle: "@frollie.id",
+      logo_url: null, // v0.5.3b added this REQUIRED field to ReceiptSettings; text-mode v1 ignores it (no raster logo)
     },
   },
 };
