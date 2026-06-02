@@ -6,6 +6,31 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 - `seed:reset` now pre-registers a fixed dev device (`dev-booth-device`), and `useDeviceId` returns that id under the Vite dev server, so local / Chrome-MCP loads skip the `/activate` device-registration gate. No production impact — gated on `import.meta.env.MODE === "development"`, so the prod build and the test runner keep the random per-install UUID path. Dev credentials after seed: Lucas (manager, PIN 9999), Bayu/Citra/Dewi/Eka (staff, PIN 0000).
 
+## v0.5.4 — Bluetooth thermal receipt printing (unreleased)
+
+- Print 58mm receipts to the EPPOS EP5811AI over Web Bluetooth (ESC/POS), one tap on sale-complete.
+- Printer auto-reconnects (Web Bluetooth `getDevices`); connect / test-print via a printer sheet.
+- New query `receipts.getReceiptForPrint` (view-model + status label only; QR token via the existing `shareReceipt`). ADR-043.
+
+### Frontend
+- `src/lib/escpos.ts` — pure `encodeReceipt(viewModel, status, statusLabel, receiptUrl) → Uint8Array` + exported `SAMPLE_RECEIPT` fixture. Text mode (no raster logo in v1); QR via the encoder's native ESC/POS `GS ( k`. Reuses `src/lib/format`; ASCII-folds emoji; `import type` only (no Convex runtime in the bundle).
+- `src/hooks/useThermalPrinter.ts` — Web Bluetooth connect (filtered chooser), silent auto-reconnect via `navigator.bluetooth.getDevices()`, chunked paced `writeValueWithoutResponse` (180-byte / 20 ms), `unsupported` feature-detect. Pure `chunkBytes(bytes, size)` is unit-tested.
+- `src/components/pos/PrinterSheet.tsx` — connect / status / test-print bottom sheet (wraps the existing `Dialog`, mirrors `PinSheet`).
+- `src/routes/sale/charge-success.tsx` — print button + `<PrinterSheet/>`; one-shot print mints the QR token via `shareReceipt`, builds the URL, encodes, and prints.
+
+### Backend
+- `convex/receipts/public.ts::getReceiptForPrint` — session-gated, role/today-scoped print view-model query (staff: server-today; manager: any day); returns `ReceiptViewModel` + pre-derived status label, **no token/URL** (ADR-021). Read-only, not audited. Cross-module txn read via `transactions/internal` (ADR-034).
+- `convex/receipts/template.ts::STATUS_LABELS` — promoted from module-private to exported so the query derives the status label server-side (client never imports `template.ts`).
+
+### Tests
+- Unit tests for `chunkBytes` (empty / smaller / exact-boundary / remainder). The Web Bluetooth BLE layer is not unit-testable (cannot be mocked) and was verified on-device against the EP5811AI.
+
+### ADRs
+- [ADR-043](./ADR/043-web-bluetooth-escpos-printing.md) — client-side Web Bluetooth ESC/POS printing; `esc-pos-encoder` text mode; QR token via `shareReceipt`; `getReceiptForPrint` returns view-model + label, never the token; native-QR → raster-QR and `0x18f0` → ISSC fallbacks isolated in `escpos.ts`.
+
+### Deploy notes
+- **Android Chrome only** — Web Bluetooth has no iOS / non-Chromium implementation; the booth device is Android Chrome. No schema change; `getReceiptForPrint` is a read-only addition. Backend before frontend so the FE query finds its handler.
+
 ## v0.5.3b — In-app admin (staff + product CRUD + receipt config) (unreleased)
 
 - Managers can create/edit/deactivate staff in-app under a tiered manager gate (manager-PIN for identity writes, manager-session for low-stakes config).
