@@ -140,7 +140,9 @@ export default function Sale() {
       // next charge mints a fresh key instead of replaying this transaction.
       await clearIntent(`charge:${session.sessionId}`);
       clear();
-      navigate(`/sale/charge/${result.transactionId}`);
+      navigate(`/sale/charge/${result.transactionId}`, {
+        state: result.voucher_rejected ? { voucher_rejected: result.voucher_rejected } : undefined,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not start charge";
       toast.error(msg);
