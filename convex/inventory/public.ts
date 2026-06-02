@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireSession, requireManagerSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
@@ -381,4 +381,88 @@ export const getRecountState = query({
     const row = await ctx.db.query("pos_recount_state").first();
     return { last_recount_at: row?.last_recount_at ?? null };
   },
+});
+
+/**
+ * Manager-gated query returning the drift log for /mgr/stock drift tab
+ * (v0.6, ADR-044, Task R8). Bounded at 100 rows ordered by detection time
+ * desc (Convex default sort by _creationTime matches detected_at since rows
+ * are inserted with detected_at = Date.now()).
+ *
+ * Default excludes resolved rows (the open-drift list the operator acts on).
+ * `includeResolved: true` returns all 100 most-recent rows for audit/history.
+ *
+ * Drift resolution is bookkeeping (CLAUDE.md rule #22 — same logic as
+ * `markRefundSettled` ADR-038): manager-session is sufficient; no PIN gate.
+ *
+ * `r.resolved_at == null` uses loose equality to match both `null` and
+ * `undefined` per the v0.5.2 lesson — Convex optional-field filters at the
+ * DB layer don't behave reliably for "absent", so the filter lives in JS.
+ */
+export const listStockDrift = query({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    includeResolved: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<Doc<"pos_stock_drift_log">[]> => {
+    await requireManagerSession(ctx, args.sessionId);
+    const rows = await ctx.db.query("pos_stock_drift_log").order("desc").take(100);
+    return args.includeResolved ? rows : rows.filter((r) => r.resolved_at == null);
+  },
+});
+
+/**
+ * Manager-gated mutation that resolves a drift row by delegating to R4's
+ * `_resolveDrift_internal` (v0.6, ADR-044, Task R8).
+ *
+ * Manager-session, NOT manager-PIN (CLAUDE.md rule #22): drift resolution is
+ * a bookkeeping ack of a physically-resolved discrepancy — it moves no money
+ * and changes no identity. Same logic as `markRefundSettled` (ADR-038).
+ *
+ * ADR-013 (idempotency) + rule #20: `authCheck` runs `requireManagerSession`
+ * BEFORE the cache lookup so a cached response can't be replayed against a
+ * non-manager session. The handler RE-CALLS `requireManagerSession` to get
+ * the typed `{ staffId, deviceId }` for the internal call — the duplication
+ * is intentional (see docs/PATTERNS/idempotency-dual-call-authcheck.md).
+ *
+ * The internal mutation handles its own idempotency for double-resolve
+ * (second call on already-resolved row is a no-op + skips audit), so the
+ * audit-row count stays at 1 across replays of the same idempotencyKey.
+ */
+export const resolveDrift = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    driftId: v.id("pos_stock_drift_log"),
+    note: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      driftId: Id<"pos_stock_drift_log">;
+      note: string;
+    },
+    { ok: true }
+  >(
+    "inventory.resolveDrift",
+    async (ctx, args) => {
+      const { staffId: mgrId, deviceId } = await requireManagerSession(
+        ctx,
+        args.sessionId,
+      );
+      await ctx.runMutation(internal.inventory.internal._resolveDrift_internal, {
+        driftId: args.driftId,
+        resolved_by: mgrId,
+        note: args.note,
+        device_id: deviceId,
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
 });
