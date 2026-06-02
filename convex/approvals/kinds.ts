@@ -3,7 +3,7 @@
 // add a literal here + its 4 touchpoints (CLAUDE.md "How to add a feature" #8).
 // Pure V8 module (no "use node") — imported by mutations, actions, and tests.
 
-export type ApprovalKind = "staff_pin_reset" | "manual_payment_override" | "refund";
+export type ApprovalKind = "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage";
 
 export type ManualPaymentContext = {
   txn_id: string;
@@ -27,6 +27,19 @@ export type RefundContext = {
     refund_amount: number;
   }>;
   total_refund: number;
+  reason: string;
+};
+
+// v0.6 S2: spoilage-approval context. Off-booth Telegram-approval path
+// consumed by S5 (spoilage commit). Lines + total are sent in the context
+// so the Telegram template + /approve UI can render a preview before the
+// manager enters PIN. `inventory_sku_id` is required because the commit
+// path resolves SKU IDs at write time (decrement targets). `sku_code` is
+// snapshotted for display in the Telegram card + /approve UI.
+export type SpoilageContext = {
+  spoilage_event_id: string;
+  lines: Array<{ inventory_sku_id: string; sku_code: string; qty: number }>;
+  total_qty: number;
   reason: string;
 };
 
@@ -79,6 +92,31 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
         reason: c.reason,
       };
     }
+    case "spoilage": {
+      const c = (raw ?? {}) as Partial<SpoilageContext>;
+      if (typeof c.spoilage_event_id !== "string" || c.spoilage_event_id === "") throw new Error("CONTEXT_INVALID: spoilage_event_id");
+      if (!Array.isArray(c.lines) || c.lines.length === 0) throw new Error("CONTEXT_INVALID: lines");
+      for (const l of c.lines) {
+        if (typeof l.inventory_sku_id !== "string" || l.inventory_sku_id === "") throw new Error("CONTEXT_INVALID: line.inventory_sku_id");
+        if (typeof l.sku_code !== "string" || l.sku_code === "") throw new Error("CONTEXT_INVALID: line.sku_code");
+        if (!Number.isInteger(l.qty) || l.qty <= 0) throw new Error("CONTEXT_INVALID: line.qty");
+      }
+      if (typeof c.total_qty !== "number" || !Number.isInteger(c.total_qty) || c.total_qty <= 0) throw new Error("CONTEXT_INVALID: total_qty");
+      // Cross-check total_qty against the sum of line qtys — mirrors the refund
+      // total_refund mismatch guard. A maliciously crafted payload could claim
+      // total_qty: 999 with lines summing to 2; the Telegram card + /approve UI
+      // would render the inflated total to the manager. The commit recomputes
+      // from scratch (correct decrement), but the manager-display would lie.
+      const sum = c.lines.reduce((s, l) => s + (l.qty as number), 0);
+      if (sum !== c.total_qty) throw new Error("CONTEXT_INVALID: total_qty mismatch");
+      if (typeof c.reason !== "string" || c.reason.trim() === "") throw new Error("CONTEXT_INVALID: reason");
+      return {
+        spoilage_event_id: c.spoilage_event_id,
+        lines: c.lines,
+        total_qty: c.total_qty,
+        reason: c.reason,
+      };
+    }
   }
 }
 
@@ -96,11 +134,16 @@ export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: str
   // both fired it. Separating verbs lets dashboards count refunds (committed)
   // distinctly from approval-row state transitions (approval_resolved).
   refund:                  { requested: "refund.requested",                  resolved: "refund.approval_resolved",         denied: "refund.denied" },
+  // v0.6 S2: spoilage. resolved verb is spoilage.approval_resolved to match
+  // refund's split (approval-row state ≠ commit verb). The commit path (S5)
+  // will emit "spoilage.committed" for the spoilage row itself.
+  spoilage:                { requested: "spoilage.requested",                resolved: "spoilage.approval_resolved",       denied: "spoilage.denied" },
 };
 
 /** Maps kind → telegram template id (send.ts) AND → /approve UI variant id. */
-export const KIND_TEMPLATE: Record<ApprovalKind, "staff_pin_reset" | "manual_payment_override" | "refund"> = {
+export const KIND_TEMPLATE: Record<ApprovalKind, "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage"> = {
   staff_pin_reset: "staff_pin_reset",
   manual_payment_override: "manual_payment_override",
   refund: "refund",
+  spoilage: "spoilage",   // v0.6 S2
 };

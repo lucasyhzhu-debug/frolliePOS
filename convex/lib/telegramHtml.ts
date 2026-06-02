@@ -202,6 +202,39 @@ export function renderRecountNotice(p: RecountNoticePayload): RenderedMessage {
   };
 }
 
+// v0.6 S2: spoilage-approval template. Off-booth Telegram-approval path —
+// manager taps "Open approval →", lands on /approve/:token, enters PIN to
+// resolve. URL button (not callback_data) per ADR-035 + business rule #10.
+// Payload shape mirrors RefundPayload (lines + total + reason + request_url).
+export type SpoilageApprovalPayload = {
+  spoilage_event_id: string;
+  lines: Array<{ sku_code: string; qty: number }>;
+  total_qty: number;
+  reason: string;
+  request_url: string;
+};
+
+export function renderSpoilageApproval(p: SpoilageApprovalPayload): RenderedMessage {
+  const linesText = p.lines
+    .map((l) => `• ${escapeHtml(l.sku_code)} × ${l.qty}`)
+    .join("\n");
+  const text = [
+    `🗑️ <b>Permintaan persetujuan spoilage</b>`,
+    `Event: <code>${escapeHtml(p.spoilage_event_id)}</code>`,
+    ``,
+    linesText,
+    ``,
+    `Total: <b>${p.total_qty}</b> pcs`,
+    `Alasan: <i>${escapeHtml(p.reason)}</i>`,
+    ``,
+    `<i>Buka tautan untuk setujui (login + PIN diperlukan). Berakhir dalam 60 menit.</i>`,
+  ].join("\n");
+  return {
+    text,
+    inline_keyboard: [[{ text: "✓ Tinjau & setujui", url: p.request_url }]],
+  };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

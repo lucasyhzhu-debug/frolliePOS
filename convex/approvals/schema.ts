@@ -3,11 +3,12 @@ import { v } from "convex/values";
 
 export const approvalsTables = {
   pos_approval_requests: defineTable({
-    // v0.3: "staff_pin_reset". v0.4 adds "manual_payment_override". v0.5.1 adds "refund".
+    // v0.3: "staff_pin_reset". v0.4 adds "manual_payment_override". v0.5.1 adds "refund". v0.6 adds "spoilage".
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),   // NEW in v0.4
       v.literal("refund"),                    // NEW in v0.5.1
+      v.literal("spoilage"),                  // NEW v0.6: spoilage approval
     ),
 
     // WHO asked (pin_reset is system-triggered → optional)
