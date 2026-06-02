@@ -8,28 +8,35 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 ## v0.5.4 — Bluetooth thermal receipt printing (unreleased)
 
-- Print 58mm receipts to the EPPOS EP5811AI over Web Bluetooth (ESC/POS), one tap on sale-complete.
-- Printer auto-reconnects (Web Bluetooth `getDevices`); connect / test-print via a printer sheet.
-- New query `receipts.getReceiptForPrint` (view-model + status label only; QR token via the existing `shareReceipt`). ADR-043.
+- Print 58mm receipts to the EPPOS EP5811AI over Web Bluetooth (ESC/POS), one tap on sale-complete. **Verified working end-to-end on-device** (connect → print full paid receipt).
+- One shared printer connection for the whole session (`PrinterProvider`) — connect once at shift start from the home/header chip and it survives navigation. A status dot (green = linked · amber = working · grey = not linked · red = error) makes the link state glanceable so staff reconnect while free, not mid-transaction.
+- The printed **QR links to the booth's Instagram** (derived from the `instagram_handle` receipt setting), not the digital receipt — booth decision during QA (ADR-043 amended). Receipt text (business name / address / footer) is editable at `/mgr/receipt` and flows straight to the print; blank fields are skipped.
+- New query `receipts.getReceiptForPrint` (view-model + status label only; never a token — ADR-021). ADR-043.
 
 ### Frontend
-- `src/lib/escpos.ts` — pure `encodeReceipt(viewModel, status, statusLabel, receiptUrl) → Uint8Array` + exported `SAMPLE_RECEIPT` fixture. Text mode (no raster logo in v1); QR via the encoder's native ESC/POS `GS ( k`. Reuses `src/lib/format`; ASCII-folds emoji; `import type` only (no Convex runtime in the bundle).
-- `src/hooks/useThermalPrinter.ts` — Web Bluetooth connect (filtered chooser), silent auto-reconnect via `navigator.bluetooth.getDevices()`, chunked paced `writeValueWithoutResponse` (180-byte / 20 ms), `unsupported` feature-detect. Pure `chunkBytes(bytes, size)` is unit-tested.
-- `src/components/pos/PrinterSheet.tsx` — connect / status / test-print bottom sheet (wraps the existing `Dialog`, mirrors `PinSheet`).
-- `src/routes/sale/charge-success.tsx` — print button + `<PrinterSheet/>`; one-shot print mints the QR token via `shareReceipt`, builds the URL, encodes, and prints.
+- `src/lib/escpos.ts` — pure `encodeReceipt(viewModel, status, statusLabel) → Uint8Array` + exported `SAMPLE_RECEIPT` fixture and `instagramUrl(handle)` helper. Text mode (no raster logo in v1); the QR encodes the Instagram URL via the encoder's native ESC/POS `GS ( k`. Skips empty header lines; prints the configurable `footer_text`. Reuses `src/lib/format`; ASCII-folds emoji; `import type` only (no Convex runtime in the bundle).
+- `src/hooks/useThermalPrinter.ts` — Web Bluetooth connect (filtered chooser), silent auto-reconnect via `navigator.bluetooth.getDevices()` (probes only from the idle state → also reconnects on drop), chunked paced `writeValueWithoutResponse` (180-byte / 20 ms), `unsupported` feature-detect. Pure `chunkBytes(bytes, size)` is unit-tested.
+- `src/components/pos/PrinterProvider.tsx` — app-global shared connection (`usePrinter()`), mounted once in `RootLayout` above the Outlet so the GATT link persists across route changes. Safe no-op default for provider-less renders.
+- `src/components/pos/PrinterSheet.tsx` — connect / status / test-print sheet (wraps the existing `Dialog`, mirrors `PinSheet`) with a status-dot chip. Mounted globally in `AppHeader` (logged-in) and on the home launcher.
+- `src/routes/sale/charge-success.tsx` — print button consuming the shared connection; encodes + prints directly (no per-print token mint — the QR is the static Instagram link).
 
 ### Backend
 - `convex/receipts/public.ts::getReceiptForPrint` — session-gated, role/today-scoped print view-model query (staff: server-today; manager: any day); returns `ReceiptViewModel` + pre-derived status label, **no token/URL** (ADR-021). Read-only, not audited. Cross-module txn read via `transactions/internal` (ADR-034).
 - `convex/receipts/template.ts::STATUS_LABELS` — promoted from module-private to exported so the query derives the status label server-side (client never imports `template.ts`).
 
+### Fixes (pre-existing, surfaced during v0.5.4 QA)
+- `src/hooks/usePathChangeBlocker.ts` + `src/routes/sale/index.tsx` — pressing **Charge** (or Save draft) tripped the abandon-cart guard: the cart is cleared then navigated in the same tick, but the guard's `when` was the stale pre-clear value, so it blocked a legitimate in-flow hop. Added an opt-in `allowWithin` prefix so `/sale/*` navigations never block (only leaving the flow does); predicate extracted as pure `shouldBlockNavigation` with unit tests.
+
 ### Tests
-- Unit tests for `chunkBytes` (empty / smaller / exact-boundary / remainder). The Web Bluetooth BLE layer is not unit-testable (cannot be mocked) and was verified on-device against the EP5811AI.
+- Unit tests for `chunkBytes`, `instagramUrl`, the address-skip path, `shouldBlockNavigation`, and `usePrinter` default/provider wiring. The Web Bluetooth BLE layer is not unit-testable (cannot be mocked) and was verified on-device against the EP5811AI.
 
 ### ADRs
-- [ADR-043](./ADR/043-web-bluetooth-escpos-printing.md) — client-side Web Bluetooth ESC/POS printing; `esc-pos-encoder` text mode; QR token via `shareReceipt`; `getReceiptForPrint` returns view-model + label, never the token; native-QR → raster-QR and `0x18f0` → ISSC fallbacks isolated in `escpos.ts`.
+- [ADR-043](./ADR/043-web-bluetooth-escpos-printing.md) — client-side Web Bluetooth ESC/POS printing; `esc-pos-encoder` text mode; `getReceiptForPrint` returns view-model + label, never the token; native-QR → raster-QR and `0x18f0` → ISSC fallbacks isolated in `escpos.ts`. **Amended during QA:** the printed QR now links to Instagram (from the handle), not the `/r/<token>` digital receipt (which is still reachable via history share).
 
 ### Deploy notes
 - **Android Chrome only** — Web Bluetooth has no iOS / non-Chromium implementation; the booth device is Android Chrome. No schema change; `getReceiptForPrint` is a read-only addition. Backend before frontend so the FE query finds its handler.
+- **Silent reload-reconnect** depends on `navigator.bluetooth.getDevices()`, which needs `chrome://flags/#enable-web-bluetooth-new-permissions-backend` enabled on the booth device **and a stable origin** — reliable on the production Vercel domain; the in-app shared connection covers all in-session navigation regardless.
+- **Deferred QA** (no blockers found; revisit if issues): refund / partial-refund receipt formatting on 58mm, voucher-line rendering, staff-scope print-button degradation, long-product-name column wrap.
 
 ## v0.5.3b — In-app admin (staff + product CRUD + receipt config) (unreleased)
 

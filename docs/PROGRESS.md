@@ -1057,17 +1057,17 @@ Plan not yet written. Closes the load-bearing "Xendit settlement timing" risk un
 
 ---
 
-## v0.5.4 — Bluetooth thermal receipt printing 📋 PLANNED
-**Outcome:** Staff print 58mm ESC/POS receipts to the EPPOS EP5811AI over Web Bluetooth — one tap on the sale-complete screen, an auto-reconnecting printer, and a test-print path. Fully client-side; QR on paper links to the digital receipt.
-**Target:** all 6 tasks executed on branch `worktree-exec-v0.5.4` 2026-06-02 (9-task SDD pipeline; typecheck + build + 764 tests green). Phase flips to ✅ SHIPPED after merge + on-device QA (Android Chrome, real printer). Plan: PR #16, `f5d5bae`.
+## v0.5.4 — Bluetooth thermal receipt printing ✅ SHIPPED
+**Outcome:** Staff print 58mm ESC/POS receipts to the EPPOS EP5811AI over Web Bluetooth — one tap on the sale-complete screen, a glanceable connect chip, and a test-print path. Fully client-side; QR on paper links to the booth's Instagram.
+**Target:** 9-task SDD pipeline executed on branch `worktree-exec-v0.5.4` 2026-06-02; **printing verified working end-to-end on-device** (connect → print full paid receipt). Includes QA-driven refinements (Instagram QR, app-global shared connection + status dot, editable receipt content) and a pre-existing charge-flow guard fix. typecheck + build + 781 tests green. Deferred QA (non-blocking): refund/voucher receipt formatting, staff-scope, long-name wrap. Plan: PR #16, `f5d5bae`.
 Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./superpowers/plans/2026-06-02-bluetooth-thermal-printing.md) · spec + 2× staffreview. Device verified on-device (dual-mode BLE, service `0x18f0` / write char `0x2af1`).
 
 **You'll be able to:**
 - Tap "Cetak struk" on charge-success and print a formatted 58mm receipt
-- Connect the printer once, then have it auto-reconnect on every app load (no picker)
+- Connect the printer once at shift start (home/header chip), and it stays linked across every screen for the session; a status dot shows linked/not-linked at a glance
 - Run a test print from the printer sheet with no active sale
-- Hand the customer a paper receipt whose QR opens the full `/r/<token>` digital receipt
-- See in-app receipt branding (configured via `/mgr/receipt` in v0.5.3b) flow through to the printed receipt automatically
+- Hand the customer a paper receipt whose QR opens the booth's **Instagram** (from the `instagram_handle` setting)
+- Edit receipt text (name / address / footer) at `/mgr/receipt` and have it flow straight to the printed receipt (blank fields skipped)
 
 **Still not yet:**
 - Printed Frollie logo image / raster receipts (fast-follow; text-mode v1 ignores `settings.logo_url`)
