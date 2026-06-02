@@ -397,3 +397,97 @@ export const _checkLowStockBatch_internal = internalMutation({
 // `internal.telegram.dispatch.dispatchRoleAlert` helper — the role + kind +
 // payload + idempotencyKey parameters carry everything the per-feature
 // wrappers were doing inline. See convex/telegram/dispatch.ts.
+
+/**
+ * Single writer for spoilage events (v0.6, Task S3). Called by BOTH:
+ *   - inventory.actions.recordSpoilage (booth path, manager-PIN)        — Task S4
+ *   - approvals.actions.approveSpoilage (off-booth Telegram path)        — Task S5
+ *
+ * The two callers differ only in `source` ("booth_inline" vs "telegram_approval")
+ * and `actor_id`. All other behavior is identical: N pos_stock_movements rows
+ * (negative qty, source="spoilage", grouped by spoilage_event_id) + per-SKU
+ * on_hand decrement via the shared upsertStockLevel helper + ONE
+ * stock.spoilage audit row with the full line breakdown in metadata.
+ *
+ * Validators (LINES_EMPTY / REASON_INVALID / QTY_INVALID) live here so neither
+ * caller has to revalidate — boundary-trust pattern.
+ *
+ * Server time wins (ADR-031): single `now` snapshot reused across every movement
+ * row, on_hand patch, and the audit row.
+ *
+ * Negative qty convention matches sale/refund paths: spoilage decrements, so
+ * movement.qty is signed-negative. Reverses through the same on_hand cache the
+ * sale path writes; ADR-018 allows negative on_hand without blocking.
+ */
+export const _recordSpoilage_internal = internalMutation({
+  args: {
+    spoilage_event_id: v.string(),
+    lines: v.array(v.object({
+      inventory_sku_id: v.id("pos_inventory_skus"),
+      qty: v.number(),
+    })),
+    reason: v.string(),
+    actor_id: v.id("staff"),
+    source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    device_id: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ event_id: string; line_count: number; total_qty: number }> => {
+    if (args.lines.length === 0) throw new Error("LINES_EMPTY");
+    if (args.reason.trim().length === 0 || args.reason.length > 200) {
+      throw new Error("REASON_INVALID");
+    }
+
+    const now = Date.now();
+    let total = 0;
+    const lineLog: Array<{ sku_id: string; qty: number }> = [];
+
+    for (const line of args.lines) {
+      if (!Number.isInteger(line.qty) || line.qty <= 0) throw new Error("QTY_INVALID");
+
+      await ctx.db.insert("pos_stock_movements", {
+        inventory_sku_id: line.inventory_sku_id,
+        qty: -line.qty,
+        source: "spoilage",
+        spoilage_event_id: args.spoilage_event_id,
+        spoilage_reason: args.reason,
+        recorded_by_staff_id: args.actor_id,
+        created_at: now,
+      });
+
+      // Decrement on_hand cache via the shared upsert helper — matches the
+      // sale/refund paths and inserts a row when none exists yet (first-ever
+      // SKU activity; ADR-018 allows negative on_hand).
+      await upsertStockLevel(ctx, line.inventory_sku_id, -line.qty, now);
+
+      total += line.qty;
+      lineLog.push({ sku_id: String(line.inventory_sku_id), qty: line.qty });
+    }
+
+    // ONE audit per event (not per line) — metadata.lines carries the breakdown
+    // so dashboards can drill in without a per-line scan of audit_log.
+    await logAudit(ctx, {
+      actor_id: args.actor_id,
+      action: "stock.spoilage",
+      entity_type: "pos_stock_movements",
+      entity_id: args.spoilage_event_id,
+      source: args.source,
+      device_id: args.device_id,
+      metadata: {
+        event_id: args.spoilage_event_id,
+        total_qty: total,
+        line_count: args.lines.length,
+        reason: args.reason,
+        lines: lineLog,
+      },
+    });
+
+    return {
+      event_id: args.spoilage_event_id,
+      line_count: args.lines.length,
+      total_qty: total,
+    };
+  },
+});
