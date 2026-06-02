@@ -978,18 +978,57 @@ Plan not yet written. Tasks get added at planning time (per CLAUDE.md convention
 
 ---
 
+## v0.5.3b — In-app admin (staff + product CRUD + receipt config) ✅ SHIPPED
+**Outcome:** Managers run booth admin from the POS — no Convex dashboard needed for daily ops. Tiered manager gate: PIN for identity/money writes (staff create/role/deactivate, product create/pricing), session for low-stakes config (rename, meta, components, archive, receipt branding). Receipt branding + uploaded logo configurable in-app; config change purges the receipt cache so customers see new branding on next view.
+**Target:** shipped 2026-06-02 on `worktree-exec-v0.5.3b`
+
+**You'll be able to:**
+- Open `/mgr/staff` and create/rename/role-change/deactivate staff + reset their PIN, all in-app
+- Open `/mgr/products` and create/edit/archive products, edit pricing (PIN-gated), and edit the inventory-SKU components linkage
+- Open `/mgr/receipt` and edit receipt branding (business name, address, contact, IG handle, footer) + upload a logo with a live preview
+- See `listStaff` no longer leak `pin_hash` (v0.2 follow-up cleanup)
+
+**Still not yet:**
+- Reconcile Xendit settlements (v0.5.3 — remaining backlog item from the v0.5.3 omnibus)
+- Use vouchers / promo codes (v0.6)
+- Track spoilage / wasted stock (v0.6)
+
+### Backend (`convex/`)
+- ✅ `convex/auth/verifyPin.ts::verifyManagerPinOrThrow` — extracted helper; `resetStaffPin` refactored onto it (single manager-PIN funnel)
+- ✅ `convex/staff/public.ts` — `listStaff` strips `pin_hash` (`_helpers.ts` projection); `createStaff` PIN-gated; `updateStaffName` (session)
+- ✅ `convex/staff/actions.ts` — `setStaffRole`, `deactivateStaff` (both manager-PIN)
+- ✅ `convex/catalog/public.ts` — `listAllProducts` admin query; `updateProductMeta`, `setProductComponents`, `archiveProduct` (manager-session)
+- ✅ `convex/catalog/actions.ts` — `createProduct`, `updateProductPricing` (both manager-PIN)
+- ✅ `convex/settings/public.ts` — `getReceiptConfig`, `updateReceiptConfig`, `generateLogoUploadUrl` (manager-session)
+- ✅ `convex/receipts/internal.ts::_purgeAllReceiptCache_internal` — wired to fire on every receipt-config update
+- ✅ `convex/receipts/template.ts` — reads branding from `pos_settings`; renders uploaded logo + configurable footer
+- ✅ Six new optional `pos_settings` fields: `receipt_business_name`, `receipt_address`, `receipt_contact`, `receipt_instagram_handle`, `receipt_footer_text`, `receipt_logo_storage_id`
+- ✅ New audit verbs (all `source=booth_inline`): `staff.updated`, `staff.deactivated`, `product.created`, `product.updated`, `product.archived`, `settings.receipt_updated`
+
+### Frontend (`src/`)
+- ✅ `src/routes/mgr/staff.tsx` — create / rename / role / deactivate / reset-PIN
+- ✅ `src/routes/mgr/products.tsx` — CRUD + component linkage editor + pricing (PIN-gated)
+- ✅ `src/routes/mgr/receipt.tsx` — branding form + logo upload + live preview
+
+### Cross-cutting
+- ✅ No new ADRs; slice extends existing tables (`pos_settings`, `staff`, `pos_products`, `pos_product_components`) and follows the established manager-PIN / manager-session gate pattern
+- ✅ Backend additive; six new `pos_settings` fields are all optional (no migration)
+- ✅ Receipt cache purged on first config write — minted receipts lazily re-render with new branding
+
+---
+
 ## v0.5.3 — Manager dashboard + in-app admin + Xendit settlements 🗂️ BACKLOG
 **Outcome:** Managers run daily ops from a laptop-first dashboard, edit staff/products in-app, configure the receipt template, view full transaction history, and reconcile Xendit settlements — closing the v1.0 settlement-risk register item.
 **Target:** TBD
 Plan not yet written. Closes the load-bearing "Xendit settlement timing" risk under watch (see Risks below).
 
 **You'll be able to:**
-- View transaction history (staff: own + today; manager: everything)
-- Use the manager dashboard (laptop-first) for daily sales, top SKUs, flagged transactions, staff activity
-- Add, edit, deactivate staff in-app — the Convex dashboard is no longer required
-- Add, edit, archive products in-app
-- Configure the receipt template (logo, footer text, contact info) from the manager portal
-- Reconcile Xendit settlements (what they owe vs what they've paid out)
+- ✅ View transaction history (staff: own + today; manager: everything) — *shipped in v0.5.3a*
+- ✅ Use the manager dashboard (laptop-first) for daily sales, top SKUs, flagged transactions, staff activity — *shipped in v0.5.3a*
+- ✅ Add, edit, deactivate staff in-app — the Convex dashboard is no longer required — *shipped in v0.5.3b*
+- ✅ Add, edit, archive products in-app — *shipped in v0.5.3b*
+- ✅ Configure the receipt template (logo, footer text, contact info) from the manager portal — *shipped in v0.5.3b*
+- Reconcile Xendit settlements (what they owe vs what they've paid out) — *remaining backlog*
 
 **Still not yet:**
 - Use vouchers / promo codes (v0.6)
@@ -997,23 +1036,23 @@ Plan not yet written. Closes the load-bearing "Xendit settlement timing" risk un
 - Launch in production with full operational polish (v1.0)
 
 ### Backend (`convex/`)
-- 🗂️ `dashboard.ts` — full manager dashboard queries (reuse history queries — no duplication per staffreview)
-- 🗂️ `settings/public.ts` extensions — receipt config CRUD on existing `pos_settings`
-- 🗂️ `staff/public.ts` updates — `resetPin`, `deactivateStaff`, `updateStaff` + strip `pin_hash` from `listStaff` response (v0.2 follow-up)
-- 🗂️ `catalog/public.ts` admin mutations — products CRUD
+- ✅ `dashboard.ts` equivalent — `transactions.dashboardSummary` shipped in v0.5.3a
+- ✅ `settings/public.ts` — receipt config CRUD shipped in v0.5.3b
+- ✅ `staff/public.ts` updates — `pin_hash` strip + admin mutations shipped in v0.5.3b
+- ✅ `catalog/public.ts` + `actions.ts` admin mutations — products CRUD shipped in v0.5.3b
 - 🗂️ `settlements.ts` — full reconciliation (Xendit settlement webhook + nightly recon) — load-bearing for v1.0 launch confidence per Risks under watch
 
 ### Frontend (`src/`)
-- 🗂️ `routes/history.tsx` — staff sees own + today; manager sees everything
-- 🗂️ `routes/mgr/dashboard.tsx` — DashA wireframe (laptop-first)
-- 🗂️ `routes/mgr/products.tsx` — ProductsManager (taxonomy editor)
-- 🗂️ `routes/mgr/staff.tsx` — staff CRUD UI (sits on top of `staff/public.ts` admin mutations)
-- 🗂️ `routes/mgr/receipt.tsx` — ReceiptConfig (template config UI, deferred here from v0.5.1)
+- ✅ `routes/history/*` — staff/manager history shipped in v0.5.3a
+- ✅ `routes/mgr/dashboard.tsx` — shipped in v0.5.3a
+- ✅ `routes/mgr/products.tsx` — shipped in v0.5.3b
+- ✅ `routes/mgr/staff.tsx` — shipped in v0.5.3b
+- ✅ `routes/mgr/receipt.tsx` — shipped in v0.5.3b
 - 🗂️ `routes/settlements.tsx` — payout reconciliation
 
 ### Cross-cutting
 - 🗂️ Schema additions: `pos_settlements`
-- 🗂️ SCHEMA.md audit enum: `settings.*`, `settlement.*`, `staff.*` (admin actions)
+- ✅ SCHEMA.md audit verbs: `staff.*`, `product.*`, `settings.receipt_updated` shipped in v0.5.3b; `settlement.*` still pending
 
 ---
 

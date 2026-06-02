@@ -2,285 +2,195 @@
 
 AI agent context for the Frollie POS repo. Read this first before touching code.
 
+> **This file is a pointer, not a mirror.** Depth lives in `docs/` — ADRs (`docs/ADR/`), schema (`docs/SCHEMA.md`), the Convex function inventory (`docs/API_REFERENCE.md`), Telegram ops (`docs/RUNBOOK-telegram.md`), and reusable patterns (`docs/PATTERNS/`). When a rule below cites an ADR, the ADR is the full rationale.
+
 ## Progress tracker — read FIRST, update LAST
 
-The living roadmap lives in [`docs/PROGRESS.md`](./docs/PROGRESS.md). Every task is addressable by a stable **Task ID** (`<phase>-<lane>-<slug>`, e.g., `v03-be-transactions`) with metadata (agent, deps, docs, subtasks, notes).
+Living roadmap: [`docs/PROGRESS.md`](./docs/PROGRESS.md) (source of truth). Every task has a stable **Task ID** (`<phase>-<lane>-<slug>`) with metadata. Rendered view: [`docs/progress.html`](./docs/progress.html), generated from the markdown.
 
-A rendered HTML view sits beside it at [`docs/progress.html`](./docs/progress.html) — open it in a browser tab for the bird's-eye view, filtering, and drill-down. The HTML is generated from the markdown; the markdown is the source of truth.
+**Mandatory workflow for every session and every dispatched agent:**
 
-**Mandatory workflow for every coding session and every dispatched agent:**
+1. **Before work**: `/progress --ready` → pick a task whose `agent:`/lane matches you; read its metadata block.
+2. **Starting**: `/progress-update <task-id> --status in-progress --owner <name>` (claims it).
+3. **Ticking subtasks**: `/progress-update <task-id> --subtask "<substring>"`.
+4. **On commit**: `/progress-update <task-id> --status done --commit <sha>`.
+5. **New task mid-phase**: `/progress-update <new-id> --new-task "<title>" --phase vX.Y --lane be|fe|xc --agent <name> [--deps ...]`.
+6. **After any update**: `npx ceo-report build --src docs/PROGRESS.md --out docs/progress.html` (regenerates HTML, ~50ms).
 
-1. **Before starting work**: run `/progress --ready` to see which tasks have all deps satisfied. Pick one whose `agent:` matches you (or whose lane matches the work). Read the task's metadata block: `agent`, `deps`, `docs`, `subtasks`.
-2. **When you start**: `/progress-update <task-id> --status in-progress --owner <your-name>`. This claims the task so two agents don't double-work it.
-3. **As you tick subtasks**: `/progress-update <task-id> --subtask "<substring>"` — keeps the bird's-eye view honest.
-4. **When the work commits**: `/progress-update <task-id> --status done --commit <sha>`.
-5. **If you discover a new task mid-phase**: `/progress-update <new-id> --new-task "<title>" --phase vX.Y --lane be|fe|xc --agent <name> [--deps ...]`.
-6. **After any `/progress-update`**: run `npx ceo-report build --src docs/PROGRESS.md --out docs/progress.html` to regenerate the HTML view. (Cheap — ~50ms. Skipping it leaves the rendered board stale.)
+**Refusal conditions** (skill-enforced): `in-progress` needs `--owner`; `done` needs `--commit`; `--subtask` must match exactly one subtask.
 
-**Refusal conditions** (the skill enforces these — don't try to bypass):
-- `--status in-progress` requires `--owner` (in same call or already present).
-- `--status done` requires `--commit <sha>` (in same call or already present on title line).
-- `--subtask` substring must match exactly one subtask under the task.
-
-**Do NOT** edit `docs/PROGRESS.md` directly with Edit/Write for status, subtask, owner, or commit fields — always go through `/progress-update`. Direct edits are reserved for: adding a brand-new phase header, fixing typos in titles/descriptions, restructuring lane layouts. If you're unsure, ask.
-
-**Do NOT** edit `docs/progress.html` by hand — it's regenerated from the markdown. Edit the markdown (via `/progress-update`) then run the build script.
-
-For phases v0.4–v1.0 (currently `🗂️ BACKLOG`), tasks don't yet have IDs. They get retrofitted when a phase enters planning — not before. Don't preemptively retrofit.
+**Do NOT** hand-edit `docs/PROGRESS.md` status/subtask/owner/commit fields (go through `/progress-update`) or `docs/progress.html` (regenerated). Direct PROGRESS.md edits are only for new phase headers, typo fixes, lane restructuring. Backlog phases (v0.4–v1.0) get Task IDs when they enter planning — don't retrofit early.
 
 ## What this is
 
-Internal point-of-sale system for the Frollie booth (Pakuwon Mall / wherever the booth is currently sited). Single device (Android), mobile web app installed as a PWA, 2-3 staff with overlapping shifts. Digital payments only via Xendit (QRIS primary + BCA Virtual Account secondary). Sells Dubai chocolate cookies and related SKUs in multiple pack sizes (1pc, 3pcs, 8pcs, Mixed Box 4pcs).
+Internal POS for the Frollie booth (Pakuwon Mall). Single Android device, mobile web PWA, 2–3 staff with overlapping shifts. Digital payments only via Xendit (QRIS primary + BCA VA secondary). Sells Dubai chocolate cookies in multiple pack sizes (1pc, 3pcs, 8pcs, Mixed Box 4pcs). Not a revenue product — an internal tool to validate flows that fold into Frollie Pro.
 
-Not a revenue product. Internal operational tool. The real prize is validating the user flows so this folds into Frollie Pro cleanly.
-
-## What this is not
-
-- Not multi-stall (yet).
-- Not cash-handling (yet). Digital payments only.
-- Not a recipe or kitchen inventory system. Stock is finished-goods only.
-- Not a customer-facing app. Staff + manager only.
-- Not for the Play Store. PWA installed on the staff device home screen.
+**What it is NOT:** multi-stall, cash-handling, a recipe/kitchen-inventory system, customer-facing, or a Play Store app. (See [When to push back](#when-to-push-back).)
 
 ## Relationship to Frollie Pro
 
-POS runs in its **own Convex project** — separate from [`product_master`](https://github.com/lucasyhzhu-debug/product_master). The architectural relationship is logical, not infrastructural: POS mirrors Frollie Pro schema patterns where it makes sense, but POS tables (`pos_*`, `staff`, `staff_sessions`, `registered_devices`, `audit_log`) live in the POS deployment only. In v1 POS uses its own `pos_products` + `pos_inventory_skus` tables ([ADR-016](./docs/ADR/016-product-inventory-separation.md)). v1.1+ integration with Frollie Pro `products`/recipe data will need a cross-deployment integration pattern (sync, API call, or shared package) — not in v1 scope.
-
-Treat POS as a new revenue channel inside Frollie Pro's data model, not a sibling system — but at the infrastructure layer it is genuinely a sibling.
+POS runs in its **own Convex project** — separate from [`product_master`](https://github.com/lucasyhzhu-debug/product_master). The relationship is logical, not infrastructural: POS tables (`pos_*`, `staff`, `staff_sessions`, `registered_devices`, `audit_log`) live in the POS deployment only. Mirror Frollie Pro for **stack choices**, but POS **data shape is independent** ([ADR-034](./docs/ADR/034-deep-modules-surface-apis.md)) — integration happens via a versioned HTTP API (`convex/api/v1/`), not schema mirroring. v1.1+ cross-deployment `products` sync is out of v1 scope. Stack deviations require an ADR.
 
 ## Stack
 
-Mirror Frollie Pro for **stack choices** (framework, language, libraries). POS **data shape is independent** of Frollie Pro per [ADR-034](./docs/ADR/034-deep-modules-surface-apis.md) — integration happens via a versioned HTTP API surface (`convex/api/v1/`), not schema mirroring. Stack deviations still require an ADR.
+- **Convex 1.31.7** (serverless backend, real-time sync) · **React 19 + TypeScript + Vite**
+- **Tailwind CSS 4** (CSS config in `src/index.css`) · **shadcn/ui** new-york/stone, tuned to Frollie teal
+- **Framer Motion** · **React Router v7** (library mode) · **Vercel** (frontend) · **PWA** (`vite-plugin-pwa`)
+- **Xendit** payments (QR Codes API for QRIS, FVA API for BCA VA — [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md))
+- **Sonner** toasts · **Zustand** (cart-build local state only) · **IDB** (offline queue)
 
-- **Convex 1.31.7** (serverless backend, real-time sync)
-- **React 19 + TypeScript + Vite**
-- **Tailwind CSS 4** (CSS-based config in `src/index.css`)
-- **shadcn/ui** new-york style, stone base, tuned to Frollie teal
-- **Framer Motion** for transitions
-- **React Router v7** (library mode)
-- **Vercel hosting** (frontend)
-- **PWA** (`vite-plugin-pwa` — service worker + manifest, installable on Android)
-- **Xendit** for payments (QR Codes API for QRIS, Virtual Accounts FVA API for BCA VA — [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md))
-- **Sonner** for toast notifications
-- **Zustand** for local state where Convex reactivity isn't enough (cart-build only)
-- **IDB** for offline queue
-
-Design tokens (Inter font, Frollie teal palette, role/channel/station colors) mirror the Frollie Pro design system — see `src/index.css`. Sourced from `frollie-pos design files/lucas-frollie-design-system`.
+Design tokens (Inter, Frollie teal, role/channel/station colors) in `src/index.css`, mirroring the Frollie Pro design system.
 
 ## Business rules that affect code
 
-1. **Snapshot prices and names on transaction lines.** Never join `pos_transaction_lines` to `pos_products` for historical price. `unit_price` and `product_name_snapshot` are frozen at sale time.
-2. **Audit log is append-only.** Never update or delete a row in `audit_log` ([ADR-007](./docs/ADR/007-audit-log-append-only.md)). Enforced at the mutation layer; code review catches violations.
-3. **PPN is 0 today, schema-ready for 11% later.** Don't hardcode 0. Read from `pos_products.tax_rate` (default 0). When Frollie hits PKP threshold, flip `pos_settings.is_pkp` and the default — no migration ([strategic foundations §4](./docs/ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)).
-4. **Refunds are their own entity.** Never mutate a paid transaction's status to "refunded" — create a `pos_refunds` row; status is computed on read ([ADR-008](./docs/ADR/008-refunds-as-new-rows.md)).
-5. **Payment confirmation has two paths for QRIS/BCA VA.** Webhook (primary — Xendit POSTs `qr.payment` / `virtual_account.payment` to `convex/payments/webhook.ts`) and manager-PIN manual override (fallback — audit-logged with reason). Polling retired for these methods ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) amends [strategic foundations §8](./docs/ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)).
-6. **Stock-in only at inventory-SKU level.** Products are never restocked directly — selling a "Dubai 8pcs" decrements 8 from the `dubai` SKU ([ADR-016](./docs/ADR/016-product-inventory-separation.md)).
-7. **Negative stock allowed at sale, flagged.** Don't hard-block; set `pos_transactions.flags |= NEG_STOCK` and let manager reconcile ([ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md)).
-8. **Stock-in is a logged movement, never a number edit.** Every stock change writes a `pos_stock_movements` row with required `source` enum. `pos_stock_levels` is a denormalised cache, reconciled nightly.
-9. **Manager-PIN required for:** refunds, voids of paid txns, manual payment override, ad-hoc/manual discounts, stock adjustments, spoilage, on-device settings edits, PIN resets ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)).
+Full rationale in the cited ADR. These are the "don't break this" constraints:
 
-   > **v0.5.2 note:** `recount` is a staff-allowed `pos_stock_movements.source` distinct from the manager-PIN-gated `adjustment`. Staff submit absolute counts via the spoke screen; managers see every recount via Telegram (ADR-041). The PIN-gated `adjustment` source remains reserved for one-off corrections that need pre-action authorization.
-10. **Telegram approval routes manager-PIN gates** to the **Frollie · Managers** Telegram group. From v0.4, off-booth approval requests (PIN resets, manual payment overrides) are delivered as Telegram messages with a single-use `/approve/:token` URL button. Any manager in the group can approve from anywhere by tapping the link + entering their PIN ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md), [ADR-027](./docs/ADR/027-wa-approval-via-staff-own-wa.md) superseded for these flows). The `wa_approval` literal remains in the schema for historical rows; post-v0.4 production code emits `telegram_approval` as the audit source for all off-booth actions.
-11. **Approval tokens authorise VIEW; PINs authorise ACT** ([ADR-029](./docs/ADR/029-token-authorizes-view-pin-authorizes-act.md)). Token = 32-byte URL-safe random, single-use, 60-minute TTL.
-12. **Founders shift-summary** is a daily cron (22:00 WIB / 15:00 UTC) that posts a structured summary to **Frollie · Founders** via Telegram ([ADR-033](./docs/ADR/033-founders-shift-summary-share.md)). Opt-out via `pos_settings.founders_summary_enabled` (defaults `true` if the row is absent). An audited skip (`founders.summary_skipped`) is written on disable or when the `founders` role is unbound; no retry storm.
-13. **Vouchers are static**, manager-created, manager-distributed out-of-band. No voucher stacking ([ADR-010](./docs/ADR/010-no-voucher-stacking.md)). Cached on device for offline apply, server re-validates on sync ([ADR-009](./docs/ADR/009-voucher-cache-offline.md)).
-14. **All money as integer rupiah.** No floats, no cents. Format with `Intl.NumberFormat("id-ID")` in `src/lib/format.ts` ([ADR-015](./docs/ADR/015-idr-integer-rupiah.md)).
-15. **Every public mutation accepts `idempotencyKey`.** Server dedupes for 24h via `pos_idempotency` ([ADR-013](./docs/ADR/013-idempotency-keys.md)). Mutation harness wraps every public mutation so individual functions don't have to think about it.
-16. **Server time wins.** Every `_at` field is set via `Date.now()` inside the Convex function — never client-supplied ([ADR-031](./docs/ADR/031-convex-server-time-wins.md)).
-17. **PWA partial offline:** catalog cached, cart builds, drafts queue, stock-in queues. Payments / auth / refunds block offline with clear UI ([ADR-025](./docs/ADR/025-service-worker-cache.md)).
-18. **Reconciliation on reload (QRIS/FVA — manual-only):** `useStartupReconciliation` is a thin no-op shell — the poll body was gutted because QR status polling is architecturally impossible and the `checkInvoiceStatus` action was removed ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) amends [ADR-026](./docs/ADR/026-reconciliation-on-reload.md)). Missed-webhook recovery for QRIS/BCA VA is manager-PIN manual override only. Double-decrement is still prevented by the `pos_stock_movements.by_line_and_sku` index — one `sale` movement per `(source_transaction_line_id, inventory_sku_id)`. *(v0.3 shipped this index rather than a unique `(ref_type, ref_id, sku_id)` constraint.)*
-19. **PIN changes funnel through one mutation.** `auth.changePin` (self), `auth.resetStaffPin` (manager at booth), and `approvals.approveStaffPinReset` (off-booth) all commit via the shared internal `_changePinCommit_internal`. Branch on `actor.kind`: `"self"` → logs `staff.pin_changed`; `"manager_reset"` → logs `staff.pin_reset`, clears `pos_auth_attempts` (lockout unwind), and stamps `source` (`booth_inline` at booth, `telegram_approval` for the off-booth Telegram path). Never log PIN values — the payload has no PIN fields. Don't add a fourth reset path that bypasses this funnel.
-20. **`APPROVAL_KINDS` is the add-a-kind mechanism.** Every new approval kind requires editing `convex/approvals/kinds.ts` (the `ApprovalKind` union + `validateContext` switch + `KIND_TEMPLATE` entry) and the 4 touch-points in "How to add a feature" #8. The schema's `kind` union, `_createRequest_internal`'s validator, the Telegram template renderer, and the `/approve` UI variant must stay in sync. `validateContext` is the single-writer invariant: it rejects invalid context payloads before any DB write. The `KIND_AUDIT` map records which audit action strings apply to each kind.
-21. **Public mutations require `idempotencyKey` + `withIdempotency` + `authCheck`.** Every public mutation accepts `idempotencyKey` in args + wraps its handler in `withIdempotency(...)` with an `authCheck` arg in the options object. ESLint enforces. The handler RE-CALLS `require*Session(...)` to get the typed session object — the `authCheck` slot runs BEFORE the idempotency cache lookup (closes the cached-response-to-unauthorized-caller hole), and the handler's inline re-call is intentional and cheap (one indexed query against `staff_sessions`). The duplication is what keeps the rule mechanical; do not collapse it. See [`docs/PATTERNS/idempotency-dual-call-authcheck.md`](./docs/PATTERNS/idempotency-dual-call-authcheck.md).
-22. **`markRefundSettled` is manager-session, NOT manager-PIN.** Per ADR-038, the financially material decision (authorising money to return to the customer) happens at refund-approval time (booth or Telegram PIN). Marking a refund settled is a bookkeeping ack that the already-authorised manual transfer completed — it moves no money, changes no ledger figure, and a PIN re-prompt would be ceremony without security gain. The transition is still audited (`refund.settled`, who + when). The same logic guides any future "tally what already happened" mutation.
+1. **Snapshot prices + names on transaction lines.** Never join `pos_transaction_lines` → `pos_products` for historical price; `unit_price` and `product_name_snapshot` are frozen at sale time.
+2. **Audit log is append-only** — never update/delete an `audit_log` row ([ADR-007](./docs/ADR/007-audit-log-append-only.md)).
+3. **PPN is 0 today, schema-ready for 11%.** Don't hardcode 0; read `pos_products.tax_rate` (default 0). Flip `pos_settings.is_pkp` at PKP threshold, no migration ([foundations §4](./docs/ADR/000-strategic-foundations.md#4-ppn-schema-present-value-zero-until-pkp)).
+4. **Refunds are their own entity** — never mutate a paid txn's status to "refunded"; create a `pos_refunds` row, status computed on read ([ADR-008](./docs/ADR/008-refunds-as-new-rows.md)).
+5. **Payment confirmation = webhook (primary) + manager-PIN manual override (fallback).** Polling retired for QRIS/BCA VA ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md)).
+6. **Stock-in only at inventory-SKU level** — products never restocked directly; "Dubai 8pcs" decrements 8 from the `dubai` SKU ([ADR-016](./docs/ADR/016-product-inventory-separation.md)).
+7. **Negative stock allowed at sale, flagged** — don't hard-block; set `pos_transactions.flags |= NEG_STOCK` ([ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md)).
+8. **Stock-in is a logged movement, never a number edit** — every change writes a `pos_stock_movements` row with required `source` enum. `pos_stock_levels` is a nightly-reconciled cache.
+9. **Manager-PIN required for:** refunds, voids of paid txns, manual payment override, ad-hoc discounts, stock adjustments, spoilage, settings edits, PIN resets ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)). *Note: `recount` is a staff-allowed `source` distinct from PIN-gated `adjustment` (ADR-041); managers see recounts via Telegram.*
+10. **Telegram routes off-booth manager-PIN gates** to **Frollie · Managers** via a single-use `/approve/:token` URL button ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md)). Audit `source` is `telegram_approval`; legacy `wa_approval` kept in schema for historical rows only.
+11. **Tokens authorise VIEW; PINs authorise ACT** ([ADR-029](./docs/ADR/029-token-authorizes-view-pin-authorizes-act.md)). Token = 32-byte URL-safe random, single-use, 60-min TTL.
+12. **Founders shift-summary** = daily cron (22:00 WIB) to **Frollie · Founders** ([ADR-033](./docs/ADR/033-founders-shift-summary-share.md)). Opt-out via `pos_settings.founders_summary_enabled` (default true); audited skip, no retry storm.
+13. **Vouchers are static**, manager-created/distributed; no stacking ([ADR-010](./docs/ADR/010-no-voucher-stacking.md)); cached offline, server re-validates on sync ([ADR-009](./docs/ADR/009-voucher-cache-offline.md)).
+14. **All money as integer rupiah** — no floats/cents. Format via `Intl.NumberFormat("id-ID")` in `src/lib/format.ts` ([ADR-015](./docs/ADR/015-idr-integer-rupiah.md)).
+15. **Server time wins** — every `_at` set via `Date.now()` inside the function, never client-supplied ([ADR-031](./docs/ADR/031-convex-server-time-wins.md)).
+16. **PWA partial offline:** catalog/cart/drafts/stock-in queue; payments/auth/refunds block offline with clear UI ([ADR-025](./docs/ADR/025-service-worker-cache.md)).
+17. **Reconciliation is manual-only for QRIS/FVA** — `useStartupReconciliation` is a no-op shell ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) amends [ADR-026](./docs/ADR/026-reconciliation-on-reload.md)). Double-decrement prevented by the `pos_stock_movements.by_line_and_sku` index (one `sale` movement per `(source_transaction_line_id, inventory_sku_id)`).
+18. **PIN changes funnel through `_changePinCommit_internal`** — its 3 callers are `auth.changePin` (self), `auth.resetStaffPin` (booth), `approvals.approveStaffPinReset` (off-booth). Branch on `actor.kind`; never log PIN values; don't add a 4th reset path.
+19. **`APPROVAL_KINDS` is the add-a-kind mechanism** — `convex/approvals/kinds.ts` (`ApprovalKind` union + `validateContext` switch + `KIND_AUDIT` + `KIND_TEMPLATE`). `validateContext` is the single-writer invariant. Keep schema/internal validators, Telegram renderer, and `/approve` UI in sync (see [How to add a feature](#how-to-add-a-feature) #8).
+20. **Public mutations require `idempotencyKey` + `withIdempotency` + `authCheck`** ([ADR-013](./docs/ADR/013-idempotency-keys.md)). ESLint-enforced. The handler re-calls `require*Session(...)` so `authCheck` runs BEFORE the cache lookup; the duplication is intentional — don't collapse it. See [`docs/PATTERNS/idempotency-dual-call-authcheck.md`](./docs/PATTERNS/idempotency-dual-call-authcheck.md).
+21. **`markRefundSettled` is manager-session, NOT manager-PIN** ([ADR-038](./docs/ADR/038-refund-settlement-manual-v1.md)) — it's a bookkeeping ack that the already-authorised transfer completed; moves no money. Still audited (`refund.settled`). Same logic guides any "tally what already happened" mutation.
+22. **Manager-admin writes are tiered** (v0.5.3b): **manager-PIN** for identity/money (`createStaff`, `setStaffRole`, `deactivateStaff`, `createProduct`, `updateProductPricing`); **manager-session** for low-stakes config (`updateStaffName`, `updateProductMeta`, `setProductComponents`, `archiveProduct`, receipt-config CRUD). PIN-gated admin actions funnel through `verifyManagerPinOrThrow` (`convex/auth/verifyPin.ts`).
 
 ## File locations
 
-- `convex/` — Convex backend, organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-surface-apis.md)
-- `convex/schema.ts` — root schema, composed from per-module fragments
-- `convex/auth/` — staff, sessions, devices, PIN auth (public.ts, internal.ts, actions.ts, sessions.ts, schema.ts). `_resolveSessionRole_internal` *(v0.5.3a)* — non-throwing resolve+role for read-only fork-on-role queries (history, dashboard); returns null instead of raising on invalid session. `_listStaffNames_internal` *(v0.5.3a)* — projects all staff (active + inactive) to `{ _id, name }[]` for day-window staff-name labeling.
-- `convex/staff/` — staff CRUD + device registration (public.ts, internal.ts). `listActiveManagers` *(v0.5.0)* — session-gated query returning all active managers; used by the booth manager-picker on the charge screen for manager-PIN override flows.
-- `convex/catalog/` — products + inventory SKUs + components + stock levels (public.ts, internal.ts, schema.ts). `_getSkusByIds_internal` / `_setLowThreshold_internal` *(v0.5.2 — ADR-034 cross-module seams for inventory)*
-- `convex/audit/` — append-only audit log (public.ts, internal.ts, schema.ts). `logAudit` is a plain helper called from every state-changing mutation
-- `convex/idempotency/` — mutation harness, dedupe helpers (internal.ts, schema.ts)
-- `convex/seed/` — dev seeding (internal.ts, actions.ts)
-- `convex/transactions/` *(v0.3)* — sale records: `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` (public.ts, internal.ts, actions.ts, flags.ts, lib.ts *(v0.5.3a)*, schema.ts). `flags.ts` holds the `NEG_STOCK` bitset. Cart commit + `_confirmPaid` live here. `cancelAwaitingPayment` *(v0.5.0)* — manager-or-self mutation that cancels an `awaiting_payment` transaction and its pending approval requests via `_cancelPendingManualPaymentForTxn_internal`.
-  - `lib.ts` *(v0.5.3a)* — pure aggregators: `computeDaySummary(DayTxn[]) → DaySummary` + supporting types (`DayLine`, `Instrument`, `DayTxn`). Runtime-neutral (V8-safe, Vite-bundleable).
-  - `_fetchDayWindow_internal` *(v0.5.3a)* — single day read powering the three v0.5.3a reporting queries. Resolves paid txns in window via `by_status_created` + lines + refunds total + Xendit instrument + staff name. Does NOT gate role — callers fork.
-  - `listDayTransactions` / `dashboardSummary` / `getTransactionDetail` / `shareReceipt` *(v0.5.3a)* — public reporting surface. Staff get same-day; managers get any day. `getTransactionDetail` returns `null` for staff reads of prior-day txns (FE renders "tidak ditemukan"). `shareReceipt` is the first real caller of the v0.5.1 `_ensureReceiptTokenForPaidTxn_internal` seam (the `receipts._lazyMintReceiptToken_internal` facade was deleted in v0.5.3a simplification — same behaviour, one less hop). Idempotent at two layers (`withIdempotency` cache + existing-token check in the mint internal).
-- `convex/payments/` *(v0.3)* — Xendit charge: `pos_xendit_invoices` audit table (public.ts, internal.ts, actions.ts, webhook.ts, schema.ts). `webhook.ts` is the signature-verified Convex httpAction. `instrumentFromInvoice` *(v0.5.3a)* — pure helper (no DB access) normalising a `pos_xendit_invoices` row to `"qris" | "bca_va" | "unknown"`; consolidated with `_getPaidInvoiceForTxn_internal` (the former `_instrumentForTxn_internal` ran identical SQL and was deleted in v0.5.3a simplification — day-window aggregator reuses the paid-invoice query and normalises with the pure helper).
-- `convex/inventory/` *(v0.3, extended v0.5.2)* — `pos_stock_movements` + `pos_stock_levels` + `pos_low_stock_alerts` (dedup flag, ADR-042) + `pos_recount_state` (singleton, ADR-041) (public.ts, internal.ts, actions.ts, schema.ts). **Moved out of `catalog/` in v0.3** (ADR-034). Sale decrement writes a signed-negative movement.
-  - `recordRecount` *(v0.5.2)* — staff absolute recount; schedules `_dispatchRecountNotice_internal` to `inventory` Telegram role
-  - `setLowThreshold` *(v0.5.2)* — manager-gated threshold edit via catalog internal seam
-  - `listInventory` / `getSkuDetail` / `getRecountState` *(v0.5.2)* — queries powering `/stock` spoke routes
-  - `_checkLowStock_internal` *(v0.5.2)* — reactive low-stock check called from `_recordSaleMovement_internal` and `recordRecount`; SKU-deduped, dispatch scheduled
-  - `_dispatchLowStockAlert_internal` *(v0.5.2)* — fail-isolated dispatch to `inventory` Telegram role
-- `convex/vouchers/` *(v0.3)* — `pos_vouchers` + `pos_voucher_redemptions` (public.ts, internal.ts, schema.ts). Discount carried inline (`type`+`value`); one voucher per txn
-- `convex/approvals/` *(v0.3+)* — off-booth approval flow: `pos_approval_requests` (public.ts, internal.ts, actions.ts, schema.ts). v0.4 adds `manual_payment_override` kind and `denied` lifecycle state; token collapsed onto the request row. `kinds.ts` *(v0.4)* — `APPROVAL_KINDS` registry: `ApprovalKind` union, `validateContext`, `KIND_AUDIT`, `KIND_TEMPLATE`. This is the canonical touch-point for adding new approval kinds. `cancelPendingRequest` *(v0.5.0)* — manager-gated mutation that transitions a pending request to `denied` (with `denied_by_manager_id: "system"` sentinel) for cleaning up stuck approvals.
-- `convex/approvals/lib.ts` *(v0.5.0)* — `effectiveStatus(row)` helper (centralises the four-state lifecycle derivation: pending / resolved / denied / expired) + `TOKEN_PIN_ATTEMPT_CAP` constant (5). Imported by public.ts and actions.ts.
-- `convex/settings/` *(v0.4)* — `pos_settings` singleton table (public.ts, internal.ts, schema.ts). `getSettings` / `setFoundersSummaryEnabled` (manager-gated). Internal `_getSettings_internal` returns defaults when the row is absent.
-- `convex/receipts/` *(v0.5.1 PR A)* — receipt rendering: `pos_receipt_html_cache` cache table, public `/r/<token>` httpAction, hardcoded template (ADR-039 §4). `_renderReceiptByToken_internal`, `_buildViewModel_internal`, `_getCachedReceipt_internal`, `_writeCacheEntry_internal`, `_purgeReceiptCache_internal` (real implementation in PR B — asserts on missing token; called by `_commitRefund_internal`). The `_lazyMintReceiptToken_internal` facade was deleted in v0.5.3a simplification; `shareReceipt` now calls `transactions._ensureReceiptTokenForPaidTxn_internal` directly (the owning-module helper keeps the ADR-034 boundary clean). `handleReceiptRoute` is the `GET /r/:token` httpAction (24h cache, 404 page in Indonesian). `template.ts` *(v0.5.1 PR B)* — refund block + status header (LUNAS / SEBAGIAN DIKEMBALIKAN / DIKEMBALIKAN) per ADR-039.
-- `convex/refunds/` *(v0.5.1 PR B)* — refund ledger + settlement: `pos_refunds` table (public.ts, internal.ts, actions.ts, lib.ts, schema.ts). `lib.ts` exports `computeRefundAmount` (ADR-040 single-floor), `lineRefundable`, `lineRefundedQty`, and `refundStatus` *(v0.5.3a — extracted from receipts/template.ts so the receipt status header AND the v0.5.3a history badge share one derivation)* — pure helpers shared by the commit funnel, the receipt template, the frontend preview, and the history badge. `_commitRefund_internal` is the single writer used by BOTH `commitRefundInline` (booth-PIN) AND `approveRefund` (Telegram-PIN) per v0.5.0 cross-path-parity. `markRefundSettled` is **manager-session gated, NOT PIN** (ADR-038, rule #22 above). `listTodaysRefundable` / `listForTransaction` power `/refund` + `/refund/:txnId`; `listPendingSettlement` powers `/mgr/refunds-pending`.
-- `convex/crons.ts` *(v0.4)* — registers all Convex cron jobs. Currently: `founders-shift-summary` daily at 22:00 WIB / 15:00 UTC via `telegram/foundersSummary.sendFoundersSummaryResilient`.
-- `convex/api/v1/` — external API surface (httpActions for Frollie Pro consumption). v0.2.1: scaffold only — endpoints ship from v0.3
-- `convex/telegram/` *(v0.4 rewrite)* — production Telegram integration. Key files:
-  - `chatRegistry/public.ts` — manager-session-gated public mutations: `mgrListChats` / `mgrAssignRole` / `mgrArchiveChat` / `mgrRestoreChat` / `mgrSendTest` (public surface at `api.telegram.chatRegistry.public.mgr*`). Split from former `chatRegistry.ts` in v0.5.0 per ADR-034.
-  - `chatRegistry/internal.ts` — internal helpers: `getChatIdByRole` (role-based routing with `TELEGRAM_CHAT_ID` env-fallback); `telegramChats` table management; `seedChatFromEnv` one-shot migration bootstrap.
-  - `commands.ts` — Telegram bot command handlers (`/register`, `/start`) dispatched by the webhook.
-  - `registryCommands.ts` — `buildRegistryCommands` factory that wires commands to the chatRegistry actions.
-  - `config.ts` — `KNOWN_TELEGRAM_ROLES`, `isKnownTelegramRole`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_ADMIN_URL` constants.
-  - `foundersSummary.ts` — `sendFoundersSummary` (on-demand) + `sendFoundersSummaryResilient` (cron entry-point with cronRetry back-off).
-  - `internal.ts` — `_auditSkip_internal` (founders summary audited skip), `_auditSendFailed_internal` (send failure audit). Kept in a plain V8 file because "use node" files may only export actions.
-  - `send.ts` — `sendTemplate` (role-routed, typed payload union, action-level idempotent, audited send-failures). `schema.ts` — `telegramChats` + `telegramUpdates` table definitions.
-  - `webhook.ts` — Convex HTTP action at `/telegram-webhook` built with `buildHandleTelegramWebhook` + `buildRegistryCommands`; replaces the v0.3 POC callback handler.
-- `convex/http.ts` — registers httpAction routes
-- `convex/lib/` — cross-cutting utilities (`telegramHtml.ts` message renderers + `sendTelegramHtml` + `escapeHtml` + `formatIdr`; `time.ts` WIB-calendar helpers including `wibDayWindow` + `formatWibDateTime` *(v0.5.1 PR A — used by the receipt template)* + exported `WIB_OFFSET_MS` *(v0.5.3a — reporting aggregators read for WIB-hour bucketing)*; `cronRetry.ts` retry policy constants; `dateAnchors.ts` date window helpers)
-- `convex/lib/tokens.ts` *(v0.5.1 PR A)* — `mintUrlSafeToken(bytes=32)` — shared base64url helper. Used by approvals (off-booth approval tokens, ADR-029) and receipts (`_confirmPaid` mints `receipt_token`, ADR-021). Web Crypto (`globalThis.crypto.getRandomValues`) so V8-bundling stays clean.
-- `src/routes/` — page-level routes. Implemented in v0.3: `sale/index` (cart), `sale/drafts`, `sale/voucher`, `sale/charge`, `sale/charge-success`, `approve/index` (`/approve/:token` landing) + `approve/pin`. Added in v0.4: `mgr/telegram-chats` (Telegram chat registry admin — manager session required). Added in v0.5.3a: `history/index` (transaction list — staff today / manager any day), `history/$txnId` (transaction detail + "Bagikan struk" share button), `mgr/dashboard` (manager-only laptop-first dashboard cards). Still stubbed: settlements, remaining `mgr/*`
-- `src/components/ui/` — shadcn primitives (new-york style, stone base): `button`, `badge`, `card`, `input`, `label`, `separator`, `dialog`, `dropdown-menu`, `popover`, `select`, `switch`, `tabs`, `tooltip`, `progress`, `scroll-area`, `sonner` toast
-- `src/components/layout/` — `RootLayout` (app shell, session gate), `Stub` (route placeholder), `AppHeader.tsx` *(v0.5.0)* (sticky spoke-route header with back-to-home affordance), `SpokeLayout.tsx` *(v0.5.0)* (wrapper that composes AppHeader into spoke routes)
-- `src/components/pos/` — POS-specific shared components. `NumericKeypad` is the canonical PIN + qty input (3-col grid, keyboard-friendly, two sizes via `size: "compact" | "comfortable"`). `PinSheet` *(v0.3)* is the reusable PIN-entry sheet (built on `NumericKeypad`) used by change-PIN, manager reset, and the `/approve/:token` landing. `ApprovalPending` *(v0.4)* — reusable approval-pending overlay: subscribes to `approvals.public.getRequestStatus`, renders status (pending/resolved/denied/expired) reactively, and renders the correct CTA for each state. `AbandonCartDialog.tsx` *(v0.5.0)* — shared dialog for cart-abandon (Save as draft / Discard / Cancel) and cancel-payment (Cancel payment / Keep waiting) flows; variant-controlled via props.
-- `src/hooks/` — `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (v0.3: IDB-backed so a reload mid-payment doesn't double-execute). Added in v0.3: `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op shell since [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) downgraded the ADR-026 re-check to manual-only). Added in v0.4: `useApproval` — reactive hook that wraps `approvals.public.getRequestStatus` + `requestManualPaymentApproval` action dispatch + idempotency key lifecycle; used by `ApprovalPending` and the charge screen. Added in v0.5.0: `useLastStaff` — persists the last logged-in staff ID to localStorage for the lock-resume UX (pre-stages PIN entry for returning staffer); `useCountdown` — generic mm:ss countdown driven by an expiry timestamp (used by the charge-screen invoice countdown).
-- `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge). Other utilities (`format.ts`, `wa-link.ts`, `receipt-template.ts`) land per phase
-- `src/lib/storage-keys.ts` *(v0.5.0)* — centralised localStorage key namespace. All constants exported from here; `storeSession(sessionId, staffId)` writes both `SESSION_KEY` and `STAFF_KEY` atomically. Import from here rather than inlining bare strings.
-- `src/pwa/` — service worker bootstrap (vite-plugin-pwa handles registration)
-- `docs/SCHEMA.md` — POS tables plus relationship to Frollie Pro schema
-- `docs/ADR/` — 37 numbered ADRs (ADR-037 added in v0.4) + `000-strategic-foundations.md` for the consolidated strategic decisions
-- `docs/DECISIONS.md` — product and flow decisions (not architectural) — legacy reference
-- `docs/CHANGELOG.md` — version history
-- `docs/WORKFLOW.md` — references Frollie Pro's; documents POS-specific deviations
-- `docs/API_REFERENCE.md` — Convex function reference
-- `frollie-pos design files/` — wireframe handoff bundle (NOT committed; in `.gitignore`). Source of truth for screen layouts and the 33-ADR registry
-- `archive/files.zip` — original delivery bundle (NOT committed)
-- `packages/ceo-progress-report/` — frozen v0.1.0 snapshot of the PROGRESS.md → progress.html renderer + Claude Code plugin. **Snapshot retired as the build path** — the rendered board is now generated by the published [`ceo-progress-report`](https://www.npmjs.com/package/ceo-progress-report) npm package (in devDependencies), via `npx ceo-report build --src docs/PROGRESS.md --out docs/progress.html`, configured by `buildlog.config.mjs` at the repo root. The in-tree `scripts/build-progress-html.mjs` was deleted in the cutover. Future renderer development happens in the standalone repo at [lucasyhzhu-debug/ceo-progress-report](https://github.com/lucasyhzhu-debug/ceo-progress-report), not here.
-- `buildlog.config.mjs` — config for `ceo-report build` (title/monogram/location/lanes). Replaces the hardcoded values that lived in the retired in-tree script.
+Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-surface-apis.md) (each module: `public.ts`, `internal.ts`, `schema.ts`, often `actions.ts`). **Function-level reference: [`docs/API_REFERENCE.md`](./docs/API_REFERENCE.md).** Schema: [`docs/SCHEMA.md`](./docs/SCHEMA.md).
+
+**`convex/` modules:**
+
+| Module | Owns / purpose |
+|---|---|
+| `schema.ts` | Root schema, composed from per-module fragments |
+| `auth/` | Staff, sessions, devices, PIN auth (+ `sessions.ts`, `verifyPin.ts` — `verifyManagerPinOrThrow` is the single manager-PIN funnel for v0.5.3b admin writes + `resetStaffPin`). `_resolveSessionRole_internal` (v0.5.3a — non-throwing resolve+role for read-only fork-on-role queries), `_listStaffNames_internal` (staff-name labeling) |
+| `staff/` | Staff CRUD + device registration; `listActiveManagers` (booth manager-picker). **v0.5.3b admin:** `actions.ts` (`setStaffRole`, `deactivateStaff` — manager-PIN); `public.ts::createStaff` PIN-gated; `updateStaffName` (session); `listStaff` now strips `pin_hash` (`_helpers.ts` projection) |
+| `catalog/` | Products, inventory SKUs, components, stock levels. **v0.5.3b admin:** `actions.ts` (`createProduct`, `updateProductPricing` — manager-PIN); `public.ts` admin mutations (`updateProductMeta`, `setProductComponents`, `archiveProduct` — manager-session) + `listAllProducts` admin query |
+| `audit/` | Append-only audit log; `logAudit` helper called from every state-changing mutation |
+| `idempotency/` | Mutation harness + dedupe helpers |
+| `transactions/` | `pos_transactions`/`_lines`/`_receipt_counters`; cart commit + `_confirmPaid`; `flags.ts` (`NEG_STOCK`); `cancelAwaitingPayment`. **Reporting (v0.5.3a):** `lib.ts` pure day aggregators (`computeDaySummary`, V8-safe), `_fetchDayWindow_internal` (single day read, role-neutral — callers fork), public queries `listDayTransactions`/`dashboardSummary`/`getTransactionDetail`/`shareReceipt` (staff = same-day, manager = any day) |
+| `payments/` | Xendit charge + `pos_xendit_invoices`; `webhook.ts` = signature-verified httpAction; `instrumentFromInvoice` (pure helper → `"qris"\|"bca_va"\|"unknown"`) |
+| `inventory/` | `pos_stock_movements` + `_stock_levels` + `_low_stock_alerts` (ADR-042) + `_recount_state` (ADR-041). Recount, low-threshold, low-stock dispatch, `/stock` queries |
+| `vouchers/` | `pos_vouchers` + `_redemptions`; inline discount, one per txn |
+| `approvals/` | Off-booth flow: `pos_approval_requests`, `kinds.ts` (`APPROVAL_KINDS`), `lib.ts` (`effectiveStatus`, `TOKEN_PIN_ATTEMPT_CAP`) |
+| `settings/` | `pos_settings` singleton; `_getSettings_internal` returns defaults when row absent. **v0.5.3b:** receipt-branding fields (`receipt_business_name`, `receipt_address`, `receipt_contact`, `receipt_instagram_handle`, `receipt_footer_text`, `receipt_logo_storage_id`) + `getReceiptConfig` / `updateReceiptConfig` / `generateLogoUploadUrl` (manager-session; update purges receipt cache) |
+| `receipts/` | `/r/<token>` httpAction + `pos_receipt_html_cache` + `template.ts` (ADR-039, 24h cache). *(v0.5.3a: `_lazyMintReceiptToken_internal` facade deleted; `shareReceipt` calls `transactions._ensureReceiptTokenForPaidTxn_internal` directly.)* **v0.5.3b:** template now reads branding from `pos_settings` (logo `<img>` + configurable footer); `_purgeAllReceiptCache_internal` invoked on every receipt-config update so customers see new branding on next view |
+| `refunds/` | `pos_refunds`; `lib.ts` pure helpers (`computeRefundAmount` ADR-040, `lineRefundable`, `lineRefundedQty`, `refundStatus` — shared by commit funnel, receipt template, FE preview, history badge); `_commitRefund_internal` = single writer for both booth + Telegram paths |
+| `telegram/` | Production Telegram (v0.4 rewrite): `send.ts` (`sendTemplate`), `chatRegistry/` (role routing + admin mutations at `api.telegram.chatRegistry.public.mgr*`), `webhook.ts`, `commands.ts`, `config.ts`, `foundersSummary.ts` |
+| `crons.ts` | `founders-shift-summary` daily 22:00 WIB / 15:00 UTC |
+| `api/v1/` | External HTTP API for Frollie Pro consumption |
+| `lib/` | `telegramHtml.ts`, `time.ts` (WIB calendar; exports `WIB_OFFSET_MS`), `tokens.ts` (`mintUrlSafeToken`), `cronRetry.ts`, `dateAnchors.ts`. **Must be V8-safe** (no `"use node"`) |
+| `http.ts` | Registers httpAction routes |
+
+**`src/`:**
+
+| Path | Contents |
+|---|---|
+| `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin). Stubbed: refund, settlements, remaining `mgr/*` |
+| `components/ui/` | shadcn primitives (new-york/stone) |
+| `components/layout/` | `RootLayout` (shell + session gate), `Stub`, `AppHeader`, `SpokeLayout` |
+| `components/pos/` | `NumericKeypad` (canonical PIN/qty), `PinSheet`, `ApprovalPending`, `AbandonCartDialog` |
+| `hooks/` | `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (IDB-backed), `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op), `useApproval`, `useLastStaff`, `useCountdown` |
+| `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`) |
+| `pwa/` | Service worker bootstrap |
+
+**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`.
+
+**Other:** `frollie-pos design files/` (wireframes, gitignored — IA source for v0.5), `packages/ceo-progress-report/` (frozen snapshot; build path is now the published npm package via `buildlog.config.mjs`).
 
 ## Commands
 
 ```bash
-# install
 npm install
-
-# dev (two terminals)
 npm run dev               # vite dev server on :5173
 npx convex dev            # convex local dev (deployment: helpful-grasshopper-46)
-
-# build
 npm run build             # tsc -b && vite build
 npm run typecheck         # tsc --noEmit
 npm run lint
-
-# deploy
-npm run deploy            # frontend to vercel
-npx convex deploy         # backend to convex prod (POS prod deployment — own project)
+npm run deploy            # frontend → vercel
+npx convex deploy         # backend → convex prod (own project)
 ```
 
 ## Convex deployment
 
 POS has its **own Convex project**, separate from `product_master`. Two deployments:
 
-- **dev:** `helpful-grasshopper-46` — `https://helpful-grasshopper-46.convex.cloud` (client / WS) and `https://helpful-grasshopper-46.convex.site` (httpAction webhooks). Currently set in `.env.local` as `VITE_CONVEX_URL`. This is what `npx convex dev` targets.
-- **prod:** `savory-zebra-800` — `https://savory-zebra-800.convex.cloud` (client / WS) and `https://savory-zebra-800.convex.site` (httpAction webhooks). Populated via `npx convex deploy`. The Vercel build must inject this URL as `VITE_CONVEX_URL`, not the dev one.
+- **dev:** `helpful-grasshopper-46` — `.convex.cloud` (client/WS), `.convex.site` (httpAction webhooks). Set in `.env.local` as `VITE_CONVEX_URL`; `npx convex dev` targets this.
+- **prod:** `savory-zebra-800` — same `.cloud`/`.site` split. Populated via `npx convex deploy`. The Vercel build must inject the **prod** URL as `VITE_CONVEX_URL`.
 
-If you need to add a table, update `convex/schema.ts` in this repo — POS tables live here independently of `product_master`. Where POS mirrors a Frollie Pro concept (e.g., a `products` analogue), pattern your schema after `product_master`'s, but the tables themselves are POS-owned. v1.1+ may sync `products` data from `product_master` via a cross-deployment integration; that integration is not in v1.
+Add tables in `convex/schema.ts` here — POS tables are POS-owned. Pattern after `product_master` where mirroring a concept, but the tables stay independent.
 
-## Xendit integration notes
+## Xendit integration
 
-- Test mode keys in `.env.local`, prod keys in Vercel + Convex env.
-- **QRIS** uses the **QR Codes API** (`POST /qr_codes`, returns inline `qr_string`). **BCA VA** uses the **Virtual Accounts (FVA) API** (`POST /callback_virtual_accounts`, returns inline `account_number`). Both render inside the POS — no redirect to a hosted invoice page. The Invoice API (`POST /v2/invoices`) is **not used** ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) supersedes [ADR-011](./docs/ADR/011-qris-via-xendit-bca-va-secondary.md)).
-- **`api-version: 2022-07-31` header is load-bearing** on QR creation — without it, the `qr.payment` webhook never fires. Asserted by the `buildQrisHeaders()` unit test.
-- Webhook endpoint: `convex/payments/webhook.ts` exposed as a Convex HTTP action. **Signature verification mandatory** via `XENDIT_CALLBACK_TOKEN`. Always returns 200 (missing config or wrong token → 401). Parses two webhook shapes: QRIS (`event: "qr.payment"`, match on `data.qr_id`, status `SUCCEEDED`) and BCA VA (flat FVA callback, match on `callback_virtual_account_id`).
-- **No polling.** Polling retired for QRIS/FVA — confirmation paths are webhook + manager-PIN manual override only.
-- **Idempotency at two levels:** every public mutation has client-supplied `idempotencyKey` ([ADR-013](./docs/ADR/013-idempotency-keys.md)); webhook handler also dedupes by `xendit_invoice_id` because Xendit retries.
-- **Single active invoice per transaction (local supersede):** on cart edit + retry, mint a fresh QR/VA and mark the prior `pos_xendit_invoices` row cancelled + `replaced_by_invoice_id` locally. No Xendit cancel-API call for QR codes ([ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md) adjusts [ADR-014](./docs/ADR/014-single-xendit-invoice-per-transaction.md)). Prior invoice ids audit-logged to `pos_xendit_invoices`.
+Full design: [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md). Load-bearing facts:
+
+- **QRIS** = QR Codes API (`POST /qr_codes`, inline `qr_string`). **BCA VA** = FVA API (`POST /callback_virtual_accounts`, inline `account_number`). Both render in-POS, no hosted invoice page. Invoice API **not used**.
+- **`api-version: 2022-07-31` header is load-bearing** on QR creation — without it the `qr.payment` webhook never fires. Asserted by `buildQrisHeaders()` test.
+- **Webhook** (`convex/payments/webhook.ts`): signature verification mandatory via `XENDIT_CALLBACK_TOKEN`; always returns 200 (bad/missing token → 401). Parses QRIS (`event: "qr.payment"`, match `data.qr_id`) and BCA VA (flat FVA callback, match `callback_virtual_account_id`).
+- **No polling.** Confirmation = webhook + manager-PIN override only.
+- **Idempotency at two levels:** client `idempotencyKey` per mutation; webhook also dedupes by `xendit_invoice_id` (Xendit retries).
+- **Single active invoice per txn (local supersede):** on retry, mint fresh QR/VA, mark prior row cancelled + `replaced_by_invoice_id` locally. No Xendit cancel-API call for QR codes.
 
 ## Auth
 
-PIN-based ([ADR-001](./docs/ADR/001-pin-only-authentication.md)). 4 digits, **argon2id** hashed in a Convex action ([ADR-004](./docs/ADR/004-pin-hashing-server-side.md)) (not a mutation — bcrypt/argon2id verify is long-running and would block the event loop in a mutation). Session is a row in `staff_sessions`; no auto-logout, ends on explicit Lock ([ADR-003](./docs/ADR/003-shared-device-ephemeral-session.md)). Three failed PINs in a row = 60-second lockout for that staff record, persisted in `pos_auth_attempts` ([ADR-002](./docs/ADR/002-lockout-policy.md)).
+PIN-based, 4 digits, **argon2id hashed in a Convex action** (not a mutation — verify is long-running) ([ADR-001](./docs/ADR/001-pin-only-authentication.md), [ADR-004](./docs/ADR/004-pin-hashing-server-side.md)). Session = `staff_sessions` row, no auto-logout, ends on explicit Lock ([ADR-003](./docs/ADR/003-shared-device-ephemeral-session.md)). 3 failed PINs = 60s lockout in `pos_auth_attempts` ([ADR-002](./docs/ADR/002-lockout-policy.md)). Devices must be registered via a one-time 6-digit setup code ([foundations §6](./docs/ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)).
 
-Devices must be registered ([strategic foundations §6](./docs/ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)). A one-time 6-digit setup code from a manager activates a device. Sessions bound to `device_id`.
-
-Manager actions ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)) are **one-off PIN entries**, not persistent modes. From v0.4, off-booth flows (PIN resets, manual payment overrides) route through the **Telegram approval flow** ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md), superseding [ADR-027](./docs/ADR/027-wa-approval-via-staff-own-wa.md) for these flows) when no manager is at the booth. The audit `source` for all off-booth approve/deny actions is `telegram_approval`; the legacy `wa_approval` literal is preserved in the schema for rows created by v0.3 but no production code emits it post-v0.4.
-
-**PIN management (v0.3):** three flows, one commit funnel (`_changePinCommit_internal` — see business rule #19).
-
-- **`auth.changePin` (self):** staff change their own PIN. Verifies the current PIN with argon2, rejects same-PIN, respects lockout. Logs `staff.pin_changed`.
-- **`auth.resetStaffPin` (manager at booth):** a manager resets a target staff PIN by proving the **manager's own** PIN (never the target's). Rejects self-reset (use `changePin`), rejects non-managers. On commit it clears the target's lockout and logs `staff.pin_reset` (`source: booth_inline`).
-- **Off-booth lockout → reset (Telegram, [ADR-035](./docs/ADR/035-telegram-as-internal-comms.md) + [ADR-029](./docs/ADR/029-token-authorizes-view-pin-authorizes-act.md)):** a 3-strike lockout schedules `approvals.notifyStaffLockout`, which mints a 32-byte URL-safe token (only the SHA-256 hash is persisted on the `pos_approval_requests` row), posts a single-use 60-minute `/approve/:token` URL button to the managers' **Telegram** group via `sendTemplate`, and stamps `notified_at`. A dedup guard skips a second notification while a live pending request exists; if the Telegram send fails the pending row is deleted so the next cycle retries cleanly. A manager opens the link (**token authorises VIEW**), enters their own manager PIN (**PIN authorises ACT**), and `approvals.approveStaffPinReset` verifies the PIN, commits the reset via the shared funnel (`source: telegram_approval`, logs `staff.pin_reset`), and marks the request `resolved`. A locked-out manager can still approve their own reset link — the token + correct PIN are sufficient authority (lockout state is deliberately not re-checked on the approve path).
+Manager actions are **one-off PIN entries**, not modes ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)). Off-booth flows route through Telegram approval ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md)). PIN management = 3 flows, 1 commit funnel (`_changePinCommit_internal`) — see business rule #18.
 
 ## Crons
 
-Registered in `convex/crons.ts`. One job currently:
+In `convex/crons.ts`. Currently one: **`founders-shift-summary`** at 22:00 WIB / 15:00 UTC → `telegram/foundersSummary.sendFoundersSummaryResilient`. On-demand: `npx convex run telegram/foundersSummary:sendFoundersSummary` (needs `founders` role bound + toggle on).
 
-- **`founders-shift-summary`** — fires daily at **22:00 WIB / 15:00 UTC**. Calls `telegram/foundersSummary.sendFoundersSummaryResilient` with `{ attempt: 0 }`. The resilient wrapper retries transient errors up to `RESILIENT_MAX_ATTEMPTS` times with linear back-off; non-transient errors surface in the Convex cron dashboard. An audited skip (`founders.summary_skipped`) is written when the `founders_summary_enabled` toggle is off or when the `founders` Telegram role is unbound — neither case causes a retry storm.
+## Telegram
 
-To fire on-demand (dev or manual re-trigger): `npx convex run telegram/foundersSummary:sendFoundersSummary` (requires the `founders` role to be bound and the toggle to be on).
-
-## Required environment variables (Telegram)
-
-Set these on both dev (`npx convex env set KEY VALUE`) and prod (`npx convex env set KEY VALUE --prod`):
-
-| Variable | Required | Notes |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | Yes | From BotFather. Never share. Use separate bots for dev and prod. |
-| `TELEGRAM_WEBHOOK_SECRET` | Yes | Random string; passed as `secret_token` to `setWebhook`. Verified on every inbound update. |
-| `POS_BASE_URL` | Yes | Base URL of the frontend (e.g. `https://frollie-pos.vercel.app`). Used to build `/approve/:token` URLs in Telegram messages. |
-| `TELEGRAM_CHAT_ID` | Fallback only | Legacy env-fallback for the `managers` role until `getChatIdByRole` finds a bound row. Required during initial setup before the `/mgr/telegram-chats` UI is used to assign roles. Keep set during prod cutover. |
-| `TELEGRAM_FALLBACK_ROLE` | Fallback only | Which role the `TELEGRAM_CHAT_ID` fallback applies to (usually `managers`). Must match `TELEGRAM_CHAT_ID` to make the fallback work. |
-| `TELEGRAM_BOT_USERNAME` | Optional | Used in `/start` help text and test-message copy. Defaults to `FrolliePOS_Bot` in `config.ts`. |
-| `TELEGRAM_ADMIN_URL` | Optional | URL to the `/mgr/telegram-chats` admin UI. Shown in `/register` confirmation messages. Defaults to `POS_BASE_URL/mgr/telegram-chats`. |
-
-### Telegram roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`)
-
-Roles are bound to registered chats via `/mgr/telegram-chats`. `sendTemplate` dispatches by role (with the legacy `TELEGRAM_CHAT_ID` env-fallback for `managers` only).
-
-| Role | Purpose |
-|---|---|
-| `managers` | Off-booth approval requests (PIN resets, manual payment overrides, refunds). Bind first. |
-| `founders` | Daily shift-summary cron at 22:00 WIB (ADR-033). Opt-out via `pos_settings.founders_summary_enabled`. |
-| `inventory` *(v0.5.2)* | Operations chat that receives recount notices + low-stock alerts. Bind via `/mgr/telegram-chats`. |
+Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts). Set env vars on **both** dev and prod.
 
 ## How to add a feature
 
-1. Read the relevant ADR(s) in `docs/ADR/`. For strategic context, read [`000-strategic-foundations.md`](./docs/ADR/000-strategic-foundations.md).
-2. Check if Frollie Pro already has a pattern for this. If yes, reuse. If no, document the new pattern in `docs/DECISIONS.md`.
-3. If the feature adds a table or column, update `docs/SCHEMA.md` first, then `convex/schema.ts`.
-4. If the feature is a state-changing action, add it to the audit action enum in `convex/audit.ts` and `docs/SCHEMA.md`, and emit a `logAudit` row from the mutation.
-5. If the feature is a public mutation, accept `idempotencyKey` in args and wrap with the idempotency helper.
-6. If the feature is a manager-PIN gate, decide: inline (manager at booth) or Telegram-approval (the v0.4+ default for off-booth flows). Both update the same `pos_approval_requests` row for audit coherence.
-7. If the feature affects payment, refund, or stock, write tests. Other features, tests are optional but encouraged.
-8. If the feature adds a new **approval KIND** (the v0.4+ pattern — refund, manual-payment override, etc.), wire all four touch-points so the off-booth flow stays coherent: (a) add the literal to `convex/approvals/kinds.ts` — the `ApprovalKind` union, the `validateContext` switch case, `KIND_AUDIT`, and `KIND_TEMPLATE`. Then add the matching validator to `approvals/schema.ts` `kind` union and `approvals/internal.ts`; (b) add a Telegram template kind — a new literal in `sendTemplate`'s `kind` union in `convex/telegram/send.ts` plus a `renderXxx` payload type + renderer in `convex/lib/telegramHtml.ts`. The message must use a URL button (not `callback_data`) pointing at `${POS_BASE_URL}/approve/${rawToken}`; (c) add the UI variant to the `/approve/:token` landing in `src/routes/approve/index.tsx` (token authorises VIEW — discriminate on `kind` in the `getByToken` result) and the PIN continuation `approve/pin.tsx` (PIN authorises ACT); (d) add a public action to `convex/approvals/actions.ts` (or a new `approvals/<kind>.ts`) that follows the `requestManualPaymentApproval` / `approveManualPayment` / `denyRequest` pattern: mint token → `_createRequest_internal` → `sendTemplate` → `_markNotified_internal`, approve via argon2 verify + kind-specific funnel → `_markResolved_internal`, deny via `denyRequest` (already kind-agnostic). Reuse `_createRequest_internal` / `_markNotified_internal` / `_markResolved_internal` / `_markDenied_internal` rather than hand-rolling lifecycle writes. Thread `source: "telegram_approval"` to every audit-emitting mutation so the audit trail is consistent. The mgr admin surface lives at `api.telegram.chatRegistry.public.mgr*` (NOT `api.telegram.mgrAdmin.*`).
+1. Read the relevant ADR(s); for strategy, [`000-strategic-foundations.md`](./docs/ADR/000-strategic-foundations.md).
+2. Reuse a Frollie Pro pattern if one exists; else document the new one in `docs/DECISIONS.md`.
+3. New table/column → update `docs/SCHEMA.md` first, then `convex/schema.ts`.
+4. State-changing action → emit `logAudit` and document the new verb in `docs/SCHEMA.md` (the v0.3-shipped audit verb list). `audit_log.action` is a free `v.string()` — there is no code enum to edit.
+5. Public mutation → accept `idempotencyKey`, wrap with `withIdempotency` + `authCheck` (rule #20).
+6. Manager-PIN gate → inline (booth) or Telegram-approval (off-booth default). Both update the same `pos_approval_requests` row.
+7. Payment/refund/stock features → write tests. Others: optional but encouraged.
+8. **New approval KIND** → wire all four touch-points: **(a)** `convex/approvals/kinds.ts` (`ApprovalKind` union, `validateContext` case, `KIND_AUDIT`, `KIND_TEMPLATE`) + `approvals/schema.ts` + `approvals/internal.ts` validators; **(b)** Telegram template — literal in `sendTemplate`'s `kind` union (`convex/telegram/send.ts`) + `renderXxx` in `convex/lib/telegramHtml.ts` (URL button → `${POS_BASE_URL}/approve/${rawToken}`, never `callback_data`); **(c)** `/approve/:token` UI variant (`src/routes/approve/index.tsx` discriminates on `kind`; `approve/pin.tsx` for ACT); **(d)** public action in `approvals/actions.ts` following the `requestManualPaymentApproval`/`approveManualPayment`/`denyRequest` pattern, reusing `_createRequest_internal`/`_markNotified_internal`/`_markResolved_internal`/`_markDenied_internal`. Thread `source: "telegram_approval"` everywhere. Admin surface is `api.telegram.chatRegistry.public.mgr*`.
 9. Update `docs/CHANGELOG.md` in the same PR.
 
-## When to push back on the request
+## When to push back
 
-- **"Add cash handling."** Future phase, not v1. See [ADR-006](./docs/ADR/006-no-cash-no-shift-open-close.md).
-- **"Track packaging stock."** Out of scope. POS is finished-goods only ([strategic foundations §5](./docs/ADR/000-strategic-foundations.md#5-finished-goods-only--no-kitchen-inventory-in-v1)).
-- **"Add a customer-facing screen."** Out of scope. Staff + manager only.
-- **"Switch to Firebase / Supabase / a different backend."** Requires an ADR with strong justification against Frollie Pro alignment.
-- **"Add multi-stall."** Future phase. Schema is single-tenant in v1.
-- **"Allow voucher stacking."** Rejected by [ADR-010](./docs/ADR/010-no-voucher-stacking.md). Combinatorics not justified by business.
-- **"Hard-block sales at zero stock."** Rejected by [ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md). Counter velocity > pre-sale blocking.
-- **"Use the WhatsApp Cloud API for the approval flow."** v1.1+ consideration. v1 uses Telegram for off-booth approvals ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md)). The wa.me share-intent model ([ADR-027](./docs/ADR/027-wa-approval-via-staff-own-wa.md)) was the v0.2/v0.3 design; Telegram graduated it in v0.3/v0.4.
-- **"Skip idempotency, just disable the button while in-flight."** Doesn't cover network retries, service-worker re-fires, or page reloads mid-action. See [ADR-013](./docs/ADR/013-idempotency-keys.md).
+Each is a settled decision — cite the ADR, don't relitigate without a new one:
 
-## When in doubt
+- **Cash handling** → future phase ([ADR-006](./docs/ADR/006-no-cash-no-shift-open-close.md)).
+- **Packaging/kitchen stock** → out of scope, finished-goods only ([foundations §5](./docs/ADR/000-strategic-foundations.md#5-finished-goods-only--no-kitchen-inventory-in-v1)).
+- **Customer-facing screen** → out of scope, staff + manager only.
+- **Different backend (Firebase/Supabase)** → needs an ADR with strong justification vs Frollie Pro alignment.
+- **Multi-stall** → future phase; schema is single-tenant in v1.
+- **Voucher stacking** → rejected ([ADR-010](./docs/ADR/010-no-voucher-stacking.md)).
+- **Hard-block sales at zero stock** → rejected; counter velocity wins ([ADR-018](./docs/ADR/018-negative-stock-allowed-flagged.md)).
+- **WhatsApp Cloud API for approvals** → v1.1+; v1 uses Telegram ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md)).
+- **Skip idempotency, just disable the button** → doesn't cover retries/SW re-fires/reloads ([ADR-013](./docs/ADR/013-idempotency-keys.md)).
 
-Ask. Don't ship an assumption that locks the Frollie Pro graft. The cost of clarifying is one message. The cost of a bad foundation is a rewrite.
+**When in doubt:** ask. Don't ship an assumption that locks the Frollie Pro graft — clarifying costs one message, a bad foundation costs a rewrite.
 
-## Wireframe bundle reference
+## Wireframe reference
 
-The screen designs live at `frollie-pos design files/project/Frollie POS Wireframes.html`. That file is the canonical IA + flow source for v0.5 — when implementing a screen, open the corresponding artboard's source (`wireframes/<name>.jsx`) for layout intent. The hand-drawn aesthetic in the wireframes is a *wireframe convention* — implement in production-polish using the shadcn/Tailwind tokens in `src/index.css`, not the sketch fonts.
+Screen designs: `frollie-pos design files/project/Frollie POS Wireframes.html` (canonical IA + flow for v0.5). Open the artboard's `wireframes/<name>.jsx` for layout intent. The hand-drawn look is a wireframe convention — implement production-polish with the shadcn/Tailwind tokens in `src/index.css`.
 
-## gstack (recommended)
+## gstack
 
-This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows.
-Install it for the best experience:
-
-```bash
-git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
-cd ~/.claude/skills/gstack && ./setup --team
-```
-
-Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
-Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.
+This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows. Use `/browse` for all web browsing; use `~/.claude/skills/gstack/...` for gstack paths. Skills like `/qa`, `/ship`, `/review`, `/investigate` become available after install.

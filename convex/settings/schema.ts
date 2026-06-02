@@ -8,6 +8,15 @@ import { v } from "convex/values";
 export const settingsTables = {
   pos_settings: defineTable({
     founders_summary_enabled: v.boolean(),
+    // v0.5.3b receipt config — all optional; read-time defaults (see
+    // settings/internal._getSettings_internal) preserve the prior hardcoded
+    // values so an absent row still renders receipts unchanged.
+    receipt_business_name: v.optional(v.string()),
+    receipt_address: v.optional(v.string()),
+    receipt_contact: v.optional(v.string()),
+    receipt_instagram_handle: v.optional(v.string()),
+    receipt_footer_text: v.optional(v.string()),
+    receipt_logo_storage_id: v.optional(v.id("_storage")),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
   }),

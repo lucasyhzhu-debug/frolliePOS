@@ -6,6 +6,8 @@ const baseSettings = {
   address: "Pakuwon Mall, Surabaya",
   contact: "+62 821-xxxx-xxxx · frollie.id",
   instagram_handle: "@frollie.id",
+  footer_text: "Terima kasih! 💛",
+  logo_url: null,
 };
 
 function baseVm(): ReceiptViewModel {
