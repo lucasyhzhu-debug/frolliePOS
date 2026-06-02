@@ -17,6 +17,9 @@ export const inventoryTables = {
 
     source_transaction_line_id: v.optional(v.id("pos_transaction_lines")),
 
+    spoilage_reason: v.optional(v.string()),       // NEW v0.6: non-null only when source="spoilage"
+    spoilage_event_id: v.optional(v.string()),     // NEW v0.6: groups multi-line spoilage events
+
     created_at: v.number(),
     recorded_by_staff_id: v.optional(v.id("staff")),
   })
