@@ -15,7 +15,7 @@
 
 ## Assumptions to verify FIRST (plan-review + execution)
 
-1. **`@point-of-sale/esc-pos-encoder` API** — exact class/method names (default export `EscPosEncoder`? `.initialize()/.align()/.bold()/.size()/.line()/.text()/.newline()/.qrcode()/.encode()`). Confirm against the installed package's README/types before Task 3. The encoder *calls* below follow the documented API but method names MUST be verified post-install.
+1. **`@point-of-sale/esc-pos-encoder` API** — there are **two** Niels-Leenheer successor packages with **different APIs**: the classic chainable `@point-of-sale/esc-pos-encoder` (`new EscPosEncoder().initialize().line().qrcode().encode()`) and the newer `@point-of-sale/receipt-printer-encoder` (`ReceiptPrinterEncoder`, multi-language, different method set). **Use the classic `@point-of-sale/esc-pos-encoder`** (Task 0 installs it). Before Task 3, confirm against its installed README/types: default export name; whether scaling is `.size(w,h)` vs `.width(n).height(n)`; and whether `.line(str)` exists or you must use `.text(str).newline()`. The encoder calls in Task 3 follow the classic API but MUST be reconciled with the installed version (`npm run typecheck` + the golden test catch mismatches — the test asserts on decoded text substrings + the `ESC @` prefix, so it's robust to method-name differences as long as output is correct).
 2. **Native ESC/POS QR** (`.qrcode()` → `GS ( k`) renders on the CEVA FW. If not, switch the QR step to the raster fallback (`qrcode` lib → `GS v 0`) — isolated in `escpos.ts`.
 3. **`navigator.bluetooth.getDevices()`** is available in the target Android Chrome build (it is in current stable; confirm on the actual device).
 
@@ -646,12 +646,15 @@ git commit -m "feat(print): useThermalPrinter Web Bluetooth connect/auto-reconne
 **Files:**
 - Create: `src/components/pos/PrinterSheet.tsx`
 
-- [ ] **Step 1: Implement the sheet**
+- [ ] **Step 1: Implement the sheet (built on the existing `Dialog` primitive)**
+
+> Plan-review confirmed `src/components/ui/sheet.tsx` does **not** exist (only `dialog.tsx`, `popover.tsx`). The codebase convention is that "Sheet"-named components wrap `Dialog` — see `src/components/pos/PinSheet.tsx`. Mirror it; do **not** add a new shadcn primitive.
 
 ```tsx
+import { useState } from "react";
 import { Printer } from "lucide-react";
 import { toast } from "sonner";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useThermalPrinter, type PrinterStatus } from "@/hooks/useThermalPrinter";
 import { encodeReceipt, SAMPLE_RECEIPT } from "@/lib/escpos";
@@ -662,6 +665,7 @@ const LABEL: Record<PrinterStatus, string> = {
 };
 
 export function PrinterSheet() {
+  const [open, setOpen] = useState(false);
   const { status, connect, disconnect, print } = useThermalPrinter();
 
   const onTest = async () => {
@@ -677,36 +681,34 @@ export function PrinterSheet() {
   };
 
   return (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Printer">
-          <Printer className={status === "connected" ? "text-teal-600" : "text-muted-foreground"} />
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="bottom">
-        <SheetHeader><SheetTitle>Printer struk</SheetTitle></SheetHeader>
-        <div className="space-y-3 p-4">
-          <div className="text-sm text-muted-foreground">Status: {LABEL[status]}</div>
-          {status === "unsupported" ? (
-            <p className="text-sm text-destructive">Browser ini tidak mendukung Bluetooth.</p>
-          ) : status === "connected" || status === "printing" ? (
-            <>
-              <Button className="w-full" onClick={onTest} disabled={status === "printing"}>Tes cetak</Button>
-              <Button className="w-full" variant="outline" onClick={disconnect}>Putuskan</Button>
-            </>
-          ) : (
-            <Button className="w-full" onClick={connect} disabled={status === "connecting"}>
-              Hubungkan printer
-            </Button>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+    <>
+      <Button variant="ghost" size="icon" aria-label="Printer" onClick={() => setOpen(true)}>
+        <Printer className={status === "connected" ? "text-teal-600" : "text-muted-foreground"} />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Printer struk</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">Status: {LABEL[status]}</div>
+            {status === "unsupported" ? (
+              <p className="text-sm text-destructive">Browser ini tidak mendukung Bluetooth.</p>
+            ) : status === "connected" || status === "printing" ? (
+              <>
+                <Button className="w-full" onClick={onTest} disabled={status === "printing"}>Tes cetak</Button>
+                <Button className="w-full" variant="outline" onClick={disconnect}>Putuskan</Button>
+              </>
+            ) : (
+              <Button className="w-full" onClick={connect} disabled={status === "connecting"}>
+                Hubungkan printer
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 ```
-
-> **Verify in plan-review:** `src/components/ui/sheet.tsx` exists (shadcn). If absent, add via the project's shadcn setup before this task.
 
 - [ ] **Step 2: Typecheck**
 
@@ -733,7 +735,6 @@ At the top of the component, add:
 ```tsx
 import { useMutation } from "convex/react";
 import { useSession } from "@/hooks/useSession";
-import { useIdempotency } from "@/hooks/useIdempotency";
 import { useThermalPrinter } from "@/hooks/useThermalPrinter";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { encodeReceipt } from "@/lib/escpos";
@@ -746,8 +747,9 @@ Inside `SaleChargeSuccess`, after the existing `result` query:
 const session = useSession();
 const sessionId = session.status === "active" ? session.sessionId : undefined;
 const { status: printerStatus, connect, print } = useThermalPrinter();
-const shareReceipt = useMutation(api.transactions.shareReceipt);
-const idemKey = useIdempotency(txnId ? `shareReceipt:${txnId}` : "share:none");
+// Plan-review fix: correct API path is api.transactions.public.shareReceipt
+// (verified at src/routes/history/$txnId.tsx:48).
+const shareReceipt = useMutation(api.transactions.public.shareReceipt);
 
 const printData = useQuery(
   api.receipts.public.getReceiptForPrint,
@@ -755,9 +757,13 @@ const printData = useQuery(
 );
 
 const onPrint = async () => {
-  if (!sessionId || !txnId || !idemKey || !printData) return;
+  if (!sessionId || !txnId || !printData) return;
   try {
-    const { token } = await shareReceipt({ idempotencyKey: idemKey, sessionId, txnId });
+    // One-shot user action → fresh UUID per click (matches history/$txnId.tsx +
+    // drafts.tsx convention; useIdempotency is reserved for retried/replayed
+    // mutations like login/payment). shareReceipt is idempotent BY TXN, so
+    // reprints reuse the same token → stable QR regardless of the key.
+    const { token } = await shareReceipt({ idempotencyKey: crypto.randomUUID(), sessionId, txnId });
     const bytes = encodeReceipt(
       printData.viewModel, printData.status, printData.statusLabel, buildReceiptUrl(token),
     );
