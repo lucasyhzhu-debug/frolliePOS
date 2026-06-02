@@ -22,6 +22,7 @@ import { RootLayout } from "@/components/layout/RootLayout";
  *   /mgr/dashboard               — DashA (laptop-first)
  *   /mgr/products                — ProductsManager (taxonomy editor)
  *   /mgr/vouchers                — VoucherManager (v0.6)
+ *   /mgr/spoilage                — Spoilage entry (v0.6)
  *   /mgr/receipt                 — ReceiptConfig
  *
  *   /wait/:requestId             — StaffWaitingApproval (the requester's screen)
@@ -60,6 +61,7 @@ const MgrRefundsPending = lazy(() => import("@/routes/mgr/refunds-pending"));
 const MgrTelegramChats = lazy(() => import("@/routes/mgr/telegram-chats"));
 const MgrStaff = lazy(() => import("@/routes/mgr/staff"));
 const MgrVouchers = lazy(() => import("@/routes/mgr/vouchers"));
+const MgrSpoilage = lazy(() => import("@/routes/mgr/spoilage"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
@@ -104,6 +106,7 @@ const routes: RouteObject[] = [
       { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
       { path: "mgr/staff", element: <MgrStaff /> },
       { path: "mgr/vouchers", element: <MgrVouchers /> },
+      { path: "mgr/spoilage", element: <MgrSpoilage /> },
     ],
   },
 

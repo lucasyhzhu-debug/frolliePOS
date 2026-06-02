@@ -15,6 +15,7 @@ const NAV_CARDS: NavCard[] = [
   { to: "/mgr/products", label: "Products", hint: "Add, edit, price, archive", glyph: "▣" },
   { to: "/mgr/staff", label: "Staff", hint: "Add, rename, role, PIN", glyph: "◔" },
   { to: "/mgr/vouchers", label: "Vouchers", hint: "Create, edit, redemptions", glyph: "%" },
+  { to: "/mgr/spoilage", label: "Spoilage", hint: "Log damaged / spoiled stock", glyph: "⨯" },
   { to: "/mgr/receipt", label: "Receipt", hint: "Branding + footer", glyph: "≡" },
   { to: "/mgr/telegram-chats", label: "Telegram chats", hint: "Bot registry + roles", glyph: "✈" },
   { to: "/mgr/refunds-pending", label: "Refunds pending", hint: "Awaiting settlement", glyph: "↻" },
