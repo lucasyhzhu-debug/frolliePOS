@@ -53,6 +53,16 @@ BLE characteristic writes have a small MTU. The hook chunks the ESC/POS byte str
 
 Connection uses a **filtered device chooser** on first connect, then **silent auto-reconnect** via `navigator.bluetooth.getDevices()` — the reconnect probe runs only from the idle "disconnected" state, which also yields auto-reconnect after a drop. The `useThermalPrinter` hook feature-detects Web Bluetooth and surfaces an `unsupported` state on non-Chrome/iOS.
 
+## Amendment — 2026-06-02 (on-device QA): QR points to Instagram, not the digital receipt
+
+Decision C is **superseded** by booth feedback during on-device QA. The printed QR now encodes the booth's **Instagram follow URL** (`https://www.instagram.com/<handle>/`), derived from the `instagram_handle` receipt setting via the pure `instagramUrl()` helper in `escpos.ts`. Rationale: at the counter, a follow-us QR is worth more than a per-transaction digital-receipt link, and the handle is already an editable `/mgr/receipt` setting (no schema change, no per-print token mint).
+
+Consequences of the amendment:
+- `encodeReceipt` no longer takes a `receiptUrl` argument; `charge-success` no longer calls `shareReceipt` just to print (one fewer mutation per print). The token-as-capability invariant (ADR-021) is **unaffected** — `getReceiptForPrint` still returns no token.
+- The `/r/<token>` **digital receipt still exists** and is reachable via the history "share" action; it is simply no longer the *printed* QR target.
+- The encoder also now (a) skips empty header lines so clearing `address` in `/mgr/receipt` removes the line, and (b) prints the configurable `settings.footer_text` instead of a hardcoded string.
+- Decision E's raster-QR fallback still applies to the Instagram QR.
+
 ## Alternatives considered
 
 - **Server-side / cloud print.** No path — the printer is on local Bluetooth, unreachable from Convex. Rejected.
