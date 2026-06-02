@@ -45,8 +45,13 @@ export default function Sale() {
 
   // ---- navigation guard ----
   // Block route transitions when the cart has items so the user can save or
-  // discard before leaving. Does not fire when navigating within the same path.
-  const blocker = usePathChangeBlocker(!isEmpty);
+  // discard before leaving. `allowWithin: "/sale/"` whitelists in-flow hops
+  // (charge / save-draft / voucher) — those clear or commit the cart before
+  // navigating, so the guard must only fire when truly leaving the sale flow.
+  // Without it, pressing Charge tripped the abandon dialog: handleCharge clears
+  // the cart then navigates in the same tick, but `when` (=!isEmpty) is still
+  // the pre-clear value at navigate time, so the stale guard blocked the hop.
+  const blocker = usePathChangeBlocker(!isEmpty, "/sale/");
 
   // Secondary guard for hard page-leave (tab close / browser refresh). The
   // beforeunload handler is the only mechanism available for those cases.
