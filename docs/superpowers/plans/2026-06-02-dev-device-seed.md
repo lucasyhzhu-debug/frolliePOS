@@ -128,10 +128,14 @@ Leave the entire existing effect body (the `try { ... } catch { ... }` IDB/local
 Run: `npx vitest run src/hooks/useDeviceId.test.ts`
 Expected: PASS — under vitest `MODE==="test"`, so `DEV_SERVER` is false; the UUID/null-first/IDB-recovery tests behave exactly as before, plus the literal-pin test passes.
 
-- [ ] **Step 7: Typecheck**
+- [ ] **Step 7: Typecheck + lint**
 
 Run: `npm run typecheck`
 Expected: PASS — no type errors.
+
+Run: `npm run lint`
+Expected: PASS — `eslint .` clean (watch for `react-hooks/exhaustive-deps` on the
+modified effect; `DEV_SERVER` is module-scope so it should not be flagged).
 
 - [ ] **Step 8: Commit**
 
@@ -265,10 +269,14 @@ Expected: PASS — both tests green.
 Run: `npx vitest run convex/seed`
 Expected: PASS — `bootstrap.test.ts` (3 tests) + `reset.test.ts` (2 tests) all pass.
 
-- [ ] **Step 6: Typecheck**
+- [ ] **Step 6: Typecheck + lint**
 
 Run: `npm run typecheck`
 Expected: PASS.
+
+Run: `npm run lint`
+Expected: PASS — `eslint .` clean. (`_reset_internal` is an `internalMutation`, so the
+idempotency-rule assertion in the lint script does not apply to it.)
 
 - [ ] **Step 7: Commit**
 
@@ -325,6 +333,7 @@ git commit -m "docs: note dev device pre-registration (seed:reset + useDeviceId)
 ## Success Criteria
 
 - [ ] `npm run typecheck` passes.
+- [ ] `npm run lint` passes (`eslint .` clean).
 - [ ] `npx vitest run convex/seed src/hooks/useDeviceId.test.ts` passes (bootstrap 3, reset 2, useDeviceId existing + literal-pin).
 - [ ] Behavioral (manual, post-merge in a dev session): with `npx convex dev` + `npm run dev` running, `npx convex run seed:reset`, then load the app in a fresh browser profile → lands on `/login` (no `/activate`); pick Lucas → PIN `9999` → home.
 - [ ] Production untouched: `useDeviceId` UUID path unchanged for prod build (`MODE==="production"`); `bootstrap`, `activateDevice`, `isDeviceRegistered`, `RootLayout` gate, `pending_device_setups` all unmodified.
