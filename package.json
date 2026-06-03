@@ -4,6 +4,9 @@
   "version": "0.2.1",
   "type": "module",
   "description": "Frollie POS — internal point-of-sale for the Frollie stall. PWA on Android. Same Convex project as product_master.",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
