@@ -512,7 +512,19 @@ export default function SaleCharge() {
                     SCAN TO PAY
                   </p>
                   {invoice?.qr_string ? (
-                    <div className="rounded-lg bg-white p-3" role="img" aria-label="QRIS payment QR code">
+                    // data-qr-id exposes the Xendit QR Codes API `id` (stored as
+                    // xendit_invoice_id per convex/payments/schema.ts:7) so Playwright
+                    // E2E specs can pass it to the simulate-paid endpoint
+                    // (/qr_codes/{qrId}/payments/simulate). Conditional spread keeps
+                    // a transient undefined off the DOM.
+                    <div
+                      className="rounded-lg bg-white p-3"
+                      role="img"
+                      aria-label="QRIS payment QR code"
+                      {...(invoice.xendit_invoice_id
+                        ? { "data-qr-id": invoice.xendit_invoice_id }
+                        : {})}
+                    >
                       <QRCodeSVG value={invoice.qr_string} size={220} marginSize={0} />
                     </div>
                   ) : (
@@ -523,11 +535,25 @@ export default function SaleCharge() {
                   </p>
                 </>
               ) : (
+                // data-external-id exposes the Xendit FVA `external_id` so Playwright
+                // E2E specs can hit /callback_virtual_accounts/external_id={id}/simulate_payment.
+                // Derived as `pos-${txnId}` to match the initial-invoice ref minted in
+                // convex/payments/actions.ts:47 — external_id is NOT persisted on
+                // pos_xendit_invoices (schema stores only the FVA `id` as
+                // xendit_invoice_id). Caveat: retryWithFreshInvoice uses a different
+                // ref (`pos-${txnId}-r-${uuid}`, actions.ts:110), so this attribute
+                // is only correct for the first invoice — sufficient for the E2E
+                // specs (P4/P5/P6/P8), which don't exercise retry-then-simulate.
                 <>
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
                     BCA VIRTUAL ACCOUNT
                   </p>
-                  <p className="select-all text-2xl font-semibold tabular-nums tracking-wider">
+                  <p
+                    className="select-all text-2xl font-semibold tabular-nums tracking-wider"
+                    {...(txn?._id
+                      ? { "data-external-id": `pos-${txn._id}` }
+                      : {})}
+                  >
                     {invoice?.va_number ?? "—"}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
