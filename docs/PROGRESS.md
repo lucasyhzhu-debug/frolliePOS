@@ -1138,6 +1138,60 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
+## v0.5.5 — Inventory-SKU admin + route error boundary 📋 PLANNED
+**Outcome:** Managers can create inventory SKUs in-app (standalone or bundled with a new product), closing the v0.5.3b scope gap where products could be created but SKUs were seed-only. The Add Product dialog gains a checkbox that atomically creates-or-links a matching SKU at an editable qty — one PIN entry for both the "Matcha 1pc" (qty 1, new SKU) and "Dubai 3pcs" (qty 3, existing SKU reused) cases. Stale-deploy chunk-load failures auto-recover via a one-shot guarded reload across the app shell AND the three customer-/manager-facing public routes, replacing React Router's default error screen with a branded fallback (Indonesian on `/r/*`).
+**Spec:** [`docs/superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md`](./superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md) (2× staffreview-validated)
+**Plan:** [`docs/superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md`](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md) (staffreview-validated; 12 tasks)
+**Target:** TBD
+
+**You'll be able to:**
+- (Manager) Tap "Add SKU" on `/mgr/products`, enter slug + name + threshold, confirm PIN — the new SKU appears in the components dropdown immediately
+- (Manager) Tick "Also create or link a matching inventory SKU" when adding a product — the same PIN entry creates the SKU (or reuses an existing one with the matching slug) AND links the component at the qty you set
+- (Manager) Add "Dubai 3pcs" linked to the existing `dubai` SKU at qty 3 without a duplicate-SKU error — the slug match triggers a reuse, not a collision
+- (Anyone) See a friendly "Reload" screen instead of a React Router stack trace when the open tab loads a stale chunk after a deploy
+- (Customer) Open a receipt link from Telegram and see Indonesian "Halaman tidak bisa dimuat. Buka ulang link dari Telegram." instead of the default error screen if the chunk is stale
+
+**Still not yet:**
+- Edit / deactivate / archive an inventory SKU from the UI (create-only this phase)
+- Set SKU `code` / `initials` / `hue` from the bundled-checkbox flow (use standalone Add SKU for those — the bundled dialog deliberately stays minimal)
+- Off-booth Telegram-approval flow for SKU creation (booth-only this phase; no new KIND added)
+- Per-route fallback variants beyond the `useLocation` Indonesian/English split (ADR-045 caps coverage at the four shells today)
+
+### Backend (`convex/`)
+
+- 📋 **[v055-be-sku-internal]** `_createInventorySkuCommit_internal` — standalone PIN-gated SKU writer
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-be-sku-action]** `catalog.actions.createInventorySku` — action with `withActionCache` + `${key}:commit` dual-cache
+  - **agent:** `convex-expert` · **deps:** `v055-be-sku-internal` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-be-product-bundled-internal]** Extend `_createProductCommit_internal` with `withInventorySku` / `inventorySkuLowThreshold` / `inventorySkuComponentQty`
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-be-product-bundled-action]** Extend `catalog.actions.createProduct` signature + return shape for the bundled path
+  - **agent:** `convex-expert` · **deps:** `v055-be-product-bundled-internal` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+
+### Frontend (`src/`)
+
+- 📋 **[v055-fe-chunk-helper]** `src/lib/chunkLoadError.ts` — pure `isChunkLoadError(err)` + unit tests
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-fe-error-boundary]** `src/components/layout/RouteErrorBoundary.tsx` — one-shot chunk reload (30s sessionStorage guard) + branded fallback (ID/EN by `/r/*`)
+  - **agent:** `ui-component-builder` · **deps:** `v055-fe-chunk-helper` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-fe-router-wire]** `PublicShell` + `errorElement` on app-shell and public-shell in `src/router.tsx`
+  - **agent:** `frontend-integrator` · **deps:** `v055-fe-error-boundary` · **docs:** [Plan Task 7](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-fe-error-mapper]** Extend `humanizeCatalogError` in `src/routes/mgr/products.tsx` (5 new codes)
+  - **agent:** `frontend-integrator` · **deps:** `v055-be-sku-action`, `v055-be-product-bundled-action` · **docs:** [Plan Task 8](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-fe-add-sku-dialog]** Standalone Add SKU button + dialog + `PinAction` `createInventorySku` variant
+  - **agent:** `ui-component-builder` · **deps:** `v055-fe-error-mapper` · **docs:** [Plan Task 9](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-fe-bundled-checkbox]** Bundled-SKU checkbox + qty input + threshold input in the Add Product dialog
+  - **agent:** `ui-component-builder` · **deps:** `v055-fe-error-mapper` · **docs:** [Plan Task 10](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+
+### Cross-cutting
+
+- 📋 **[v055-xc-docs]** `docs/SCHEMA.md` audit verb + `docs/API_REFERENCE.md` + `docs/ADR/045-route-chunk-reload-boundary.md` + `docs/CHANGELOG.md` + CLAUDE.md rule #22 update
+  - **agent:** `—` · **deps:** `v055-be-sku-action`, `v055-be-product-bundled-action`, `v055-fe-router-wire` · **docs:** [Plan Task 11](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+- 📋 **[v055-xc-verify]** `npm run typecheck` + `lint` + full `vitest run` + `build` + manual smoke on `/mgr/products`
+  - **agent:** `—` · **deps:** `v055-fe-add-sku-dialog`, `v055-fe-bundled-checkbox`, `v055-xc-docs` · **docs:** [Plan Task 12](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
+
+---
+
 ## v0.6 — vouchers + spoilage + nightly stock-recon + Playwright 📋 PLANNED
 **Outcome:** Manager-portal voucher CRUD with ADR-009 offline reject banner; spoilage at booth (manager-PIN) or off-booth (Telegram approval); nightly cron rebuilds `pos_stock_levels` from the movements ledger and alerts on drift (report-only, no silent correction); first Playwright E2E suite proving the transactional golden path.
 **Spec:** [`docs/superpowers/specs/2026-06-02-v0.6-design.md`](./superpowers/specs/2026-06-02-v0.6-design.md) (staffreview-validated)
