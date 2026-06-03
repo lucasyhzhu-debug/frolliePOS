@@ -48,6 +48,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
     idempotencyKey: v.string(),
     txnId: v.id("pos_transactions"),
     xendit_invoice_id: v.string(),
+    reference_id: v.string(),
     xendit_idempotency_key: v.string(),
     method: v.union(v.literal("QRIS"), v.literal("BCA_VA")),
     qr_string: v.optional(v.string()),
@@ -59,6 +60,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
       idempotencyKey: string;
       txnId: Id<"pos_transactions">;
       xendit_invoice_id: string;
+      reference_id: string;
       xendit_idempotency_key: string;
       method: "QRIS" | "BCA_VA";
       qr_string?: string;
@@ -77,6 +79,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
       const invoiceId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.xendit_invoice_id,
+        reference_id: args.reference_id,
         xendit_idempotency_key: args.xendit_idempotency_key,
         method: args.method,
         qr_string: args.qr_string,
@@ -125,6 +128,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
     txnId: v.id("pos_transactions"),
     prev_invoice_id: v.id("pos_xendit_invoices"),
     new_xendit_id: v.string(),
+    reference_id: v.string(),
     new_xendit_idempotency_key: v.string(),
     method: v.union(v.literal("QRIS"), v.literal("BCA_VA")),
     qr_string: v.optional(v.string()),
@@ -138,6 +142,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
       txnId: Id<"pos_transactions">;
       prev_invoice_id: Id<"pos_xendit_invoices">;
       new_xendit_id: string;
+      reference_id: string;
       new_xendit_idempotency_key: string;
       method: "QRIS" | "BCA_VA";
       qr_string?: string;
@@ -157,6 +162,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
       const newId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.new_xendit_id,
+        reference_id: args.reference_id,
         xendit_idempotency_key: args.new_xendit_idempotency_key,
         method: args.method,
         qr_string: args.qr_string,

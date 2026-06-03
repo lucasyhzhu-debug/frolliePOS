@@ -537,22 +537,22 @@ export default function SaleCharge() {
               ) : (
                 // data-external-id exposes the Xendit FVA `external_id` so Playwright
                 // E2E specs can hit /callback_virtual_accounts/external_id={id}/simulate_payment.
-                // Derived as `pos-${txnId}` to match the initial-invoice ref minted in
-                // convex/payments/actions.ts:47 — external_id is NOT persisted on
-                // pos_xendit_invoices (schema stores only the FVA `id` as
-                // xendit_invoice_id). Caveat: retryWithFreshInvoice uses a different
-                // ref (`pos-${txnId}-r-${uuid}`, actions.ts:110), so this attribute
-                // is only correct for the first invoice — sufficient for the E2E
-                // specs (P4/P5/P6/P8), which don't exercise retry-then-simulate.
+                // Prefers the persisted `invoice.reference_id` (the actual ref sent to
+                // Xendit at create time — `pos-${txnId}` on first mint, `pos-${txnId}-r-${uuid}`
+                // on retry) so this attribute survives retryWithFreshInvoice correctly.
+                // Falls back to the derived `pos-${txnId}` for invoices created before
+                // the field was persisted (pre-deploy rows have reference_id === undefined).
                 <>
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
                     BCA VIRTUAL ACCOUNT
                   </p>
                   <p
                     className="select-all text-2xl font-semibold tabular-nums tracking-wider"
-                    {...(txn?._id
-                      ? { "data-external-id": `pos-${txn._id}` }
-                      : {})}
+                    {...(invoice?.reference_id
+                      ? { "data-external-id": invoice.reference_id }
+                      : txn?._id
+                        ? { "data-external-id": `pos-${txn._id}` }
+                        : {})}
                   >
                     {invoice?.va_number ?? "—"}
                   </p>
