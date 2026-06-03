@@ -80,6 +80,11 @@ describe("payments/actions.requestPayment", () => {
     expect(calls[0].headers["X-IDEMPOTENCY-KEY"]).toBe(key);
     expect(calls[0].body.type).toBe("DYNAMIC");
     expect(calls[0].body.reference_id).toBe(`pos-${s.txn}`);
+
+    // reference_id (= external_id sent to Xendit) is persisted on the invoice row
+    // so FE renders data-external-id from the actual value (survives retry).
+    const row = await t.run((ctx) => ctx.db.get(r.invoiceId));
+    expect(row?.reference_id).toBe(`pos-${s.txn}`);
   });
 
   it("staffreview Critical #1: retry with same idempotencyKey forwards same X-IDEMPOTENCY-KEY to Xendit AND deduplicates Convex-side", async () => {
@@ -230,6 +235,12 @@ describe("payments/actions.retryWithFreshInvoice", () => {
     const fresh = rows.find((row) => row.xendit_invoice_id === "qr_second")!;
     expect(prior.cancelled_at).toBeDefined();
     expect(prior.replaced_by_invoice_id).toBe(fresh._id);
+
+    // reference_id (= external_id sent to Xendit) is persisted on BOTH rows.
+    // Prior was the first mint (`pos-${txn}`); the retry uses the unique
+    // `pos-${txn}-r-${uuid}` ref so a regenerate can't collide.
+    expect(prior.reference_id).toBe(`pos-${s.txn}`);
+    expect(fresh.reference_id).toMatch(new RegExp(`^pos-${s.txn}-r-[0-9a-f-]+$`));
   });
 });
 

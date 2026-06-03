@@ -159,7 +159,12 @@ export const commitCart = mutation({
       lines: Array<{ productId: Id<"pos_products">; qty: number }>;
       voucherCode?: string;
     },
-    { transactionId: Id<"pos_transactions">; totals: { subtotal: number; discount: number; total: number }; flags: number }
+    {
+      transactionId: Id<"pos_transactions">;
+      totals: { subtotal: number; discount: number; total: number };
+      flags: number;
+      voucher_rejected?: { code: string; reason: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE" };
+    }
   >(
     "transactions.commitCart",
     async (
@@ -169,6 +174,7 @@ export const commitCart = mutation({
       transactionId: Id<"pos_transactions">;
       totals: { subtotal: number; discount: number; total: number };
       flags: number;
+      voucher_rejected?: { code: string; reason: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE" };
     }> => {
       // Boundary guard (public mutation): reject empty carts before any work,
       // so a malformed/replayed request can't create a junk zero-total txn.
@@ -212,24 +218,36 @@ export const commitCart = mutation({
 
       // Voucher re-validation (ADR-009) — look up via vouchers internal surface
       // (ADR-034); discount math + active/expiry/min-cart checks run here.
+      // Reason-aware: when re-validation drops the voucher we still commit the
+      // txn (recovery is "no discount", not "abort sale") but surface the reason
+      // back to the FE so cart-build/charge can show the user why.
+      // Boundary semantics MUST match convex/lib/voucherValidate.ts (V1):
+      //   expires_at <= now → EXPIRED   (strict <=)
+      //   subtotal < min   → MIN_CART_VALUE (strict <)
+      // so BE re-validation and the FE offline path can't drift.
       let voucherDiscount = 0;
       let voucherCodeSnapshot: string | undefined;
+      let voucherRejected:
+        | { code: string; reason: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE" }
+        | undefined;
       if (args.voucherCode) {
         const voucher = await ctx.runQuery(
           internal.vouchers.internal._getVoucherByCode_internal,
           { code: args.voucherCode },
         );
-        if (
-          voucher && voucher.active &&
-          (voucher.expires_at == null || voucher.expires_at > Date.now()) &&
-          (voucher.min_cart_value == null || subtotal >= voucher.min_cart_value)
-        ) {
+        const now = Date.now();
+        if (!voucher) {
+          voucherRejected = { code: args.voucherCode, reason: "NOT_FOUND" };
+        } else if (!voucher.active) {
+          voucherRejected = { code: args.voucherCode, reason: "INACTIVE" };
+        } else if (voucher.expires_at != null && voucher.expires_at <= now) {
+          voucherRejected = { code: args.voucherCode, reason: "EXPIRED" };
+        } else if (voucher.min_cart_value != null && subtotal < voucher.min_cart_value) {
+          voucherRejected = { code: args.voucherCode, reason: "MIN_CART_VALUE" };
+        } else {
           voucherDiscount = computeVoucherDiscount(voucher.type, voucher.value, subtotal);
           voucherCodeSnapshot = voucher.code;
         }
-        // If voucher fails server-side, silently drop — frontend already
-        // showed the user the discount via validateVoucher; failure here is
-        // exceptional and recovery is "no discount", not "abort sale".
       }
 
       const total = subtotal - voucherDiscount;
@@ -279,6 +297,7 @@ export const commitCart = mutation({
         transactionId: txnId,
         totals: { subtotal, discount: voucherDiscount, total },
         flags,
+        ...(voucherRejected ? { voucher_rejected: voucherRejected } : {}),
       };
     },
     {

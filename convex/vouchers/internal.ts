@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-import { Doc } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 /**
@@ -103,5 +103,56 @@ export const _redeemVoucher_internal = internalMutation({
     });
 
     return { overRedeemed: false, alreadyRedeemed: false };
+  },
+});
+
+/**
+ * Insert a new pos_vouchers row + log voucher.created audit.
+ *
+ * Caller (createVoucher action, Task V4) MUST have already:
+ *   - verified manager PIN via verifyManagerPinOrThrow,
+ *   - validated code format/uniqueness/value bounds.
+ * This mutation is a pure write + audit — no validation, no PIN handling.
+ *
+ * NEVER call directly from a public surface; always through the PIN-gated action.
+ *
+ * ADR-007: voucher.created audit row is mandatory.
+ * ADR-031: created_at set inside the handler (server-time wins).
+ */
+export const _createVoucher_internal = internalMutation({
+  args: {
+    code: v.string(),
+    type: v.union(v.literal("percentage"), v.literal("amount")),
+    value: v.number(),
+    min_cart_value: v.optional(v.number()),
+    max_redemptions: v.optional(v.number()),
+    expires_at: v.optional(v.number()),
+    createdBy: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"pos_vouchers">> => {
+    const id = await ctx.db.insert("pos_vouchers", {
+      code: args.code,
+      type: args.type,
+      value: args.value,
+      used_count: 0,
+      active: true,
+      created_at: Date.now(),
+      created_by_staff_id: args.createdBy,
+      // Conditional spread keeps optional fields absent (not stored as undefined).
+      ...(args.min_cart_value !== undefined ? { min_cart_value: args.min_cart_value } : {}),
+      ...(args.max_redemptions !== undefined ? { max_redemptions: args.max_redemptions } : {}),
+      ...(args.expires_at !== undefined ? { expires_at: args.expires_at } : {}),
+    });
+    await logAudit(ctx, {
+      actor_id: args.createdBy,
+      action: "voucher.created",
+      entity_type: "pos_vouchers",
+      entity_id: id,
+      source: "booth_inline",
+      device_id: args.deviceId,
+      metadata: { code: args.code, type: args.type, value: args.value },
+    });
+    return id;
   },
 });

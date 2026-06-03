@@ -1186,6 +1186,366 @@ function RefundVariant({ token, request }: RefundProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// spoilage variant (v0.6 S7)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface SpoilageProps {
+  token: string;
+  request: {
+    kind: "spoilage";
+    display: {
+      spoilage_event_id: string;
+      total_qty: number;
+      reason: string;
+      lines: Array<{ sku_code: string; qty: number }>;
+      requester_name?: string;
+    };
+    status: string;
+    token_expires_at: number;
+    // Populated when status is "denied" (getByToken backend fills these)
+    deny_reason?: string;
+    denied_by_manager_name?: string;
+    denied_by_manager_code?: string;
+    denied_at?: number;
+  };
+}
+
+function SpoilageVariant({ token, request }: SpoilageProps) {
+  const [staffCode, setStaffCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  // Deny-flow state — mirrors RefundVariant
+  const [showDenyReason, setShowDenyReason] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  const [denyPending, setDenyPending] = useState(false);
+
+  // Terminal outcome state
+  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+
+  const approveIntent = `approve-spoilage:${token}`;
+  const denyIntent = `deny-spoilage:${token}`;
+  const approveKey = useIdempotency(approveIntent);
+  const denyKey = useIdempotency(denyIntent);
+
+  const approveAction = useAction(api.approvals.actions.approveSpoilage);
+  const denyAction = useAction(api.approvals.actions.denyRequest);
+
+  // Token-gated active-managers list (ADR-029)
+  const managers = useQuery(api.approvals.public.listActiveManagers, { token });
+
+  function handleKeyPress(key: string) {
+    setError(undefined);
+    setManagerPin((prev) => {
+      if (key === "C") return "";
+      if (key === "⌫") return prev.slice(0, -1);
+      return prev.length < 4 ? prev + key : prev;
+    });
+  }
+
+  async function handleApprove(e: React.FormEvent) {
+    e.preventDefault();
+    if (!approveKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+
+    setPending(true);
+    setError(undefined);
+    try {
+      await approveAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        idempotencyKey: approveKey,
+      });
+      setOutcome("approved");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(approveIntent);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleConfirmDeny() {
+    if (!denyKey) return;
+    if (!staffCode.trim()) {
+      setError("Enter your manager staff code");
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError("Manager PIN must be 4 digits");
+      return;
+    }
+    if (!denyReason.trim()) return;
+
+    setDenyPending(true);
+    setError(undefined);
+    try {
+      await denyAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        denyReason: denyReason.trim(),
+        idempotencyKey: denyKey,
+      });
+      setOutcome("denied");
+    } catch (err) {
+      const mapped = mapError(err);
+      setError(mapped);
+      if (
+        mapped === "Invalid link" ||
+        mapped === "Link expired" ||
+        mapped === "Already resolved"
+      ) {
+        void clearIntent(denyIntent);
+      }
+    } finally {
+      setDenyPending(false);
+    }
+  }
+
+  // ── Outcome screens ────────────────────────────────────────────────────────
+  if (outcome === "approved") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <p className="text-sm font-medium">
+          ✓ Approved — {request.display.total_qty} units logged as spoilage.
+        </p>
+      </main>
+    );
+  }
+
+  if (outcome === "denied") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">Declined — no stock change made.</p>
+      </main>
+    );
+  }
+
+  // ── Pending form ──────────────────────────────────────────────────────────
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
+      <header className="w-full max-w-sm text-center pt-6">
+        <h1 className="text-lg font-semibold">Manager approval needed — Spoilage</h1>
+      </header>
+
+      {/* Summary card */}
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Total units</span>
+          <span className="font-semibold tabular-nums text-foreground">
+            {request.display.total_qty}
+          </span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-right">{request.display.reason}</span>
+        </div>
+        {request.display.requester_name && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Requested by</span>
+            <span>{request.display.requester_name}</span>
+          </div>
+        )}
+        {request.display.lines.length > 0 && (
+          <div className="pt-2 border-t border-border space-y-1">
+            {request.display.lines.map((l, i) => (
+              <div
+                key={`${l.sku_code}-${i}`}
+                className="flex justify-between text-xs text-muted-foreground"
+              >
+                <span>{l.sku_code}</span>
+                <span className="tabular-nums">× {l.qty}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <form
+        onSubmit={handleApprove}
+        className="flex w-full max-w-sm flex-col gap-5"
+        aria-label="Spoilage approval form"
+      >
+        {/* Manager identity picker (token-gated query — ADR-029) */}
+        <div className="space-y-1.5">
+          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Select
+            value={staffCode}
+            onValueChange={(value) => {
+              setStaffCode(value);
+              setError(undefined);
+            }}
+            disabled={pending || denyPending || managers === undefined || managers === null}
+          >
+            <SelectTrigger id="mgr-staff-code">
+              <SelectValue
+                placeholder={
+                  managers === undefined
+                    ? "Loading…"
+                    : managers === null
+                      ? "Link expired"
+                      : managers.length === 0
+                        ? "No managers configured"
+                        : "Select a manager"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {managers?.map((m) => (
+                <SelectItem key={m.code} value={m.code}>
+                  {m.code} — {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Manager PIN entry */}
+        <div className="space-y-2">
+          <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
+            <span className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Your manager PIN
+            </span>
+            {managerPin.length > 0 ? (
+              <PinDots value={managerPin} />
+            ) : (
+              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+            )}
+          </div>
+          <NumericKeypad
+            onPress={handleKeyPress}
+            onClear={() => handleKeyPress("C")}
+            onBackspace={() => handleKeyPress("⌫")}
+            size="compact"
+          />
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <p role="alert" className="text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {/* Deny reason input — revealed after clicking Deny */}
+        {showDenyReason && (
+          <div className="space-y-1.5">
+            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Input
+              id="deny-reason"
+              type="text"
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder="e.g. Not actually spoiled — re-count needed"
+              disabled={denyPending}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-2">
+          {!showDenyReason ? (
+            <>
+              <Button
+                type="submit"
+                disabled={
+                  pending ||
+                  denyPending ||
+                  !approveKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4
+                }
+                className="w-full"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Approving…
+                  </>
+                ) : (
+                  "Approve"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => {
+                  setError(undefined);
+                  setShowDenyReason(true);
+                }}
+                disabled={pending || denyPending}
+              >
+                Deny
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirmDeny}
+                disabled={
+                  denyPending ||
+                  pending ||
+                  !denyKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4 ||
+                  denyReason.trim().length === 0
+                }
+              >
+                {denyPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Declining…
+                  </>
+                ) : (
+                  "Confirm Deny"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setShowDenyReason(false);
+                  setDenyReason("");
+                  setError(undefined);
+                }}
+                disabled={denyPending}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Terminal-state per-kind copy registry
 // ────────────────────────────────────────────────────────────────────────────
 //
@@ -1238,6 +1598,16 @@ const TERMINAL_COPY: Record<string, TerminalCopy> = {
     deniedMsg: (req, denierLabel) => (
       <>
         Refund of {rp(req.display.total_refund)} was declined by {denierLabel}.
+      </>
+    ),
+  },
+  spoilage: {
+    resolvedMsg: (req) => (
+      <>✓ Spoilage of {req.display.total_qty} units already approved.</>
+    ),
+    deniedMsg: (req, denierLabel) => (
+      <>
+        Spoilage of {req.display.total_qty} units was declined by {denierLabel}.
       </>
     ),
   },
@@ -1342,6 +1712,10 @@ export default function Approve() {
 
   if (request.kind === "refund") {
     return <RefundVariant token={token} request={request} />;
+  }
+
+  if (request.kind === "spoilage") {
+    return <SpoilageVariant token={token} request={request} />;
   }
 
   // Unknown kind — neutral fallback for future kinds not yet handled in UI

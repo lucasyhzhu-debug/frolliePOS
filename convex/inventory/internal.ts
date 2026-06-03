@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { internal } from "../_generated/api";
+import { reconstructOnHand, computeDrift } from "./lib";
 
 /**
  * Upsert pattern for pos_stock_levels — the denormalised cache reconciled by
@@ -397,3 +398,237 @@ export const _checkLowStockBatch_internal = internalMutation({
 // `internal.telegram.dispatch.dispatchRoleAlert` helper — the role + kind +
 // payload + idempotencyKey parameters carry everything the per-feature
 // wrappers were doing inline. See convex/telegram/dispatch.ts.
+
+/**
+ * Single writer for spoilage events (v0.6, Task S3). Called by BOTH:
+ *   - inventory.actions.recordSpoilage (booth path, manager-PIN)        — Task S4
+ *   - approvals.actions.approveSpoilage (off-booth Telegram path)        — Task S5
+ *
+ * The two callers differ only in `source` ("booth_inline" vs "telegram_approval")
+ * and `actor_id`. All other behavior is identical: N pos_stock_movements rows
+ * (negative qty, source="spoilage", grouped by spoilage_event_id) + per-SKU
+ * on_hand decrement via the shared upsertStockLevel helper + ONE
+ * stock.spoilage audit row with the full line breakdown in metadata.
+ *
+ * Validators (LINES_EMPTY / REASON_INVALID / QTY_INVALID) live here so neither
+ * caller has to revalidate — boundary-trust pattern.
+ *
+ * Server time wins (ADR-031): single `now` snapshot reused across every movement
+ * row, on_hand patch, and the audit row.
+ *
+ * Negative qty convention matches sale/refund paths: spoilage decrements, so
+ * movement.qty is signed-negative. Reverses through the same on_hand cache the
+ * sale path writes; ADR-018 allows negative on_hand without blocking.
+ */
+export const _recordSpoilage_internal = internalMutation({
+  args: {
+    spoilage_event_id: v.string(),
+    lines: v.array(v.object({
+      inventory_sku_id: v.id("pos_inventory_skus"),
+      qty: v.number(),
+    })),
+    reason: v.string(),
+    actor_id: v.id("staff"),
+    source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    device_id: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ event_id: string; line_count: number; total_qty: number }> => {
+    if (args.lines.length === 0) throw new Error("LINES_EMPTY");
+    if (args.reason.trim().length === 0 || args.reason.length > 200) {
+      throw new Error("REASON_INVALID");
+    }
+
+    const now = Date.now();
+    let total = 0;
+    const lineLog: Array<{ sku_id: string; qty: number }> = [];
+
+    for (const line of args.lines) {
+      if (!Number.isInteger(line.qty) || line.qty <= 0) throw new Error("QTY_INVALID");
+
+      await ctx.db.insert("pos_stock_movements", {
+        inventory_sku_id: line.inventory_sku_id,
+        qty: -line.qty,
+        source: "spoilage",
+        spoilage_event_id: args.spoilage_event_id,
+        spoilage_reason: args.reason,
+        recorded_by_staff_id: args.actor_id,
+        created_at: now,
+      });
+
+      // Decrement on_hand cache via the shared upsert helper — matches the
+      // sale/refund paths and inserts a row when none exists yet (first-ever
+      // SKU activity; ADR-018 allows negative on_hand).
+      await upsertStockLevel(ctx, line.inventory_sku_id, -line.qty, now);
+
+      total += line.qty;
+      lineLog.push({ sku_id: String(line.inventory_sku_id), qty: line.qty });
+    }
+
+    // ONE audit per event (not per line) — metadata.lines carries the breakdown
+    // so dashboards can drill in without a per-line scan of audit_log.
+    await logAudit(ctx, {
+      actor_id: args.actor_id,
+      action: "stock.spoilage",
+      entity_type: "pos_stock_movements",
+      entity_id: args.spoilage_event_id,
+      source: args.source,
+      device_id: args.device_id,
+      metadata: {
+        event_id: args.spoilage_event_id,
+        total_qty: total,
+        line_count: args.lines.length,
+        reason: args.reason,
+        lines: lineLog,
+      },
+    });
+
+    return {
+      event_id: args.spoilage_event_id,
+      line_count: args.lines.length,
+      total_qty: total,
+    };
+  },
+});
+
+/**
+ * Nightly stock-recon writer (v0.6, Task R4, ADR-044).
+ *
+ * For each ACTIVE SKU (via catalog._getActiveSkus_internal — ADR-034 module
+ * boundary): reconstruct on_hand from the immutable pos_stock_movements ledger
+ * and compare to cached pos_stock_levels.on_hand. On drift, write a
+ * pos_stock_drift_log row + a stock.recon_drift audit row, and add the entry
+ * to the returned drifted[] list.
+ *
+ * ADR-044 spirit: REPORT-ONLY. We never silently auto-correct
+ * pos_stock_levels to match the ledger — manager investigates the source of
+ * the drift (missed spoilage, missed recount, double-decrement bug) and
+ * resolves explicitly via _resolveDrift_internal. Silent self-healing would
+ * mask the bug we're trying to surface.
+ *
+ * Inactive SKUs are excluded — they're not in the daily flow and a stale
+ * cache row from before archival is not actionable.
+ *
+ * sku_code snapshot: catalog R2 helper returns `sku` (not `code`); we
+ * snapshot it onto drift_log.sku_code at write time so the report row
+ * survives later SKU renames (mirrors voucher code_snapshot rationale).
+ */
+export const _runStockRecon_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{
+    scanned: number;
+    drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }>;
+  }> => {
+    const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {});
+    const now = Date.now();
+    const drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }> = [];
+
+    for (const sku of skus) {
+      const movements = await ctx.db
+        .query("pos_stock_movements")
+        .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", sku._id))
+        .collect();
+      const reconstructed = reconstructOnHand(movements);
+      const level = await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", sku._id))
+        .first();
+      const cached = level?.on_hand ?? 0;
+      const { drift, delta } = computeDrift(cached, reconstructed);
+      if (drift) {
+        await ctx.db.insert("pos_stock_drift_log", {
+          inventory_sku_id: sku._id,
+          sku_code: sku.sku,
+          cached_on_hand: cached,
+          reconstructed_on_hand: reconstructed,
+          delta,
+          detected_at: now,
+        });
+        await logAudit(ctx, {
+          actor_id: "system",
+          action: "stock.recon_drift",
+          entity_type: "pos_inventory_skus",
+          entity_id: sku._id,
+          source: "system",
+          metadata: { sku_code: sku.sku, cached, reconstructed, delta },
+        });
+        drifted.push({ sku_code: sku.sku, delta, cached, reconstructed });
+      }
+    }
+    return { scanned: skus.length, drifted };
+  },
+});
+
+/**
+ * Per-cron audit-skip helper for the stock-recon cron. Pattern mirrors
+ * telegram._auditFoundersSkip_internal — no generic auditSkip exists;
+ * each cron owns its skip mutation in its own module (staffreview-verified
+ * pattern from v0.4 founders-summary work).
+ *
+ * Reasons:
+ *   - "no_drift"     — recon ran clean (0 drifted SKUs); skip dispatch.
+ *   - "role_unbound" — `inventory` Telegram role not bound; nothing to notify.
+ *   - "send_failed"  — Telegram send threw; we logged and moved on (no retry storm).
+ */
+export const _auditStockReconSkip_internal = internalMutation({
+  args: {
+    reason: v.union(v.literal("no_drift"), v.literal("role_unbound"), v.literal("send_failed")),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "stock.recon_skip",
+      entity_type: "pos_stock_drift_log",
+      entity_id: "system",
+      source: "system",
+      metadata: { reason: args.reason, ...(args.metadata ?? {}) },
+    });
+  },
+});
+
+/**
+ * Manager-driven drift resolution (v0.6, Task R4, ADR-044).
+ *
+ * Marks a pos_stock_drift_log row resolved with the manager's note and emits
+ * a stock.recon_drift_resolved audit row. Called from the booth resolve UI
+ * (R8) after the manager investigates and corrects the underlying cause
+ * (typically via a recount or spoilage event).
+ *
+ * Idempotent: a second call on an already-resolved row is a silent no-op
+ * (no second audit row). Lets the booth retry without duplicating history.
+ *
+ * NOTE_TOO_LONG cap at 500 chars — keeps audit_log metadata bounded.
+ */
+export const _resolveDrift_internal = internalMutation({
+  args: {
+    driftId: v.id("pos_stock_drift_log"),
+    resolved_by: v.id("staff"),
+    note: v.string(),
+    device_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const row = await ctx.db.get(args.driftId);
+    if (!row) throw new Error("DRIFT_NOT_FOUND");
+    if (row.resolved_at != null) return { ok: true as const };
+    if (args.note.length > 500) throw new Error("NOTE_TOO_LONG");
+
+    await ctx.db.patch(args.driftId, {
+      resolved_at: Date.now(),
+      resolved_by_staff_id: args.resolved_by,
+      resolution_note: args.note,
+    });
+    await logAudit(ctx, {
+      actor_id: args.resolved_by,
+      action: "stock.recon_drift_resolved",
+      entity_type: "pos_stock_drift_log",
+      entity_id: args.driftId,
+      source: "booth_inline",
+      device_id: args.device_id,
+      metadata: { sku_code: row.sku_code, delta: row.delta, note: args.note },
+    });
+    return { ok: true as const };
+  },
+});

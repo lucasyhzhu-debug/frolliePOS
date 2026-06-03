@@ -129,6 +129,81 @@ describe("transactions/public.commitCart", () => {
     ).rejects.toThrow();
   });
 
+  it("returns voucher_rejected when voucher is INACTIVE", async () => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    await t.run((ctx) => ctx.db.insert("pos_vouchers", {
+      code: "INACTIVE_V", type: "amount", value: 1000, used_count: 0,
+      active: false, created_at: Date.now(),
+    }));
+    const r = await t.mutation(api.transactions.public.commitCart, {
+      sessionId: s.session,
+      idempotencyKey: `k-inactive-${Date.now()}`,
+      intent: "charge",
+      lines: [{ productId: s.p8, qty: 1 }],
+      voucherCode: "INACTIVE_V",
+    });
+    expect(r.voucher_rejected).toEqual({ code: "INACTIVE_V", reason: "INACTIVE" });
+    expect(r.totals.discount).toBe(0);
+  });
+
+  it("returns voucher_rejected when voucher is EXPIRED", async () => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    await t.run((ctx) => ctx.db.insert("pos_vouchers", {
+      code: "OLD_V", type: "amount", value: 1000, used_count: 0, active: true,
+      expires_at: Date.now() - 1000, created_at: Date.now(),
+    }));
+    const r = await t.mutation(api.transactions.public.commitCart, {
+      sessionId: s.session,
+      idempotencyKey: `k-expired-${Date.now()}`,
+      intent: "charge",
+      lines: [{ productId: s.p8, qty: 1 }],
+      voucherCode: "OLD_V",
+    });
+    expect(r.voucher_rejected?.reason).toBe("EXPIRED");
+    expect(r.voucher_rejected?.code).toBe("OLD_V");
+    expect(r.totals.discount).toBe(0);
+  });
+
+  it("returns voucher_rejected when subtotal < min_cart_value", async () => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    // p8 price is 200_000; set min above that
+    await t.run((ctx) => ctx.db.insert("pos_vouchers", {
+      code: "BIG_V", type: "amount", value: 1000, used_count: 0, active: true,
+      min_cart_value: 9_999_999, created_at: Date.now(),
+    }));
+    const r = await t.mutation(api.transactions.public.commitCart, {
+      sessionId: s.session,
+      idempotencyKey: `k-min-${Date.now()}`,
+      intent: "charge",
+      lines: [{ productId: s.p8, qty: 1 }],
+      voucherCode: "BIG_V",
+    });
+    expect(r.voucher_rejected?.reason).toBe("MIN_CART_VALUE");
+    expect(r.voucher_rejected?.code).toBe("BIG_V");
+    expect(r.totals.discount).toBe(0);
+  });
+
+  it("happy voucher path: voucher_rejected is absent", async () => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    await t.run((ctx) => ctx.db.insert("pos_vouchers", {
+      code: "OK_V", type: "amount", value: 500, used_count: 0,
+      active: true, created_at: Date.now(),
+    }));
+    const r = await t.mutation(api.transactions.public.commitCart, {
+      sessionId: s.session,
+      idempotencyKey: `k-ok-${Date.now()}`,
+      intent: "charge",
+      lines: [{ productId: s.p8, qty: 1 }],
+      voucherCode: "OK_V",
+    });
+    expect(r.voucher_rejected).toBeUndefined();
+    expect(r.totals.discount).toBe(500);
+  });
+
   it("idempotency: same key returns same txn (no duplicate)", async () => {
     const t = convexTest(schema);
     const s = await seedCatalog(t);

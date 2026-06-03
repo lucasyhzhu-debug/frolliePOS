@@ -10,9 +10,13 @@ import {
   renderRefund,
   renderLowStockAlert,
   renderRecountNotice,
+  renderSpoilageApproval,
+  renderStockDriftAlert,
   type RenderedMessage,
   type LowStockAlertPayload,
   type RecountNoticePayload,
+  type SpoilageApprovalPayload,
+  type StockDriftAlertPayload,
 } from "../lib/telegramHtml";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
@@ -33,6 +37,8 @@ export const sendTemplate = action({
       v.literal("refund"),
       v.literal("low_stock_alert"),     // v0.5.2
       v.literal("recount_notice"),      // v0.5.2
+      v.literal("spoilage"),            // NEW v0.6: spoilage approval
+      v.literal("stock_drift_alert"),   // NEW v0.6 R5: stock-recon drift alert
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -79,6 +85,26 @@ export const sendTemplate = action({
         lines: v.array(v.object({
           sku_name: v.string(), before: v.number(), after: v.number(), delta: v.number(),
         })),
+      }),
+      // spoilage — matches SpoilageApprovalPayload in lib/telegramHtml.ts
+      v.object({
+        spoilage_event_id: v.string(),
+        lines: v.array(v.object({ sku_code: v.string(), qty: v.number() })),
+        total_qty: v.number(),
+        reason: v.string(),
+        request_url: v.string(),
+      }),
+      // stock_drift_alert — matches StockDriftAlertPayload in lib/telegramHtml.ts
+      v.object({
+        drifted: v.array(
+          v.object({
+            sku_code: v.string(),
+            delta: v.number(),
+            cached: v.number(),
+            reconstructed: v.number(),
+          }),
+        ),
+        detected_at: v.number(),
       }),
     ),
     idempotencyKey: v.string(),
@@ -158,6 +184,12 @@ export const sendTemplate = action({
         break;
       case "recount_notice":
         rendered = renderRecountNotice(args.payload as RecountNoticePayload);
+        break;
+      case "spoilage":
+        rendered = renderSpoilageApproval(args.payload as SpoilageApprovalPayload);
+        break;
+      case "stock_drift_alert":
+        rendered = renderStockDriftAlert(args.payload as StockDriftAlertPayload);
         break;
     }
 

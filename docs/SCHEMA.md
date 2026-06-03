@@ -10,7 +10,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 |---|---|
 | `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
 | `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components` |
-| `inventory/` *(v0.3, extended v0.5.2)* | `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts` *(v0.5.2)*, `pos_recount_state` *(v0.5.2)* (moved from `catalog/` in v0.3 per ADR-034) |
+| `inventory/` *(v0.3, extended v0.5.2, v0.6)* | `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts` *(v0.5.2)*, `pos_recount_state` *(v0.5.2)*, `pos_stock_drift_log` *(v0.6)* (moved from `catalog/` in v0.3 per ADR-034) |
 | `transactions/` *(v0.3)* | `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` |
 | `payments/` *(v0.3)* | `pos_xendit_invoices` |
 | `vouchers/` *(v0.3)* | `pos_vouchers`, `pos_voucher_redemptions` |
@@ -297,8 +297,10 @@ Every stock change. Append-only in spirit ([ADR-020](./ADR/020-stock-movement-so
 | `_id` | `Id<"pos_stock_movements">` | |
 | `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
 | `qty` | `number` | Signed; **negative for sale** |
-| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment" \| "refund" \| "recount"` | `sale` (v0.3), `refund` (v0.5.1 PR B), `recount` *(v0.5.2 — staff absolute recount per [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md); signed delta = `entered − before`)*. `stock_in` / `spoilage` / `adjustment` reserved (v0.5.2b / v0.6) |
+| `source` | `"sale" \| "stock_in" \| "spoilage" \| "adjustment" \| "refund" \| "recount"` | `sale` (v0.3), `refund` (v0.5.1 PR B), `recount` *(v0.5.2 — staff absolute recount per [ADR-041](./ADR/041-recount-staff-absolute-stock-update.md); signed delta = `entered − before`)*, `spoilage` *(v0.6 — manager-PIN-gated spoilage write-off; signed-negative SKU decrement)*. `stock_in` / `adjustment` reserved |
 | `source_transaction_line_id` | `Id<"pos_transaction_lines">?` | Set for `sale` movements; the ADR-026 dedup key |
+| `spoilage_reason` | `string?` | *(v0.6)* Required free-text reason when `source === "spoilage"`; ≤ 200 chars. Absent for all other sources. |
+| `spoilage_event_id` | `string?` | *(v0.6)* Groups multi-line spoilage events into one logical event (a single spoilage submission can write off multiple SKUs; all rows share the same `spoilage_event_id`). Absent for non-spoilage sources. |
 | `created_at` | `number` | |
 | `recorded_by_staff_id` | `Id<"staff">?` | Staff who triggered the movement |
 
@@ -330,6 +332,27 @@ Singleton holding the timestamp of the most recent recount. Drives the hourly re
 | `last_recount_at` | `number` | ms epoch. Actor identity lives on the matching `audit_log` row (`stock.recount`). |
 
 No index — singleton (always one row, fetched via `.first()`).
+
+### `pos_stock_drift_log` *(v0.6 — owned by `inventory/`, [ADR-044](./ADR/044-nightly-stock-reconciliation.md))*
+
+Nightly drift detector output. One row per drifted SKU per cron run when `pos_stock_levels.on_hand` (the denormalised cache) diverges from on-the-fly reconstruction across `pos_stock_movements`. Append-only by convention; resolution patches `resolved_at` / `resolved_by_staff_id` / `resolution_note` in place but never deletes.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_stock_drift_log">` | |
+| `inventory_sku_id` | `Id<"pos_inventory_skus">` | |
+| `sku_code` | `string` | Snapshot of `pos_inventory_skus.sku` at detection time — survives SKU renames |
+| `cached_on_hand` | `number` | `pos_stock_levels.on_hand` at detection time |
+| `reconstructed_on_hand` | `number` | Sum of all `pos_stock_movements.qty` for the SKU at detection time |
+| `delta` | `number` | `cached_on_hand − reconstructed_on_hand`; non-zero by construction |
+| `detected_at` | `number` | ms epoch; when the nightly cron observed the drift |
+| `resolved_at` | `number?` | Set when a manager marks the drift resolved; absent = open |
+| `resolved_by_staff_id` | `Id<"staff">?` | Manager who resolved |
+| `resolution_note` | `string?` | Optional free-text explanation |
+
+Indexes:
+- `by_sku_detected` on `[inventory_sku_id, detected_at]` (per-SKU history)
+- `by_unresolved` on `[resolved_at]` (open-drift list — filter `resolved_at === undefined` in JS post-collect; see the optional-field gotcha noted on `telegramChats`)
 
 ### `pos_drafts` *(new in v0.5)*
 Saved cart state with TTL ([ADR-032](./ADR/032-saved-drafts-purge-24h.md)).
@@ -401,7 +424,7 @@ Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_approval_requests">` | |
-| `kind` | `"staff_pin_reset" \| "manual_payment_override"` | `manual_payment_override` added in v0.4 |
+| `kind` | `"staff_pin_reset" \| "manual_payment_override" \| "refund" \| "spoilage"` | `manual_payment_override` added in v0.4; `refund` added in v0.5.1 PR B; `spoilage` added in v0.6 (off-booth spoilage approval) |
 | `requester_staff_id` | `Id<"staff">?` | Staff who triggered the request; optional because `staff_pin_reset` is system-triggered |
 | `entity_type` | `string?` | Generic entity pointer — entity being approved (e.g. `"pos_transactions"`). Non-PIN kinds |
 | `entity_id` | `string?` | Stringified `_id` of the entity being approved |
@@ -447,7 +470,7 @@ POC debug-trail for inbound/outbound Telegram messages. **Not** the webhook dedu
 |---|---|---|
 | `_id` | `Id<"telegram_log">` | |
 | `direction` | `"out" \| "in"` | |
-| `template_kind` | `string?` | Template used for outbound messages |
+| `template_kind` | `string?` | Template used for outbound messages. Known kinds (matches `sendTemplate`'s `kind` union in `convex/telegram/send.ts`): `staff_pin_reset`, `manual_payment_override`, `refund`, `founders_summary`, `recount_event`, `low_stock_alert`, `spoilage` *(v0.6 — approval template, URL button to `/approve/:token`)*, `stock_drift_alert` *(v0.6 — informational nightly drift notice; no URL button)* |
 | `payload_json` | `string` | Full message payload JSON |
 | `update_id` | `number?` | Telegram update ID (inbound) |
 | `callback_data` | `string?` | Callback query data (inbound) |
@@ -610,6 +633,12 @@ stock.received
 stock.adjusted
 stock.spoilage
 stock.returned
+stock.recon_drift
+stock.recon_drift_resolved
+stock.recon_skip
+spoilage.requested
+spoilage.approval_resolved
+spoilage.denied
 approval.created
 approval.approved
 approval.denied
@@ -669,6 +698,19 @@ product.created             # createProduct action — manager-PIN gated; metada
 product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count } | { price_idr:{ from, to } }
 product.archived            # archiveProduct — manager-session; soft-delete via active=false
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
+# v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
+voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
+voucher.edited              # updateVoucher — metadata captures changed fields
+voucher.deactivated         # deactivateVoucher — soft-delete via active=false
+# v0.6 spoilage slice
+stock.spoilage              # _commitSpoilage_internal — one verb per spoilage event (single audit row even when multiple SKUs written off); metadata carries line breakdown + spoilage_event_id; source = booth_inline | telegram_approval
+spoilage.requested          # _createRequest_internal (kind=spoilage) — Telegram approval request created (source=system) via KIND_AUDIT
+spoilage.approval_resolved  # _markResolved_internal — emitted when a kind=spoilage approval is resolved on the Telegram path; the corresponding stock.spoilage is emitted separately by the commit funnel (verb-distinct pattern, mirrors refund.committed / refund.approval_resolved); source=telegram_approval, via KIND_AUDIT
+spoilage.denied             # _markDenied_internal via denyRequest (kind=spoilage) — manager denied off-booth spoilage; source=telegram_approval, via KIND_AUDIT
+# v0.6 stock reconciliation cron (ADR-044)
+stock.recon_drift           # nightly recon cron — one row per drifted SKU per run; metadata={ sku_code, cached_on_hand, reconstructed_on_hand, delta }; actor=system
+stock.recon_drift_resolved  # resolveDrift mutation — manager-session bookkeeping ack; patches pos_stock_drift_log row in place
+stock.recon_skip            # nightly recon cron — one row per cron run that didn't send; metadata.reason ∈ "no_drift" | "role_unbound" | "send_failed"; actor=system
 ```
 
 ## Relationship to Frollie Pro tables

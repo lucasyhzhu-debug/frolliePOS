@@ -14,7 +14,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:convex": "vitest run convex"
+    "test:convex": "vitest run convex",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
@@ -33,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "1.31.7",
+    "esc-pos-encoder": "^2.1.0",
     "framer-motion": "^12.0.0",
     "hash-wasm": "^4.12.0",
     "idb": "^8.0.0",
@@ -45,12 +49,12 @@
     "tailwind-merge": "^2.6.0",
     "uuid": "^11.0.5",
     "zod": "^3.24.1",
-    "zustand": "^5.0.3",
-    "esc-pos-encoder": "^2.1.0"
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

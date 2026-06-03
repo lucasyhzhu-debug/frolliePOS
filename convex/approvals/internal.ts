@@ -23,6 +23,7 @@ export const _createRequest_internal = internalMutation({
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
       v.literal("refund"),   // v0.5.1 PR B: refund-approval requests funnel here too.
+      v.literal("spoilage"), // NEW v0.6: spoilage approval
     ),
     requester_staff_id: v.optional(v.id("staff")),
     entity_type: v.optional(v.string()),
@@ -310,6 +311,7 @@ export const _listPendingByKind_internal = internalQuery({
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
       v.literal("refund"),   // v0.5.1 PR B: refund dedup guard reuses this helper.
+      v.literal("spoilage"), // NEW v0.6: spoilage approval
     ),
     entityId: v.string(),
   },

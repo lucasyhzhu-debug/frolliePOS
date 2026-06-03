@@ -45,6 +45,7 @@ describe("payments/internal", () => {
       idempotencyKey: `k-${Date.now()}`,
       txnId: s.txn,
       xendit_invoice_id: "xnd-123",
+      reference_id: `pos-${s.txn}`,
       xendit_idempotency_key: `k-${Date.now()}`,
       method: "QRIS",
       qr_string: "fake-qr",
@@ -67,6 +68,7 @@ describe("payments/internal", () => {
     await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
       idempotencyKey: `k-${Date.now()}-1`,
       txnId: s.txn, xendit_invoice_id: "xnd-w",
+      reference_id: `pos-${s.txn}`,
       xendit_idempotency_key: "k-w", method: "QRIS",
       qr_string: "qr", status_at_create: "PENDING",
     });
@@ -98,12 +100,14 @@ describe("payments/internal", () => {
     const s = await seedAwaiting(t);
     await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
       idempotencyKey: "k-a", txnId: s.txn, xendit_invoice_id: "xnd-a",
+      reference_id: `pos-${s.txn}`,
       xendit_idempotency_key: "k-a", method: "QRIS", qr_string: "qr-a",
       status_at_create: "PENDING",
     });
     await new Promise((r) => setTimeout(r, 5));
     await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
       idempotencyKey: "k-b", txnId: s.txn, xendit_invoice_id: "xnd-b",
+      reference_id: `pos-${s.txn}-b`,
       xendit_idempotency_key: "k-b", method: "BCA_VA", va_number: "1234567890",
       status_at_create: "PENDING",
     });
@@ -116,6 +120,7 @@ describe("payments/internal", () => {
     const s = await seedAwaiting(t);
     await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
       idempotencyKey: "k-act", txnId: s.txn, xendit_invoice_id: "xnd-active",
+      reference_id: `pos-${s.txn}`,
       xendit_idempotency_key: "k-act", method: "QRIS", qr_string: "qr-act",
       status_at_create: "ACTIVE",
     });
@@ -140,6 +145,7 @@ describe("payments/internal", () => {
     await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
       idempotencyKey: `k-${Date.now()}-d`,
       txnId: s.txn, xendit_invoice_id: "xnd-d",
+      reference_id: `pos-${s.txn}`,
       xendit_idempotency_key: "k-d", method: "QRIS",
       qr_string: "qr", status_at_create: "PENDING",
     });

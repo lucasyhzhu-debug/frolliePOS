@@ -202,6 +202,73 @@ export function renderRecountNotice(p: RecountNoticePayload): RenderedMessage {
   };
 }
 
+// v0.6 S2: spoilage-approval template. Off-booth Telegram-approval path —
+// manager taps "Open approval →", lands on /approve/:token, enters PIN to
+// resolve. URL button (not callback_data) per ADR-035 + business rule #10.
+// Payload shape mirrors RefundPayload (lines + total + reason + request_url).
+export type SpoilageApprovalPayload = {
+  spoilage_event_id: string;
+  lines: Array<{ sku_code: string; qty: number }>;
+  total_qty: number;
+  reason: string;
+  request_url: string;
+};
+
+export function renderSpoilageApproval(p: SpoilageApprovalPayload): RenderedMessage {
+  const linesText = p.lines
+    .map((l) => `• ${escapeHtml(l.sku_code)} × ${l.qty}`)
+    .join("\n");
+  const text = [
+    `🗑️ <b>Permintaan persetujuan spoilage</b>`,
+    `Event: <code>${escapeHtml(p.spoilage_event_id)}</code>`,
+    ``,
+    linesText,
+    ``,
+    `Total: <b>${p.total_qty}</b> pcs`,
+    `Alasan: <i>${escapeHtml(p.reason)}</i>`,
+    ``,
+    `<i>Buka tautan untuk setujui (login + PIN diperlukan). Berakhir dalam 60 menit.</i>`,
+  ].join("\n");
+  return {
+    text,
+    inline_keyboard: [[{ text: "✓ Tinjau & setujui", url: p.request_url }]],
+  };
+}
+
+// v0.6 R5/R6: stock-drift alert. Informational — no URL button (ADR-044 spirit:
+// the cron is a passive observer; resolution happens at the booth via the
+// manager's /mgr/stock-recon route, not via a Telegram action). R5 lands this
+// minimal renderer so its cron entry-point typechecks end-to-end; R6 may
+// enrich the body without touching the sendTemplate union signature.
+export type StockDriftAlertPayload = {
+  drifted: Array<{
+    sku_code: string;
+    delta: number;
+    cached: number;
+    reconstructed: number;
+  }>;
+  detected_at: number; // epoch ms — formatted into WIB inline
+};
+
+export function renderStockDriftAlert(p: StockDriftAlertPayload): RenderedMessage {
+  const rows = p.drifted
+    .map(
+      (d) =>
+        `• <b>${escapeHtml(d.sku_code)}</b>: cache ${d.cached} vs ledger ${d.reconstructed} (Δ ${d.delta >= 0 ? "+" : ""}${d.delta})`,
+    )
+    .join("\n");
+  const when = escapeHtml(formatWibDateTime(p.detected_at));
+  const text = [
+    `📊 <b>Stok drift terdeteksi</b> · ${when}`,
+    `${p.drifted.length} SKU dengan selisih cache vs ledger:`,
+    ``,
+    rows,
+    ``,
+    `<i>Buka /mgr/stock-recon di POS untuk meninjau & resolve.</i>`,
+  ].join("\n");
+  return { text };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

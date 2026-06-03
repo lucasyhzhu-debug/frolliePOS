@@ -5,6 +5,7 @@ export const paymentsTables = {
   pos_xendit_invoices: defineTable({
     transaction_id: v.id("pos_transactions"),
     xendit_invoice_id: v.string(),               // QR Codes `id` (QRIS) OR FVA `id` (BCA) — dedup/match key for webhook
+    reference_id: v.optional(v.string()),        // external_id sent to Xendit; addresses the simulate endpoint
     xendit_idempotency_key: v.string(),          // X-IDEMPOTENCY-KEY we sent to Xendit at creation;
                                                  //   recorded for audit + retry traceability
     method: v.union(v.literal("QRIS"), v.literal("BCA_VA")),

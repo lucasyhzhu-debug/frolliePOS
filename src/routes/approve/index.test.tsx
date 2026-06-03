@@ -619,3 +619,101 @@ describe("Approve route — refund variant", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// ---------- spoilage variant tests (v0.6 S7) ---------------------------------
+
+describe("Approve route — spoilage variant", () => {
+  const pendingSpoilageRequest = {
+    kind: "spoilage" as const,
+    display: {
+      spoilage_event_id: "sp_evt_test",
+      total_qty: 5,
+      reason: "Dropped tray during transit",
+      lines: [
+        { sku_code: "DUB-1PC", qty: 3 },
+        { sku_code: "DUB-3PC", qty: 2 },
+      ],
+      requester_name: "Dewi",
+    },
+    status: "pending",
+    triggered_at: Date.now() - 2 * 60 * 1000,
+    token_expires_at: Date.now() + 58 * 60 * 1000,
+  };
+
+  let mockApproveSpoilage: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    __resetForTests();
+    actionSlots.length = 0;
+    slotCounter = 0;
+    queryCounter = 0;
+    mockManagersReturn = DEFAULT_MANAGERS;
+    mockQueryReturn = pendingSpoilageRequest;
+    mockApproveSpoilage = vi
+      .fn()
+      .mockResolvedValue({ event_id: "sp_evt_test", line_count: 2, total_qty: 5 });
+    mockDenyRequest = vi.fn().mockResolvedValue({ denied: true });
+  });
+
+  it("renders heading, total units, reason, requester, and per-line breakdown when pending", () => {
+    stageActions(mockApproveSpoilage, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByRole("heading", { name: /Manager approval needed — Spoilage/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Dropped tray during transit/i)).toBeInTheDocument();
+    expect(screen.getByText(/Dewi/i)).toBeInTheDocument();
+    // Per-line breakdown — sku_code visible
+    expect(screen.getByText(/DUB-1PC/)).toBeInTheDocument();
+    expect(screen.getByText(/DUB-3PC/)).toBeInTheDocument();
+    // Approve + Deny buttons present in pending state
+    expect(screen.getByRole("button", { name: /^Approve$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Deny$/i })).toBeInTheDocument();
+  });
+
+  it("calls approveSpoilage with correct args on Approve click", async () => {
+    stageActions(mockApproveSpoilage, mockDenyRequest);
+    renderAt("spoilage-token-xyz");
+
+    await selectManager("MGR01");
+    fireEvent.keyDown(document, { key: "1" });
+    fireEvent.keyDown(document, { key: "2" });
+    fireEvent.keyDown(document, { key: "3" });
+    fireEvent.keyDown(document, { key: "4" });
+
+    const approveBtn = screen.getByRole("button", { name: /^Approve$/i });
+    await waitFor(() => expect(approveBtn).not.toBeDisabled());
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      expect(mockApproveSpoilage).toHaveBeenCalledTimes(1);
+    });
+
+    const args = mockApproveSpoilage.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.token).toBe("spoilage-token-xyz");
+    expect(args.managerStaffCode).toBe("MGR01");
+    expect(args.managerPin).toBe("1234");
+    expect(typeof args.idempotencyKey).toBe("string");
+    expect((args.idempotencyKey as string).length).toBeGreaterThan(0);
+  });
+
+  it("shows resolved screen when status is 'resolved' and hides the form", () => {
+    mockQueryReturn = {
+      ...pendingSpoilageRequest,
+      status: "resolved",
+      resolved_at: Date.now() - 60_000,
+    };
+    stageActions(mockApproveSpoilage, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByText(/Spoilage of 5 units already approved/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Approve$/i }),
+    ).not.toBeInTheDocument();
+  });
+});

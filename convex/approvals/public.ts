@@ -77,10 +77,28 @@ type RefundResult = {
   resolved_at?: number;
 } & DenyDetails;
 
+// v0.6 S7: spoilage variant. Strips inventory_sku_id from the public surface
+// (storage-internal — same convention as RefundResult stripping line_id).
+type SpoilageResult = {
+  kind: "spoilage";
+  display: {
+    spoilage_event_id: string;
+    total_qty: number;
+    reason: string;
+    lines: Array<{ sku_code: string; qty: number }>;
+    requester_name?: string;
+  };
+  status: EffectiveStatus;
+  triggered_at: number;
+  token_expires_at: number;
+  resolved_at?: number;
+} & DenyDetails;
+
 type GetByTokenResult =
   | StaffPinResetResult
   | ManualPaymentOverrideResult
-  | RefundResult;
+  | RefundResult
+  | SpoilageResult;
 
 /**
  * Resolve an approval request by its raw token (for the off-booth approval page).
@@ -90,6 +108,8 @@ type GetByTokenResult =
  * Returns a discriminated union on `kind`:
  *   - "staff_pin_reset": subject_staff_name/code from auth module boundary
  *   - "manual_payment_override": display.{amount_idr, reason, receipt_preview?, requester_name?}
+ *   - "refund": display.{receipt_number, total_refund, reason, lines, requester_name?}
+ *   - "spoilage": display.{spoilage_event_id, total_qty, reason, lines, requester_name?}
  *
  * Effective status rules (DB row is not mutated here; cleanup is a future job):
  *   - If row.status === "pending" && row.token_expires_at <= Date.now() → "expired"
@@ -264,6 +284,77 @@ export const getByToken = query({
           receipt_number,
           total_refund,
           reason,
+          lines,
+          ...(requester_name !== undefined ? { requester_name } : {}),
+        },
+        ...base,
+        ...denyDetails,
+      };
+    }
+
+    if (req.kind === "spoilage") {
+      const ctx2 = req.context as
+        | {
+            spoilage_event_id?: string;
+            lines?: Array<{
+              inventory_sku_id?: string;
+              sku_code?: string;
+              qty?: number;
+            }>;
+            total_qty?: number;
+            reason?: string;
+          }
+        | undefined;
+
+      // validateContext("spoilage", ...) guarantees these fields at write time
+      // (single-writer invariant on _createRequest_internal). If anything is
+      // missing at read time the row was corrupted post-insert — throw
+      // CONTEXT_CORRUPTED rather than rendering a "0 units" spoilage card.
+      // Mirrors refund's read-time guards (v0.5.1a "fail loud" lesson).
+      if (typeof ctx2?.spoilage_event_id !== "string" || ctx2.spoilage_event_id === "") {
+        throw new Error("CONTEXT_CORRUPTED: spoilage_event_id");
+      }
+      if (
+        typeof ctx2.total_qty !== "number" ||
+        !Number.isInteger(ctx2.total_qty) ||
+        ctx2.total_qty <= 0
+      ) {
+        throw new Error("CONTEXT_CORRUPTED: total_qty");
+      }
+      if (typeof ctx2.reason !== "string" || ctx2.reason.trim() === "") {
+        throw new Error("CONTEXT_CORRUPTED: reason");
+      }
+      if (!Array.isArray(ctx2.lines) || ctx2.lines.length === 0) {
+        throw new Error("CONTEXT_CORRUPTED: lines");
+      }
+
+      // Strip inventory_sku_id from the public surface — storage-internal,
+      // same convention as refund stripping line_id.
+      const lines = ctx2.lines.map((l) => {
+        if (typeof l.sku_code !== "string" || l.sku_code === "") {
+          throw new Error("CONTEXT_CORRUPTED: line.sku_code");
+        }
+        if (!Number.isInteger(l.qty) || (l.qty as number) <= 0) {
+          throw new Error("CONTEXT_CORRUPTED: line.qty");
+        }
+        return { sku_code: l.sku_code, qty: l.qty as number };
+      });
+
+      let requester_name: string | undefined;
+      if (req.requester_staff_id) {
+        const info = await ctx.runQuery(
+          internal.auth.internal._getStaffNameCode_internal,
+          { staffId: req.requester_staff_id },
+        );
+        requester_name = info?.name;
+      }
+
+      return {
+        kind: "spoilage",
+        display: {
+          spoilage_event_id: ctx2.spoilage_event_id,
+          total_qty: ctx2.total_qty,
+          reason: ctx2.reason,
           lines,
           ...(requester_name !== undefined ? { requester_name } : {}),
         },

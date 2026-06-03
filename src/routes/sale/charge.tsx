@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
@@ -21,7 +21,14 @@ import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { ManagerPickerOverlay } from "@/components/pos/ManagerPickerOverlay";
+import { VoucherRejectBanner } from "./voucher-reject-banner";
 import { toast } from "sonner";
+
+type VoucherRejected = {
+  code: string;
+  reason: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE";
+};
+type NavState = { voucher_rejected?: VoucherRejected };
 
 type Method = "QRIS" | "BCA_VA";
 
@@ -46,9 +53,20 @@ type Method = "QRIS" | "BCA_VA";
  */
 export default function SaleCharge() {
   const navigate = useNavigate();
+  const location = useLocation();
   const session = useSession();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
+
+  // Banner data from V8's commitCart voucher_rejected signal (ADR-009 reject
+  // path). Comes via React Router nav state — auto-cleared on hard reload, which
+  // is desired (a stale banner mid-payment would confuse since the txn is
+  // already committed). Copied into local state so dismissal is independent of
+  // nav-state immutability.
+  const navState = (location.state as NavState | null) ?? {};
+  const [voucherRejected, setVoucherRejected] = useState<VoucherRejected | undefined>(
+    navState.voucher_rejected,
+  );
 
   const [selectedMethod, setSelectedMethod] = useState<Method>("QRIS");
 
@@ -402,9 +420,37 @@ export default function SaleCharge() {
   // points at the previous method → show a spinner instead of stale QR/VA.
   const invoiceMatches = invoice != null && invoice.method === selectedMethod;
 
+  // ---- voucher-reject banner handler ----
+  // "Pick a different voucher" cancels the awaiting-payment txn and routes back
+  // to /sale/voucher so the user can apply a fresh voucher to a new cart. If
+  // cancel fails (network etc.), keep the banner visible and surface the error.
+  const handlePickAnotherVoucher = async () => {
+    if (session.status !== "active" || !txnId) return;
+    try {
+      await cancelAwaitingPayment({
+        sessionId: session.sessionId,
+        txnId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setVoucherRejected(undefined);
+      navigate("/sale/voucher");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not cancel; try again";
+      toast.error(msg);
+    }
+  };
+
   return (
     <SpokeLayout title="Payment">
       <section className="flex flex-1 flex-col items-center gap-4 overflow-y-auto p-4">
+        {voucherRejected && (
+          <div className="w-full max-w-sm">
+            <VoucherRejectBanner
+              rejected={voucherRejected}
+              onPickAnother={handlePickAnotherVoucher}
+            />
+          </div>
+        )}
         {phase.kind === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -466,7 +512,19 @@ export default function SaleCharge() {
                     SCAN TO PAY
                   </p>
                   {invoice?.qr_string ? (
-                    <div className="rounded-lg bg-white p-3" role="img" aria-label="QRIS payment QR code">
+                    // data-qr-id exposes the Xendit QR Codes API `id` (stored as
+                    // xendit_invoice_id per convex/payments/schema.ts:7) so Playwright
+                    // E2E specs can pass it to the simulate-paid endpoint
+                    // (/qr_codes/{qrId}/payments/simulate). Conditional spread keeps
+                    // a transient undefined off the DOM.
+                    <div
+                      className="rounded-lg bg-white p-3"
+                      role="img"
+                      aria-label="QRIS payment QR code"
+                      {...(invoice.xendit_invoice_id
+                        ? { "data-qr-id": invoice.xendit_invoice_id }
+                        : {})}
+                    >
                       <QRCodeSVG value={invoice.qr_string} size={220} marginSize={0} />
                     </div>
                   ) : (
@@ -477,11 +535,25 @@ export default function SaleCharge() {
                   </p>
                 </>
               ) : (
+                // data-external-id exposes the Xendit FVA `external_id` so Playwright
+                // E2E specs can hit /callback_virtual_accounts/external_id={id}/simulate_payment.
+                // Prefers the persisted `invoice.reference_id` (the actual ref sent to
+                // Xendit at create time — `pos-${txnId}` on first mint, `pos-${txnId}-r-${uuid}`
+                // on retry) so this attribute survives retryWithFreshInvoice correctly.
+                // Falls back to the derived `pos-${txnId}` for invoices created before
+                // the field was persisted (pre-deploy rows have reference_id === undefined).
                 <>
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
                     BCA VIRTUAL ACCOUNT
                   </p>
-                  <p className="select-all text-2xl font-semibold tabular-nums tracking-wider">
+                  <p
+                    className="select-all text-2xl font-semibold tabular-nums tracking-wider"
+                    {...(invoice?.reference_id
+                      ? { "data-external-id": invoice.reference_id }
+                      : txn?._id
+                        ? { "data-external-id": `pos-${txn._id}` }
+                        : {})}
+                  >
                     {invoice?.va_number ?? "—"}
                   </p>
                   <p className="text-[11px] text-muted-foreground">

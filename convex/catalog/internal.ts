@@ -21,6 +21,24 @@ export const _getActiveSkuIds_internal = internalQuery({
 });
 
 /**
+ * Active SKU list for cross-module consumers.
+ *
+ * pos_inventory_skus is OWNED BY catalog (ADR-034 + direct access at
+ * catalog/public.ts). Other modules (inventory recon R4, reporting) read
+ * the active set through this internal query — never via direct table access.
+ */
+export const _getActiveSkus_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
+    const rows = await ctx.db
+      .query("pos_inventory_skus")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return rows.map((r) => ({ _id: r._id, sku: r.sku, name: r.name }));
+  },
+});
+
+/**
  * Expand a list of product IDs to their component SKU requirements.
  * Used by transactions/internal to build sale movements + projected NEG_STOCK
  * checks without touching catalog-owned tables directly (ADR-034 module boundary).

@@ -14,6 +14,17 @@ crons.daily(
   { attempt: 0 },
 );
 
+// 02:00 WIB nightly stock-recon = 19:00 UTC (prior day). Scheduled outside
+// operational hours so the alert can wait until morning; the action's own
+// retry path uses ctx.scheduler.runAfter (linear back-off, max 3 attempts)
+// for transient failures — see inventory/cronActions.ts.
+crons.daily(
+  "stock-recon",
+  { hourUTC: 19, minuteUTC: 0 },
+  internal.inventory.cronActions.sendStockReconResilient,
+  { attempt: 0 },
+);
+
 // Retention purges. Both tables are debug/dedup trails — the audit_log is the
 // authoritative record, so bounded TTLs are safe. Run pre-dawn WIB (03:00 WIB
 // = 20:00 UTC) so they don't compete with the 22:00 founders summary window
