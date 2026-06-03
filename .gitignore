@@ -41,3 +41,5 @@ frollie-pos design files/
 
 # pre-merge receipt visual verification artefacts
 .tmp-receipt-preview/
+.vercel
+.env*.local
