@@ -1,0 +1,7 @@
+{
+  "name": "canvas",
+  "version": "2.11.2",
+  "description": "Local no-op stub replacing the native `canvas` dependency that esc-pos-encoder pulls in. Frollie's src/lib/escpos.ts only uses text + native .qrcode(), never .image() (the sole canvas consumer), so the real native module is dead weight that breaks `npm install` on Node 22/24 (no prebuilt → source build → no Cairo). See docs and vercel.json. If thermal logo printing is ever added, replace this with the real canvas (or a pure-JS rasterizer) and revisit the Node pin.",
+  "main": "index.js",
+  "license": "MIT"
+}
