@@ -1138,6 +1138,41 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
+## v0.5.6 — Admin wiring + receipt/refund UX 📋 PLANNED
+**Outcome:** Four UX/admin gaps from the prod cutover close — all pure UI wiring of already-built backend (no schema, no migration): staff change their own PIN in-app, a manager mints a device setup-code without the CLI, history detail reprints an earlier sale, and the refund flow finally has a door.
+**Spec:** [`docs/superpowers/specs/2026-06-03-v0.5.6-admin-wiring-and-receipt-refund-ux-design.md`](./superpowers/specs/2026-06-03-v0.5.6-admin-wiring-and-receipt-refund-ux-design.md) (spec-gate staffreview passed)
+**Plan:** [`docs/superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md`](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md) (plan-gate staffreview: Approve; assumptions verified vs code)
+**Target:** TBD
+
+**You'll be able to:**
+- (Staff) Change your own PIN in-app from a "Change PIN" tile → `/account` (closes the sole-manager `1111` dead-end)
+- (Manager) Mint a 6-digit device setup-code from `/mgr/device-setup` (code + expiry countdown + regenerate) and register a 2nd device with no CLI
+- (Staff) Reprint an earlier sale's receipt from history detail — same bytes as charge-success (reuses the v0.5.4 printer stack)
+- (Staff) Start a refund from the transaction that needs it (per-txn button on history) or from a "Refund" home tile → the existing `/refund` list
+
+**Still not yet:**
+- Active-device list + device deactivate (deferred — would need a new backend mutation; keeps the phase backend-free)
+- Refund *logic* changes (the flow is v0.5.1b; this only adds the entrance)
+- A general settings/profile IA (Part A is one entry point, not a settings section)
+
+### Frontend (`src/`)
+
+- 📋 **[v0.5.6-fe-account-changepin]** Self change-PIN screen (`/account`) wiring `auth.changePin` (Part A)
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
+- 📋 **[v0.5.6-fe-device-setup]** Manager device setup-code spoke (`/mgr/device-setup`) wiring `generateDeviceSetupCode` (Part B)
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
+- 📋 **[v0.5.6-fe-history-reprint]** Reprint button on history detail reusing `getReceiptForPrint` + `PrinterProvider` (Part C)
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
+- 📋 **[v0.5.6-fe-refund-entry]** Refund entry points — per-txn button on history + home tile to existing `/refund` list (Part D)
+  - **agent:** `frontend-integrator` · **deps:** `v0.5.6-fe-history-reprint` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
+
+### Cross-cutting
+
+- 📋 **[v0.5.6-xc-docs]** CLAUDE.md routes table (refund→live; +`/account`, +`/mgr/device-setup`) + CHANGELOG v0.5.6
+  - **agent:** `—` · **deps:** `v0.5.6-fe-account-changepin`, `v0.5.6-fe-device-setup`, `v0.5.6-fe-history-reprint`, `v0.5.6-fe-refund-entry` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
+
+---
+
 ## v0.6 — vouchers + spoilage + nightly stock-recon + Playwright 📋 PLANNED
 **Outcome:** Manager-portal voucher CRUD with ADR-009 offline reject banner; spoilage at booth (manager-PIN) or off-booth (Telegram approval); nightly cron rebuilds `pos_stock_levels` from the movements ledger and alerts on drift (report-only, no silent correction); first Playwright E2E suite proving the transactional golden path.
 **Spec:** [`docs/superpowers/specs/2026-06-02-v0.6-design.md`](./superpowers/specs/2026-06-02-v0.6-design.md) (staffreview-validated)
