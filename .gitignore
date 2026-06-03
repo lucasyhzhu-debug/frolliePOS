@@ -43,3 +43,8 @@ frollie-pos design files/
 .tmp-receipt-preview/
 .vercel
 .env*.local
+
+# agent isolation worktrees + local handoff/diff artifacts
+.claude/worktrees/
+.claude/handoff/
+*.diff_*.txt
