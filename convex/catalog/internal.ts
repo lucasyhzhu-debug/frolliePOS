@@ -335,7 +335,12 @@ export const _createProductCommit_internal = internalMutation({
       let bundledQty: number | undefined;
       if (args.withInventorySku) {
         const skuSlug = args.sku_family.trim().toLowerCase();
-        if (!/^[a-z0-9-]{1,32}$/.test(skuSlug)) {
+        // Reuse the standalone writer's slug constant so the two
+        // pos_inventory_skus writers can't drift on what a valid slug is.
+        // The SKU's name is sku_family.trim(); the slug regex bounds it to
+        // 1-32 chars, so it satisfies the standalone path's 1-80 name rule
+        // by construction (no separate NAME_INVALID guard needed here).
+        if (!SKU_SLUG_RE.test(skuSlug)) {
           throw new Error("SKU_FAMILY_NOT_SLUGGABLE");
         }
         if (
@@ -358,6 +363,11 @@ export const _createProductCommit_internal = internalMutation({
           .withIndex("by_sku", (q) => q.eq("sku", skuSlug))
           .first();
         if (existing) {
+          // Match setProductComponents' invariant (catalog/public.ts:213):
+          // never link a product to an archived SKU. Latent until SKU
+          // archival ships, but enforced now so the bundled path and the
+          // components editor share one contract.
+          if (!existing.active) throw new Error("SKU_INACTIVE");
           bundledSkuId = existing._id;
           bundledSkuCreated = false;
         } else {
@@ -410,7 +420,9 @@ export const _createProductCommit_internal = internalMutation({
               sku: skuSlug,
               name: args.sku_family.trim(),
               low_threshold: args.inventorySkuLowThreshold,
-              source: "create_product_bundled",
+              // `via` not `source`: avoid colliding with the schema-level
+              // audit `source` enum field for clean forensics.
+              via: "create_product_bundled",
             },
           });
         }
@@ -419,18 +431,23 @@ export const _createProductCommit_internal = internalMutation({
           inventory_sku_id: bundledSkuId,
           qty: bundledQty,
         });
+        // Reuse setProductComponents' verb (product.updated +
+        // components_changed) rather than minting product.components_set,
+        // so component links read uniformly in the audit log whether set at
+        // create-time (bundled) or via the editor.
         await logAudit(ctx, {
           actor_id: args.mgrId,
-          action: "product.components_set",
+          action: "product.updated",
           entity_type: "pos_products",
           entity_id: productId,
           source: "booth_inline",
           device_id: args.deviceId,
           metadata: {
-            product_id: productId,
+            components_changed: true,
+            count: 1,
             sku_id: bundledSkuId,
             qty: bundledQty,
-            source: "create_product_bundled",
+            via: "create_product_bundled",
           },
         });
         return { productId, inventorySkuId: bundledSkuId, skuCreated: bundledSkuCreated, componentQty: bundledQty };

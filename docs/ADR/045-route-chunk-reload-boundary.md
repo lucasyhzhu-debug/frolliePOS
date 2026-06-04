@@ -37,6 +37,14 @@ via Telegram.
    `/r/*` (customer-facing) and English elsewhere. A "Reload" button clears
    the timestamp and reloads.
 
+   Note: the fallback is the boundary's catch-all for *any* non-chunk render
+   error too, not just stale chunks. A genuine data error on
+   `/r/:receiptNumber` (e.g. a malformed receipt) therefore renders the same
+   Indonesian "reopen the link" screen. That is an acceptable trade — a booth
+   customer can't action a stack trace either way, and "reopen from Telegram"
+   is the correct recovery for the common (stale-link) case. Debugging real
+   data errors happens server-side from the receipt token, not the client.
+
 ## Why timestamp not a boolean flag
 
 A boolean flag from a previous session would force the fallback on a

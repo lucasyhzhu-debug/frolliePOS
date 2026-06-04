@@ -191,7 +191,17 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
     expect(comps[0]).toMatchObject({ inventory_sku_id: res.inventorySkuId, qty: 1 });
     const audits = await t.run(async (ctx) => ctx.db.query("audit_log").collect());
     const verbs = audits.map((a) => a.action).filter((v) => v.startsWith("product.") || v.startsWith("inventory_sku."));
-    expect(verbs).toEqual(expect.arrayContaining(["product.created", "inventory_sku.created", "product.components_set"]));
+    // Component link reuses setProductComponents' verb (product.updated +
+    // components_changed) rather than a bespoke product.components_set.
+    expect(verbs).toEqual(expect.arrayContaining(["product.created", "inventory_sku.created", "product.updated"]));
+    // logAudit persists metadata as a JSON string (audit/internal.ts) — parse it.
+    const linkAudit = audits.find(
+      (a) =>
+        a.action === "product.updated" &&
+        JSON.parse((a.metadata as string | undefined) ?? "{}").via === "create_product_bundled",
+    );
+    expect(linkAudit).toBeDefined();
+    expect(JSON.parse(linkAudit!.metadata as string)).toMatchObject({ components_changed: true, qty: 1 });
   });
 
   it("creates product + SKU + component link at qty 3 (multi-pack, fresh SKU)", async () => {
@@ -253,6 +263,29 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
       ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "inventory_sku.created")).collect(),
     );
     expect(audits).toHaveLength(0);
+  });
+
+  it("rejects bundled reuse of an archived (inactive) SKU with SKU_INACTIVE", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    await t.run(async (ctx) =>
+      ctx.db.insert("pos_inventory_skus", {
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: false, created_at: Date.now(),
+      }),
+    );
+    await expect(
+      t.mutation(internal.catalog.internal._createProductCommit_internal, {
+        idempotencyKey: "bundle-reuse-inactive:commit",
+        mgrId: managerId, deviceId: "d", sku_family: "dubai", name: "Dubai 3pcs", pack_label: "3 pcs",
+        price_idr: 50000, tax_rate: 0, sort_order: 12,
+        withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: 3,
+      }),
+    ).rejects.toThrow(/SKU_INACTIVE/);
+    // All-or-nothing: no product row written when the link is refused.
+    const products = await t.run(async (ctx) =>
+      ctx.db.query("pos_products").filter((q) => q.eq(q.field("name"), "Dubai 3pcs")).collect(),
+    );
+    expect(products).toHaveLength(0);
   });
 
   it("rejects sku_family that fails slug regex", async () => {

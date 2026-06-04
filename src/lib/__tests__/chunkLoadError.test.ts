@@ -26,4 +26,9 @@ describe("isChunkLoadError", () => {
   it("also matches when given a plain object with .message", () => {
     expect(isChunkLoadError({ message: "Failed to fetch dynamically imported module" })).toBe(true);
   });
+
+  it("matches a bare string passed directly (no Error wrapper)", () => {
+    expect(isChunkLoadError("Failed to fetch dynamically imported module")).toBe(true);
+    expect(isChunkLoadError("some unrelated string")).toBe(false);
+  });
 });

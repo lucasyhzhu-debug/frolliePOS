@@ -259,6 +259,12 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddOpen(true);
   }
 
+  // Slug preview for the bundled-SKU checkbox, derived live from the typed
+  // sku_family. Declared here (above its first use in submitAddOpenPin) so the
+  // handler doesn't forward-reference a const declared further down the body.
+  const bundleSlugPreview = addSkuFamily.trim().toLowerCase();
+  const bundleSlugValid = /^[a-z0-9-]{1,32}$/.test(bundleSlugPreview);
+
   function submitAddOpenPin() {
     const name = addName.trim();
     if (name.length === 0 || name.length > 80) {
@@ -666,12 +672,6 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
           ? `Confirm with your manager PIN to add SKU ${pinAction.sku}.`
           : "Enter manager PIN.";
 
-  // Slug preview for the bundled-SKU checkbox. Derived live from the typed
-  // sku_family. Used both as the read-only preview and as the gate for the
-  // checkbox: an invalid family disables the checkbox entirely.
-  const bundleSlugPreview = addSkuFamily.trim().toLowerCase();
-  const bundleSlugValid = /^[a-z0-9-]{1,32}$/.test(bundleSlugPreview);
-
   // Quick lookup for SKU name display.
   const skuById = useMemo(() => {
     const map = new Map<string, Sku>();
@@ -984,7 +984,10 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 addName.trim().length === 0 ||
                 (addWithSku &&
                   (!bundleSlugValid ||
-                    parseIntStrict(addSkuComponentQty) === null ||
+                    // qty must be >= 1; parseIntStrict("0") is 0 (not null),
+                    // so gate on the value, not just nullness, to keep the
+                    // button disabled in lockstep with submitAddOpenPin.
+                    (parseIntStrict(addSkuComponentQty) ?? 0) < 1 ||
                     parseIntStrict(addBundleThreshold) === null))
               }
             >
