@@ -51,6 +51,7 @@ const StockDetail = lazy(() => import("@/routes/stock/$skuId"));
 const Lock = lazy(() => import("@/routes/lock"));
 const Refund = lazy(() => import("@/routes/refund"));
 const RefundDetail = lazy(() => import("@/routes/refund/detail"));
+const Account = lazy(() => import("@/routes/account"));
 const History = lazy(() => import("@/routes/history"));
 const HistoryDetail = lazy(() => import("@/routes/history/$txnId"));
 const Settlements = lazy(() => import("@/routes/settlements"));
@@ -65,6 +66,7 @@ const MgrStaff = lazy(() => import("@/routes/mgr/staff"));
 const MgrVouchers = lazy(() => import("@/routes/mgr/vouchers"));
 const MgrSpoilage = lazy(() => import("@/routes/mgr/spoilage"));
 const MgrStock = lazy(() => import("@/routes/mgr/stock"));
+const MgrDeviceSetup = lazy(() => import("@/routes/mgr/device-setup"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
@@ -103,6 +105,7 @@ const routes: RouteObject[] = [
       { path: "stock/recount", element: <StockRecount /> },
       { path: "stock/:skuId", element: <StockDetail /> },
       { path: "lock", element: <Lock /> },
+      { path: "account", element: <Account /> },
       { path: "refund", element: <Refund /> },
       { path: "refund/:txnId", element: <RefundDetail /> },
       { path: "history", element: <History /> },
@@ -116,6 +119,7 @@ const routes: RouteObject[] = [
       { path: "mgr/refunds-pending", element: <MgrRefundsPending /> },
       { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
       { path: "mgr/staff", element: <MgrStaff /> },
+      { path: "mgr/device-setup", element: <MgrDeviceSetup /> },
       { path: "mgr/vouchers", element: <MgrVouchers /> },
       { path: "mgr/spoilage", element: <MgrSpoilage /> },
       { path: "mgr/stock", element: <MgrStock /> },

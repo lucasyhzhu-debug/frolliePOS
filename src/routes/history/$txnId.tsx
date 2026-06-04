@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { usePrinter } from "@/components/pos/PrinterProvider";
+import { encodeReceipt } from "@/lib/escpos";
 import { toast } from "sonner";
 
 /**
@@ -32,6 +34,7 @@ import { toast } from "sonner";
 
 export default function HistoryDetail() {
   const session = useSession();
+  const navigate = useNavigate();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
 
@@ -47,6 +50,27 @@ export default function HistoryDetail() {
 
   const shareReceipt = useMutation(api.transactions.public.shareReceipt);
   const [sharing, setSharing] = useState(false);
+
+  const { status: printerStatus, connect, print } = usePrinter();
+  const printData = useQuery(
+    api.receipts.public.getReceiptForPrint,
+    session.status === "active" && txnId && printerStatus !== "unsupported"
+      ? { sessionId: session.sessionId, txnId }
+      : "skip",
+  );
+
+  const onPrint = async () => {
+    if (!printData) return;
+    try {
+      const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
+      await print(bytes);
+      toast.success("Struk dicetak");
+    } catch {
+      toast.error("Gagal mencetak struk");
+    }
+  };
+  const isPrinterReady = printerStatus === "connected" || printerStatus === "printing";
+  const printDisabled = printerStatus === "printing" || printerStatus === "unsupported" || !printData;
 
   const handleShare = async () => {
     if (session.status !== "active" || !txnId) return;
@@ -115,6 +139,7 @@ export default function HistoryDetail() {
 
   const { txn, lines, refundStatus: status } = detail;
   const badge = REFUND_BADGE[status];
+  const canRefund = txn.status === "paid" && status !== "full";
   const paidAt = txn.paid_at ?? txn.created_at;
   const confirmedViaLabel = txn.confirmed_via
     ? CONFIRMED_VIA_LABEL[txn.confirmed_via]
@@ -218,6 +243,25 @@ export default function HistoryDetail() {
           >
             {sharing ? "Membagikan…" : "Bagikan struk"}
           </Button>
+          <Button
+            variant="outline"
+            className="mt-2 w-full"
+            onClick={isPrinterReady ? onPrint : connect}
+            disabled={printDisabled}
+            data-testid="history-print"
+          >
+            {isPrinterReady ? "Cetak struk" : "Hubungkan & cetak"}
+          </Button>
+          {canRefund && (
+            <Button
+              variant="outline"
+              className="mt-2 w-full"
+              onClick={() => navigate(`/refund/${txnId}`)}
+              data-testid="history-refund"
+            >
+              Refund
+            </Button>
+          )}
         </Card>
       </section>
     </SpokeLayout>

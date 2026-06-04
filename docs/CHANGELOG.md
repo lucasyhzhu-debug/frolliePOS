@@ -2,6 +2,15 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-03 — v0.5.6 Admin wiring + receipt/refund UX
+
+All four parts are additive UI wiring of existing backend (no schema, no migration).
+
+- **Self "Change PIN"** — new `/account` spoke + home tile (YOU). Wires the existing `auth.changePin` action (one-shot idempotency key; maps `INVALID_PIN`/`SAME_PIN`/`NEW_PIN_INVALID`/`LOCKED_OUT`/`SESSION_INVALID`). Closes the sole-manager dead-end.
+- **Generate device setup code** — new `/mgr/device-setup` spoke + NAV_CARD. Wires `staff.generateDeviceSetupCode`; shows the 6-digit code + expiry countdown + regenerate. Replaces the CLI bootstrap path.
+- **Print receipt on history detail** — `history/$txnId` reprint button reusing `getReceiptForPrint` + `PrinterProvider` (ADR-043). Same bytes as charge-success.
+- **Refund flow entry points** — per-txn "Refund" button on `history/$txnId` (gated paid && refundStatus !== "full") + a "Refund" home tile to the existing `/refund` list. (The `/refund` list/detail flow itself shipped in v0.5.1b; this only adds the doors.)
+
 ## Dev tooling (unreleased)
 
 - `seed:reset` now pre-registers a fixed dev device (`dev-booth-device`), and `useDeviceId` returns that id under the Vite dev server, so local / Chrome-MCP loads skip the `/activate` device-registration gate. No production impact — gated on `import.meta.env.MODE === "development"`, so the prod build and the test runner keep the random per-install UUID path. Dev credentials after seed: Lucas (manager, PIN 9999), Bayu/Citra/Dewi/Eka (staff, PIN 0000).
