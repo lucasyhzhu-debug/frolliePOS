@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
-import { internal } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
 describe("_createInventorySkuCommit_internal", () => {
@@ -128,5 +128,69 @@ describe("_createInventorySkuCommit_internal", () => {
       ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "inventory_sku.created")).collect(),
     );
     expect(audits).toHaveLength(1);
+  });
+});
+
+describe("catalog.actions.createInventorySku", () => {
+  it("creates an SKU with a valid manager PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const res = await t.action(api.catalog.actions.createInventorySku, {
+      idempotencyKey: "act-happy",
+      sessionId,
+      managerPin: "9999",
+      sku: "brownie",
+      name: "Brownie",
+      low_threshold: 3,
+    });
+    expect(res.skuId).toBeDefined();
+  });
+
+  it("rejects with INVALID_PIN on wrong manager PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    await expect(
+      t.action(api.catalog.actions.createInventorySku, {
+        idempotencyKey: "act-badpin",
+        sessionId,
+        managerPin: "0000",
+        sku: "brownie",
+        name: "Brownie",
+        low_threshold: 3,
+      }),
+    ).rejects.toThrow(/INVALID_PIN/);
+  });
+
+  it("action-level replay returns the cached result without double-inserting", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const args = {
+      idempotencyKey: "act-replay",
+      sessionId,
+      managerPin: "9999",
+      sku: "replay-action",
+      name: "Replay Action",
+      low_threshold: 0,
+    };
+    const first = await t.action(api.catalog.actions.createInventorySku, args);
+    const second = await t.action(api.catalog.actions.createInventorySku, args);
+    expect(second.skuId).toBe(first.skuId);
+    const rows = await t.run(async (ctx) => ctx.db.query("pos_inventory_skus").collect());
+    expect(rows.filter((s) => s.sku === "replay-action")).toHaveLength(1);
+  });
+
+  it("new SKU appears in listAllProducts.skus", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const { skuId } = await t.action(api.catalog.actions.createInventorySku, {
+      idempotencyKey: "act-list",
+      sessionId,
+      managerPin: "9999",
+      sku: "vanilla",
+      name: "Vanilla",
+      low_threshold: 0,
+    });
+    const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
+    expect(res.skus.some((s) => s._id === skuId)).toBe(true);
   });
 });
