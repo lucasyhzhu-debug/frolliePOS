@@ -29,6 +29,7 @@ const TILES: Tile[] = [
   { id: "sale", group: "sell", label: "New sale", hint: "start a cart", to: "/sale", primary: true, glyph: "◉" },
   { id: "saved", group: "sell", label: "Saved carts", hint: "drafts (v0.3)", to: "/sale/drafts", glyph: "◇" },
   { id: "hist", group: "sell", label: "History", hint: "today (v0.5)", to: "/history", glyph: "≡" },
+  { id: "refund", group: "sell", label: "Refund", hint: "today's refundable", to: "/refund", glyph: "↩" },
   { id: "stock-in", group: "stock", label: "Stock in", hint: "log new tray (v0.5)", to: "/stock/in", glyph: "▲" },
   { id: "stock-check", group: "stock", label: "Stock check", hint: "inventory (v0.5)", to: "/stock", glyph: "◐" },
   { id: "sett", group: "you", label: "Settlements", hint: "payouts (v0.5)", to: "/settlements", glyph: "$" },
