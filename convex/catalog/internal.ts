@@ -159,6 +159,98 @@ export const _setLowThreshold_internal = internalMutation({
   },
 });
 
+const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Single-writer commit for `catalog.createInventorySku` (v0.5.5). Mirrors
+ * `_createProductCommit_internal` exactly: action front-half handles PIN gate +
+ * action-level cache; this internal owns the row insert + audit in one
+ * transaction. Validation guards repeated as defense-in-depth.
+ *
+ * No pos_stock_levels seed: `upsertStockLevel` lazy-inits on first movement
+ * (convex/inventory/internal.ts:20-42); all reads default absent rows to 0.
+ *
+ * v0.5.3b-style :commit-key wrap: action retry after a crash between commit
+ * and action-level cache write would re-execute and double-insert. The
+ * withIdempotency on the `:commit`-derived key short-circuits the retry. See
+ * docs/PATTERNS/idempotency-dual-call-authcheck.md.
+ */
+export const _createInventorySkuCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    mgrId: v.id("staff"),
+    deviceId: v.string(),
+    sku: v.string(),
+    name: v.string(),
+    low_threshold: v.number(),
+    code: v.optional(v.string()),
+    initials: v.optional(v.string()),
+    hue: v.optional(v.number()),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      mgrId: Id<"staff">;
+      deviceId: string;
+      sku: string;
+      name: string;
+      low_threshold: number;
+      code?: string;
+      initials?: string;
+      hue?: number;
+    },
+    { skuId: Id<"pos_inventory_skus"> }
+  >(
+    "catalog._createInventorySkuCommit_internal",
+    async (ctx, args): Promise<{ skuId: Id<"pos_inventory_skus"> }> => {
+      const sku = args.sku.trim();
+      if (!SKU_SLUG_RE.test(sku)) throw new Error("SKU_INVALID");
+      const name = args.name.trim();
+      if (name.length === 0 || name.length > 80) throw new Error("NAME_INVALID");
+      if (!Number.isInteger(args.low_threshold) || args.low_threshold < 0) {
+        throw new Error("LOW_THRESHOLD_INVALID");
+      }
+      const code = args.code?.trim() ? args.code.trim() : undefined;
+
+      const existingSku = await ctx.db
+        .query("pos_inventory_skus")
+        .withIndex("by_sku", (q) => q.eq("sku", sku))
+        .first();
+      if (existingSku) throw new Error("SKU_EXISTS");
+      if (code !== undefined) {
+        const existingCode = await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_code", (q) => q.eq("code", code))
+          .first();
+        if (existingCode) throw new Error("CODE_EXISTS");
+      }
+
+      const now = Date.now();
+      const skuId = await ctx.db.insert("pos_inventory_skus", {
+        sku,
+        code,
+        name,
+        unit: "piece",
+        low_threshold: args.low_threshold,
+        initials: args.initials,
+        hue: args.hue,
+        active: true,
+        created_at: now,
+      });
+      await logAudit(ctx, {
+        actor_id: args.mgrId,
+        action: "inventory_sku.created",
+        entity_type: "inventory_sku",
+        entity_id: skuId,
+        source: "booth_inline",
+        device_id: args.deviceId,
+        metadata: { sku, name, low_threshold: args.low_threshold },
+      });
+      return { skuId };
+    },
+  ),
+});
+
 /**
  * Single-writer commit for `catalog.createProduct` (v0.5.3b Task 8). The
  * action front-half (`catalog/actions.ts`) handles PIN gate + idempotency
