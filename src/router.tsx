@@ -51,6 +51,7 @@ const StockDetail = lazy(() => import("@/routes/stock/$skuId"));
 const Lock = lazy(() => import("@/routes/lock"));
 const Refund = lazy(() => import("@/routes/refund"));
 const RefundDetail = lazy(() => import("@/routes/refund/detail"));
+const Account = lazy(() => import("@/routes/account"));
 const History = lazy(() => import("@/routes/history"));
 const HistoryDetail = lazy(() => import("@/routes/history/$txnId"));
 const Settlements = lazy(() => import("@/routes/settlements"));
@@ -103,6 +104,7 @@ const routes: RouteObject[] = [
       { path: "stock/recount", element: <StockRecount /> },
       { path: "stock/:skuId", element: <StockDetail /> },
       { path: "lock", element: <Lock /> },
+      { path: "account", element: <Account /> },
       { path: "refund", element: <Refund /> },
       { path: "refund/:txnId", element: <RefundDetail /> },
       { path: "history", element: <History /> },
