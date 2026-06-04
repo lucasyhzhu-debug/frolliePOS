@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Navigate } from "react-router";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useCountdown } from "@/hooks/useCountdown";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -79,16 +80,7 @@ function SetupCodeCard({
   onRegenerate: () => void;
   busy: boolean;
 }) {
-  const [remaining, setRemaining] = useState(() => minted.expiresAt - Date.now());
-  useEffect(() => {
-    setRemaining(minted.expiresAt - Date.now());
-    const id = setInterval(() => setRemaining(minted.expiresAt - Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [minted]);
-
-  const expired = remaining <= 0;
-  const mins = Math.max(0, Math.floor(remaining / 60000));
-  const secs = Math.max(0, Math.floor((remaining % 60000) / 1000));
+  const { mmss, expired } = useCountdown(minted.expiresAt);
 
   return (
     <Card className="flex flex-col items-center gap-3 p-6">
@@ -104,7 +96,7 @@ function SetupCodeCard({
         </p>
       ) : (
         <p className="text-xs text-muted-foreground" data-testid="setup-countdown">
-          Kedaluwarsa dalam {mins}:{secs.toString().padStart(2, "0")}
+          Kedaluwarsa dalam {mmss}
         </p>
       )}
       <Button variant="outline" size="sm" onClick={onRegenerate} disabled={busy}>

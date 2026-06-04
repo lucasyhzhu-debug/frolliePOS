@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
 
-type Stage = "current" | "new" | "confirm" | "submitting";
+type Step = "current" | "new" | "confirm";
 
 /**
  * Self-service change-PIN. Wires the existing `auth.changePin` ACTION (v0.5.6).
@@ -31,7 +31,8 @@ export default function AccountRoute() {
   const session = useSession();
   const changePin = useAction(api.auth.actions.changePin);
 
-  const [stage, setStage] = useState<Stage>("current");
+  const [step, setStep] = useState<Step>("current");
+  const [busy, setBusy] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function AccountRoute() {
 
   const bump = () => setResetTick((n) => n + 1);
   const restart = () => {
-    setStage("current");
+    setStep("current");
     setCurrentPin("");
     setNewPin("");
     bump();
@@ -58,27 +59,27 @@ export default function AccountRoute() {
 
   const onPin = async (pin: string) => {
     setError(null);
-    if (stage === "current") {
+    if (step === "current") {
       setCurrentPin(pin);
-      setStage("new");
+      setStep("new");
       bump();
       return;
     }
-    if (stage === "new") {
+    if (step === "new") {
       setNewPin(pin);
-      setStage("confirm");
+      setStep("confirm");
       bump();
       return;
     }
-    if (stage === "confirm") {
+    if (step === "confirm") {
       if (pin !== newPin) {
         setError("PIN tidak cocok. Ulangi PIN baru.");
         setNewPin("");
-        setStage("new");
+        setStep("new");
         bump();
         return;
       }
-      setStage("submitting");
+      setBusy(true);
       try {
         await changePin({
           sessionId: session.sessionId,
@@ -96,15 +97,17 @@ export default function AccountRoute() {
         }
         setError(friendlyChangePinError(msg));
         restart();
+      } finally {
+        setBusy(false);
       }
     }
   };
 
-  const prompt =
-    stage === "current" ? "Masukkan PIN lama"
-    : stage === "new" ? "Masukkan PIN baru"
-    : stage === "confirm" ? "Konfirmasi PIN baru"
-    : "Menyimpan…";
+  const prompt = busy
+    ? "Menyimpan…"
+    : step === "current" ? "Masukkan PIN lama"
+    : step === "new" ? "Masukkan PIN baru"
+    : "Konfirmasi PIN baru";
 
   return (
     <SpokeLayout title="Ubah PIN" backTo="/">
@@ -115,7 +118,7 @@ export default function AccountRoute() {
             {error}
           </p>
         )}
-        {stage === "submitting" ? (
+        {busy ? (
           <p className="text-sm text-muted-foreground">Menyimpan…</p>
         ) : (
           <PinEntry onSubmit={onPin} reset={resetTick} />

@@ -69,6 +69,8 @@ export default function HistoryDetail() {
       toast.error("Gagal mencetak struk");
     }
   };
+  const isPrinterReady = printerStatus === "connected" || printerStatus === "printing";
+  const printDisabled = printerStatus === "printing" || printerStatus === "unsupported" || !printData;
 
   const handleShare = async () => {
     if (session.status !== "active" || !txnId) return;
@@ -244,11 +246,11 @@ export default function HistoryDetail() {
           <Button
             variant="outline"
             className="mt-2 w-full"
-            onClick={printerStatus === "connected" ? onPrint : connect}
-            disabled={printerStatus === "printing" || printerStatus === "unsupported" || !printData}
+            onClick={isPrinterReady ? onPrint : connect}
+            disabled={printDisabled}
             data-testid="history-print"
           >
-            {printerStatus === "connected" || printerStatus === "printing" ? "Cetak struk" : "Hubungkan & cetak"}
+            {isPrinterReady ? "Cetak struk" : "Hubungkan & cetak"}
           </Button>
           {canRefund && (
             <Button
