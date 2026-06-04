@@ -1,6 +1,8 @@
 import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { lazy } from "react";
 import { RootLayout } from "@/components/layout/RootLayout";
+import { PublicShell } from "@/components/layout/PublicShell";
+import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
 
 /*
  * Route table mirrors README.md's planned structure and the wireframe IA:
@@ -71,15 +73,23 @@ const Receipt = lazy(() => import("@/routes/receipt"));
 const Activate = lazy(() => import("@/routes/activate"));
 
 const routes: RouteObject[] = [
-  // Public routes — no auth, no app shell
-  { path: "/activate", element: <Activate /> },
-  { path: "/approve/:token", element: <Approve /> },
-  { path: "/r/:receiptNumber", element: <Receipt /> },
+  // Public siblings: wrapped under PublicShell so they share one errorElement.
+  {
+    element: <PublicShell />,
+    errorElement: <RouteErrorBoundary />,
+    children: [
+      { path: "/activate", element: <Activate /> },
+      { path: "/approve/:token", element: <Approve /> },
+      { path: "/r/:receiptNumber", element: <Receipt /> },
+    ],
+  },
 
-  // App shell — RootLayout handles session gate + redirects unauthenticated traffic to /login
+  // App shell: RootLayout handles session gate + redirects unauthenticated
+  // traffic to /login. errorElement catches chunk-load failures inside the shell.
   {
     path: "/",
     element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { path: "login", element: <Login /> },
       { index: true, element: <Home /> },
