@@ -1211,18 +1211,18 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Frontend (`src/`)
 
-- 📋 **[v0.5.6-fe-account-changepin]** Self change-PIN screen (`/account`) wiring `auth.changePin` (Part A)
+- ✅ **[v0.5.6-fe-account-changepin]** Self change-PIN screen (`/account`) wiring `auth.changePin` (Part A) (3dfb756)
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
-- 📋 **[v0.5.6-fe-device-setup]** Manager device setup-code spoke (`/mgr/device-setup`) wiring `generateDeviceSetupCode` (Part B)
+- ✅ **[v0.5.6-fe-device-setup]** Manager device setup-code spoke (`/mgr/device-setup`) wiring `generateDeviceSetupCode` (Part B) (4e7ab0e)
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
-- 📋 **[v0.5.6-fe-history-reprint]** Reprint button on history detail reusing `getReceiptForPrint` + `PrinterProvider` (Part C)
+- ✅ **[v0.5.6-fe-history-reprint]** Reprint button on history detail reusing `getReceiptForPrint` + `PrinterProvider` (Part C) (94fd41a)
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
-- 📋 **[v0.5.6-fe-refund-entry]** Refund entry points — per-txn button on history + home tile to existing `/refund` list (Part D)
+- ✅ **[v0.5.6-fe-refund-entry]** Refund entry points — per-txn button on history + home tile to existing `/refund` list (Part D) (8cdea7a)
   - **agent:** `frontend-integrator` · **deps:** `v0.5.6-fe-history-reprint` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
 
 ### Cross-cutting
 
-- 📋 **[v0.5.6-xc-docs]** CLAUDE.md routes table (refund→live; +`/account`, +`/mgr/device-setup`) + CHANGELOG v0.5.6
+- ✅ **[v0.5.6-xc-docs]** CLAUDE.md routes table (refund→live; +`/account`, +`/mgr/device-setup`) + CHANGELOG v0.5.6 (b93c1cd)
   - **agent:** `—` · **deps:** `v0.5.6-fe-account-changepin`, `v0.5.6-fe-device-setup`, `v0.5.6-fe-history-reprint`, `v0.5.6-fe-refund-entry` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md)
 
 ---
