@@ -6,6 +6,7 @@ import { useSession } from "@/hooks/useSession";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinEntry } from "@/components/auth/PinEntry";
 import { Button } from "@/components/ui/button";
+import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
 
 type Stage = "current" | "new" | "confirm" | "submitting";
@@ -88,7 +89,7 @@ export default function AccountRoute() {
         toast.success("PIN berhasil diubah");
         navigate("/", { replace: true });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "";
+        const msg = errorMessage(err);
         if (msg.includes("SESSION_INVALID")) {
           navigate("/login", { replace: true });
           return;

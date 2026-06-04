@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from "vites
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { toast } from "sonner";
 import { SESSION_KEY } from "@/lib/storage-keys";
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+  Toaster: () => null,
+}));
 
 const FAKE_SESSION_ID = "session_mgr";
 
@@ -87,5 +93,14 @@ describe("MgrDeviceSetup (/mgr/device-setup)", () => {
     renderRoute();
     expect(await screen.findByText("HOME")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /generate setup code/i })).not.toBeInTheDocument();
+  });
+
+  it("mutation failure surfaces a toast.error", async () => {
+    mockGenerate.mockReset();
+    mockGenerate.mockRejectedValue(new Error("Network down"));
+    renderRoute();
+    fireEvent.click(await screen.findByRole("button", { name: /generate setup code/i }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByTestId("setup-code")).not.toBeInTheDocument();
   });
 });

@@ -115,4 +115,18 @@ describe("AccountRoute (/account change-PIN)", () => {
     typePin("1111"); typePin("2222"); typePin("2222");
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true }));
   });
+
+  it("maps SAME_PIN to friendly copy", async () => {
+    mockChangePin.mockRejectedValue(new Error("Server Error: SAME_PIN"));
+    renderRoute();
+    typePin("1111"); typePin("1111"); typePin("1111");
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/berbeda dari PIN lama/i);
+  });
+
+  it("maps NEW_PIN_INVALID to friendly copy", async () => {
+    mockChangePin.mockRejectedValue(new Error("Server Error: NEW_PIN_INVALID"));
+    renderRoute();
+    typePin("1111"); typePin("2222"); typePin("2222");
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/4 angka/i);
+  });
 });

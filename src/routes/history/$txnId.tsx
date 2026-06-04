@@ -54,7 +54,7 @@ export default function HistoryDetail() {
   const { status: printerStatus, connect, print } = usePrinter();
   const printData = useQuery(
     api.receipts.public.getReceiptForPrint,
-    session.status === "active" && txnId
+    session.status === "active" && txnId && printerStatus !== "unsupported"
       ? { sessionId: session.sessionId, txnId }
       : "skip",
   );
