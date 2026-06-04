@@ -1,0 +1,67 @@
+import { useRouteError, useLocation } from "react-router";
+import { isChunkLoadError } from "@/lib/chunkLoadError";
+import { Button } from "@/components/ui/button";
+
+/**
+ * Root-level React Router error element. Two behaviours:
+ *
+ * 1. **Chunk-load failures** (stale deploy): reload the page exactly once,
+ *    guarded by a `sessionStorage` timestamp. Second failure within 30s
+ *    falls through to the friendly fallback instead of looping.
+ * 2. **Anything else**: render a minimal branded fallback. No stack trace,
+ *    even in dev — staff are at the booth, not the IDE.
+ *
+ * Public routes (/r/:receiptNumber, /approve/:token, /activate) mount this
+ * via PublicShell. The receipt route is customer-facing via Telegram, so
+ * the fallback uses Indonesian copy under /r/*.
+ *
+ * Why timestamp not a boolean flag: a stale flag from a previous session
+ * would force the fallback on a genuinely-fresh chunk failure. A 30s
+ * window scopes the guard to the just-now reload attempt.
+ */
+const RELOAD_WINDOW_MS = 30_000;
+const RELOAD_STAMP_KEY = "chunk-reload-at";
+
+export function RouteErrorBoundary() {
+  const error = useRouteError();
+  const location = useLocation();
+
+  if (isChunkLoadError(error)) {
+    const stamp = Number(sessionStorage.getItem(RELOAD_STAMP_KEY) ?? "0");
+    const recentlyTried = stamp > 0 && Date.now() - stamp < RELOAD_WINDOW_MS;
+    if (!recentlyTried) {
+      sessionStorage.setItem(RELOAD_STAMP_KEY, String(Date.now()));
+      window.location.reload();
+      return null;
+    }
+    // Fall through to the fallback below.
+  }
+
+  const isCustomerReceipt = location.pathname.startsWith("/r/");
+
+  const title = isCustomerReceipt
+    ? "Halaman tidak bisa dimuat"
+    : "Something went wrong";
+  const body = isCustomerReceipt
+    ? "Buka ulang link dari Telegram."
+    : "Reload to try again. If this keeps happening, lock the device and log in again.";
+  const buttonLabel = isCustomerReceipt ? "Muat ulang" : "Reload";
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-foreground">
+      <div className="max-w-sm space-y-3 text-center">
+        <h1 className="text-lg font-semibold">{title}</h1>
+        <p className="text-sm text-muted-foreground">{body}</p>
+        <Button
+          variant="default"
+          onClick={() => {
+            sessionStorage.removeItem(RELOAD_STAMP_KEY);
+            window.location.reload();
+          }}
+        >
+          {buttonLabel}
+        </Button>
+      </div>
+    </main>
+  );
+}
