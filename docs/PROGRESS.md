@@ -1138,7 +1138,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.5 — Inventory-SKU admin + route error boundary 📋 PLANNED
+## v0.5.5 — Inventory-SKU admin + route error boundary ✅ DONE
 **Outcome:** Managers can create inventory SKUs in-app (standalone or bundled with a new product), closing the v0.5.3b scope gap where products could be created but SKUs were seed-only. The Add Product dialog gains a checkbox that atomically creates-or-links a matching SKU at an editable qty — one PIN entry for both the "Matcha 1pc" (qty 1, new SKU) and "Dubai 3pcs" (qty 3, existing SKU reused) cases. Stale-deploy chunk-load failures auto-recover via a one-shot guarded reload across the app shell AND the three customer-/manager-facing public routes, replacing React Router's default error screen with a branded fallback (Indonesian on `/r/*`).
 **Spec:** [`docs/superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md`](./superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md) (2× staffreview-validated)
 **Plan:** [`docs/superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md`](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md) (staffreview-validated; 12 tasks)
@@ -1159,35 +1159,35 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Backend (`convex/`)
 
-- 📋 **[v055-be-sku-internal]** `_createInventorySkuCommit_internal` — standalone PIN-gated SKU writer
+- ✅ **[v055-be-sku-internal]** `_createInventorySkuCommit_internal` — standalone PIN-gated SKU writer (77c8606)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-be-sku-action]** `catalog.actions.createInventorySku` — action with `withActionCache` + `${key}:commit` dual-cache
+- ✅ **[v055-be-sku-action]** `catalog.actions.createInventorySku` — action with `withActionCache` + `${key}:commit` dual-cache (523c649)
   - **agent:** `convex-expert` · **deps:** `v055-be-sku-internal` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-be-product-bundled-internal]** Extend `_createProductCommit_internal` with `withInventorySku` / `inventorySkuLowThreshold` / `inventorySkuComponentQty`
+- ✅ **[v055-be-product-bundled-internal]** Extend `_createProductCommit_internal` with `withInventorySku` / `inventorySkuLowThreshold` / `inventorySkuComponentQty` (d0c27da)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-be-product-bundled-action]** Extend `catalog.actions.createProduct` signature + return shape for the bundled path
+- ✅ **[v055-be-product-bundled-action]** Extend `catalog.actions.createProduct` signature + return shape for the bundled path (f41e20c)
   - **agent:** `convex-expert` · **deps:** `v055-be-product-bundled-internal` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
 
 ### Frontend (`src/`)
 
-- 📋 **[v055-fe-chunk-helper]** `src/lib/chunkLoadError.ts` — pure `isChunkLoadError(err)` + unit tests
+- ✅ **[v055-fe-chunk-helper]** `src/lib/chunkLoadError.ts` — pure `isChunkLoadError(err)` + unit tests (ee07d3f)
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-fe-error-boundary]** `src/components/layout/RouteErrorBoundary.tsx` — one-shot chunk reload (30s sessionStorage guard) + branded fallback (ID/EN by `/r/*`)
+- ✅ **[v055-fe-error-boundary]** `src/components/layout/RouteErrorBoundary.tsx` — one-shot chunk reload (30s sessionStorage guard) + branded fallback (ID/EN by `/r/*`) (ae03feb)
   - **agent:** `ui-component-builder` · **deps:** `v055-fe-chunk-helper` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-fe-router-wire]** `PublicShell` + `errorElement` on app-shell and public-shell in `src/router.tsx`
+- ✅ **[v055-fe-router-wire]** `PublicShell` + `errorElement` on app-shell and public-shell in `src/router.tsx` (fd5cd65)
   - **agent:** `frontend-integrator` · **deps:** `v055-fe-error-boundary` · **docs:** [Plan Task 7](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-fe-error-mapper]** Extend `humanizeCatalogError` in `src/routes/mgr/products.tsx` (5 new codes)
+- ✅ **[v055-fe-error-mapper]** Extend `humanizeCatalogError` in `src/routes/mgr/products.tsx` (5 new codes) (ceaeedd)
   - **agent:** `frontend-integrator` · **deps:** `v055-be-sku-action`, `v055-be-product-bundled-action` · **docs:** [Plan Task 8](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-fe-add-sku-dialog]** Standalone Add SKU button + dialog + `PinAction` `createInventorySku` variant
+- ✅ **[v055-fe-add-sku-dialog]** Standalone Add SKU button + dialog + `PinAction` `createInventorySku` variant (bc947ba)
   - **agent:** `ui-component-builder` · **deps:** `v055-fe-error-mapper` · **docs:** [Plan Task 9](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-fe-bundled-checkbox]** Bundled-SKU checkbox + qty input + threshold input in the Add Product dialog
+- ✅ **[v055-fe-bundled-checkbox]** Bundled-SKU checkbox + qty input + threshold input in the Add Product dialog (999ca28)
   - **agent:** `ui-component-builder` · **deps:** `v055-fe-error-mapper` · **docs:** [Plan Task 10](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
 
 ### Cross-cutting
 
-- 📋 **[v055-xc-docs]** `docs/SCHEMA.md` audit verb + `docs/API_REFERENCE.md` + `docs/ADR/045-route-chunk-reload-boundary.md` + `docs/CHANGELOG.md` + CLAUDE.md rule #22 update
+- ✅ **[v055-xc-docs]** `docs/SCHEMA.md` audit verb + `docs/API_REFERENCE.md` + `docs/ADR/045-route-chunk-reload-boundary.md` + `docs/CHANGELOG.md` + CLAUDE.md rule #22 update (5eefa40)
   - **agent:** `—` · **deps:** `v055-be-sku-action`, `v055-be-product-bundled-action`, `v055-fe-router-wire` · **docs:** [Plan Task 11](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
-- 📋 **[v055-xc-verify]** `npm run typecheck` + `lint` + full `vitest run` + `build` + manual smoke on `/mgr/products`
+- ✅ **[v055-xc-verify]** `npm run typecheck` + `lint` + full `vitest run` + `build` + manual smoke on `/mgr/products` (54a1737)
   - **agent:** `—` · **deps:** `v055-fe-add-sku-dialog`, `v055-fe-bundled-checkbox`, `v055-xc-docs` · **docs:** [Plan Task 12](./superpowers/plans/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary.md)
 
 ---

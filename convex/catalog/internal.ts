@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
@@ -159,6 +159,130 @@ export const _setLowThreshold_internal = internalMutation({
   },
 });
 
+const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Canonical insert for a new pos_inventory_skus row. Both SKU-create paths —
+ * standalone (`_createInventorySkuCommit_internal`) and the bundled branch of
+ * `_createProductCommit_internal` — write through here so the row shape
+ * (`unit`/`active`/`created_at` defaults + column set) lives in one place and
+ * can't drift when the table gains a column. Validation stays in the callers:
+ * the two paths legitimately differ (standalone enforces name length + code
+ * uniqueness; bundled derives a slug-bounded name and carries no code).
+ */
+async function insertInventorySku(
+  ctx: MutationCtx,
+  fields: {
+    sku: string;
+    name: string;
+    low_threshold: number;
+    now: number;
+    code?: string;
+    initials?: string;
+    hue?: number;
+  },
+): Promise<Id<"pos_inventory_skus">> {
+  return ctx.db.insert("pos_inventory_skus", {
+    sku: fields.sku,
+    code: fields.code,
+    name: fields.name,
+    unit: "piece",
+    low_threshold: fields.low_threshold,
+    initials: fields.initials,
+    hue: fields.hue,
+    active: true,
+    created_at: fields.now,
+  });
+}
+
+/**
+ * Single-writer commit for `catalog.createInventorySku` (v0.5.5). Mirrors
+ * `_createProductCommit_internal` exactly: action front-half handles PIN gate +
+ * action-level cache; this internal owns the row insert + audit in one
+ * transaction. Validation guards repeated as defense-in-depth.
+ *
+ * No pos_stock_levels seed: `upsertStockLevel` lazy-inits on first movement
+ * (convex/inventory/internal.ts:20-42); all reads default absent rows to 0.
+ *
+ * v0.5.3b-style :commit-key wrap: action retry after a crash between commit
+ * and action-level cache write would re-execute and double-insert. The
+ * withIdempotency on the `:commit`-derived key short-circuits the retry. See
+ * docs/PATTERNS/idempotency-dual-call-authcheck.md.
+ */
+export const _createInventorySkuCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    mgrId: v.id("staff"),
+    deviceId: v.string(),
+    sku: v.string(),
+    name: v.string(),
+    low_threshold: v.number(),
+    code: v.optional(v.string()),
+    initials: v.optional(v.string()),
+    hue: v.optional(v.number()),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      mgrId: Id<"staff">;
+      deviceId: string;
+      sku: string;
+      name: string;
+      low_threshold: number;
+      code?: string;
+      initials?: string;
+      hue?: number;
+    },
+    { skuId: Id<"pos_inventory_skus"> }
+  >(
+    "catalog._createInventorySkuCommit_internal",
+    async (ctx, args): Promise<{ skuId: Id<"pos_inventory_skus"> }> => {
+      const sku = args.sku.trim();
+      if (!SKU_SLUG_RE.test(sku)) throw new Error("SKU_INVALID");
+      const name = args.name.trim();
+      if (name.length === 0 || name.length > 80) throw new Error("NAME_INVALID");
+      if (!Number.isInteger(args.low_threshold) || args.low_threshold < 0) {
+        throw new Error("LOW_THRESHOLD_INVALID");
+      }
+      const code = args.code?.trim() ? args.code.trim() : undefined;
+
+      const existingSku = await ctx.db
+        .query("pos_inventory_skus")
+        .withIndex("by_sku", (q) => q.eq("sku", sku))
+        .first();
+      if (existingSku) throw new Error("SKU_EXISTS");
+      if (code !== undefined) {
+        const existingCode = await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_code", (q) => q.eq("code", code))
+          .first();
+        if (existingCode) throw new Error("CODE_EXISTS");
+      }
+
+      const now = Date.now();
+      const skuId = await insertInventorySku(ctx, {
+        sku,
+        code,
+        name,
+        low_threshold: args.low_threshold,
+        initials: args.initials,
+        hue: args.hue,
+        now,
+      });
+      await logAudit(ctx, {
+        actor_id: args.mgrId,
+        action: "inventory_sku.created",
+        entity_type: "inventory_sku",
+        entity_id: skuId,
+        source: "booth_inline",
+        device_id: args.deviceId,
+        metadata: { sku, name, low_threshold: args.low_threshold },
+      });
+      return { skuId };
+    },
+  ),
+});
+
 /**
  * Single-writer commit for `catalog.createProduct` (v0.5.3b Task 8). The
  * action front-half (`catalog/actions.ts`) handles PIN gate + idempotency
@@ -171,6 +295,14 @@ export const _setLowThreshold_internal = internalMutation({
  * withIdempotency on the `:commit`-derived key short-circuits the retry. See
  * docs/PATTERNS/idempotency-dual-call-authcheck.md and
  * refunds._commitRefund_internal for the canonical shape.
+ *
+ * v0.5.5 extension: three new optional args (`withInventorySku`,
+ * `inventorySkuLowThreshold`, `inventorySkuComponentQty`) enable an
+ * all-or-nothing bundled flow — one PIN entry, one Convex transaction,
+ * one `${key}:commit` idempotency key. The bundled flow does a
+ * lookup-or-create on the SKU (never throws SKU_EXISTS — reuse wins) and
+ * inserts a pos_product_components link at the supplied qty. Unbundled path
+ * is unchanged for back-compat.
  */
 export const _createProductCommit_internal = internalMutation({
   args: {
@@ -184,6 +316,16 @@ export const _createProductCommit_internal = internalMutation({
     sort_order: v.number(),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
+    // v0.5.5: bundled-SKU args. When withInventorySku is true, the same
+    // transaction also ensures a matching pos_inventory_skus row (creates if
+    // absent by sku_family.toLowerCase(); reuses if present) and inserts a
+    // pos_product_components link at the supplied qty. All-or-nothing — any
+    // throw rolls back the product insert too. See A.1b in
+    // docs/superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md
+    withInventorySku: v.optional(v.boolean()),
+    inventorySkuLowThreshold: v.optional(v.number()),
+    inventorySkuComponentQty: v.optional(v.number()),
+    deviceId: v.optional(v.string()),
   },
   handler: withIdempotency<
     {
@@ -197,15 +339,85 @@ export const _createProductCommit_internal = internalMutation({
       sort_order: number;
       initials?: string;
       hue?: number;
+      withInventorySku?: boolean;
+      inventorySkuLowThreshold?: number;
+      inventorySkuComponentQty?: number;
+      deviceId?: string;
     },
-    { productId: Id<"pos_products"> }
+    {
+      productId: Id<"pos_products">;
+      inventorySkuId?: Id<"pos_inventory_skus">;
+      skuCreated?: boolean;
+      componentQty?: number;
+    }
   >(
     "catalog._createProductCommit_internal",
-    async (ctx, args): Promise<{ productId: Id<"pos_products"> }> => {
+    async (ctx, args) => {
       if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
         throw new Error("PRICE_INVALID");
       }
       const now = Date.now();
+
+      // Derived once and reused by the lookup, the insert, and both audit
+      // rows below. Only meaningful when withInventorySku is set; cheap enough
+      // to derive unconditionally, and keeping a single source avoids the
+      // slug/name being recomputed (and risking drift) at each use site.
+      const skuSlug = args.sku_family.trim().toLowerCase();
+      const skuName = args.sku_family.trim();
+
+      // Bundled-SKU pre-validation. Done BEFORE inserting the product so a
+      // bad sku_family/threshold/qty doesn't leave a partial transaction in
+      // the catch path. (Convex rolls back on throw anyway, but failing fast
+      // keeps audit-row counts deterministic for tests.)
+      let bundledSkuId: Id<"pos_inventory_skus"> | undefined;
+      let bundledSkuCreated = false;
+      let bundledQty: number | undefined;
+      if (args.withInventorySku) {
+        // Reuse the standalone writer's slug constant so the two
+        // pos_inventory_skus writers can't drift on what a valid slug is.
+        // The SKU's name is sku_family.trim(); the slug regex bounds it to
+        // 1-32 chars, so it satisfies the standalone path's 1-80 name rule
+        // by construction (no separate NAME_INVALID guard needed here).
+        if (!SKU_SLUG_RE.test(skuSlug)) {
+          throw new Error("SKU_FAMILY_NOT_SLUGGABLE");
+        }
+        if (
+          args.inventorySkuLowThreshold === undefined ||
+          !Number.isInteger(args.inventorySkuLowThreshold) ||
+          args.inventorySkuLowThreshold < 0
+        ) {
+          throw new Error("LOW_THRESHOLD_INVALID");
+        }
+        if (
+          args.inventorySkuComponentQty === undefined ||
+          !Number.isInteger(args.inventorySkuComponentQty) ||
+          args.inventorySkuComponentQty < 1
+        ) {
+          throw new Error("QTY_INVALID");
+        }
+        bundledQty = args.inventorySkuComponentQty;
+        const existing = await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_sku", (q) => q.eq("sku", skuSlug))
+          .first();
+        if (existing) {
+          // Match setProductComponents' invariant (catalog/public.ts:213):
+          // never link a product to an archived SKU. Latent until SKU
+          // archival ships, but enforced now so the bundled path and the
+          // components editor share one contract.
+          if (!existing.active) throw new Error("SKU_INACTIVE");
+          bundledSkuId = existing._id;
+        } else {
+          bundledSkuId = await insertInventorySku(ctx, {
+            sku: skuSlug,
+            name: skuName,
+            low_threshold: args.inventorySkuLowThreshold,
+            now,
+          });
+          bundledSkuCreated = true;
+        }
+      }
+
       const productId = await ctx.db.insert("pos_products", {
         sku_family: args.sku_family,
         name: args.name.trim(),
@@ -225,8 +437,56 @@ export const _createProductCommit_internal = internalMutation({
         entity_type: "pos_products",
         entity_id: productId,
         source: "booth_inline",
+        device_id: args.deviceId,
         metadata: { name: args.name, price_idr: args.price_idr },
       });
+
+      if (args.withInventorySku && bundledSkuId !== undefined && bundledQty !== undefined) {
+        if (bundledSkuCreated) {
+          await logAudit(ctx, {
+            actor_id: args.mgrId,
+            action: "inventory_sku.created",
+            entity_type: "inventory_sku",
+            entity_id: bundledSkuId,
+            source: "booth_inline",
+            device_id: args.deviceId,
+            metadata: {
+              sku: skuSlug,
+              name: skuName,
+              low_threshold: args.inventorySkuLowThreshold,
+              // `via` not `source`: avoid colliding with the schema-level
+              // audit `source` enum field for clean forensics.
+              via: "create_product_bundled",
+            },
+          });
+        }
+        await ctx.db.insert("pos_product_components", {
+          product_id: productId,
+          inventory_sku_id: bundledSkuId,
+          qty: bundledQty,
+        });
+        // Reuse setProductComponents' verb (product.updated +
+        // components_changed) rather than minting product.components_set,
+        // so component links read uniformly in the audit log whether set at
+        // create-time (bundled) or via the editor.
+        await logAudit(ctx, {
+          actor_id: args.mgrId,
+          action: "product.updated",
+          entity_type: "pos_products",
+          entity_id: productId,
+          source: "booth_inline",
+          device_id: args.deviceId,
+          metadata: {
+            components_changed: true,
+            count: 1,
+            sku_id: bundledSkuId,
+            qty: bundledQty,
+            via: "create_product_bundled",
+          },
+        });
+        return { productId, inventorySkuId: bundledSkuId, skuCreated: bundledSkuCreated, componentQty: bundledQty };
+      }
+
       return { productId };
     },
   ),

@@ -695,7 +695,11 @@ staff.updated               # updateStaffName / setStaffRole — metadata={ fiel
 staff.created               # createStaff action — manager-PIN gated; new staff row inserted with role + pin_hash
 staff.deactivated           # deactivateStaff — manager-PIN gated; soft-delete via active=false
 product.created             # createProduct action — manager-PIN gated; metadata={ name, price_idr }
-product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count } | { price_idr:{ from, to } }
+inventory_sku.created       # v0.5.5. New inventory SKU created (standalone Add SKU
+                            #   on /mgr/products OR the bundled "Also create matching SKU" checkbox during
+                            #   Add Product). Source: `booth_inline`. Metadata: `{ sku, name, low_threshold }`
+                            #   (bundled-create path also carries `via:"create_product_bundled"`).
+product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) / bundled create_product (PIN, v0.5.5) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count[, sku_id, qty, via:"create_product_bundled"] } | { price_idr:{ from, to } }
 product.archived            # archiveProduct — manager-session; soft-delete via active=false
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
