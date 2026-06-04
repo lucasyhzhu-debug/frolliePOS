@@ -20,6 +20,7 @@ const NAV_CARDS: NavCard[] = [
   { to: "/mgr/telegram-chats", label: "Telegram chats", hint: "Bot registry + roles", glyph: "✈" },
   { to: "/mgr/refunds-pending", label: "Refunds pending", hint: "Awaiting settlement", glyph: "↻" },
   { to: "/mgr/stock", label: "Stock drift", hint: "Cron-detected ledger gaps", glyph: "Δ" },
+  { to: "/mgr/device-setup", label: "Device setup", hint: "Aktivasi perangkat baru", glyph: "⊕" },
 ];
 
 export default function MgrHome() {

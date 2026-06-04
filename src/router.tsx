@@ -66,6 +66,7 @@ const MgrStaff = lazy(() => import("@/routes/mgr/staff"));
 const MgrVouchers = lazy(() => import("@/routes/mgr/vouchers"));
 const MgrSpoilage = lazy(() => import("@/routes/mgr/spoilage"));
 const MgrStock = lazy(() => import("@/routes/mgr/stock"));
+const MgrDeviceSetup = lazy(() => import("@/routes/mgr/device-setup"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
@@ -118,6 +119,7 @@ const routes: RouteObject[] = [
       { path: "mgr/refunds-pending", element: <MgrRefundsPending /> },
       { path: "mgr/telegram-chats", element: <MgrTelegramChats /> },
       { path: "mgr/staff", element: <MgrStaff /> },
+      { path: "mgr/device-setup", element: <MgrDeviceSetup /> },
       { path: "mgr/vouchers", element: <MgrVouchers /> },
       { path: "mgr/spoilage", element: <MgrSpoilage /> },
       { path: "mgr/stock", element: <MgrStock /> },
