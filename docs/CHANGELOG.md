@@ -52,6 +52,41 @@ Manager voucher CRUD, a new `spoilage` approval kind (booth + Telegram paths sha
 
 - **Wave 4 — Playwright E2E suite** deferred to v0.6.1 pending v0.6 backend on dev Convex. Plan at `docs/superpowers/plans/2026-06-02-v0.6.md` (P1–P10).
 
+## 2026-06-03 — v0.5.5
+
+### Catalog
+- **Inventory SKU admin (standalone):** managers can now create new inventory SKUs
+  from `/mgr/products` via an "Add SKU" header button (PIN-gated, audited as
+  `inventory_sku.created`). Closes the v0.5.3b gap where products could be created
+  but the underlying SKU line was seed-only.
+- **Bundled SKU+link in Add Product:** "Add Product" gains a checkbox to atomically
+  create-or-link a matching inventory SKU in a single PIN entry. Slug derives from
+  `sku_family.toLowerCase()`. Editable Component qty (defaults to 1) supports both
+  the "new flavor 1pc" case (qty 1, new SKU) and the "Dubai 3pcs" multi-pack case
+  (qty 3, existing SKU reused). If the SKU exists it's reused; if absent it's
+  created + linked + audited as `inventory_sku.created`. Multi-SKU products like
+  Mixed Box still use the standalone components editor.
+- New error codes mapped: `SKU_EXISTS`, `CODE_EXISTS`, `SKU_INVALID`,
+  `SKU_FAMILY_NOT_SLUGGABLE`, `LOW_THRESHOLD_INVALID`.
+
+### Resilience
+- **Route-level chunk-load recovery (ADR-045):** stale-deploy "Failed to fetch
+  dynamically imported module" errors now auto-recover via a guarded one-shot
+  reload (`sessionStorage` timestamp, 30s window). A hard-missing chunk renders
+  a friendly "Reload" fallback instead of React Router's default error screen.
+  Coverage spans the app shell AND the three public sibling routes
+  (`/r/:receiptNumber` is customer-facing via Telegram; `/approve/:token` is
+  the manager off-booth landing; `/activate` is device setup).
+
+### Smoke test for the post-deploy boundary
+After the next prod deploy, in an existing open tab:
+1. Open DevTools → Network → block `*.js` from the new build.
+2. Click any nav link that triggers a lazy import.
+3. Expected: page reloads once. After reload (chunks now load fresh), normal
+   behaviour. If you unblock and click again, it stays normal.
+4. To confirm the fallback: keep `*.js` blocked, click a link → reload → fails
+   again → friendly "Something went wrong / Reload" screen, no stack trace.
+
 ## v0.5.4 — Bluetooth thermal receipt printing (unreleased)
 
 - Print 58mm receipts to the EPPOS EP5811AI over Web Bluetooth (ESC/POS), one tap on sale-complete. **Verified working end-to-end on-device** (connect → print full paid receipt).
