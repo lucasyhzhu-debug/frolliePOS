@@ -81,6 +81,11 @@ function humanizeCatalogError(e: unknown): string {
   if (m.includes("QTY_INVALID")) return "Qty must be a positive integer.";
   if (m.includes("SKU_NOT_FOUND")) return "Linked SKU not found.";
   if (m.includes("SKU_INACTIVE")) return "Linked SKU is inactive — reactivate it first.";
+  if (m.includes("SKU_EXISTS")) return "That SKU already exists.";
+  if (m.includes("CODE_EXISTS")) return "That code is already in use.";
+  if (m.includes("SKU_INVALID")) return "SKU must be lowercase letters, numbers, or hyphens (max 32).";
+  if (m.includes("SKU_FAMILY_NOT_SLUGGABLE")) return "SKU family must be lowercase letters, numbers, or hyphens (max 32) when creating a matching SKU.";
+  if (m.includes("LOW_THRESHOLD_INVALID")) return "Low-stock threshold must be a non-negative integer.";
   if (m.includes("PRODUCT_NOT_FOUND")) return "Product not found.";
   if (m.includes("NAME_INVALID")) return "Name must be 1-80 characters.";
   if (m.includes("INVALID_PIN")) return "Wrong manager PIN.";
