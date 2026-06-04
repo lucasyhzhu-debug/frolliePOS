@@ -66,6 +66,9 @@ type PinAction =
       sort_order: number;
       initials?: string;
       hue?: number;
+      withInventorySku?: boolean;
+      inventorySkuLowThreshold?: number;
+      inventorySkuComponentQty?: number;
     }
   | {
       kind: "updatePricing";
@@ -73,6 +76,15 @@ type PinAction =
       productName: string;
       price_idr: number;
       tax_rate: number;
+    }
+  | {
+      kind: "createInventorySku";
+      sku: string;
+      name: string;
+      low_threshold: number;
+      code?: string;
+      initials?: string;
+      hue?: number;
     };
 
 function humanizeCatalogError(e: unknown): string {
@@ -136,8 +148,10 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const pricingKey = useIdempotency("catalog.updatePricing");
   const componentsKey = useIdempotency("catalog.setComponents");
   const archiveKey = useIdempotency("catalog.archive");
+  const createSkuKey = useIdempotency("catalog.createInventorySku");
 
   const createProduct = useAction(api.catalog.actions.createProduct);
+  const createInventorySku = useAction(api.catalog.actions.createInventorySku);
   const updateProductMeta = useMutation(api.catalog.public.updateProductMeta);
   const updateProductPricing = useAction(api.catalog.actions.updateProductPricing);
   const setProductComponents = useMutation(api.catalog.public.setProductComponents);
@@ -176,6 +190,56 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [addSortOrder, setAddSortOrder] = useState("");
   const [addInitials, setAddInitials] = useState("");
   const [addHue, setAddHue] = useState("");
+
+  // ─── Add SKU dialog ─────────────────────────────────────────────────────────
+  const [addSkuOpen, setAddSkuOpen] = useState(false);
+  const [addSkuSlug, setAddSkuSlug] = useState("");
+  const [addSkuName, setAddSkuName] = useState("");
+  const [addSkuThreshold, setAddSkuThreshold] = useState("0");
+  const [addSkuCode, setAddSkuCode] = useState("");
+  const [addSkuInitials, setAddSkuInitials] = useState("");
+  const [addSkuHue, setAddSkuHue] = useState("");
+
+  function openAddSku() {
+    setAddSkuSlug("");
+    setAddSkuName("");
+    setAddSkuThreshold("0");
+    setAddSkuCode("");
+    setAddSkuInitials("");
+    setAddSkuHue("");
+    setAddSkuOpen(true);
+  }
+
+  function submitAddSkuOpenPin() {
+    const sku = addSkuSlug.trim().toLowerCase();
+    if (!/^[a-z0-9-]{1,32}$/.test(sku)) {
+      toast.error("SKU must be lowercase letters, numbers, or hyphens (max 32).");
+      return;
+    }
+    const name = addSkuName.trim();
+    if (name.length === 0 || name.length > 80) {
+      toast.error("Name must be 1-80 characters.");
+      return;
+    }
+    const low_threshold = parseIntStrict(addSkuThreshold);
+    if (low_threshold === null) {
+      toast.error("Low-stock threshold must be a non-negative integer.");
+      return;
+    }
+    const code = addSkuCode.trim().length > 0 ? addSkuCode.trim() : undefined;
+    const initials = addSkuInitials.trim().length > 0 ? addSkuInitials.trim() : undefined;
+    let hue: number | undefined = undefined;
+    if (addSkuHue.trim().length > 0) {
+      const h = parseIntStrict(addSkuHue);
+      if (h === null || h > 360) {
+        toast.error("Hue must be an integer between 0 and 360.");
+        return;
+      }
+      hue = h;
+    }
+    setPinAction({ kind: "createInventorySku", sku, name, low_threshold, code, initials, hue });
+    setPinError(undefined);
+  }
 
   function openAdd() {
     setAddName("");
@@ -504,6 +568,24 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
           await clearIntent("catalog.updatePricing");
           break;
         }
+        case "createInventorySku": {
+          if (!createSkuKey) throw new Error("idempotency key not ready");
+          await createInventorySku({
+            idempotencyKey: createSkuKey,
+            sessionId,
+            managerPin,
+            sku: pinAction.sku,
+            name: pinAction.name,
+            low_threshold: pinAction.low_threshold,
+            code: pinAction.code,
+            initials: pinAction.initials,
+            hue: pinAction.hue,
+          });
+          toast.success(`SKU ${pinAction.sku} added`);
+          setAddSkuOpen(false);
+          await clearIntent("catalog.createInventorySku");
+          break;
+        }
       }
       setPinAction(null);
     } catch (err) {
@@ -527,14 +609,18 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       ? "Add product"
       : pinAction?.kind === "updatePricing"
         ? "Update pricing"
-        : "Manager PIN";
+        : pinAction?.kind === "createInventorySku"
+          ? "Add SKU"
+          : "Manager PIN";
 
   const pinLabel =
     pinAction?.kind === "createProduct"
       ? `Confirm with your manager PIN to add ${pinAction.name}.`
       : pinAction?.kind === "updatePricing"
         ? `Confirm with your manager PIN to update pricing for ${pinAction.productName}.`
-        : "Enter manager PIN.";
+        : pinAction?.kind === "createInventorySku"
+          ? `Confirm with your manager PIN to add SKU ${pinAction.sku}.`
+          : "Enter manager PIN.";
 
   // Quick lookup for SKU name display.
   const skuById = useMemo(() => {
@@ -552,9 +638,14 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               Add, edit, price, link components, archive.
             </p>
           </div>
-          <Button size="sm" onClick={openAdd}>
-            Add product
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={openAddSku}>
+              Add SKU
+            </Button>
+            <Button size="sm" onClick={openAdd}>
+              Add product
+            </Button>
+          </div>
         </div>
 
         {sortedProducts === undefined ? (
@@ -783,6 +874,94 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             <Button
               onClick={submitAddOpenPin}
               disabled={!createKey || addName.trim().length === 0}
+            >
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add SKU dialog */}
+      <Dialog
+        open={addSkuOpen}
+        onOpenChange={(o) => {
+          if (!o) setAddSkuOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add inventory SKU</DialogTitle>
+            <DialogDescription>
+              Manager PIN required after Continue.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-slug">SKU (slug)</Label>
+              <Input
+                id="new-sku-slug"
+                value={addSkuSlug}
+                onChange={(e) => setAddSkuSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                maxLength={32}
+                placeholder="e.g. matcha"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-name">Name</Label>
+              <Input
+                id="new-sku-name"
+                value={addSkuName}
+                onChange={(e) => setAddSkuName(e.target.value)}
+                maxLength={80}
+                placeholder="e.g. Matcha cookies"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-threshold">Low-stock threshold</Label>
+              <Input
+                id="new-sku-threshold"
+                value={addSkuThreshold}
+                onChange={(e) => setAddSkuThreshold(e.target.value.replace(/[^\d]/g, ""))}
+                inputMode="numeric"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-code">Code (opt)</Label>
+              <Input
+                id="new-sku-code"
+                value={addSkuCode}
+                onChange={(e) => setAddSkuCode(e.target.value)}
+                maxLength={16}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-initials">Initials (opt)</Label>
+              <Input
+                id="new-sku-initials"
+                value={addSkuInitials}
+                onChange={(e) => setAddSkuInitials(e.target.value)}
+                maxLength={3}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-sku-hue">Hue 0-360 (opt)</Label>
+              <Input
+                id="new-sku-hue"
+                value={addSkuHue}
+                onChange={(e) => setAddSkuHue(e.target.value.replace(/[^\d]/g, ""))}
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAddSkuOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitAddSkuOpenPin}
+              disabled={!createSkuKey || addSkuSlug.trim().length === 0 || addSkuName.trim().length === 0}
             >
               Continue
             </Button>
