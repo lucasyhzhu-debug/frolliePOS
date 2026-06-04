@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { usePrinter } from "@/components/pos/PrinterProvider";
+import { encodeReceipt } from "@/lib/escpos";
 import { toast } from "sonner";
 
 /**
@@ -47,6 +49,25 @@ export default function HistoryDetail() {
 
   const shareReceipt = useMutation(api.transactions.public.shareReceipt);
   const [sharing, setSharing] = useState(false);
+
+  const { status: printerStatus, connect, print } = usePrinter();
+  const printData = useQuery(
+    api.receipts.public.getReceiptForPrint,
+    session.status === "active" && txnId
+      ? { sessionId: session.sessionId, txnId }
+      : "skip",
+  );
+
+  const onPrint = async () => {
+    if (!printData) return;
+    try {
+      const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
+      await print(bytes);
+      toast.success("Struk dicetak");
+    } catch {
+      toast.error("Gagal mencetak struk");
+    }
+  };
 
   const handleShare = async () => {
     if (session.status !== "active" || !txnId) return;
@@ -217,6 +238,15 @@ export default function HistoryDetail() {
             data-testid="history-share-receipt"
           >
             {sharing ? "Membagikan…" : "Bagikan struk"}
+          </Button>
+          <Button
+            variant="outline"
+            className="mt-2 w-full"
+            onClick={printerStatus === "connected" ? onPrint : connect}
+            disabled={printerStatus === "printing" || printerStatus === "unsupported" || !printData}
+            data-testid="history-print"
+          >
+            {printerStatus === "connected" || printerStatus === "printing" ? "Cetak struk" : "Hubungkan & cetak"}
           </Button>
         </Card>
       </section>
