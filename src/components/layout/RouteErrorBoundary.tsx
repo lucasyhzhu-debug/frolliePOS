@@ -28,7 +28,9 @@ export function RouteErrorBoundary() {
 
   if (isChunkLoadError(error)) {
     const stamp = Number(sessionStorage.getItem(RELOAD_STAMP_KEY) ?? "0");
-    const recentlyTried = stamp > 0 && Date.now() - stamp < RELOAD_WINDOW_MS;
+    // A missing/NaN stamp reads as 0, so the window check below is already
+    // false for it — no separate stamp > 0 guard needed.
+    const recentlyTried = Date.now() - stamp < RELOAD_WINDOW_MS;
     if (!recentlyTried) {
       sessionStorage.setItem(RELOAD_STAMP_KEY, String(Date.now()));
       window.location.reload();

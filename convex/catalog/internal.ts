@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
@@ -162,6 +162,40 @@ export const _setLowThreshold_internal = internalMutation({
 const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
 
 /**
+ * Canonical insert for a new pos_inventory_skus row. Both SKU-create paths —
+ * standalone (`_createInventorySkuCommit_internal`) and the bundled branch of
+ * `_createProductCommit_internal` — write through here so the row shape
+ * (`unit`/`active`/`created_at` defaults + column set) lives in one place and
+ * can't drift when the table gains a column. Validation stays in the callers:
+ * the two paths legitimately differ (standalone enforces name length + code
+ * uniqueness; bundled derives a slug-bounded name and carries no code).
+ */
+async function insertInventorySku(
+  ctx: MutationCtx,
+  fields: {
+    sku: string;
+    name: string;
+    low_threshold: number;
+    now: number;
+    code?: string;
+    initials?: string;
+    hue?: number;
+  },
+): Promise<Id<"pos_inventory_skus">> {
+  return ctx.db.insert("pos_inventory_skus", {
+    sku: fields.sku,
+    code: fields.code,
+    name: fields.name,
+    unit: "piece",
+    low_threshold: fields.low_threshold,
+    initials: fields.initials,
+    hue: fields.hue,
+    active: true,
+    created_at: fields.now,
+  });
+}
+
+/**
  * Single-writer commit for `catalog.createInventorySku` (v0.5.5). Mirrors
  * `_createProductCommit_internal` exactly: action front-half handles PIN gate +
  * action-level cache; this internal owns the row insert + audit in one
@@ -226,16 +260,14 @@ export const _createInventorySkuCommit_internal = internalMutation({
       }
 
       const now = Date.now();
-      const skuId = await ctx.db.insert("pos_inventory_skus", {
+      const skuId = await insertInventorySku(ctx, {
         sku,
         code,
         name,
-        unit: "piece",
         low_threshold: args.low_threshold,
         initials: args.initials,
         hue: args.hue,
-        active: true,
-        created_at: now,
+        now,
       });
       await logAudit(ctx, {
         actor_id: args.mgrId,
@@ -326,6 +358,13 @@ export const _createProductCommit_internal = internalMutation({
       }
       const now = Date.now();
 
+      // Derived once and reused by the lookup, the insert, and both audit
+      // rows below. Only meaningful when withInventorySku is set; cheap enough
+      // to derive unconditionally, and keeping a single source avoids the
+      // slug/name being recomputed (and risking drift) at each use site.
+      const skuSlug = args.sku_family.trim().toLowerCase();
+      const skuName = args.sku_family.trim();
+
       // Bundled-SKU pre-validation. Done BEFORE inserting the product so a
       // bad sku_family/threshold/qty doesn't leave a partial transaction in
       // the catch path. (Convex rolls back on throw anyway, but failing fast
@@ -334,7 +373,6 @@ export const _createProductCommit_internal = internalMutation({
       let bundledSkuCreated = false;
       let bundledQty: number | undefined;
       if (args.withInventorySku) {
-        const skuSlug = args.sku_family.trim().toLowerCase();
         // Reuse the standalone writer's slug constant so the two
         // pos_inventory_skus writers can't drift on what a valid slug is.
         // The SKU's name is sku_family.trim(); the slug regex bounds it to
@@ -369,15 +407,12 @@ export const _createProductCommit_internal = internalMutation({
           // components editor share one contract.
           if (!existing.active) throw new Error("SKU_INACTIVE");
           bundledSkuId = existing._id;
-          bundledSkuCreated = false;
         } else {
-          bundledSkuId = await ctx.db.insert("pos_inventory_skus", {
+          bundledSkuId = await insertInventorySku(ctx, {
             sku: skuSlug,
-            name: args.sku_family.trim(),
-            unit: "piece",
+            name: skuName,
             low_threshold: args.inventorySkuLowThreshold,
-            active: true,
-            created_at: now,
+            now,
           });
           bundledSkuCreated = true;
         }
@@ -408,7 +443,6 @@ export const _createProductCommit_internal = internalMutation({
 
       if (args.withInventorySku && bundledSkuId !== undefined && bundledQty !== undefined) {
         if (bundledSkuCreated) {
-          const skuSlug = args.sku_family.trim().toLowerCase();
           await logAudit(ctx, {
             actor_id: args.mgrId,
             action: "inventory_sku.created",
@@ -418,7 +452,7 @@ export const _createProductCommit_internal = internalMutation({
             device_id: args.deviceId,
             metadata: {
               sku: skuSlug,
-              name: args.sku_family.trim(),
+              name: skuName,
               low_threshold: args.inventorySkuLowThreshold,
               // `via` not `source`: avoid colliding with the schema-level
               // audit `source` enum field for clean forensics.

@@ -18,6 +18,6 @@ export function isChunkLoadError(err: unknown): boolean {
     typeof err === "object" && err !== null && "message" in err
       ? String((err as { message?: unknown }).message ?? "")
       : String(err);
-  if (msg.length === 0) return false;
+  // An empty string can't match the pattern, so no separate length guard.
   return CHUNK_LOAD_RE.test(msg);
 }

@@ -107,6 +107,11 @@ function humanizeCatalogError(e: unknown): string {
   return "Something went wrong.";
 }
 
+// SKU slug contract, mirrors the backend SKU_SLUG_RE (convex/catalog/internal.ts).
+// FE/BE duplication across the runtime boundary is expected; named once here so
+// the standalone Add-SKU validator and the bundled slug preview can't drift.
+const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
+
 function parseIntStrict(s: string): number | null {
   // Integer-only — reject decimals/scientific/negative input. price_idr is
   // integer rupiah (ADR-015). tax_rate accepts the same integer parser since
@@ -215,7 +220,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   function submitAddSkuOpenPin() {
     const sku = addSkuSlug.trim().toLowerCase();
-    if (!/^[a-z0-9-]{1,32}$/.test(sku)) {
+    if (!SKU_SLUG_RE.test(sku)) {
       toast.error("SKU must be lowercase letters, numbers, or hyphens (max 32).");
       return;
     }
@@ -263,7 +268,16 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   // sku_family. Declared here (above its first use in submitAddOpenPin) so the
   // handler doesn't forward-reference a const declared further down the body.
   const bundleSlugPreview = addSkuFamily.trim().toLowerCase();
-  const bundleSlugValid = /^[a-z0-9-]{1,32}$/.test(bundleSlugPreview);
+  const bundleSlugValid = SKU_SLUG_RE.test(bundleSlugPreview);
+  // Single source of truth for "the bundled-SKU inputs are submittable", used
+  // by the Continue button's disabled gate. submitAddOpenPin re-checks each
+  // field individually to surface a specific toast; the button only needs the
+  // boolean, so the parse logic lives here once instead of inline in the JSX.
+  const bundleInputsValid =
+    !addWithSku ||
+    (bundleSlugValid &&
+      (parseIntStrict(addSkuComponentQty) ?? 0) >= 1 &&
+      parseIntStrict(addBundleThreshold) !== null);
 
   function submitAddOpenPin() {
     const name = addName.trim();
@@ -979,17 +993,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             </Button>
             <Button
               onClick={submitAddOpenPin}
-              disabled={
-                !createKey ||
-                addName.trim().length === 0 ||
-                (addWithSku &&
-                  (!bundleSlugValid ||
-                    // qty must be >= 1; parseIntStrict("0") is 0 (not null),
-                    // so gate on the value, not just nullness, to keep the
-                    // button disabled in lockstep with submitAddOpenPin.
-                    (parseIntStrict(addSkuComponentQty) ?? 0) < 1 ||
-                    parseIntStrict(addBundleThreshold) === null))
-              }
+              disabled={!createKey || addName.trim().length === 0 || !bundleInputsValid}
             >
               Continue
             </Button>
