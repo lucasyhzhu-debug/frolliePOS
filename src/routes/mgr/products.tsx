@@ -190,6 +190,9 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [addSortOrder, setAddSortOrder] = useState("");
   const [addInitials, setAddInitials] = useState("");
   const [addHue, setAddHue] = useState("");
+  const [addWithSku, setAddWithSku] = useState(false);
+  const [addSkuComponentQty, setAddSkuComponentQty] = useState("1");
+  const [addBundleThreshold, setAddBundleThreshold] = useState("0");
 
   // ─── Add SKU dialog ─────────────────────────────────────────────────────────
   const [addSkuOpen, setAddSkuOpen] = useState(false);
@@ -250,6 +253,9 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddSortOrder(String(nextSortOrder));
     setAddInitials("");
     setAddHue("");
+    setAddWithSku(false);
+    setAddSkuComponentQty("1");
+    setAddBundleThreshold("0");
     setAddOpen(true);
   }
 
@@ -299,6 +305,29 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       hue = h;
     }
 
+    let withInventorySku: boolean | undefined = undefined;
+    let inventorySkuLowThreshold: number | undefined = undefined;
+    let inventorySkuComponentQty: number | undefined = undefined;
+    if (addWithSku) {
+      if (!bundleSlugValid) {
+        toast.error("SKU family must be lowercase letters, numbers, or hyphens (max 32) when creating a matching SKU.");
+        return;
+      }
+      const qty = parseIntStrict(addSkuComponentQty);
+      if (qty === null || qty < 1) {
+        toast.error("Component qty must be a positive integer.");
+        return;
+      }
+      const threshold = parseIntStrict(addBundleThreshold);
+      if (threshold === null) {
+        toast.error("Low-stock threshold must be a non-negative integer.");
+        return;
+      }
+      withInventorySku = true;
+      inventorySkuLowThreshold = threshold;
+      inventorySkuComponentQty = qty;
+    }
+
     setPinAction({
       kind: "createProduct",
       name,
@@ -309,6 +338,9 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       sort_order,
       initials: initialsRaw.length > 0 ? initialsRaw : undefined,
       hue,
+      withInventorySku,
+      inventorySkuLowThreshold,
+      inventorySkuComponentQty,
     });
     setPinError(undefined);
   }
@@ -535,7 +567,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       switch (pinAction.kind) {
         case "createProduct": {
           if (!createKey) throw new Error("idempotency key not ready");
-          await createProduct({
+          const res = await createProduct({
             idempotencyKey: createKey,
             sessionId,
             managerPin,
@@ -547,8 +579,20 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             sort_order: pinAction.sort_order,
             initials: pinAction.initials,
             hue: pinAction.hue,
+            withInventorySku: pinAction.withInventorySku,
+            inventorySkuLowThreshold: pinAction.inventorySkuLowThreshold,
+            inventorySkuComponentQty: pinAction.inventorySkuComponentQty,
           });
-          toast.success(`${pinAction.name} added`);
+          if (pinAction.withInventorySku && res.inventorySkuId) {
+            const slug = pinAction.sku_family.trim().toLowerCase();
+            toast.success(
+              res.skuCreated
+                ? `${pinAction.name} added — ${slug} SKU created, linked at qty ${res.componentQty ?? 1}`
+                : `${pinAction.name} added — linked to existing ${slug} SKU at qty ${res.componentQty ?? 1}`,
+            );
+          } else {
+            toast.success(`${pinAction.name} added`);
+          }
           setAddOpen(false);
           await clearIntent("catalog.createProduct");
           break;
@@ -621,6 +665,12 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         : pinAction?.kind === "createInventorySku"
           ? `Confirm with your manager PIN to add SKU ${pinAction.sku}.`
           : "Enter manager PIN.";
+
+  // Slug preview for the bundled-SKU checkbox. Derived live from the typed
+  // sku_family. Used both as the read-only preview and as the gate for the
+  // checkbox: an invalid family disables the checkbox entirely.
+  const bundleSlugPreview = addSkuFamily.trim().toLowerCase();
+  const bundleSlugValid = /^[a-z0-9-]{1,32}$/.test(bundleSlugPreview);
 
   // Quick lookup for SKU name display.
   const skuById = useMemo(() => {
@@ -865,6 +915,62 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 placeholder="e.g. 180"
               />
             </div>
+            <div className="col-span-2 mt-2 space-y-2 rounded-md border bg-muted/40 p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 rounded border-input"
+                  checked={addWithSku}
+                  disabled={!bundleSlugValid}
+                  onChange={(e) => setAddWithSku(e.target.checked)}
+                />
+                <span className="flex-1">
+                  <span className="font-medium">Also create or link a matching inventory SKU</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Use this for single-SKU products like "Dubai 1pc" or "Dubai 3pcs".
+                    For multi-SKU products like Mixed Box, leave unchecked and add
+                    components in the editor afterwards.
+                  </span>
+                </span>
+              </label>
+              {addWithSku && (
+                <div className="ml-6 space-y-2">
+                  <div className="text-xs">
+                    <span className="text-muted-foreground">Slug: </span>
+                    <span className="font-mono">
+                      {bundleSlugValid ? bundleSlugPreview : "(set a SKU family first)"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bundle-qty">Component qty</Label>
+                      <Input
+                        id="bundle-qty"
+                        value={addSkuComponentQty}
+                        onChange={(e) => setAddSkuComponentQty(e.target.value.replace(/[^\d]/g, ""))}
+                        inputMode="numeric"
+                        placeholder="1"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bundle-threshold">Low-stock threshold</Label>
+                      <Input
+                        id="bundle-threshold"
+                        value={addBundleThreshold}
+                        onChange={(e) => setAddBundleThreshold(e.target.value.replace(/[^\d]/g, ""))}
+                        inputMode="numeric"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {!bundleSlugValid && (
+                <p className="text-xs text-muted-foreground">
+                  Set a SKU family above (lowercase, numbers, hyphens, max 32) to enable this option.
+                </p>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
@@ -873,7 +979,14 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             </Button>
             <Button
               onClick={submitAddOpenPin}
-              disabled={!createKey || addName.trim().length === 0}
+              disabled={
+                !createKey ||
+                addName.trim().length === 0 ||
+                (addWithSku &&
+                  (!bundleSlugValid ||
+                    parseIntStrict(addSkuComponentQty) === null ||
+                    parseIntStrict(addBundleThreshold) === null))
+              }
             >
               Continue
             </Button>
