@@ -337,3 +337,53 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
     expect(products).toHaveLength(1);
   });
 });
+
+describe("catalog.createProduct — bundled SKU via action", () => {
+  it("forwards the bundled args + PIN gate + idempotency cache", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    const res = await t.action(api.catalog.actions.createProduct, {
+      idempotencyKey: "act-bundle-1",
+      sessionId,
+      managerPin: "9999",
+      sku_family: "matcha",
+      name: "Matcha 1pc",
+      pack_label: "1 pc",
+      price_idr: 20000,
+      tax_rate: 0,
+      sort_order: 1,
+      withInventorySku: true,
+      inventorySkuLowThreshold: 3,
+      inventorySkuComponentQty: 1,
+    });
+    expect(res.productId).toBeDefined();
+    expect(res.inventorySkuId).toBeDefined();
+    expect(res.skuCreated).toBe(true);
+    expect(res.componentQty).toBe(1);
+  });
+
+  it("rejects bundled call with wrong PIN — no rows written", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+    await expect(
+      t.action(api.catalog.actions.createProduct, {
+        idempotencyKey: "act-bundle-badpin",
+        sessionId,
+        managerPin: "0000",
+        sku_family: "matcha",
+        name: "Bad",
+        pack_label: "1 pc",
+        price_idr: 20000,
+        tax_rate: 0,
+        sort_order: 1,
+        withInventorySku: true,
+        inventorySkuLowThreshold: 3,
+        inventorySkuComponentQty: 1,
+      }),
+    ).rejects.toThrow(/INVALID_PIN/);
+    const products = await t.run(async (ctx) =>
+      ctx.db.query("pos_products").filter((q) => q.eq(q.field("name"), "Bad")).collect(),
+    );
+    expect(products).toHaveLength(0);
+  });
+});

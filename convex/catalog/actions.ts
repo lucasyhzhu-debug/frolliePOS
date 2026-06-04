@@ -16,6 +16,10 @@ import { withActionCache } from "../idempotency/action";
  *
  * PIN is required because new products carry a price (CLAUDE.md #9 — money
  * change always gates on manager PIN).
+ *
+ * v0.5.5 extension: three optional bundled-SKU args forward to the internal.
+ * Captures deviceId from the PIN gate for audit threading on all three audit
+ * rows (product.created, inventory_sku.created, product.components_set).
  */
 export const createProduct = action({
   args: {
@@ -30,16 +34,26 @@ export const createProduct = action({
     sort_order: v.number(),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
+    // v0.5.5: bundled-SKU flow (A.1b). All three must be present together
+    // (the internal validates this).
+    withInventorySku: v.optional(v.boolean()),
+    inventorySkuLowThreshold: v.optional(v.number()),
+    inventorySkuComponentQty: v.optional(v.number()),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ productId: Id<"pos_products"> }> =>
+  ): Promise<{
+    productId: Id<"pos_products">;
+    inventorySkuId?: Id<"pos_inventory_skus">;
+    skuCreated?: boolean;
+    componentQty?: number;
+  }> =>
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "catalog.createProduct" },
       async () => {
-        const { managerId } = await verifyManagerPinOrThrow(ctx, {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,
           managerPin: args.managerPin,
           idempotencyKey: args.idempotencyKey,
@@ -50,6 +64,7 @@ export const createProduct = action({
         return await ctx.runMutation(internal.catalog.internal._createProductCommit_internal, {
           idempotencyKey: `${args.idempotencyKey}:commit`,
           mgrId: managerId,
+          deviceId,
           sku_family: args.sku_family,
           name: args.name,
           pack_label: args.pack_label,
@@ -58,6 +73,9 @@ export const createProduct = action({
           sort_order: args.sort_order,
           initials: args.initials,
           hue: args.hue,
+          withInventorySku: args.withInventorySku,
+          inventorySkuLowThreshold: args.inventorySkuLowThreshold,
+          inventorySkuComponentQty: args.inventorySkuComponentQty,
         });
       },
     ),
