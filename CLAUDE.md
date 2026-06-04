@@ -100,7 +100,7 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 
 | Path | Contents |
 |---|---|
-| `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin). Stubbed: refund, settlements, remaining `mgr/*` |
+| `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share; v0.5.6 — reprint + refund-entry buttons), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin), `account` (v0.5.6 — self change-PIN), `mgr/device-setup` (v0.5.6 — manager device-setup-code), `refund/index` + `refund/$txnId` (refundable list + detail flow). Stubbed: settlements, remaining `mgr/*` |
 | `components/ui/` | shadcn primitives (new-york/stone) |
 | `components/layout/` | `RootLayout` (shell + session gate), `Stub`, `AppHeader`, `SpokeLayout` |
 | `components/pos/` | `NumericKeypad` (canonical PIN/qty), `PinSheet`, `ApprovalPending`, `AbandonCartDialog`, `PrinterSheet` (v0.5.4 — connect/status/test-print sheet, wraps `Dialog`, ADR-043) |
