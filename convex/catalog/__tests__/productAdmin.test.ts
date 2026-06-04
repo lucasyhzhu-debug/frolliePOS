@@ -159,3 +159,181 @@ describe("catalog.archiveProduct", () => {
     expect(admin.products.find((p) => p._id === productId)?.active).toBe(false);
   });
 });
+
+describe("_createProductCommit_internal — bundled withInventorySku", () => {
+  it("creates product + SKU + component link at qty 1 (fresh SKU)", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
+      idempotencyKey: "bundle-fresh-1:commit",
+      mgrId: managerId,
+      deviceId: "d",
+      sku_family: "matcha",
+      name: "Matcha 1pc",
+      pack_label: "1 pc",
+      price_idr: 20000,
+      tax_rate: 0,
+      sort_order: 10,
+      withInventorySku: true,
+      inventorySkuLowThreshold: 3,
+      inventorySkuComponentQty: 1,
+    });
+    expect(res.productId).toBeDefined();
+    expect(res.inventorySkuId).toBeDefined();
+    expect(res.skuCreated).toBe(true);
+    expect(res.componentQty).toBe(1);
+    const sku = await t.run(async (ctx) => ctx.db.get(res.inventorySkuId!));
+    expect(sku).toMatchObject({ sku: "matcha", low_threshold: 3, active: true });
+    const comps = await t.run(async (ctx) =>
+      ctx.db.query("pos_product_components").filter((q) => q.eq(q.field("product_id"), res.productId)).collect(),
+    );
+    expect(comps).toHaveLength(1);
+    expect(comps[0]).toMatchObject({ inventory_sku_id: res.inventorySkuId, qty: 1 });
+    const audits = await t.run(async (ctx) => ctx.db.query("audit_log").collect());
+    const verbs = audits.map((a) => a.action).filter((v) => v.startsWith("product.") || v.startsWith("inventory_sku."));
+    expect(verbs).toEqual(expect.arrayContaining(["product.created", "inventory_sku.created", "product.components_set"]));
+  });
+
+  it("creates product + SKU + component link at qty 3 (multi-pack, fresh SKU)", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
+      idempotencyKey: "bundle-fresh-3:commit",
+      mgrId: managerId,
+      deviceId: "d",
+      sku_family: "dubai",
+      name: "Dubai 3pcs",
+      pack_label: "3 pcs",
+      price_idr: 50000,
+      tax_rate: 0,
+      sort_order: 11,
+      withInventorySku: true,
+      inventorySkuLowThreshold: 8,
+      inventorySkuComponentQty: 3,
+    });
+    expect(res.skuCreated).toBe(true);
+    expect(res.componentQty).toBe(3);
+    const comps = await t.run(async (ctx) =>
+      ctx.db.query("pos_product_components").filter((q) => q.eq(q.field("product_id"), res.productId)).collect(),
+    );
+    expect(comps[0].qty).toBe(3);
+  });
+
+  it("reuses an existing SKU when slug matches (Dubai 3pcs → existing dubai)", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const existingSkuId = await t.run(async (ctx) =>
+      ctx.db.insert("pos_inventory_skus", {
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: true, created_at: Date.now(),
+      }),
+    );
+    const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
+      idempotencyKey: "bundle-reuse:commit",
+      mgrId: managerId,
+      deviceId: "d",
+      sku_family: "dubai",
+      name: "Dubai 3pcs",
+      pack_label: "3 pcs",
+      price_idr: 50000,
+      tax_rate: 0,
+      sort_order: 12,
+      withInventorySku: true,
+      inventorySkuLowThreshold: 99, // ignored — existing row's threshold wins
+      inventorySkuComponentQty: 3,
+    });
+    expect(res.inventorySkuId).toBe(existingSkuId);
+    expect(res.skuCreated).toBe(false);
+    expect(res.componentQty).toBe(3);
+    const skuRows = await t.run(async (ctx) =>
+      ctx.db.query("pos_inventory_skus").filter((q) => q.eq(q.field("sku"), "dubai")).collect(),
+    );
+    expect(skuRows).toHaveLength(1);
+    // No inventory_sku.created audit row when reusing.
+    const audits = await t.run(async (ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "inventory_sku.created")).collect(),
+    );
+    expect(audits).toHaveLength(0);
+  });
+
+  it("rejects sku_family that fails slug regex", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    await expect(
+      t.mutation(internal.catalog.internal._createProductCommit_internal, {
+        idempotencyKey: "bundle-bad-fam:commit",
+        mgrId: managerId, deviceId: "d", sku_family: "Dubai Mall", name: "Bad", pack_label: "1 pc",
+        price_idr: 20000, tax_rate: 0, sort_order: 1,
+        withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: 1,
+      }),
+    ).rejects.toThrow(/SKU_FAMILY_NOT_SLUGGABLE/);
+    // Transaction rollback: no product row written.
+    const products = await t.run(async (ctx) =>
+      ctx.db.query("pos_products").filter((q) => q.eq(q.field("name"), "Bad")).collect(),
+    );
+    expect(products).toHaveLength(0);
+  });
+
+  it.each([0, -1, 1.5])("rejects invalid inventorySkuComponentQty=%s", async (bad) => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    await expect(
+      t.mutation(internal.catalog.internal._createProductCommit_internal, {
+        idempotencyKey: `bundle-qty:${bad}:commit`,
+        mgrId: managerId, deviceId: "d", sku_family: "ok", name: "Ok", pack_label: "1 pc",
+        price_idr: 20000, tax_rate: 0, sort_order: 1,
+        withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: bad,
+      }),
+    ).rejects.toThrow(/QTY_INVALID/);
+  });
+
+  it("rejects bundled call with missing inventorySkuLowThreshold", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    await expect(
+      t.mutation(internal.catalog.internal._createProductCommit_internal, {
+        idempotencyKey: "bundle-miss-lt:commit",
+        mgrId: managerId, deviceId: "d", sku_family: "ok", name: "Ok", pack_label: "1 pc",
+        price_idr: 20000, tax_rate: 0, sort_order: 1,
+        withInventorySku: true, inventorySkuComponentQty: 1,
+        // inventorySkuLowThreshold intentionally omitted
+      }),
+    ).rejects.toThrow(/LOW_THRESHOLD_INVALID/);
+  });
+
+  it("unbundled call (no withInventorySku) is unchanged — back-compat", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
+      idempotencyKey: "unbundled:commit",
+      mgrId: managerId, deviceId: "d", sku_family: "dubai", name: "Plain", pack_label: "1 pc",
+      price_idr: 20000, tax_rate: 0, sort_order: 1,
+    });
+    expect(res.productId).toBeDefined();
+    expect(res.inventorySkuId).toBeUndefined();
+    expect(res.skuCreated).toBeUndefined();
+    expect(res.componentQty).toBeUndefined();
+    const comps = await t.run(async (ctx) =>
+      ctx.db.query("pos_product_components").filter((q) => q.eq(q.field("product_id"), res.productId)).collect(),
+    );
+    expect(comps).toHaveLength(0);
+  });
+
+  it("is idempotent under the same :commit key (bundled path)", async () => {
+    const t = convexTest(schema);
+    const { managerId } = await seedManagerSession(t);
+    const args = {
+      idempotencyKey: "bundle-replay:commit",
+      mgrId: managerId, deviceId: "d", sku_family: "matcha", name: "Matcha 1pc", pack_label: "1 pc",
+      price_idr: 20000, tax_rate: 0, sort_order: 1,
+      withInventorySku: true, inventorySkuLowThreshold: 3, inventorySkuComponentQty: 1,
+    };
+    const first = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
+    const second = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
+    expect(second.productId).toBe(first.productId);
+    expect(second.inventorySkuId).toBe(first.inventorySkuId);
+    const products = await t.run(async (ctx) =>
+      ctx.db.query("pos_products").filter((q) => q.eq(q.field("name"), "Matcha 1pc")).collect(),
+    );
+    expect(products).toHaveLength(1);
+  });
+});

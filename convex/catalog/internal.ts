@@ -263,6 +263,14 @@ export const _createInventorySkuCommit_internal = internalMutation({
  * withIdempotency on the `:commit`-derived key short-circuits the retry. See
  * docs/PATTERNS/idempotency-dual-call-authcheck.md and
  * refunds._commitRefund_internal for the canonical shape.
+ *
+ * v0.5.5 extension: three new optional args (`withInventorySku`,
+ * `inventorySkuLowThreshold`, `inventorySkuComponentQty`) enable an
+ * all-or-nothing bundled flow — one PIN entry, one Convex transaction,
+ * one `${key}:commit` idempotency key. The bundled flow does a
+ * lookup-or-create on the SKU (never throws SKU_EXISTS — reuse wins) and
+ * inserts a pos_product_components link at the supplied qty. Unbundled path
+ * is unchanged for back-compat.
  */
 export const _createProductCommit_internal = internalMutation({
   args: {
@@ -276,6 +284,16 @@ export const _createProductCommit_internal = internalMutation({
     sort_order: v.number(),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
+    // v0.5.5: bundled-SKU args. When withInventorySku is true, the same
+    // transaction also ensures a matching pos_inventory_skus row (creates if
+    // absent by sku_family.toLowerCase(); reuses if present) and inserts a
+    // pos_product_components link at the supplied qty. All-or-nothing — any
+    // throw rolls back the product insert too. See A.1b in
+    // docs/superpowers/specs/2026-06-03-v0.5.5-inventory-sku-admin-and-error-boundary-design.md
+    withInventorySku: v.optional(v.boolean()),
+    inventorySkuLowThreshold: v.optional(v.number()),
+    inventorySkuComponentQty: v.optional(v.number()),
+    deviceId: v.optional(v.string()),
   },
   handler: withIdempotency<
     {
@@ -289,15 +307,72 @@ export const _createProductCommit_internal = internalMutation({
       sort_order: number;
       initials?: string;
       hue?: number;
+      withInventorySku?: boolean;
+      inventorySkuLowThreshold?: number;
+      inventorySkuComponentQty?: number;
+      deviceId?: string;
     },
-    { productId: Id<"pos_products"> }
+    {
+      productId: Id<"pos_products">;
+      inventorySkuId?: Id<"pos_inventory_skus">;
+      skuCreated?: boolean;
+      componentQty?: number;
+    }
   >(
     "catalog._createProductCommit_internal",
-    async (ctx, args): Promise<{ productId: Id<"pos_products"> }> => {
+    async (ctx, args) => {
       if (args.price_idr < 0 || !Number.isInteger(args.price_idr)) {
         throw new Error("PRICE_INVALID");
       }
       const now = Date.now();
+
+      // Bundled-SKU pre-validation. Done BEFORE inserting the product so a
+      // bad sku_family/threshold/qty doesn't leave a partial transaction in
+      // the catch path. (Convex rolls back on throw anyway, but failing fast
+      // keeps audit-row counts deterministic for tests.)
+      let bundledSkuId: Id<"pos_inventory_skus"> | undefined;
+      let bundledSkuCreated = false;
+      let bundledQty: number | undefined;
+      if (args.withInventorySku) {
+        const skuSlug = args.sku_family.trim().toLowerCase();
+        if (!/^[a-z0-9-]{1,32}$/.test(skuSlug)) {
+          throw new Error("SKU_FAMILY_NOT_SLUGGABLE");
+        }
+        if (
+          args.inventorySkuLowThreshold === undefined ||
+          !Number.isInteger(args.inventorySkuLowThreshold) ||
+          args.inventorySkuLowThreshold < 0
+        ) {
+          throw new Error("LOW_THRESHOLD_INVALID");
+        }
+        if (
+          args.inventorySkuComponentQty === undefined ||
+          !Number.isInteger(args.inventorySkuComponentQty) ||
+          args.inventorySkuComponentQty < 1
+        ) {
+          throw new Error("QTY_INVALID");
+        }
+        bundledQty = args.inventorySkuComponentQty;
+        const existing = await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_sku", (q) => q.eq("sku", skuSlug))
+          .first();
+        if (existing) {
+          bundledSkuId = existing._id;
+          bundledSkuCreated = false;
+        } else {
+          bundledSkuId = await ctx.db.insert("pos_inventory_skus", {
+            sku: skuSlug,
+            name: args.sku_family.trim(),
+            unit: "piece",
+            low_threshold: args.inventorySkuLowThreshold,
+            active: true,
+            created_at: now,
+          });
+          bundledSkuCreated = true;
+        }
+      }
+
       const productId = await ctx.db.insert("pos_products", {
         sku_family: args.sku_family,
         name: args.name.trim(),
@@ -317,8 +392,50 @@ export const _createProductCommit_internal = internalMutation({
         entity_type: "pos_products",
         entity_id: productId,
         source: "booth_inline",
+        device_id: args.deviceId,
         metadata: { name: args.name, price_idr: args.price_idr },
       });
+
+      if (args.withInventorySku && bundledSkuId !== undefined && bundledQty !== undefined) {
+        if (bundledSkuCreated) {
+          const skuSlug = args.sku_family.trim().toLowerCase();
+          await logAudit(ctx, {
+            actor_id: args.mgrId,
+            action: "inventory_sku.created",
+            entity_type: "inventory_sku",
+            entity_id: bundledSkuId,
+            source: "booth_inline",
+            device_id: args.deviceId,
+            metadata: {
+              sku: skuSlug,
+              name: args.sku_family.trim(),
+              low_threshold: args.inventorySkuLowThreshold,
+              source: "create_product_bundled",
+            },
+          });
+        }
+        await ctx.db.insert("pos_product_components", {
+          product_id: productId,
+          inventory_sku_id: bundledSkuId,
+          qty: bundledQty,
+        });
+        await logAudit(ctx, {
+          actor_id: args.mgrId,
+          action: "product.components_set",
+          entity_type: "pos_products",
+          entity_id: productId,
+          source: "booth_inline",
+          device_id: args.deviceId,
+          metadata: {
+            product_id: productId,
+            sku_id: bundledSkuId,
+            qty: bundledQty,
+            source: "create_product_bundled",
+          },
+        });
+        return { productId, inventorySkuId: bundledSkuId, skuCreated: bundledSkuCreated, componentQty: bundledQty };
+      }
+
       return { productId };
     },
   ),
