@@ -1,9 +1,7 @@
 import { test, expect } from "../fixtures";
 import { execSync } from "node:child_process";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/vouchers/__tests__ + ADR-009 unit coverage.
-test.skip("voucher (offline): apply → mgr expires → reconnect → ADR-009 reject banner", async ({ signedInAsLucas: page }) => {
+test("voucher (offline): apply → mgr expires → reconnect → ADR-009 reject banner", async ({ signedInAsLucas: page }) => {
   // 1. Create voucher via mgr UI (online)
   await page.goto("/mgr/vouchers");
   await page.getByLabel(/Code/i).fill("OFFLINE10");
@@ -16,7 +14,7 @@ test.skip("voucher (offline): apply → mgr expires → reconnect → ADR-009 re
 
   // 2. Hydrate catalog cache by visiting /sale online + adding a product
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
   await page.waitForTimeout(800); // let useCatalogCache write to IDB
 
   // 3. Go offline

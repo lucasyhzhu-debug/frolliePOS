@@ -1,9 +1,7 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/vouchers/__tests__.
-test.skip("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
+test("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
   // 1. Manager creates voucher
   await page.goto("/mgr/vouchers");
   await page.getByLabel(/Code/i).fill("E2E10");
@@ -16,7 +14,7 @@ test.skip("voucher (online): mgr creates → staff applies → paid → redempti
 
   // 2. Apply at sale
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
   await page.getByRole("link", { name: /voucher/i }).click();
   await page.getByPlaceholder(/voucher code/i).fill("E2E10");
   await page.getByRole("button", { name: /^Apply$/ }).click();

@@ -1,8 +1,6 @@
 import { test, expect } from "../fixtures";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/inventory/__tests__/spoilage tests.
-test.skip("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects -2", async ({ signedInAsLucas: page }) => {
+test("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects -2", async ({ signedInAsLucas: page }) => {
   await page.goto("/mgr/spoilage");
   // Pick first SKU
   await page.getByRole("combobox").first().click();

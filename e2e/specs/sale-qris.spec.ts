@@ -3,8 +3,8 @@ import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
 test("QRIS sale: cart → charge → simulate → paid receipt", async ({ signedInAsLucas: page }) => {
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click(); // qty 2
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click(); // qty 2
 
   await page.getByRole("button", { name: /Charge/i }).click();
   await page.getByRole("button", { name: /QRIS/i }).click();
