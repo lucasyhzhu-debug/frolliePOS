@@ -93,12 +93,27 @@ Devices authorised to run the POS. Activated via one-time setup code from a mana
 | `_id` | `Id<"registered_devices">` | |
 | `device_id` | `string` | UUIDv4 generated client-side, persisted in IndexedDB + localStorage |
 | `label` | `string` | "Booth Phone 1", "Manager Tablet", etc. |
-| `activated_by` | `Id<"staff">` | Manager who issued the setup code |
+| `activated_by` | `Id<"staff">?` | Manager who issued the setup code. **Absent when activated via a Telegram-issued code** (no booth staff issuer) |
 | `activated_at` | `number` | |
 | `last_seen_at` | `number?` | |
 | `active` | `boolean` | |
 
 Indexes: `by_device_id` on `device_id` (unique).
+
+### `pending_device_setups`
+One-time 6-digit device setup codes (1h TTL), minted by a booth manager or off-booth via Telegram `/activatepos` ([strategic foundations §6](./ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pending_device_setups">` | |
+| `setup_code` | `string` | 6-digit code |
+| `issued_by` | `Id<"staff">?` | Booth manager who minted the code. **Absent for Telegram-issued codes** |
+| `issued_via` | `"booth_inline" \| "telegram"?` | Issuance-path discriminant. **Absent = legacy booth** rows |
+| `issued_by_telegram` | `{ from_id?, chat_title }?` | Telegram issuer attribution; present only when `issued_via === "telegram"`. `from_id` omitted for anonymous group admins / channel posts |
+| `expires_at` | `number` | 1h TTL |
+| `consumed_at` | `number \| null` | Set when the code activates a device |
+
+Indexes: `by_code` on `setup_code` (unique), `by_expires` on `expires_at`.
 
 ### `pos_inventory_skus` *(new in v0.5 — atoms)*
 Singles only. What kitchen produces, what stock-in adds to ([ADR-016](./ADR/016-product-inventory-separation.md)).
@@ -604,9 +619,7 @@ staff.locked_out
 staff.pin_reset
 staff.shift_summary_shared
 staff.created
-device.activated
-device.deactivated
-device.setup_code_issued
+device.deactivated          # device.activated + device.setup_code_issued documented in the v0.5.7 block below
 seed.reset
 transaction.created
 transaction.line_added
@@ -715,6 +728,9 @@ spoilage.denied             # _markDenied_internal via denyRequest (kind=spoilag
 stock.recon_drift           # nightly recon cron — one row per drifted SKU per run; metadata={ sku_code, cached_on_hand, reconstructed_on_hand, delta }; actor=system
 stock.recon_drift_resolved  # resolveDrift mutation — manager-session bookkeeping ack; patches pos_stock_drift_log row in place
 stock.recon_skip            # nightly recon cron — one row per cron run that didn't send; metadata.reason ∈ "no_drift" | "role_unbound" | "send_failed"; actor=system
+# v0.5.7 device activation (two issuance paths)
+device.setup_code_issued    # issueDeviceSetupCode helper. Booth path: source=booth_inline, actor=issuing manager, metadata={ issued_via:"booth_inline" }. Telegram path (/activatepos): source=system (NOT telegram_approval — no PIN/approval gate), actor_id="system", metadata={ issued_via:"telegram", telegram_from_id?, chat_title }
+device.activated            # device activated by consuming a setup code. ALWAYS source=booth_inline (activation is a physical booth act); metadata.activated_via ∈ "booth_inline" | "telegram"; actor_id="system" when the code was Telegram-issued
 ```
 
 ## Relationship to Frollie Pro tables

@@ -1227,7 +1227,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.7 — Telegram /activatepos device activation 📋 PLANNED
+## v0.5.7 — Telegram /activatepos device activation ✅ DONE
 **Outcome:** A manager brings a new device online from anywhere — `/activatepos` in the managers Telegram chat replies with a fresh 6-digit setup code.
 **Spec:** [`docs/superpowers/specs/2026-06-05-telegram-activatepos-command-design.md`](./superpowers/specs/2026-06-05-telegram-activatepos-command-design.md) (spec-gate staffreview: Revise → Critical-1 + 3 improvements addressed)
 **Plan:** [`docs/superpowers/plans/2026-06-05-telegram-activatepos-command.md`](./superpowers/plans/2026-06-05-telegram-activatepos-command.md) (plan-gate staffreview: Revise → 3 improvements addressed; assumptions verified vs code)
@@ -1245,18 +1245,18 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Backend (`convex/`)
 
-- 📋 **[v0.5.7-be-schema]** `auth/schema.ts` — optional `issued_by`/`activated_by` + `issued_via` discriminant + `issued_by_telegram`
+- ✅ **[v0.5.7-be-schema]** `auth/schema.ts` — optional `issued_by`/`activated_by` + `issued_via` discriminant + `issued_by_telegram` (0683462)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
-- 📋 **[v0.5.7-be-issue-helper]** `staff/internal.ts` — single-writer `issueDeviceSetupCode` + `_issueDeviceSetupCodeFromTelegram_internal`; booth path delegates
+- ✅ **[v0.5.7-be-issue-helper]** `staff/internal.ts` — single-writer `issueDeviceSetupCode` + `_issueDeviceSetupCodeFromTelegram_internal`; booth path delegates (1c0eddd)
   - **agent:** `convex-expert` · **deps:** `v0.5.7-be-schema` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
-- 📋 **[v0.5.7-be-activate]** `staff/public.ts` — `activateDevice` tolerates absent `issued_by` (system actor, `activated_via` metadata)
+- ✅ **[v0.5.7-be-activate]** `staff/public.ts` — `activateDevice` tolerates absent `issued_by` (system actor, `activated_via` metadata) (1aa9929)
   - **agent:** `convex-expert` · **deps:** `v0.5.7-be-schema` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
-- 📋 **[v0.5.7-be-telegram-cmd]** `telegram/activatePos.ts` + `http.ts` — chat-gated `/activatepos` command, action, reply, webhook wiring
+- ✅ **[v0.5.7-be-telegram-cmd]** `telegram/activatePos.ts` + `http.ts` — chat-gated `/activatepos` command, action, reply, webhook wiring (13bd75d)
   - **agent:** `convex-expert` · **deps:** `v0.5.7-be-issue-helper` · **docs:** [Plan Tasks 4-5](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
 
 ### Cross-cutting
 
-- 📋 **[v0.5.7-xc-docs]** SCHEMA.md + API_REFERENCE.md + RUNBOOK-telegram.md (privacy-mode note) + CLAUDE.md + CHANGELOG.md
+- ✅ **[v0.5.7-xc-docs]** SCHEMA.md + API_REFERENCE.md + RUNBOOK-telegram.md (privacy-mode note) + CLAUDE.md + CHANGELOG.md (b4db00b)
   - **agent:** `—` · **deps:** `v0.5.7-be-schema`, `v0.5.7-be-issue-helper`, `v0.5.7-be-activate`, `v0.5.7-be-telegram-cmd` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
 
 ---

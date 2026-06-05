@@ -35,10 +35,19 @@ Convex function inventory for Frollie POS, updated as functions ship. The backen
 | q | `staff.public.listActiveManagers` | `{ sessionId }` | `{ name, code }[]` | *(v0.5.0)* Session-gated (any role). Returns all active managers. Used by the booth manager-picker on the charge screen for manager-PIN override flows. Does not expose pin_hash. |
 | m | `updateStaff` | `{ id, patch, idempotencyKey }` | `Staff` | *(planned)* Manager-only; PIN reset uses `resetPin` separately |
 | m | `resetPin` | `{ id, newPin, idempotencyKey }` | `void` | Manager-only; logs `staff.pin_reset` |
-| m | `generateDeviceSetupCode` | `{ idempotencyKey }` | `{ code, expiresAt }` | Manager-only; 6-digit, 1h TTL |
-| m | `activateDevice` | `{ code, deviceLabel, idempotencyKey }` | `RegisteredDevice` | Public (pre-auth); consumes setup code |
+| m | `generateDeviceSetupCode` | `{ idempotencyKey }` | `{ code, expiresAt }` | Manager-only (booth, manager-session); thin wrapper over `issueDeviceSetupCode` helper. 6-digit, 1h TTL; `issued_via: "booth_inline"`. |
+| m | `activateDevice` | `{ code, deviceLabel, idempotencyKey }` | `RegisteredDevice` | Public (pre-auth); consumes setup code. `activated_via` mirrors the code's `issued_via`; `actor_id: "system"` when the code was Telegram-issued (no booth staff). |
 | q | `listDevices` | `{ sessionId }` | `RegisteredDevice[]` | Manager-only |
 | m | `deactivateDevice` | `{ id, idempotencyKey }` | `void` | Manager-only |
+
+### Device-setup-code helpers (`staff/internal.ts`) *(v0.5.7)*
+
+Single-writer for `pending_device_setups`, shared by the booth mutation and the off-booth Telegram `/activatepos` path.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| helper | `issueDeviceSetupCode(ctx, opts)` | `{ issuedBy?, issuedVia, issuedByTelegram? }` | `{ code, expiresAt }` | Plain async fn (not a registered function). Mints the 6-digit code (1h TTL), inserts the `pending_device_setups` row, emits `device.setup_code_issued`. Single writer for the table — both `generateDeviceSetupCode` (booth) and the Telegram path call through here. Booth: `issuedVia: "booth_inline"`, `actor` = manager. Telegram: `issuedVia: "telegram"`, `actor_id: "system"`, `source: "system"` (no PIN/approval gate, so NOT `telegram_approval`). |
+| i | `_issueDeviceSetupCodeFromTelegram_internal` | `{ issuedByTelegram }` | `{ code, expiresAt }` | internalMutation wrapper around `issueDeviceSetupCode`, called by the `/activatepos` Telegram action so the code is minted in a transaction. |
 
 ### v0.5.3b admin (`staff/actions.ts` + `staff/public.ts`)
 
@@ -211,6 +220,15 @@ The `mgr*` functions are the **public** manager-session-gated surface. They live
 | m | `mgrArchiveChat` | `{ idempotencyKey, sessionId, chatId }` | `{ ok: true }` | Manager-only. Archives the chat (removes from active role routing, clears its role). Archived rows remain visible with `includeArchived: true`. |
 | m | `mgrRestoreChat` | `{ idempotencyKey, sessionId, chatId }` | `{ ok: true }` | Manager-only. Restores an archived chat (does not re-assign a role; use `mgrAssignRole` next). |
 | a | `mgrSendTest` | `{ sessionId, chatId }` | `void` | Action (Node). Manager-only. Sends a test message to the specified chat. Writes `lastError` on failure, clears it on success. Auth gated via `_requireManagerSession_internal` (actions cannot call `ctx.db` directly). |
+
+## `telegram/activatePos.ts` *(v0.5.7 — `/activatepos` device activation)*
+
+Off-booth device-setup-code minting. A manager sends `/activatepos` in the `managers`-role chat; the bot replies with a 6-digit setup code (1h TTL) + the `<POS_BASE_URL>/activate` link. Registered in the `convex/http.ts` webhook command registry.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| factory | `buildActivatePosCommand(scheduler)` | `scheduler` | command descriptor | Factory that returns the webhook command entry (matcher accepts a bare `/activatepos` or the `/activatepos@<bot_username>` form). Schedules `handleActivatePos`. |
+| internal a | `handleActivatePos` | `{ chatId, chatTitle, fromId? }` | `void` | internalAction. Chat-role gated to `managers` (resolves the managers-bound chat id and compares; ignores other chats; silent no-op if no chat bound). Calls `staff/internal._issueDeviceSetupCodeFromTelegram_internal` to mint the code, then replies via `sendTelegramHtml`. Audit `device.setup_code_issued` with `actor_id: "system"` + `source: "system"`. |
 
 ## `audit.ts`
 

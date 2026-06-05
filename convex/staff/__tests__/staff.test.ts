@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import { seedStaff } from "../../auth/__tests__/auth.test";
 
 async function seedManager(t: ReturnType<typeof convexTest>) {
@@ -234,5 +235,98 @@ describe("createStaff", () => {
         managerPin: "1234", idempotencyKey: "create-2",
       })
     ).rejects.toThrow(/NOT_MANAGER|manager/i);
+  });
+});
+
+describe("activateDevice with a Telegram-issued code", () => {
+  it("activates with no activated_by and audits as system + activated_via telegram", async () => {
+    const t = convexTest(schema);
+    const { code } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers", fromId: 99 },
+    );
+
+    const res = await t.mutation(api.staff.public.activateDevice, {
+      idempotencyKey: "act-tg-1",
+      code,
+      deviceLabel: "New Phone",
+      deviceId: "dev-tg-1",
+    });
+    expect(res.active).toBe(true);
+
+    const device = await t.run(async (ctx) =>
+      ctx.db
+        .query("registered_devices")
+        .withIndex("by_device_id", (q) => q.eq("device_id", "dev-tg-1"))
+        .unique(),
+    );
+    expect(device?.activated_by).toBeUndefined();
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db
+        .query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "device.activated"))
+        .collect(),
+    );
+    expect(audit[0]?.actor_id).toBe("system");
+    expect(JSON.parse(audit[0]!.metadata as string)).toMatchObject({
+      activated_via: "telegram",
+      label: "New Phone",
+    });
+  });
+});
+
+describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
+  it("issues a telegram-attributed code with issued_via + audit source system", async () => {
+    const t = convexTest(schema);
+    const { code, expiresAt } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers", fromId: 4242 },
+    );
+    expect(code).toMatch(/^\d{6}$/);
+    expect(expiresAt).toBeGreaterThan(Date.now() + 59 * 60 * 1000);
+
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", code))
+        .unique(),
+    );
+    expect(row?.issued_via).toBe("telegram");
+    expect(row?.issued_by).toBeUndefined();
+    expect(row?.issued_by_telegram).toEqual({ from_id: 4242, chat_title: "Frollie · Managers" });
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db
+        .query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "device.setup_code_issued"))
+        .collect(),
+    );
+    // Telegram issuance is NOT a PIN/approval-gated event — source is "system"
+    // (matching the "system" actor), NOT "telegram_approval" (CLAUDE.md #10).
+    const telegramRow = audit.find((a) => a.source === "system");
+    expect(telegramRow).toBeDefined();
+    expect(telegramRow?.actor_id).toBe("system");
+    expect(JSON.parse(telegramRow!.metadata as string)).toMatchObject({
+      issued_via: "telegram",
+      telegram_from_id: 4242,
+      chat_title: "Frollie · Managers",
+    });
+  });
+
+  it("issues a code when fromId is undefined (anonymous admin)", async () => {
+    const t = convexTest(schema);
+    const { code } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers" },
+    );
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", code))
+        .unique(),
+    );
+    expect(row?.issued_by_telegram?.from_id).toBeUndefined();
+    expect(row?.issued_by_telegram?.chat_title).toBe("Frollie · Managers");
   });
 });

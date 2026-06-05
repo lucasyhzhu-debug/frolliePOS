@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { buildHandleTelegramWebhook } from "./telegram/webhook";
 import { buildRegistryCommands } from "./telegram/registryCommands";
+import { buildActivatePosCommand } from "./telegram/activatePos";
 import { xenditWebhook } from "./payments/webhook";
 import { handleReceiptRoute } from "./receipts/http";
 
@@ -17,6 +18,7 @@ http.route({
   handler: buildHandleTelegramWebhook(
     (scheduler) => [
       ...buildRegistryCommands(scheduler),
+      ...buildActivatePosCommand(scheduler),
     ],
     { trackLastSeen: true },
   ),

@@ -5,16 +5,7 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { internal } from "../_generated/api";
-
-const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
-const MAX_CODE_COLLISION_RETRIES = 5;
-
-function generateSecureSetupCode(): string {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  // Map to [100_000, 999_999]. Modulo bias is negligible at this range.
-  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
-}
+import { issueDeviceSetupCode } from "./internal";
 
 export const isDeviceRegistered = query({
   args: { deviceId: v.string() },
@@ -118,34 +109,12 @@ export const generateDeviceSetupCode = mutation({
   >(
     "staff.generateDeviceSetupCode",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
-      const now = Date.now();
-      const expiresAt = now + SETUP_CODE_TTL_MS;
-
-      let code: string | null = null;
-      for (let i = 0; i < MAX_CODE_COLLISION_RETRIES; i++) {
-        const candidate = generateSecureSetupCode();
-        const collision = await ctx.db
-          .query("pending_device_setups")
-          .withIndex("by_code", (q) => q.eq("setup_code", candidate))
-          .filter((q) => q.eq(q.field("consumed_at"), null))
-          .filter((q) => q.gt(q.field("expires_at"), now))
-          .unique();
-        if (!collision) { code = candidate; break; }
-      }
-      if (!code) throw new Error("CODE_COLLISION");
-
-      await ctx.db.insert("pending_device_setups", {
-        setup_code: code,
-        issued_by: mgrId,
-        expires_at: expiresAt,
-        consumed_at: null,
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      return await issueDeviceSetupCode(ctx, {
+        issuedVia: "booth_inline",
+        issuedBy: mgrId,
+        deviceId,
       });
-      await logAudit(ctx, {
-        actor_id: mgrId, action: "device.setup_code_issued",
-        entity_type: "device", source: "booth_inline", device_id: deviceId,
-      });
-      return { code, expiresAt };
     },
     {
       staffIdFromArgs: (_a) => undefined,
@@ -203,6 +172,15 @@ export const activateDevice = mutation({
 
       await ctx.db.patch(pending._id, { consumed_at: now });
 
+      // v0.6: codes minted via Telegram have no staff issuer — fall back to the
+      // "system" audit actor and carry the issuance channel into metadata.
+      // NOTE: `source` stays "booth_inline" — activation is always a physical
+      // booth act (code typed into the new device); only ISSUANCE came from
+      // Telegram. Don't overload "telegram_approval" (the approval/token flow
+      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
+      const auditActor = pending.issued_by ?? ("system" as const);
+      const activatedVia = pending.issued_via ?? "booth_inline";
+
       let deviceRowId: Id<"registered_devices">;
       let reactivated = false;
 
@@ -216,7 +194,7 @@ export const activateDevice = mutation({
         await ctx.db.patch(primary._id, {
           active: true,
           label: args.deviceLabel,
-          activated_by: pending.issued_by,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
           activated_at: now,
           last_seen_at: now,
         });
@@ -229,7 +207,7 @@ export const activateDevice = mutation({
         deviceRowId = await ctx.db.insert("registered_devices", {
           device_id: args.deviceId,
           label: args.deviceLabel,
-          activated_by: pending.issued_by,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
           activated_at: now,
           last_seen_at: now,
           active: true,
@@ -237,10 +215,18 @@ export const activateDevice = mutation({
       }
 
       await logAudit(ctx, {
-        actor_id: pending.issued_by, action: "device.activated",
-        entity_type: "device", entity_id: deviceRowId,
-        source: "booth_inline", device_id: args.deviceId,
-        metadata: { activated_via_pending_id: pending._id, label: args.deviceLabel, reactivated },
+        actor_id: auditActor,
+        action: "device.activated",
+        entity_type: "device",
+        entity_id: deviceRowId,
+        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
+        device_id: args.deviceId,
+        metadata: {
+          activated_via_pending_id: pending._id,
+          label: args.deviceLabel,
+          reactivated,
+          activated_via: activatedVia,
+        },
       });
       return {
         _id: deviceRowId,

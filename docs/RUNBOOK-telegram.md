@@ -240,6 +240,28 @@ v0.4 replaces the manual `TELEGRAM_CHAT_ID` env-var approach with a self-registr
 
 ---
 
+## `/activatepos` — off-booth device activation (v0.5.7)
+
+A manager who is away from the booth can mint a device setup code without physical access to a logged-in POS. In the chat bound to the **`managers`** role, send:
+
+```
+/activatepos
+```
+
+The bot replies with a 6-digit setup code (1h TTL) and a `<POS_BASE_URL>/activate` link. The new phone/browser opens that link and enters the code to register itself.
+
+- **Chat-role gated:** only the chat bound to the `managers` role can mint codes; the command is ignored in any other chat. Bind a chat to `managers` first (see [Self-registration operator flow](#self-registration-operator-flow-v04)).
+- **`POS_BASE_URL` must be set** on the deployment — the activation link is built from it.
+
+**Operational gotcha — group privacy mode swallows `/activatepos`.** The managers chat is a supergroup, and Telegram bot **privacy mode is ON by default**, so a bare `/activatepos` typed in the group is NOT delivered to the bot. Two fixes:
+
+1. **(Recommended) Disable privacy mode:** BotFather → `/setprivacy` → select the bot → **Disable**. Then **remove and re-add the bot to the group** (privacy mode only takes effect on (re)join).
+2. **Or use the explicit mention form:** managers type `/activatepos@<bot_username>` — the command matcher accepts the `@Bot` suffix and Telegram always delivers `@`-mentioned commands regardless of privacy mode.
+
+Register the command via BotFather `/setcommands` as `activatepos - mint a device setup code` so it autocompletes (with the `@Bot` form when privacy mode is on).
+
+---
+
 ## Lessons from v0.4 development
 
 ### LESSON 6 — BotFather privacy mode and `/setcommands`
@@ -251,6 +273,7 @@ After creating or updating the bot, set privacy mode so the bot only receives me
    ```
    register - Register this chat with the Frollie POS bot
    start - Show help / bot info
+   activatepos - mint a device setup code
    ```
 
 Without privacy mode, the bot receives every message in the group — unnecessary network traffic and potential `allowed_updates` confusion.

@@ -2,6 +2,16 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-05 — /activatepos Telegram device activation
+
+- Managers can mint a 6-digit device setup code by sending `/activatepos` in the
+  managers Telegram chat (chat-role gated). Activates a new phone/browser on the fly.
+- Schema: `pending_device_setups.issued_via` discriminant + optional `issued_by` /
+  `issued_by_telegram`; `registered_devices.activated_by` now optional. Telegram-issued
+  codes audit with the `"system"` actor + `"system"` source (not `telegram_approval` —
+  there is no PIN/approval gate; the channel is recorded in `metadata.issued_via`).
+- Single-writer `issueDeviceSetupCode` helper shared by booth + Telegram paths.
+
 ## 2026-06-03 — v0.5.6 Admin wiring + receipt/refund UX
 
 All four parts are additive UI wiring of existing backend (no schema, no migration).

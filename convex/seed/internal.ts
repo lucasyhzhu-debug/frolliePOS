@@ -2,6 +2,7 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+import { issueDeviceSetupCode } from "../staff/internal";
 
 export const _countStaff_internal = internalQuery({
   args: {},
@@ -218,48 +219,13 @@ export const _devMintSetupCode_internal = internalMutation({
     }
     const issuer = managers[0];
 
-    // Inline a minimal 6-digit code generator. The real one
-    // (`staff:public:generateSecureSetupCode`) lives in a `mutation` file
-    // and we don't want a cross-module import for a dev helper.
-    function mintCode(): string {
-      const buf = new Uint32Array(1);
-      crypto.getRandomValues(buf);
-      return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
-    }
-
-    const now = Date.now();
-    const expiresAt = now + 60 * 60 * 1000; // 1h TTL, matches strategic-foundations §6
-
-    // Collision-retry (very unlikely with 900_000 codespace and ~0 live rows)
-    let code: string | null = null;
-    for (let i = 0; i < 5; i++) {
-      const candidate = mintCode();
-      const collision = await ctx.db
-        .query("pending_device_setups")
-        .withIndex("by_code", (q) => q.eq("setup_code", candidate))
-        .filter((q) => q.eq(q.field("consumed_at"), null))
-        .filter((q) => q.gt(q.field("expires_at"), now))
-        .unique();
-      if (!collision) {
-        code = candidate;
-        break;
-      }
-    }
-    if (!code) throw new Error("CODE_COLLISION");
-
-    await ctx.db.insert("pending_device_setups", {
-      setup_code: code,
-      issued_by: issuer._id,
-      expires_at: expiresAt,
-      consumed_at: null,
-    });
-
-    await logAudit(ctx, {
-      actor_id: issuer._id,
-      action: "device.setup_code_issued",
-      entity_type: "device",
-      source: "system",
-      metadata: { dev_first_device_path: true },
+    // Reuse the canonical single-writer so this dev path can never drift from the
+    // booth/Telegram issuance paths (code-gen, collision loop, `issued_via` stamp,
+    // and audit shape are all centralized — v0.5.5 canonical-insert lesson). A
+    // dev-minted code is a booth-channel code attributed to the seeded manager.
+    const { code, expiresAt } = await issueDeviceSetupCode(ctx, {
+      issuedVia: "booth_inline",
+      issuedBy: issuer._id,
     });
 
     return { code, expiresAt, issuedByCode: issuer.code };
