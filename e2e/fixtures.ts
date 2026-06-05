@@ -9,6 +9,10 @@ type Fixtures = {
 async function enterPin(page: Page, pin: string): Promise<void> {
   for (const digit of pin) {
     await page.getByLabel(`Digit ${digit}`).click();
+    // Belt-and-braces inter-click delay. PinEntry's functional-updater fix
+    // makes this strictly unnecessary, but a tiny pause guards against any
+    // future state-batching edge case.
+    await page.waitForTimeout(30);
   }
 }
 
