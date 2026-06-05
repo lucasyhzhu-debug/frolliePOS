@@ -19,6 +19,6 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   await page.getByLabel(/qty|Quantity/i).first().fill("1");
   await page.getByLabel(/Reason/i).fill("E2E test refund");
   await page.getByRole("button", { name: /Confirm refund/i }).click();
-  for (const d of "9999") await page.getByRole("button", { name: d, exact: true }).click();
+  for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
   await expect(page.getByText(/Refunded/i)).toBeVisible({ timeout: 10_000 });
 });

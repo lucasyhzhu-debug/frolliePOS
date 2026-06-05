@@ -8,7 +8,7 @@ type Fixtures = {
 
 async function enterPin(page: Page, pin: string): Promise<void> {
   for (const digit of pin) {
-    await page.getByRole("button", { name: digit, exact: true }).click();
+    await page.getByLabel(`Digit ${digit}`).click();
   }
 }
 

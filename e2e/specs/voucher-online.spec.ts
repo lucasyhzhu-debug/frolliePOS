@@ -9,7 +9,7 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   await page.getByRole("option", { name: /Percentage/i }).click();
   await page.getByLabel(/^Value/i).fill("10");
   await page.getByRole("button", { name: /Create \(PIN\)/i }).click();
-  for (const d of "9999") await page.getByRole("button", { name: d, exact: true }).click();
+  for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
   await expect(page.getByText(/E2E10/)).toBeVisible();
 
   // 2. Apply at sale
