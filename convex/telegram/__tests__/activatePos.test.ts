@@ -54,6 +54,23 @@ describe("handleActivatePos", () => {
     expect(body.text).toContain("https://pos.example.com/activate");
   });
 
+  it("issues a code through the full action when fromId is undefined (anonymous admin)", async () => {
+    const t = convexTest(schema);
+    await seedManagersChat(t, "-100managers");
+
+    await t.action(internal.telegram.activatePos.handleActivatePos, {
+      chatId: "-100managers",
+      chatTitle: "Frollie · Managers",
+      // fromId omitted — anonymous supergroup admin / channel post
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("pending_device_setups").collect());
+    expect(rows.length).toBe(1);
+    expect(rows[0].issued_by_telegram?.from_id).toBeUndefined();
+    expect(rows[0].issued_by_telegram?.chat_title).toBe("Frollie · Managers");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does nothing when the command comes from a non-managers chat", async () => {
     const t = convexTest(schema);
     await seedManagersChat(t, "-100managers");

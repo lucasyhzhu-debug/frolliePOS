@@ -46,7 +46,7 @@ Single-writer for `pending_device_setups`, shared by the booth mutation and the 
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| helper | `issueDeviceSetupCode(ctx, opts)` | `{ issuedBy?, issuedVia, issuedByTelegram? }` | `{ code, expiresAt }` | Plain async fn (not a registered function). Mints the 6-digit code (1h TTL), inserts the `pending_device_setups` row, emits `device.setup_code_issued`. Single writer for the table — both `generateDeviceSetupCode` (booth) and the Telegram path call through here. Booth: `issuedVia: "booth_inline"`, `actor` = manager. Telegram: `issuedVia: "telegram"`, `actor_id: "system"`, `source: "telegram_approval"`. |
+| helper | `issueDeviceSetupCode(ctx, opts)` | `{ issuedBy?, issuedVia, issuedByTelegram? }` | `{ code, expiresAt }` | Plain async fn (not a registered function). Mints the 6-digit code (1h TTL), inserts the `pending_device_setups` row, emits `device.setup_code_issued`. Single writer for the table — both `generateDeviceSetupCode` (booth) and the Telegram path call through here. Booth: `issuedVia: "booth_inline"`, `actor` = manager. Telegram: `issuedVia: "telegram"`, `actor_id: "system"`, `source: "system"` (no PIN/approval gate, so NOT `telegram_approval`). |
 | i | `_issueDeviceSetupCodeFromTelegram_internal` | `{ issuedByTelegram }` | `{ code, expiresAt }` | internalMutation wrapper around `issueDeviceSetupCode`, called by the `/activatepos` Telegram action so the code is minted in a transaction. |
 
 ### v0.5.3b admin (`staff/actions.ts` + `staff/public.ts`)
@@ -228,7 +228,7 @@ Off-booth device-setup-code minting. A manager sends `/activatepos` in the `mana
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
 | factory | `buildActivatePosCommand(scheduler)` | `scheduler` | command descriptor | Factory that returns the webhook command entry (matcher accepts a bare `/activatepos` or the `/activatepos@<bot_username>` form). Schedules `handleActivatePos`. |
-| internal a | `handleActivatePos` | `{ chatId, from?, chatTitle }` | `void` | internalAction. Chat-role gated to `managers` (resolves the chat's bound role; ignores other chats). Calls `staff/internal._issueDeviceSetupCodeFromTelegram_internal` to mint the code, then replies via `sendTemplate`. Audit `device.setup_code_issued` with `actor_id: "system"` + `source: "telegram_approval"`. |
+| internal a | `handleActivatePos` | `{ chatId, chatTitle, fromId? }` | `void` | internalAction. Chat-role gated to `managers` (resolves the managers-bound chat id and compares; ignores other chats; silent no-op if no chat bound). Calls `staff/internal._issueDeviceSetupCodeFromTelegram_internal` to mint the code, then replies via `sendTelegramHtml`. Audit `device.setup_code_issued` with `actor_id: "system"` + `source: "system"`. |
 
 ## `audit.ts`
 

@@ -619,9 +619,7 @@ staff.locked_out
 staff.pin_reset
 staff.shift_summary_shared
 staff.created
-device.activated
-device.deactivated
-device.setup_code_issued
+device.deactivated          # device.activated + device.setup_code_issued documented in the v0.5.7 block below
 seed.reset
 transaction.created
 transaction.line_added
@@ -731,7 +729,7 @@ stock.recon_drift           # nightly recon cron — one row per drifted SKU per
 stock.recon_drift_resolved  # resolveDrift mutation — manager-session bookkeeping ack; patches pos_stock_drift_log row in place
 stock.recon_skip            # nightly recon cron — one row per cron run that didn't send; metadata.reason ∈ "no_drift" | "role_unbound" | "send_failed"; actor=system
 # v0.5.7 device activation (two issuance paths)
-device.setup_code_issued    # issueDeviceSetupCode helper. Booth path: source=booth_inline, actor=issuing manager, metadata={ issued_via:"booth_inline" }. Telegram path (/activatepos): source=telegram_approval, actor_id="system", metadata={ issued_via:"telegram", telegram_from_id?, chat_title }
+device.setup_code_issued    # issueDeviceSetupCode helper. Booth path: source=booth_inline, actor=issuing manager, metadata={ issued_via:"booth_inline" }. Telegram path (/activatepos): source=system (NOT telegram_approval — no PIN/approval gate), actor_id="system", metadata={ issued_via:"telegram", telegram_from_id?, chat_title }
 device.activated            # device activated by consuming a setup code. ALWAYS source=booth_inline (activation is a physical booth act); metadata.activated_via ∈ "booth_inline" | "telegram"; actor_id="system" when the code was Telegram-issued
 ```
 

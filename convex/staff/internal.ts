@@ -12,8 +12,9 @@ const MAX_CODE_COLLISION_RETRIES = 5;
 function generateSecureSetupCode(): string {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
-  // Map to [100_000, 999_999]. Modulo bias negligible at this range.
-  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
+  // Map to [100_000, 999_999] — always exactly 6 digits, so no padding needed.
+  // Modulo bias is negligible at this range (~0.004%).
+  return String(100_000 + (buf[0] % 900_000));
 }
 
 /**
@@ -66,7 +67,13 @@ export async function issueDeviceSetupCode(
     actor_id: opts.issuedBy ?? "system",
     action: "device.setup_code_issued",
     entity_type: "device",
-    source: opts.issuedVia === "telegram" ? "telegram_approval" : "booth_inline",
+    // Telegram issuance has no staff actor and (unlike /approve) no PIN/approval
+    // token, so it is NOT a "telegram_approval" event — that source is reserved
+    // for the off-booth PIN-gated approval flow (CLAUDE.md #10; the "manager
+    // approvals this week" audit query filters source = telegram_approval). Use
+    // the "system" source to match the "system" actor; the channel lives in
+    // metadata.issued_via.
+    source: opts.issuedVia === "telegram" ? "system" : "booth_inline",
     device_id: opts.deviceId,
     metadata:
       opts.issuedVia === "telegram"

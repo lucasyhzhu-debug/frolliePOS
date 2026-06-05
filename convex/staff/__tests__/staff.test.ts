@@ -277,7 +277,7 @@ describe("activateDevice with a Telegram-issued code", () => {
 });
 
 describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
-  it("issues a telegram-attributed code with issued_via + audit source telegram_approval", async () => {
+  it("issues a telegram-attributed code with issued_via + audit source system", async () => {
     const t = convexTest(schema);
     const { code, expiresAt } = await t.mutation(
       internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
@@ -302,7 +302,9 @@ describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
         .filter((q) => q.eq(q.field("action"), "device.setup_code_issued"))
         .collect(),
     );
-    const telegramRow = audit.find((a) => a.source === "telegram_approval");
+    // Telegram issuance is NOT a PIN/approval-gated event — source is "system"
+    // (matching the "system" actor), NOT "telegram_approval" (CLAUDE.md #10).
+    const telegramRow = audit.find((a) => a.source === "system");
     expect(telegramRow).toBeDefined();
     expect(telegramRow?.actor_id).toBe("system");
     expect(JSON.parse(telegramRow!.metadata as string)).toMatchObject({

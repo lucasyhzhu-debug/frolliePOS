@@ -55,35 +55,44 @@ export const handleActivatePos = internalAction({
     }
     if (managersChatId !== args.chatId) return;
 
+    // Mint the code. Narrow the catch to the EXPECTED failure (collision
+    // exhaustion) so the manager gets a clear "try again" — but rethrow anything
+    // unexpected (schema mismatch, runtime fault) so it surfaces in the Convex
+    // dashboard instead of masquerading as a transient issuance hiccup.
+    let code: string;
+    let expiresAt: number;
     try {
-      const { code, expiresAt } = await ctx.runMutation(
+      ({ code, expiresAt } = await ctx.runMutation(
         internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
         { chatTitle: args.chatTitle, fromId: args.fromId },
-      );
-      const baseUrl = process.env.POS_BASE_URL;
-      const until = escapeHtml(formatWibDateTime(expiresAt));
-      const where = baseUrl
-        ? `On the new phone/browser, open ${escapeHtml(baseUrl)}/activate and enter the code.`
-        : `On the new phone/browser, open the POS /activate page and enter the code.`;
-      const html = [
-        `🔓 Device setup code: <b>${code}</b>`,
-        `Valid until ${until} (1 hour).`,
-        where,
-      ].join("\n");
-      await sendTelegramHtml(token, args.chatId, html);
+      ));
     } catch (err) {
-      // Issuance or send failed (collision exhaustion, network) — never leave
-      // the manager with silence.
-      console.warn("[telegram] /activatepos issuance failed", err);
-      try {
-        await sendTelegramHtml(
-          token,
-          args.chatId,
-          "⚠️ Couldn't generate a setup code — please try again.",
-        );
-      } catch {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg !== "CODE_COLLISION") throw err; // unexpected — surface it
+      console.warn("[telegram] /activatepos code-collision exhaustion", err);
+      await sendTelegramHtml(
+        token,
+        args.chatId,
+        "⚠️ Couldn't generate a setup code — please try again.",
+      ).catch(() => {
         /* best-effort */
-      }
+      });
+      return;
     }
+
+    // Code is minted and persisted. A send failure here is a DELIVERY problem,
+    // not a generation problem — say so accurately (a second attempt would mint a
+    // redundant code; both expire harmlessly in 1h). Let Convex log the failure.
+    const baseUrl = process.env.POS_BASE_URL;
+    const until = escapeHtml(formatWibDateTime(expiresAt));
+    const where = baseUrl
+      ? `On the new phone/browser, open ${escapeHtml(baseUrl)}/activate and enter the code.`
+      : `On the new phone/browser, open the POS /activate page and enter the code.`;
+    const html = [
+      `🔓 Device setup code: <b>${code}</b>`,
+      `Valid until ${until} (1 hour).`,
+      where,
+    ].join("\n");
+    await sendTelegramHtml(token, args.chatId, html);
   },
 });
