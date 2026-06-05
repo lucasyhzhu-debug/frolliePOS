@@ -36,6 +36,9 @@ frollie-pos design files/
 # ceo-progress-report build test output
 .cpr-tmp/
 
+# generated progress dashboard (rebuilt from docs/PROGRESS.md; untracked to avoid merge conflicts)
+docs/progress.html
+
 # superpowers brainstorming visual companion
 .superpowers/
 
