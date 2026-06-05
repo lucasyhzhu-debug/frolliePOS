@@ -27,7 +27,7 @@
 | `e2e/specs/spoilage.spec.ts` | Spoilage spec | Modify — same |
 | `e2e/specs/voucher-offline.spec.ts` | Voucher offline spec | Modify — same |
 | `e2e/specs/voucher-online.spec.ts` | Voucher online spec | Modify — same |
-| `docs/CHANGELOG.md` | User-facing release notes | Modify — one-line entry under v0.5.8 (or v0.5.7.1) citing issue #44 |
+| `docs/CHANGELOG.md` | User-facing release notes | Modify — one-line entry under v0.5.7.1 citing issue #44 (v0.5.8 is taken by the orphan-wiring phase) |
 
 **Naming used consistently across tasks** (self-review checked):
 - Module constant: `DEAD_SESSION_CONFIRM_MS` (number, 1500).
@@ -603,16 +603,16 @@ EOF
 **Files:**
 - Modify: `docs/CHANGELOG.md`
 
-- [ ] **Step 1: Decide the version line**
+- [ ] **Step 1: Confirm the version line**
 
-Default: **v0.5.8** (bug-only fast follow under its own version). If the team is batching this with a separate v0.5.7 patch series, use **v0.5.7.1** instead. Check `docs/CHANGELOG.md` head + recent `git log --oneline -10` to see what's already in flight. Pick one before editing.
+**Target: v0.5.7.1** (hotfix between shipped v0.5.7 and the already-planned v0.5.8 "orphan-wiring" phase). v0.5.8 cannot be reused — it's an in-flight phase with its own scope in `docs/PROGRESS.md`. Verify before editing: `grep -n "^## v0.5" docs/PROGRESS.md` should show v0.5.7 done, v0.5.7.1 freshly added by step 6 of the pipeline that wrote this plan, and v0.5.8 planned for orphan-wiring.
 
 - [ ] **Step 2: Insert the entry**
 
 Open `docs/CHANGELOG.md`. Above the most recent version header, add:
 
 ```markdown
-## v0.5.8 — 2026-06-?? — bug fix
+## v0.5.7.1 — 2026-06-?? — bug fix
 
 ### Fixed
 - `useSession`: debounced the "session-dead" effect so a transient `null` from
@@ -668,7 +668,7 @@ If any of the 6 newly-un-skipped specs fail with a Convex / payment / inventory 
 - [ ] No `test.skip` remaining in `e2e/specs/*.spec.ts` (except `auth.spec.ts:24` which is the unrelated 60s-lockout long-wait skip — leave it).
 - [ ] `e2e/fixtures.ts:awaitSignedIn` no longer calls `page.waitForTimeout(1500)`.
 - [ ] `src/hooks/useSession.ts` has the `DEAD_SESSION_CONFIRM_MS` constant and the debounced-effect block; the "Fix V17" comment is gone.
-- [ ] `docs/CHANGELOG.md` has the v0.5.8 entry.
+- [ ] `docs/CHANGELOG.md` has the v0.5.7.1 entry.
 
 ## Rollback
 
