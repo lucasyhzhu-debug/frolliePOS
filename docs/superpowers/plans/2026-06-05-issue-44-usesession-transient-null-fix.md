@@ -21,7 +21,7 @@
 | `src/hooks/useSession.ts` | Session state + localStorage layer | Modify — add `DEAD_SESSION_CONFIRM_MS`, replace `isDead` effect with debounced `setTimeout`, replace stale "Fix V17" comment |
 | `src/hooks/useSession.test.tsx` | Unit coverage for the hook | Modify — rewrite mock plumbing to `vi.hoisted()` + controllable `vi.fn()`; add 5 timing tests; keep existing 3 |
 | `e2e/fixtures.ts` | Playwright `signedInAsLucas` / `signedInAsStaff` fixtures | Modify — delete the trailing `page.waitForTimeout(1500)` + the 4-line comment block above it |
-| `e2e/specs/refund.spec.ts` | Refund spec | Modify — `test.skip` → `test`; delete the 9-line `// SKIPPED:` block |
+| `e2e/specs/refund.spec.ts` | Refund spec | Modify — `test.skip` → `test`; delete the 8-line `// SKIPPED:` block |
 | `e2e/specs/sale-bca-va.spec.ts` | BCA VA sale spec | Modify — `test.skip` → `test`; delete the 2-line `// SKIPPED:` block |
 | `e2e/specs/sale-qris.spec.ts` | QRIS sale spec | Modify — same |
 | `e2e/specs/spoilage.spec.ts` | Spoilage spec | Modify — same |
@@ -54,6 +54,7 @@ useEffect(() => {
   const tag = `[useSession#44] stored=${stored ? "Y" : "N"} validation=${
     validation === undefined ? "undefined" : validation === null ? "null" : "object"
   }`;
+  // eslint-disable-next-line no-console -- TEMP issue #44 instrumentation, stripped in Step 5
   console.warn(tag);
   try {
     const ring = JSON.parse(sessionStorage.getItem("__issue44_ring") ?? "[]") as string[];
@@ -74,6 +75,8 @@ git push -u origin worktree-plan-issue-44-usesession-fix
 gh pr create --draft --title "chore(temp): #44 hypothesis verification" \
   --body "Draft for one CI pass to confirm useQuery transient null. Will be stripped before the real fix lands. Tracks #44."
 ```
+
+Note: GitHub's `pull_request` event fires on draft PRs by default (`opened`, `synchronize`), so the `e2e` workflow runs immediately on this draft — no need to mark the PR ready until Task 5.
 
 - [ ] **Step 3: Wait for the e2e workflow run (≈8-12 min)**
 
@@ -209,7 +212,7 @@ This failure is exactly what proves the bug exists: the current code clears too 
 
 - [ ] **Step 5: Implement the fix in `useSession.ts`**
 
-Replace `src/hooks/useSession.ts:7-13` (the existing `// Module-level subscriber set…` comment block + helpers) with the same code preceded by the new constant:
+**(a) Insert the new constant + comment immediately above line 7** (just before the existing `// Module-level subscriber set for same-tab sync.` comment). This is a pure insert — the existing lines 7-13 (`listeners` + `notify`) stay untouched:
 
 ```typescript
 // Issue #44: confirm an apparent dead session for this long before wiping
@@ -222,16 +225,9 @@ Replace `src/hooks/useSession.ts:7-13` (the existing `// Module-level subscriber
 // formerly in e2e/fixtures.ts:awaitSignedIn (PR #41).
 const DEAD_SESSION_CONFIRM_MS = 1500;
 
-// Module-level subscriber set for same-tab sync.
-// The `storage` event only fires in OTHER tabs; we need this for same-tab.
-const listeners = new Set<(value: string | null) => void>();
-
-function notify(value: string | null) {
-  listeners.forEach((cb) => cb(value));
-}
 ```
 
-Then replace `src/hooks/useSession.ts:47-55` (the `// Fix V17:` comment + `isDead` derivation + effect) with:
+**(b) Replace `src/hooks/useSession.ts:47-55`** (the `// Fix V17:` comment + `isDead` derivation + effect) with:
 
 ```typescript
   // Debounce the dead-session clear (issue #44). On every change of stored or
@@ -407,35 +403,41 @@ Inside the `describe("useSession (debounced dead-session clear)", …)` block, a
   });
 ```
 
-- [ ] **Step 4: Add test — "storeSession(newId) mid-pending-timer cancels the clear"**
+- [ ] **Step 4: Add test — "fresh login mid-pending-timer cancels the clear"**
+
+This test mirrors the production flow: `storeSession(newId)` ALONE doesn't cancel the clear (the new effect cycle would schedule a *new* timer if validation stays `null`). What actually saves the new session is that the moment storeSession runs, `useQuery(getSession, { sessionId: newId })`'s subscription resets and `validation` transitions to `undefined` (loading) within the same commit cycle — and the effect early-returns on `validation !== null`. We model this by flipping the mock to `undefined` inside the same `act()` that calls storeSession.
 
 ```typescript
-  it("cancels the pending clear when storeSession is called mid-window", async () => {
+  it("cancels the pending clear when a fresh login arrives mid-window", async () => {
     localStorage.setItem(SESSION_KEY, "s_old");
     mockUseQuery.mockReturnValue(null);
 
-    renderHook(() => useSession());
+    const { rerender } = renderHook(() => useSession());
 
     act(() => {
       vi.advanceTimersByTime(500);
     });
     expect(localStorage.getItem(SESSION_KEY)).toBe("s_old");
 
-    // Fresh login mid-window — storeSession writes the new id and notifies.
-    // The effect's cleanup cancels the pending clear because `stored` changes
-    // from "s_old" → "s_new".
+    // Fresh login: storeSession writes the new id. In production, the moment
+    // useQuery's sessionId arg changes, the subscription resets and returns
+    // `undefined` (loading) before resolving to the real session. The new
+    // effect cycle early-returns on `validation === undefined`, so no new
+    // timer is scheduled.
     act(() => {
+      mockUseQuery.mockReturnValue(undefined);
       storeSession(
         "s_new",
         "st_new" as import("../../convex/_generated/dataModel").Id<"staff">,
       );
+      rerender();
     });
 
     act(() => {
       vi.advanceTimersByTime(2000);
     });
 
-    // The new session id must survive past the original deadline.
+    // The new session id survives past the original deadline.
     expect(localStorage.getItem(SESSION_KEY)).toBe("s_new");
   });
 ```
@@ -464,7 +466,8 @@ git commit -m "$(cat <<'EOF'
 test(useSession): add 4 debounced-clear timing tests (issue #44)
 
 Covers: transient null ignored, real→null transition honoured, clearSession
-mid-pending-timer race, storeSession(newId) mid-pending-timer cancellation.
+mid-pending-timer race, fresh-login-arrives-mid-window cancellation
+(storeSession + the validation transition to undefined that accompanies it).
 All wrap vi.advanceTimersByTime in act(); fake timers cleared in afterEach.
 
 Refs #44.
@@ -521,10 +524,10 @@ EOF
 
 ## Task 4: Un-skip the 6 PIN-gated e2e specs
 
-Each spec gets the same two changes: `test.skip(...)` → `test(...)`, and the leading `// SKIPPED:` comment block deleted. `refund.spec.ts` has a 9-line block; the other 5 have a 2-line block.
+Each spec gets the same two changes: `test.skip(...)` → `test(...)`, and the leading `// SKIPPED:` comment block deleted. `refund.spec.ts` has an 8-line block (4-11); the other 5 have a 2-line block.
 
 **Files:**
-- Modify: `e2e/specs/refund.spec.ts:4-12` (delete the 9-line block) + the `test.skip` on line 13
+- Modify: `e2e/specs/refund.spec.ts:4-11` (delete the 8-line block) + the `test.skip` on line 12
 - Modify: `e2e/specs/sale-bca-va.spec.ts:4-5` (delete the 2-line block) + the `test.skip`
 - Modify: `e2e/specs/sale-qris.spec.ts:4-5` (delete the 2-line block) + the `test.skip`
 - Modify: `e2e/specs/spoilage.spec.ts:3-4` (delete the 2-line block) + the `test.skip`
@@ -533,7 +536,7 @@ Each spec gets the same two changes: `test.skip(...)` → `test(...)`, and the l
 
 - [ ] **Step 1: Un-skip `e2e/specs/refund.spec.ts`**
 
-Delete lines 4-12 (the entire `// SKIPPED:` block, which spans from "SKIPPED: session-loss-on-hard-nav…" through "the refunds module's other unit tests."). Then on the next line, change:
+Delete lines 4-11 (the entire 8-line `// SKIPPED:` block, which spans from "SKIPPED: session-loss-on-hard-nav…" through "the refunds module's other unit tests."). Then on line 12 (now the first non-import line after deletion), change:
 
 ```typescript
 test.skip("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
