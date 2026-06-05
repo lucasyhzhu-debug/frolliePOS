@@ -25,8 +25,12 @@ describe("seed/_reset_internal — dev device pre-registration", () => {
     expect(devices[0].device_id).toBe("dev-booth-device");
     expect(devices[0].label).toBe("Dev Booth Device");
 
-    // activated_by must reference the seeded manager (Lucas).
-    const manager = await t.run((ctx) => ctx.db.get(devices[0].activated_by));
+    // activated_by must reference the seeded manager (Lucas). The booth seed
+    // always sets it; v0.5.7 made the field optional (Telegram-issued codes have
+    // no staff issuer), so narrow before the lookup.
+    const activatedBy = devices[0].activated_by;
+    expect(activatedBy).toBeDefined();
+    const manager = await t.run((ctx) => ctx.db.get(activatedBy!));
     expect(manager?.role).toBe("manager");
     expect(manager?.name).toBe("Lucas");
   });
