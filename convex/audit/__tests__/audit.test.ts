@@ -81,4 +81,32 @@ describe("audit.list — manager-only gate (Fix 4)", () => {
       t.query(api.audit.public.list, { sessionId: staffSession, limit: 10 })
     ).rejects.toThrow(/manager/i);
   });
+
+  it("attaches actor_name (staff name for a staff actor, 'System' for system)", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedManager(t); // seeds staff named "AuditMgr"
+    const mgrSession = await loginAs(t, mgrId, "9999");
+
+    await t.mutation(internal.audit.internal.__test_log, {
+      actor_id: mgrId,
+      action: "test.byname",
+      entity_type: "staff",
+      source: "booth_inline",
+    });
+    await t.mutation(internal.audit.internal.__test_log, {
+      actor_id: "system",
+      action: "test.system",
+      entity_type: "system",
+      source: "system",
+    });
+
+    const rows = await t.query(api.audit.public.list, {
+      sessionId: mgrSession,
+      limit: 10,
+    });
+    const byName = rows.find((r) => r.action === "test.byname");
+    const bySystem = rows.find((r) => r.action === "test.system");
+    expect(byName?.actor_name).toBe("AuditMgr");
+    expect(bySystem?.actor_name).toBe("System");
+  });
 });
