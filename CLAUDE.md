@@ -100,11 +100,11 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 
 | Path | Contents |
 |---|---|
-| `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share; v0.5.6 — reprint + refund-entry buttons), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin), `account` (v0.5.6 — self change-PIN), `mgr/device-setup` (v0.5.6 — manager device-setup-code), `refund/index` + `refund/$txnId` (refundable list + detail flow). Stubbed: settlements, remaining `mgr/*` |
+| `routes/` | Page routes. Live: `sale/*`, `approve/*`, `mgr/telegram-chats`, `history/index` + `history/$txnId` (v0.5.3a — txn list + detail/share; v0.5.6 — reprint + refund-entry buttons), `mgr/dashboard` (v0.5.3a — manager-only), `mgr/staff` + `mgr/products` + `mgr/receipt` (v0.5.3b — manager-only admin), `account` (v0.5.6 — self change-PIN), `mgr/device-setup` (v0.5.6 — manager device-setup-code), `refund/index` + `refund/$txnId` (refundable list + detail flow), `mgr/audit` (v0.5.8 — manager audit-log viewer). Stubbed: settlements, remaining `mgr/*` |
 | `components/ui/` | shadcn primitives (new-york/stone) |
 | `components/layout/` | `RootLayout` (shell + session gate), `Stub`, `AppHeader`, `SpokeLayout` |
 | `components/pos/` | `NumericKeypad` (canonical PIN/qty), `PinSheet`, `ApprovalPending`, `AbandonCartDialog`, `PrinterSheet` (v0.5.4 — connect/status/test-print sheet, wraps `Dialog`, ADR-043) |
-| `hooks/` | `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (IDB-backed), `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op), `useApproval`, `useLastStaff`, `useCountdown`, `useThermalPrinter` (v0.5.4 — Web Bluetooth connect/auto-reconnect/print + pure `chunkBytes`, ADR-043) |
+| `hooks/` | `useDeviceId`, `useSession`, `useCatalogCache`, `useIdempotency` (IDB-backed), `useCart`, `useOfflineQueue`, `useXenditPayment`, `useStartupReconciliation` (no-op), `useApproval`, `useLastStaff`, `useCountdown`, `useThermalPrinter` (v0.5.4 — Web Bluetooth connect/auto-reconnect/print + pure `chunkBytes`, ADR-043), `useAwaitingPaymentRecovery` (v0.5.8 — awaiting-payment recovery banner data) |
 | `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`), `escpos.ts` (v0.5.4 — pure ESC/POS `encodeReceipt` + `SAMPLE_RECEIPT`, ADR-043) |
 | `pwa/` | Service worker bootstrap |
 

@@ -234,7 +234,7 @@ Off-booth device-setup-code minting. A manager sends `/activatepos` in the `mana
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `list` | `{ filter, range, limit, sessionId }` | `AuditLog[]` | Manager-only; dashboard surface |
+| q | `audit.public.list` | `{ filter, range, limit, sessionId }` | `{ rows: (AuditLog & { actor_name: string })[] }` | Manager-only; dashboard surface. *(v0.5.8)* Returns rows enriched with server-derived `actor_name` (was raw `Doc<"audit_log">[]`; label pattern per ADR-034 / v0.5.3a). |
 | internal helper | `logAudit` | (inside other mutations) | | Required to be called from every state-changing mutation ([ADR-007](./ADR/007-audit-log-append-only.md)). `audit_log.action` is a free `v.string()` — no code enum to keep in sync; canonical verb vocab lives in `docs/SCHEMA.md`. |
 
 **v0.5.3b verbs added:** `staff.created`, `staff.updated`, `staff.deactivated`, `product.created`, `product.updated`, `product.archived`, `settings.receipt_updated`.
