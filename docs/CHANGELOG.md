@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-05 — v0.5.8 Orphaned-function wiring
+
+- **Audit-log viewer** (`/mgr/audit`): manager-only append-only activity trail. `audit.public.list` now pre-derives `actor_name` server-side (ADR-034 / v0.5.3a label pattern).
+- **Awaiting-payment recovery banner** on home: surfaces in-flight `awaiting_payment` txns (last 5 min) via the new `useAwaitingPaymentRecovery` hook; tap to resume the charge screen.
+- **Cancel a pending approval**: optional manager-gated "Batalkan permintaan" button on `ApprovalPending`, wired into the refund flow (`cancelPendingRequest` is manager-session gated).
+
 ## 2026-06-05 — /activatepos Telegram device activation
 
 - Managers can mint a 6-digit device setup code by sending `/activatepos` in the

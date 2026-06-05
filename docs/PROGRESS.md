@@ -1344,7 +1344,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.8 — Orphaned-function wiring 📋 PLANNED
+## v0.5.8 — Orphaned-function wiring ✅ DONE
 **Outcome:** Three tested-but-doorless backend functions get their UI — the same "backend exists, no entrance" gap v0.5.6 closed. Mostly pure FE wiring; one tiny additive backend change (audit query pre-derives actor names). No schema, no migration. (Renumbered from v0.5.7, which the Telegram /activatepos phase claimed first.)
 **Spec:** [`docs/superpowers/specs/2026-06-05-v0.5.8-orphan-wiring-design.md`](./superpowers/specs/2026-06-05-v0.5.8-orphan-wiring-design.md) (spec-gate staffreview: resolved Part C to manager-gated/refund-only)
 **Plan:** [`docs/superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md`](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md) (plan-gate staffreview: Approve; assumptions verified vs code)
@@ -1362,23 +1362,23 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Backend (`convex/`)
 
-- 📋 **[v0.5.8-be-audit-actor-name]** `audit.public.list` pre-derives `actor_name` via `_listStaffNames_internal` (ADR-034 cross-module read; v0.5.3a label pattern) — Part A backend
+- ✅ **[v0.5.8-be-audit-actor-name]** `audit.public.list` pre-derives `actor_name` via `_listStaffNames_internal` (ADR-034 cross-module read; v0.5.3a label pattern) — Part A backend (8f280a9)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
 
 ### Frontend (`src/`)
 
-- 📋 **[v0.5.8-fe-audit-viewer]** `/mgr/audit` manager spoke + NAV_CARD + lazy route, consuming the enriched `audit.public.list` (Part A frontend)
+- ✅ **[v0.5.8-fe-audit-viewer]** `/mgr/audit` manager spoke + NAV_CARD + lazy route, consuming the enriched `audit.public.list` (Part A frontend) (942f7ae)
   - **agent:** `frontend-integrator` · **deps:** `v0.5.8-be-audit-actor-name` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
-- 📋 **[v0.5.8-fe-awaiting-recovery]** `useAwaitingPaymentRecovery` hook + amber home banner wiring `listRecentAwaitingPayment` (Part B)
+- ✅ **[v0.5.8-fe-awaiting-recovery]** `useAwaitingPaymentRecovery` hook + amber home banner wiring `listRecentAwaitingPayment` (Part B) (b450c0c)
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
-- 📋 **[v0.5.8-fe-approval-cancel-component]** `ApprovalPending` gains optional `onCancel` → "Batalkan permintaan" button in the pending branch (Part C component)
+- ✅ **[v0.5.8-fe-approval-cancel-component]** `ApprovalPending` gains optional `onCancel` → "Batalkan permintaan" button in the pending branch (Part C component) (d2501e7)
   - **agent:** `ui-component-builder` · **deps:** `none` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
-- 📋 **[v0.5.8-fe-approval-cancel-host]** Wire manager-gated `cancelPendingRequest` into `refund/detail.tsx` (Part C host)
+- ✅ **[v0.5.8-fe-approval-cancel-host]** Wire manager-gated `cancelPendingRequest` into `refund/detail.tsx` (Part C host) (4b06681)
   - **agent:** `frontend-integrator` · **deps:** `v0.5.8-fe-approval-cancel-component` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
 
 ### Cross-cutting
 
-- 📋 **[v0.5.8-xc-docs]** CLAUDE.md file-locations (+`/mgr/audit`, +`useAwaitingPaymentRecovery`) + CHANGELOG v0.5.8 + API_REFERENCE (`actor_name` on `audit.public.list`)
+- ✅ **[v0.5.8-xc-docs]** CLAUDE.md file-locations (+`/mgr/audit`, +`useAwaitingPaymentRecovery`) + CHANGELOG v0.5.8 + API_REFERENCE (`actor_name` on `audit.public.list`) (a060250)
   - **agent:** `—` · **deps:** `v0.5.8-fe-audit-viewer`, `v0.5.8-fe-awaiting-recovery`, `v0.5.8-fe-approval-cancel-host` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md)
 
 ---

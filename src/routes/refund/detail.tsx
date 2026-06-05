@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
-import { useQuery, useAction } from "convex/react";
+import { useQuery, useAction, useMutation } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -65,6 +65,9 @@ export default function RefundDetail() {
   const requestRefundApproval = useAction(
     api.refunds.actions.requestRefundApproval,
   );
+  const cancelPendingRequest = useMutation(
+    api.approvals.public.cancelPendingRequest,
+  );
 
   // ---- inline path state ----
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -85,6 +88,7 @@ export default function RefundDetail() {
     Id<"pos_approval_requests"> | null
   >(null);
   const [telegramSubmitting, setTelegramSubmitting] = useState(false);
+  const cancellingRef = useRef(false);
 
   // ---- guards ----
   if (!txnId) {
@@ -233,6 +237,30 @@ export default function RefundDetail() {
   // ---- approval terminal handlers ----
   // On denied/expired, clear the telegram idempotency key so a retry mints a
   // fresh requestId instead of replaying the resolved/denied blob.
+
+  // Manager-only: cancel the pending request the requester raised (e.g. a
+  // manager will instead act inline, or the customer left). cancelPendingRequest
+  // is requireManagerSession-gated, so this handler is only wired for managers.
+  const handleCancelRequest = async () => {
+    if (session.status !== "active" || !approvalRequestId) return;
+    if (cancellingRef.current) return;
+    cancellingRef.current = true;
+    try {
+      await cancelPendingRequest({
+        sessionId: session.sessionId,
+        requestId: approvalRequestId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      if (txnId) await clearIntent(`refund-telegram:${txnId}`);
+      setApprovalRequestId(null);
+      toast.success("Permintaan dibatalkan");
+    } catch (err) {
+      toast.error(mapErr(err instanceof Error ? err.message : "Cancel failed"));
+    } finally {
+      cancellingRef.current = false;
+    }
+  };
+
   const handleApprovalResolved = async () => {
     toast.success("Manager approved — refund committed.");
     // N2: clear the persisted telegram idempotency key on resolve so a future
@@ -287,6 +315,11 @@ export default function RefundDetail() {
               onResolved={handleApprovalResolved}
               onDenied={handleApprovalDenied}
               onExpired={handleApprovalExpired}
+              onCancel={
+                session.staff.role === "manager"
+                  ? handleCancelRequest
+                  : undefined
+              }
             />
           </div>
         ) : (
