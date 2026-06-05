@@ -50,28 +50,49 @@ Even if step 4 were prevented (just deleting the effect), step 5 would still fir
 
 ## Decisions (locked during re-brainstorming)
 
-1. **Fix shape: track `hasEverBeenReal` via `useRef`; consult it in BOTH the effect AND the render-time branch.** Concretely:
+1. **Fix shape: track "have we ever validated THIS sessionId at least once" via `useRef`; consult it in BOTH the effect AND the render-time branch.** The ref is keyed on `stored` so a same-instance lock+relogin doesn't inherit the previous session's evidence (Critical #1 from the spec-gate review). Concretely:
 
    ```ts
-   const hasEverBeenReal = useRef(false);
-   if (validation !== null && validation !== undefined) {
-     hasEverBeenReal.current = true;
+   // Issue #44: distinguish a transient null from useQuery (during Convex WS
+   // resubscribe after hard-nav) from a genuine logout-elsewhere. We trust a
+   // null as ground truth only after we've successfully validated THIS
+   // sessionId at least once — the same evidence the subscription itself
+   // provides. The ref is keyed on `stored` so a same-instance lock+relogin
+   // resets the evidence for the new sessionId (RootLayout keeps useSession
+   // alive across route changes, so the lifetime-of-hook-instance is longer
+   // than the lifetime-of-session).
+   //
+   // Pattern precedent: src/hooks/useCatalogCache.ts:53 (`liveSeenRef`) gates
+   // a destructive overwrite with the same "have we ever observed a fresh
+   // value" shape.
+   const realSeenForStored = useRef<{ sessionId: string | null; seen: boolean }>(
+     { sessionId: null, seen: false },
+   );
+   // Render-phase reset when the sessionId changes (login or lock+login).
+   if (realSeenForStored.current.sessionId !== stored) {
+     realSeenForStored.current = { sessionId: stored, seen: false };
    }
+   // Render-phase set when validation is real. Idempotent (true→true is no-op).
+   if (validation !== null && validation !== undefined) {
+     realSeenForStored.current.seen = true;
+   }
+   const hasEverBeenReal = realSeenForStored.current.seen;
 
    // Effect: wipe only on REAL → null transition (genuine logout-elsewhere).
    useEffect(() => {
-     if (validation === null && stored != null && hasEverBeenReal.current) {
+     if (validation === null && stored != null && hasEverBeenReal) {
        localStorage.removeItem(SESSION_KEY);
        notify(null);
      }
-   }, [validation, stored]);
+   }, [validation, stored, hasEverBeenReal]);
 
-   // Render-time: distinguish first-null (still loading) from post-real-null (dead).
+   // Render-time: distinguish first-null-for-this-sessionId (still loading)
+   // from post-real-null (genuine logout-elsewhere).
    if (!stored) return { status: "none", sessionId: null, staff: null };
    if (validation === undefined) return { status: "loading", sessionId: null, staff: null };
    if (validation === null) {
      return {
-       status: hasEverBeenReal.current ? "none" : "loading",
+       status: hasEverBeenReal ? "none" : "loading",
        sessionId: null,
        staff: null,
      };
@@ -79,9 +100,10 @@ Even if step 4 were prevented (just deleting the effect), step 5 would still fir
    return { status: "active", sessionId: validation.sessionId, staff: validation.staff };
    ```
 
-   **Trace through the three real cases:**
-   - **Transient null on cold-mount reconnect (the bug).** `validation` goes `undefined → null → realSession`. On the null render, `hasEverBeenReal` is `false` (we haven't seen a real value yet) → status returns `"loading"` → `RootLayout` shows `RouteFallback` (no redirect). Effect does nothing (gated on `hasEverBeenReal`). Next render: real value arrives → `hasEverBeenReal` flips `true` → status `"active"`. **Bug fixed without any timeout.**
-   - **Genuine logged-out-elsewhere (real → null).** `validation` was a real session, then becomes null. On the null render, `hasEverBeenReal` is `true` (we saw the real session earlier) → status returns `"none"` → `RootLayout` redirects to `/login`. Effect fires (`hasEverBeenReal` true, `validation` null, `stored` present) → `localStorage` wiped. **Original UX preserved.**
+   **Trace through the four real cases:**
+   - **Transient null on cold-mount reconnect (the bug).** `validation` goes `undefined → null → realSession`. On the null render, `hasEverBeenReal` is `false` (no real value seen yet for this sessionId) → status returns `"loading"` → `RootLayout` shows `RouteFallback` (no redirect). Effect does nothing (gated on `hasEverBeenReal`). Next render: real value arrives → ref flips `seen: true` → status `"active"`. **Bug fixed without any timeout.**
+   - **Genuine logged-out-elsewhere (real → null).** `validation` was a real session, then becomes null. On the null render, `hasEverBeenReal` is `true` (we saw the real session earlier for THIS sessionId) → status returns `"none"` → `RootLayout` redirects to `/login`. Effect fires (`hasEverBeenReal` true, `validation` null, `stored` present) → `localStorage` wiped. **Original UX preserved.**
+   - **Same-instance relogin** (User A locks, User B logs in on the same device without a page reload — common at shift change; the `RootLayout` instance and its `useSession` survive route changes). When `storeSession("s_new", …)` fires `setStored("s_new")`, the render-phase reset sees `realSeenForStored.current.sessionId !== "s_new"` → resets the ref to `{ sessionId: "s_new", seen: false }`. The first transient-null render for `s_new` then correctly returns `"loading"` (not `"none"`) and the effect does NOT wipe the just-stored `s_new`. **Critical #1 fixed.**
    - **Genuinely-stale `localStorage` on cold mount** (rare: user closes app with active session, server reaper deletes the row overnight, user opens app the next morning). `validation` goes `undefined → null` (never resolves to a real session because the row is gone). On the null render, `hasEverBeenReal` is `false` → status returns `"loading"` indefinitely. **UX hole: user sees `Loading…` and can't escape.** Mitigated by the `RootLayout` escape hatch in decision #2.
 
    Rejected: **Option A** (debounce). Mitigation, not root cause. Window-widening tactic that re-emerges if reconnect ever exceeds the constant. The 1500ms fixture sleep we're removing got there the same way.
@@ -90,7 +112,7 @@ Even if step 4 were prevented (just deleting the effect), step 5 would still fir
 
    Rejected: **Option D** (tagged-union from `getSession`). Cleanest at the API layer, right pattern long-term. Higher cost (backend change + new return-shape pattern this codebase doesn't have at the public-query boundary yet). Not justified for one query. Filed as a follow-up — see decision #6.
 
-2. **`RootLayout` stuck-loading escape hatch.** To handle the genuinely-stale `localStorage` case (where the hook returns `"loading"` indefinitely because `hasEverBeenReal` never flips true), add a small affordance in `RouteFallback`: after 5 seconds in `status: "loading"` with `stored != null`, render a "Stuck on loading? Lock device and sign in again." link that calls `clearSession()`.
+2. **`RootLayout` stuck-loading escape hatch.** To handle the genuinely-stale `localStorage` case (where the hook returns `"loading"` indefinitely because `hasEverBeenReal` never flips true), add a small affordance in `RouteFallback`: after `STUCK_LOADING_REVEAL_MS = 5000` in `status: "loading"` with `stored != null`, render a "Stuck on loading? Lock device and sign in again." link that calls `clearSession()`. The constant lives at the top of `RootLayout.tsx` with a comment naming the failure mode (genuinely-stale `localStorage` UX) — easy to grep, easy to tune. The 5s cadence matches the only other "reasonable wait" in the layout layer (`src/components/layout/ConnDot.tsx:46` uses `setInterval(read, 5000)` for connection polling).
 
    This:
    - Frames the stale-state recovery as a user-authorised action (which is what ADR-003 *already* sanctions — "the **Lock** screen ends the session explicitly").
@@ -125,45 +147,35 @@ Even if step 4 were prevented (just deleting the effect), step 5 would still fir
 
 ### Hook change — `src/hooks/useSession.ts`
 
-Three coordinated edits:
+Three coordinated edits. (See Decision #1 for the full canonical snippet + rationale; this section is the file-level diff guide.)
 
-**(a) Add `hasEverBeenReal` ref + assignment.** Insert above the current `useQuery` call (current line 42):
-
-```ts
-// Issue #44: distinguish a transient null from useQuery (during Convex WS
-// resubscribe after a hard-nav) from a genuine logout-elsewhere. We trust a
-// null as ground truth only after we've successfully validated this session
-// at least once — same evidence the subscription itself provides.
-const hasEverBeenReal = useRef(false);
-```
-
-Then, immediately after the `useQuery` call returns, set the ref when the result is real (this is a render-time side effect on a ref, which is permitted in React — refs aren't reactive state):
+**(a) Add `realSeenForStored` ref, render-phase reset, render-phase set, derived `hasEverBeenReal` const.** Insert immediately after the `useQuery` call (current line 45):
 
 ```ts
-const validation = useQuery(
-  api.auth.public.getSession,
-  stored ? { sessionId: stored as Id<"staff_sessions"> } : "skip",
+const realSeenForStored = useRef<{ sessionId: string | null; seen: boolean }>(
+  { sessionId: null, seen: false },
 );
-if (validation !== null && validation !== undefined) {
-  hasEverBeenReal.current = true;
+if (realSeenForStored.current.sessionId !== stored) {
+  realSeenForStored.current = { sessionId: stored, seen: false };
 }
+if (validation !== null && validation !== undefined) {
+  realSeenForStored.current.seen = true;
+}
+const hasEverBeenReal = realSeenForStored.current.seen;
 ```
 
-**(b) Gate the effect on `hasEverBeenReal`.** Replace the current `isDead` derivation + effect (lines 47-55) with:
+**(b) Replace the current `isDead` effect (lines 47-55) with the evidence-gated wipe:**
 
 ```ts
-// Wipe localStorage only on a REAL → null transition (genuine logout-elsewhere).
-// A null seen BEFORE we've ever observed a real session is the transient-reconnect
-// case (issue #44) — not authoritative; do nothing.
 useEffect(() => {
-  if (validation === null && stored != null && hasEverBeenReal.current) {
+  if (validation === null && stored != null && hasEverBeenReal) {
     localStorage.removeItem(SESSION_KEY);
     notify(null);
   }
-}, [validation, stored]);
+}, [validation, stored, hasEverBeenReal]);
 ```
 
-**(c) Flip the render-time null branch on `hasEverBeenReal`.** Replace the current line 59:
+**(c) Flip the render-time null branch (current line 59):**
 
 ```ts
 // BEFORE:
@@ -172,16 +184,18 @@ if (validation === null) return { status: "none", sessionId: null, staff: null }
 // AFTER:
 if (validation === null) {
   return {
-    status: hasEverBeenReal.current ? "none" : "loading",
+    status: hasEverBeenReal ? "none" : "loading",
     sessionId: null,
     staff: null,
   };
 }
 ```
 
-The other render-time branches (lines 57, 58, 60-63) are unchanged.
+The other render-time branches (current lines 57, 58, 60-63) are unchanged.
 
-**Stale-comment cleanup:** the existing `// Fix V17: …` comment block on lines 47-48 becomes stale and is replaced by the new comments in (a) and (b).
+**Import addition:** add `useRef` to the existing `react` import at the top (currently `import { useEffect, useState } from "react";`).
+
+**Stale-comment cleanup:** the existing `// Fix V17: …` comment block on lines 47-48 becomes stale and is replaced by the new comments shown in Decision #1's canonical snippet.
 
 ### `RootLayout` stuck-loading escape hatch — `src/components/layout/RootLayout.tsx`
 
@@ -242,7 +256,7 @@ Wording chosen to frame the action as the legitimate ADR-003 Lock pattern (`Lock
 |---|---|
 | `src/hooks/useSession.ts` | Add `hasEverBeenReal` ref + assignment; gate effect on it; flip render-time null branch from `"none"` to `"loading"` when `!hasEverBeenReal.current`. Replace stale `// Fix V17` comment with the new issue #44 reference. |
 | `src/components/layout/RootLayout.tsx` | Compute `showSessionStuck` boolean; pass it to `RouteFallback`. Refactor `RouteFallback` to render the escape-hatch button after 5s. |
-| `src/hooks/useSession.test.tsx` | Update 1 existing test's assertion (the `validation === null` case now returns `"loading"` on cold mount); add 2 new tests for the transition behaviour (real → null wipes; cold null doesn't wipe). No fake timers in this file — the hook has no time-based logic. |
+| `src/hooks/useSession.test.tsx` | Switch mock plumbing to `vi.hoisted()` + controllable `vi.fn()` (replaces the current `vi.mock("convex/react", () => ({ useQuery: () => undefined }))`). Update no existing-test assertions (existing 3 stay green because their default mock returns `undefined`). Add 3 new tests: cold-mount null → loading + no-wipe; real → null → wipe + none; same-instance relogin doesn't inherit prev session's evidence (covers Critical #1 from the spec-gate review). No `vi.useFakeTimers()` in this file — the hook has no time-based logic. |
 | `src/components/layout/__tests__/RootLayout.test.tsx` *(new file)* | 2 tests with `vi.useFakeTimers()`: (a) escape hatch hidden initially, visible after 5s of session-loading-with-stored; (b) clicking the escape hatch calls `clearSession` and redirects to `/login`. |
 | `e2e/fixtures.ts` | Remove `page.waitForTimeout(1500)` (line 41) + the 4-line workaround comment (lines 37-40). |
 | `e2e/specs/refund.spec.ts` | `test.skip` → `test` (line 12); delete 8-line `// SKIPPED:` block (lines 4-11). |
@@ -268,20 +282,45 @@ vi.mock("convex/react", () => ({ useQuery: mockUseQuery }));
 
 `beforeEach` resets `mockUseQuery.mockReturnValue(undefined)`. **No `vi.useFakeTimers()` needed in this file** — `useSession` has no time-based logic.
 
-**The 4 tests after the change** (2 existing untouched, 1 existing updated, 2 new):
+**The 6 tests after the change** (2 existing untouched, 1 existing updated, 3 new):
 
 1. **(existing, unchanged)** No stored session → status `"none"`.
 2. **(existing, unchanged)** `storeSession` notifies same-tab listeners (asserts transition `"none"` → `"loading"`).
 3. **(existing, ASSERTION UPDATED)** `clearSession` notifies same-tab listeners. The current assertion is `status: "loading"` → `clearSession()` → `status: "none"`. Unchanged — the `clearSession` path doesn't go through the new conditional, it's a direct user-action wipe. ✓ still green.
 4. **(NEW) Cold-mount null → `"loading"`, NOT `"none"`, AND no localStorage wipe.** Seed `localStorage[SESSION_KEY] = "s_seed"`; `mockUseQuery.mockReturnValue(null)`; renderHook; assert `result.current.status === "loading"`; assert `localStorage.getItem(SESSION_KEY) === "s_seed"` (the bug-fix invariant — hook never wipes localStorage when it has never seen a real session).
 5. **(NEW) Real-session → null wipes localStorage AND returns `"none"`.** Seed `localStorage`; `mockUseQuery.mockReturnValue({ sessionId: "s_seed", staff: {...}, deviceId: "dev-x", startedAt: 0 })`; renderHook; assert `status === "active"`. Flip mock to `null`; `act(() => { rerender(); })`; assert `localStorage.getItem(SESSION_KEY) === null` (wiped) AND `result.current.status === "none"` (real → null transition was honoured).
+6. **(NEW) Same-instance relogin doesn't inherit prev session's "real-seen" evidence.** Seed `localStorage[SESSION_KEY] = "s_old"`; `mockUseQuery.mockReturnValue({ sessionId: "s_old", staff: {...}, deviceId: "dev-x", startedAt: 0 })`; renderHook; assert `status === "active"` (ref is now `{ sessionId: "s_old", seen: true }`). Call `clearSession()` inside an `act()`; assert `status === "none"`. Call `storeSession("s_new", "st_new" as any)` inside an `act()`; assert `stored` is now `"s_new"`. Flip `mockUseQuery.mockReturnValue(null)`; `act(() => { rerender(); })`; assert `result.current.status === "loading"` (NOT `"none"`) AND `localStorage.getItem(SESSION_KEY) === "s_new"` (NOT wiped). This proves the ref's render-phase reset on `stored !== current.sessionId` works — the previous "seen" evidence for `s_old` is correctly discarded when the sessionId changes to `s_new`.
 
 ### Unit — `src/components/layout/__tests__/RootLayout.test.tsx` (new file)
 
-Test the escape hatch with `vi.useFakeTimers()`. Mocks `useSession` and `useDeviceId` directly (per the existing `AppHeader.test.tsx` pattern).
+Test the escape hatch with `vi.useFakeTimers()`. The existing `AppHeader.test.tsx:6-13` mock pattern is **static** (one shape for all tests) — that won't work here because the escape-hatch tests need to (a) vary `useSession`'s return value across tests, (b) spy on `clearSession` to confirm it was called, and (c) flip the session state mid-test to verify the escape-hatch DOESN'T flash when the loading state resolves quickly. Use `vi.hoisted()` controllable mocks:
 
-6. **Escape hatch hidden initially.** Mount RootLayout with `useSession` returning `status: "loading"`, `useDeviceId` returning a registered device, and `localStorage[SESSION_KEY]` set. Without advancing timers, assert the "Stuck on loading?" button is NOT visible. Assert `Loading…` IS visible.
-7. **Escape hatch visible after 5s + click calls `clearSession`.** From state #6, `act(() => vi.advanceTimersByTime(5000))`. Assert the button IS visible. Click it; assert `localStorage` is cleared (i.e., `clearSession` was called); assert subsequent render path redirects to `/login` (or assert the `clearSession` import was called via spy).
+```ts
+const { mockUseSession, mockClearSession, mockUseDeviceId, mockUseQuery } = vi.hoisted(() => ({
+  mockUseSession: vi.fn().mockReturnValue({
+    status: "loading", sessionId: null, staff: null,
+  }),
+  mockClearSession: vi.fn(),
+  mockUseDeviceId: vi.fn().mockReturnValue("dev-test"),
+  mockUseQuery: vi.fn().mockReturnValue(true), // isDeviceRegistered → true
+}));
+vi.mock("@/hooks/useSession", () => ({
+  useSession: mockUseSession,
+  clearSession: mockClearSession,
+  storeSession: vi.fn(),
+}));
+vi.mock("@/hooks/useDeviceId", () => ({ useDeviceId: mockUseDeviceId }));
+vi.mock("convex/react", () => ({ useQuery: mockUseQuery }));
+vi.mock("@/hooks/useStartupReconciliation", () => ({ useStartupReconciliation: vi.fn() }));
+```
+
+`beforeEach` resets the four mocks to their defaults; `afterEach` runs `vi.clearAllTimers(); vi.useRealTimers()`. Each test seeds `localStorage[SESSION_KEY]` as needed and mounts `<MemoryRouter><RootLayout /></MemoryRouter>`.
+
+6. **Escape hatch hidden initially.** Seed `localStorage`; mount with default mocks (session loading); without advancing timers, assert `Loading…` IS visible AND the "Stuck on loading?" button is NOT visible (`screen.queryByRole("button", { name: /Stuck on loading/i })` returns null).
+7. **Escape hatch visible after 5s + click calls `clearSession`.** From state #6, `act(() => vi.advanceTimersByTime(5000))`. Assert the button IS visible. Click it; assert `mockClearSession` was called exactly once.
+8. **(NEW) Loading→active before 5s does NOT flash the escape hatch.** Mount with `useSession` returning `"loading"` and `localStorage` seeded. At t=2000ms, flip the mock to `"active"` and rerender; advance timer to t=6000ms; assert the button NEVER appeared (the timer was cleaned up when the loading status resolved — `useEffect` cleanup returns `clearTimeout`).
+
+Test #8 verifies the cleanup path; without it, a careless implementation that sets the timer in a non-cleaning-up effect would still pass #6 and #7 but flash the button on every normal page load.
 
 ### E2E — `e2e/specs/*.spec.ts`
 
@@ -324,7 +363,7 @@ Acceptance is the 6 specs going green un-skipped in CI. No new e2e specs needed;
 | Mechanism | Debounced `setTimeout(clear, 1500ms)` in the effect | `useRef<boolean>` tracking "have we ever validated this session"; gates both effect AND render-time null branch |
 | Trust criterion for null | Time elapsed (1500ms, arbitrary constant) | Evidence-based ("we've validated at least once") |
 | Survives Convex reconnect > 1500ms | No | Yes — no time threshold in the hook |
-| Hook LOC delta | ~10 added | ~10 added (similar size, very different shape) |
+| Hook LOC delta | ~10 added | ~18 added (wrapped-object ref + render-phase reset + render-phase set + derived const + effect re-shape) |
 | Hook has `setTimeout`? | Yes | **No** |
 | Test file uses fake timers? | Yes (5 timing tests + `vi.hoisted()` plumbing) | No in `useSession.test.tsx`; yes in `RootLayout.test.tsx` (smaller surface) |
 | Stale-localStorage UX | Auto-cleared after 1500ms (silent) | User-initiated clear via "Stuck" affordance after 5s (explicit, ADR-003-aligned) |
