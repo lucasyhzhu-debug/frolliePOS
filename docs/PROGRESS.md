@@ -1261,45 +1261,59 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.7.1 — useSession transient-null fix (issue #44) 📋 PLANNED
-**Outcome:** A bug-only fast follow that stops `useSession` from wiping `localStorage` when the Convex session-validation query transiently returns `null` during WS resubscribe after a hard navigation. Real users no longer get bounced to `/login` after a reload; the 6 PIN-gated e2e specs `test.skip`-ed in PR #43 run un-skipped on CI.
-**Spec:** [`docs/superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md`](./superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md) (spec-gate staffreview: Approve with Improvements; 4 Improvements + 4 Refinements folded in)
-**Plan:** [`docs/superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md`](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md) (plan-gate staffreview: Revise → 2 Critical + 3 Improvements addressed; assumptions verified vs code)
+## v0.5.7.1 — useSession transient-null fix Option B (issue #44) 📋 PLANNED
+**Outcome:** A bug-only fast follow that replaces `useSession`'s "any null means dead" interpretation with evidence-based detection: a `null` from `useQuery(getSession)` is only treated as authoritative after we've successfully validated the current `sessionId` at least once (tracked via a `useRef` keyed on `stored`, so a same-instance lock+relogin resets the evidence). Real users no longer get bounced to `/login` after a reload; the 6 PIN-gated e2e specs `test.skip`-ed in PR #43 run un-skipped on CI; `RootLayout` gets a 5-second "Stuck on loading?" escape hatch for the rare genuinely-stale-localStorage case.
+**Spec:** [`docs/superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md`](./superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md) (spec-gate staffreview: Revise → 1 Critical + 2 Improvements folded in; relogin-safe ref shape is canonical)
+**Plan:** [`docs/superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md`](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md) (plan-gate staffreview: Revise → 1 Critical + 3 Improvements addressed; assumptions verified vs code)
+**Architectural-options review:** [`docs/reviews/staffreview-issue-44-architectural-options-2026-06-05.md`](./reviews/staffreview-issue-44-architectural-options-2026-06-05.md) — supersedes the Option A debounce plan that landed in PR #45 (same filename).
 **Target:** TBD
 
 **You'll be able to:**
 - Hard-reload any signed-in route (or do a Playwright `page.goto`) without getting bounced to `/login`
-- See a brief `Loading…` flash during the WS resubscribe window instead of a redirect — the hook now defers trust of a transient `null` from `useQuery(getSession)` by 1500ms
+- See a brief `Loading…` flash during the WS resubscribe window instead of a redirect — the hook now requires evidence ("I've validated this sessionId at least once") before trusting a `null`
+- Recover from a stuck-on-loading state via a 5-second "Stuck on loading? Lock device and sign in again." escape hatch in `RootLayout` (rare; for cases where the server reaper deleted the session row while the device was idle)
 - Un-skip the 6 PIN-gated e2e specs (refund, sale-bca-va, sale-qris, spoilage, voucher-offline, voucher-online) — CI runs all 8 specs
 
 **Still not yet:**
-- A backend-side fix to `getSession`'s reconnect semantics (deferred — symptom is client-side)
-- A user-facing "Session reconnecting…" banner (the loading state is enough)
+- A backend-side fix to `getSession`'s null-ambiguity at the API boundary (Option D from the architectural review — tagged-union return shape; filed as a follow-up issue, parked until a second motivating query exists)
+- An audit of `useApproval` and other `useQuery`-driven hooks with the same destructive null-handling shape (filed as a follow-up issue)
+- A user-facing "Session reconnecting…" banner (the loading state + escape hatch is enough)
 - Investigating whether Convex itself should preserve last-known values across WS reconnect (potential upstream issue, out of v1 scope)
 
 ### Frontend (`src/`)
 
-- 📋 **[v0571-fe-verify-hypothesis]** Throwaway instrumentation in `useSession.ts` + draft-PR CI pass — confirm `validation === null` actually appears between post-login `page.goto` and the `/login` redirect; strip after one signal.
+- 📋 **[v0571-fe-verify-hypothesis]** Throwaway instrumentation in `useSession.ts` + draft-PR CI pass — confirm `validation === null` actually appears between post-login `page.goto` and the `/login` redirect; strip after one signal. Kept as defence-in-depth even under Option B — if the symptom is actually `validation === undefined` throughout, the bug has a different root cause that the Option B render-time branch only partially helps with.
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 0](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
-    - [ ] Add `console.warn` + `sessionStorage` ring-buffer instrumentation after `useQuery(getSession)` (with `eslint-disable-next-line no-console`)
+    - [ ] Add `console.warn` + `sessionStorage` ring-buffer instrumentation after `useQuery(getSession)` (rationale comment + `eslint-disable-next-line no-console` per house style)
     - [ ] Push to draft PR; the `pull_request` event fires on draft PRs by default, so the e2e workflow runs without `gh pr ready`
     - [ ] Inspect Playwright trace / artifact: confirm `validation=null` appears, or refute and STOP (Rollback section in plan)
     - [ ] Strip instrumentation, commit, comment result on the draft PR
   - **notes:** _(empty)_
 
-- 📋 **[v0571-fe-hook-fix]** `src/hooks/useSession.ts` — add `DEAD_SESSION_CONFIRM_MS=1500` constant, replace the `isDead` effect with a debounced `setTimeout` whose cleanup-on-deps-change cancels on transient null; replace the stale "Fix V17" comment.
-  - **agent:** `frontend-integrator` · **deps:** `v0571-fe-verify-hypothesis` · **docs:** [Plan Tasks 1-2](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md), [ADR-003](./ADR/003-shared-device-ephemeral-session.md)
+- 📋 **[v0571-fe-hook-fix]** `src/hooks/useSession.ts` — add `useRef` import; insert `realSeenForStored` ref (object `{ sessionId, seen }`) with render-phase reset on `stored` change and render-phase set when validation is real; derive `hasEverBeenReal`; replace `isDead` effect with evidence-gated wipe; flip the render-time null branch from `"none"` to `hasEverBeenReal ? "none" : "loading"`; replace the stale `// Fix V17` comment. Pattern precedent: `src/hooks/useCatalogCache.ts:53` (`liveSeenRef`).
+  - **agent:** `frontend-integrator` · **deps:** `v0571-fe-verify-hypothesis` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md), [ADR-003](./ADR/003-shared-device-ephemeral-session.md)
   - **subtasks:**
-    - [ ] Rewrite test-file mock plumbing to `vi.hoisted()` + controllable `vi.fn()`; existing 3 tests stay green
-    - [ ] Write the first failing test (sustained null clears at 1500ms); confirm RED; implement fix; confirm GREEN
-    - [ ] Add the 4 remaining timing tests (transient null ignored, real→null transition, clearSession mid-window, fresh-login mid-window)
-    - [ ] Typecheck + `npx vitest run src/hooks/useSession.test.tsx` — 8 tests pass
+    - [ ] Rewrite test-file mock plumbing to `vi.hoisted()` + untyped `vi.fn()` (vitest 2.x mock plumbing); existing 3 tests stay green
+    - [ ] Write the first failing test (cold-mount null → `"loading"` + no wipe); confirm RED; implement fix; confirm GREEN
+    - [ ] Add test: real → null transition → wipe + `"none"`
+    - [ ] Add test: same-instance relogin doesn't inherit prev session's evidence (validates the `stored`-keyed ref against the spec-gate Critical #1 regression)
+    - [ ] Typecheck + lint + `npx vitest run src/hooks/useSession.test.tsx` — 6 tests pass (3 existing + 3 new)
+  - **notes:** _(empty)_
+
+- 📋 **[v0571-fe-root-layout-escape-hatch]** `src/components/layout/RootLayout.tsx` — add `STUCK_LOADING_REVEAL_MS = 5000`; compute `showSessionStuck`; pass to `RouteFallback`; rewrite `RouteFallback` with a `useEffect` + `setTimeout` that reveals a "Stuck on loading? Lock device and sign in again." button after the threshold; cleanup via `clearTimeout` ensures normal loading→active transitions never flash the button. NEW test file `__tests__/RootLayout.test.tsx` with 3 tests (`vi.useFakeTimers()` + `vi.hoisted()` controllable mocks).
+  - **agent:** `ui-component-builder` · **deps:** `v0571-fe-hook-fix` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **subtasks:**
+    - [ ] Write the 3 RootLayout tests with vi.hoisted() mocks for useSession + clearSession + useDeviceId + useQuery + useStartupReconciliation; verify the "hidden initially" test passes against current code
+    - [ ] Write the "visible after 5s + click calls clearSession" test; confirm it FAILS against current code
+    - [ ] Implement the escape hatch (constant + showSessionStuck + RouteFallback rewrite); confirm both tests now pass
+    - [ ] Add the cleanup-path test (loading→active before 5s does NOT flash); confirm 3 PASS
+    - [ ] Typecheck + lint clean
   - **notes:** _(empty)_
 
 ### Cross-cutting
 
-- 📋 **[v0571-xc-fixture-cleanup]** `e2e/fixtures.ts` — delete the trailing `page.waitForTimeout(1500)` + the 4-line workaround-comment block above it (lines 37-41). The hook now handles the race; the fixture sleep is dead weight.
+- 📋 **[v0571-xc-fixture-cleanup]** `e2e/fixtures.ts` — delete the trailing `page.waitForTimeout(1500)` + the 4-line workaround-comment block above it (lines 37-41). The hook now handles the race evidence-aware; the fixture sleep is dead weight.
   - **agent:** `—` · **deps:** `v0571-fe-hook-fix` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Delete `e2e/fixtures.ts:37-41`
@@ -1307,7 +1321,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
   - **notes:** _(empty)_
 
 - 📋 **[v0571-xc-unskip-specs]** Revert `test.skip` → `test` on 6 PIN-gated e2e specs and delete their `// SKIPPED:` blocks. `refund.spec.ts` has an 8-line block (4-11); the other 5 have a 2-line block.
-  - **agent:** `—` · **deps:** `v0571-fe-hook-fix`, `v0571-xc-fixture-cleanup` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **agent:** `—` · **deps:** `v0571-fe-hook-fix`, `v0571-fe-root-layout-escape-hatch`, `v0571-xc-fixture-cleanup` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Un-skip `e2e/specs/refund.spec.ts` (delete lines 4-11; `test.skip` on line 12 → `test`)
     - [ ] Un-skip `e2e/specs/sale-bca-va.spec.ts` (delete 2-line block; `test.skip` → `test`)
@@ -1318,10 +1332,12 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
     - [ ] Typecheck + lint clean
   - **notes:** _(empty)_
 
-- 📋 **[v0571-xc-changelog]** `docs/CHANGELOG.md` — one-line v0.5.7.1 bug-fix entry citing issue #44. Convert draft PR to ready; e2e workflow re-runs; all 8 specs green is the acceptance signal.
+- 📋 **[v0571-xc-changelog]** `docs/CHANGELOG.md` — one-line v0.5.7.1 bug-fix entry citing issue #44 + file the two follow-up issues (Option D tagged-union migration; null-handling audit across `useQuery` hooks) in the SAME PR per the architectural-options mitigation-vs-root-cause discipline. Convert draft PR to ready; e2e workflow re-runs; all 8 specs green is the acceptance signal.
   - **agent:** `—` · **deps:** `v0571-xc-unskip-specs` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Insert v0.5.7.1 entry above the most recent CHANGELOG header
+    - [ ] `gh issue create` — "Migrate getSession (and other ambiguous-null public queries) to tagged-union return shape" (Option D follow-up)
+    - [ ] `gh issue create` — "Audit useQuery-driven hooks for destructive null-handling (starting with useApproval)"
     - [ ] `git push` + `gh pr ready` → watch `gh pr checks --watch`
     - [ ] All 8 e2e specs green (was 1 passed / 7 skipped per workflow run #27001616950)
   - **notes:** _(empty)_
