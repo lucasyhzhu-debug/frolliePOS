@@ -2,6 +2,22 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v0.5.7.1 — 2026-06-05 — bug fix
+
+### Fixed
+- **a11y:** Catalog "Add" buttons now include the pack label in their
+  `aria-label` (e.g., "Add Dubai 1 pc" instead of "Add Dubai"), so three
+  Dubai SKUs are uniquely identifiable to screen readers and assistive
+  tech. (issue #44)
+- **e2e:** Un-skipped 6 PIN-gated specs (refund, sale-bca-va, sale-qris,
+  spoilage, voucher-offline, voucher-online) that were skipped in PR #43
+  with a session-loss-on-hard-nav rationale. Instrumented CI traces
+  refuted that diagnosis — the actual failure was stale selectors
+  (`/Dubai 1pc/i` did not match the rendered `Add Dubai` aria-label
+  because pack_label was missing, fixed above). Removed the 1500ms
+  `awaitSignedIn` warm-up from `e2e/fixtures.ts` that was bolted on
+  top of the same selector failure. (issue #44)
+
 ## 2026-06-05 — v0.5.8 Orphaned-function wiring
 
 - **Audit-log viewer** (`/mgr/audit`): manager-only append-only activity trail. `audit.public.list` now pre-derives `actor_name` server-side (ADR-034 / v0.5.3a label pattern).
