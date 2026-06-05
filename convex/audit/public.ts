@@ -37,12 +37,14 @@ export const list = query({
   },
   handler: async (ctx, args): Promise<AuditRowView[]> => {
     await requireManagerSession(ctx, args.sessionId);
-    const rows = await auditListHandler(ctx, args);
 
-    const staffNames = await ctx.runQuery(
-      internal.auth.internal._listStaffNames_internal,
-      {},
-    );
+    // Auth first, then the two reads are independent → overlap them
+    // (v0.5.3a "parallelize independent awaits"). The staff-name read is a
+    // sub-query boundary; running the local audit read under it is free.
+    const [rows, staffNames] = await Promise.all([
+      auditListHandler(ctx, args),
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
+    ]);
     const nameById = new Map(staffNames.map((s) => [String(s._id), s.name]));
 
     return rows.map((r) => ({
