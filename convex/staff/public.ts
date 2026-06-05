@@ -5,16 +5,7 @@ import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { internal } from "../_generated/api";
-
-const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
-const MAX_CODE_COLLISION_RETRIES = 5;
-
-function generateSecureSetupCode(): string {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  // Map to [100_000, 999_999]. Modulo bias is negligible at this range.
-  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
-}
+import { issueDeviceSetupCode } from "./internal";
 
 export const isDeviceRegistered = query({
   args: { deviceId: v.string() },
@@ -118,34 +109,12 @@ export const generateDeviceSetupCode = mutation({
   >(
     "staff.generateDeviceSetupCode",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
-      const now = Date.now();
-      const expiresAt = now + SETUP_CODE_TTL_MS;
-
-      let code: string | null = null;
-      for (let i = 0; i < MAX_CODE_COLLISION_RETRIES; i++) {
-        const candidate = generateSecureSetupCode();
-        const collision = await ctx.db
-          .query("pending_device_setups")
-          .withIndex("by_code", (q) => q.eq("setup_code", candidate))
-          .filter((q) => q.eq(q.field("consumed_at"), null))
-          .filter((q) => q.gt(q.field("expires_at"), now))
-          .unique();
-        if (!collision) { code = candidate; break; }
-      }
-      if (!code) throw new Error("CODE_COLLISION");
-
-      await ctx.db.insert("pending_device_setups", {
-        setup_code: code,
-        issued_by: mgrId,
-        expires_at: expiresAt,
-        consumed_at: null,
+      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      return await issueDeviceSetupCode(ctx, {
+        issuedVia: "booth_inline",
+        issuedBy: mgrId,
+        deviceId,
       });
-      await logAudit(ctx, {
-        actor_id: mgrId, action: "device.setup_code_issued",
-        entity_type: "device", source: "booth_inline", device_id: deviceId,
-      });
-      return { code, expiresAt };
     },
     {
       staffIdFromArgs: (_a) => undefined,

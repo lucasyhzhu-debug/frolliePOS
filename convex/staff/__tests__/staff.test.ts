@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import { seedStaff } from "../../auth/__tests__/auth.test";
 
 async function seedManager(t: ReturnType<typeof convexTest>) {
@@ -234,5 +235,58 @@ describe("createStaff", () => {
         managerPin: "1234", idempotencyKey: "create-2",
       })
     ).rejects.toThrow(/NOT_MANAGER|manager/i);
+  });
+});
+
+describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
+  it("issues a telegram-attributed code with issued_via + audit source telegram_approval", async () => {
+    const t = convexTest(schema);
+    const { code, expiresAt } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers", fromId: 4242 },
+    );
+    expect(code).toMatch(/^\d{6}$/);
+    expect(expiresAt).toBeGreaterThan(Date.now() + 59 * 60 * 1000);
+
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", code))
+        .unique(),
+    );
+    expect(row?.issued_via).toBe("telegram");
+    expect(row?.issued_by).toBeUndefined();
+    expect(row?.issued_by_telegram).toEqual({ from_id: 4242, chat_title: "Frollie · Managers" });
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db
+        .query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "device.setup_code_issued"))
+        .collect(),
+    );
+    const telegramRow = audit.find((a) => a.source === "telegram_approval");
+    expect(telegramRow).toBeDefined();
+    expect(telegramRow?.actor_id).toBe("system");
+    expect(JSON.parse(telegramRow!.metadata as string)).toMatchObject({
+      issued_via: "telegram",
+      telegram_from_id: 4242,
+      chat_title: "Frollie · Managers",
+    });
+  });
+
+  it("issues a code when fromId is undefined (anonymous admin)", async () => {
+    const t = convexTest(schema);
+    const { code } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers" },
+    );
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", code))
+        .unique(),
+    );
+    expect(row?.issued_by_telegram?.from_id).toBeUndefined();
+    expect(row?.issued_by_telegram?.chat_title).toBe("Frollie · Managers");
   });
 });

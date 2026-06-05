@@ -4,6 +4,101 @@ import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession } from "../auth/sessions";
+import type { MutationCtx } from "../_generated/server";
+
+const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
+const MAX_CODE_COLLISION_RETRIES = 5;
+
+function generateSecureSetupCode(): string {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  // Map to [100_000, 999_999]. Modulo bias negligible at this range.
+  return String(100_000 + (buf[0] % 900_000)).padStart(6, "0");
+}
+
+/**
+ * Single writer for `pending_device_setups`. Plain async fn (NOT an
+ * internalMutation) so the booth mutation can call it inside its own
+ * transaction — same pattern as `logAudit` (ADR-034). Both issuance paths
+ * (booth-session + managers-Telegram) funnel through here so the collision
+ * loop and audit shape never drift (v0.5.5 canonical-insert lesson).
+ */
+export async function issueDeviceSetupCode(
+  ctx: MutationCtx,
+  opts: {
+    issuedVia: "booth_inline" | "telegram";
+    issuedBy?: Id<"staff">;
+    telegramIssuer?: { fromId?: number; chatTitle: string };
+    deviceId?: string;
+  },
+): Promise<{ code: string; expiresAt: number }> {
+  const now = Date.now();
+  const expiresAt = now + SETUP_CODE_TTL_MS;
+
+  let code: string | null = null;
+  for (let i = 0; i < MAX_CODE_COLLISION_RETRIES; i++) {
+    const candidate = generateSecureSetupCode();
+    const collision = await ctx.db
+      .query("pending_device_setups")
+      .withIndex("by_code", (q) => q.eq("setup_code", candidate))
+      .filter((q) => q.eq(q.field("consumed_at"), null))
+      .filter((q) => q.gt(q.field("expires_at"), now))
+      .unique();
+    if (!collision) {
+      code = candidate;
+      break;
+    }
+  }
+  if (!code) throw new Error("CODE_COLLISION");
+
+  await ctx.db.insert("pending_device_setups", {
+    setup_code: code,
+    issued_by: opts.issuedBy,
+    issued_via: opts.issuedVia,
+    issued_by_telegram: opts.telegramIssuer
+      ? { from_id: opts.telegramIssuer.fromId, chat_title: opts.telegramIssuer.chatTitle }
+      : undefined,
+    expires_at: expiresAt,
+    consumed_at: null,
+  });
+
+  await logAudit(ctx, {
+    actor_id: opts.issuedBy ?? "system",
+    action: "device.setup_code_issued",
+    entity_type: "device",
+    source: opts.issuedVia === "telegram" ? "telegram_approval" : "booth_inline",
+    device_id: opts.deviceId,
+    metadata:
+      opts.issuedVia === "telegram"
+        ? {
+            issued_via: "telegram",
+            telegram_from_id: opts.telegramIssuer?.fromId,
+            chat_title: opts.telegramIssuer?.chatTitle,
+          }
+        : { issued_via: "booth_inline" },
+  });
+
+  return { code, expiresAt };
+}
+
+/**
+ * Telegram path wrapper. The `/activatepos` internalAction calls this via
+ * ctx.runMutation (an action cannot touch the db directly). No idempotencyKey:
+ * the webhook dedupes by Telegram update_id (`telegram/webhook.ts:recordIfNew`),
+ * so dispatch fires at most once per command.
+ */
+export const _issueDeviceSetupCodeFromTelegram_internal = internalMutation({
+  args: {
+    chatTitle: v.string(),
+    fromId: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ code: string; expiresAt: number }> => {
+    return await issueDeviceSetupCode(ctx, {
+      issuedVia: "telegram",
+      telegramIssuer: { fromId: args.fromId, chatTitle: args.chatTitle },
+    });
+  },
+});
 
 /**
  * Commit a staff role change. Owns the last-active-manager guard so the
