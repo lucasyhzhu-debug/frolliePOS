@@ -172,6 +172,15 @@ export const activateDevice = mutation({
 
       await ctx.db.patch(pending._id, { consumed_at: now });
 
+      // v0.6: codes minted via Telegram have no staff issuer — fall back to the
+      // "system" audit actor and carry the issuance channel into metadata.
+      // NOTE: `source` stays "booth_inline" — activation is always a physical
+      // booth act (code typed into the new device); only ISSUANCE came from
+      // Telegram. Don't overload "telegram_approval" (the approval/token flow
+      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
+      const auditActor = pending.issued_by ?? ("system" as const);
+      const activatedVia = pending.issued_via ?? "booth_inline";
+
       let deviceRowId: Id<"registered_devices">;
       let reactivated = false;
 
@@ -185,7 +194,7 @@ export const activateDevice = mutation({
         await ctx.db.patch(primary._id, {
           active: true,
           label: args.deviceLabel,
-          activated_by: pending.issued_by,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
           activated_at: now,
           last_seen_at: now,
         });
@@ -198,7 +207,7 @@ export const activateDevice = mutation({
         deviceRowId = await ctx.db.insert("registered_devices", {
           device_id: args.deviceId,
           label: args.deviceLabel,
-          activated_by: pending.issued_by,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
           activated_at: now,
           last_seen_at: now,
           active: true,
@@ -206,10 +215,18 @@ export const activateDevice = mutation({
       }
 
       await logAudit(ctx, {
-        actor_id: pending.issued_by, action: "device.activated",
-        entity_type: "device", entity_id: deviceRowId,
-        source: "booth_inline", device_id: args.deviceId,
-        metadata: { activated_via_pending_id: pending._id, label: args.deviceLabel, reactivated },
+        actor_id: auditActor,
+        action: "device.activated",
+        entity_type: "device",
+        entity_id: deviceRowId,
+        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
+        device_id: args.deviceId,
+        metadata: {
+          activated_via_pending_id: pending._id,
+          label: args.deviceLabel,
+          reactivated,
+          activated_via: activatedVia,
+        },
       });
       return {
         _id: deviceRowId,

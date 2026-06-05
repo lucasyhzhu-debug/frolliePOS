@@ -238,6 +238,44 @@ describe("createStaff", () => {
   });
 });
 
+describe("activateDevice with a Telegram-issued code", () => {
+  it("activates with no activated_by and audits as system + activated_via telegram", async () => {
+    const t = convexTest(schema);
+    const { code } = await t.mutation(
+      internal.staff.internal._issueDeviceSetupCodeFromTelegram_internal,
+      { chatTitle: "Frollie · Managers", fromId: 99 },
+    );
+
+    const res = await t.mutation(api.staff.public.activateDevice, {
+      idempotencyKey: "act-tg-1",
+      code,
+      deviceLabel: "New Phone",
+      deviceId: "dev-tg-1",
+    });
+    expect(res.active).toBe(true);
+
+    const device = await t.run(async (ctx) =>
+      ctx.db
+        .query("registered_devices")
+        .withIndex("by_device_id", (q) => q.eq("device_id", "dev-tg-1"))
+        .unique(),
+    );
+    expect(device?.activated_by).toBeUndefined();
+
+    const audit = await t.run(async (ctx) =>
+      ctx.db
+        .query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "device.activated"))
+        .collect(),
+    );
+    expect(audit[0]?.actor_id).toBe("system");
+    expect(JSON.parse(audit[0]!.metadata as string)).toMatchObject({
+      activated_via: "telegram",
+      label: "New Phone",
+    });
+  });
+});
+
 describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
   it("issues a telegram-attributed code with issued_via + audit source telegram_approval", async () => {
     const t = convexTest(schema);
