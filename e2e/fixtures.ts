@@ -34,6 +34,11 @@ async function awaitSignedIn(page: Page, staffName: string): Promise<void> {
   // visible as the readiness signal.
   await page.getByRole("link", { name: /New sale/i }).first().waitFor({ timeout: 5_000 });
   await expect(page).not.toHaveURL(/\/login/, { timeout: 2_000 });
+  // Convex client warm-up window. Without this, the next page.goto in the test
+  // can trigger a transient null on the session-validation query during WS
+  // reconnect → useSession.isDead effect clears localStorage → next render
+  // redirects to /login. Empirically reproduced on every signedIn fixture spec.
+  await page.waitForTimeout(1500);
 }
 
 export const test = base.extend<Fixtures>({
