@@ -1,7 +1,7 @@
-# Staff Review: v0.5.7 — Orphaned-function wiring (PLAN)
+# Staff Review: v0.5.8 — Orphaned-function wiring (PLAN)
 
 **Date:** 2026-06-05
-**Plan:** `docs/superpowers/plans/2026-06-05-v0.5.7-orphan-wiring.md`
+**Plan:** `docs/superpowers/plans/2026-06-05-v0.5.8-orphan-wiring.md`
 **Reviewers:** Staff Developer (Implementation) + Principal Developer (Architecture)
 **Plan Structure:** ✅ Validated — Goal, File-structure, TDD tasks, Testing, Success criteria, Rollback all present.
 
@@ -72,8 +72,8 @@ No duplication. The plan correctly **extends** `audit.public.list` (not a parall
 
 | Check | Status |
 |-------|--------|
-| Feature branch | ✅ worktree `worktree-v0.5.7-orphan-wiring` |
-| Atomic commits | ✅ one per task with `feat(v0.5.7):` / `docs(v0.5.7):` templates |
+| Feature branch | ✅ worktree `worktree-v0.5.8-orphan-wiring` |
+| Atomic commits | ✅ one per task with `feat(v0.5.8):` / `docs(v0.5.8):` templates |
 | Pre-push typecheck/build/lint | ✅ Task 7 |
 | Rollback | ✅ FE + additive field; per-commit `git revert` |
 
@@ -82,7 +82,7 @@ No duplication. The plan correctly **extends** `audit.public.list` (not a parall
 | Item | Planned? |
 |------|----------|
 | CLAUDE.md file-locations (+`/mgr/audit`, +`useAwaitingPaymentRecovery`) | ✅ Task 6 |
-| docs/CHANGELOG.md v0.5.7 | ✅ Task 6 |
+| docs/CHANGELOG.md v0.5.8 | ✅ Task 6 |
 | docs/PROGRESS.md + progress.html | ⏳ pipeline step 6 (post-plan, separate) |
 | docs/API_REFERENCE.md (`actor_name` on `audit.public.list`) | ➕ recommend adding to Task 6 |
 

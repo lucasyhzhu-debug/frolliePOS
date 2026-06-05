@@ -1,7 +1,7 @@
-# Staff Review: v0.5.7 — Orphaned-function wiring (SPEC)
+# Staff Review: v0.5.8 — Orphaned-function wiring (SPEC)
 
 **Date:** 2026-06-05
-**Plan:** `docs/superpowers/specs/2026-06-05-v0.5.7-orphan-wiring-design.md`
+**Plan:** `docs/superpowers/specs/2026-06-05-v0.5.8-orphan-wiring-design.md`
 **Reviewers:** Staff Developer (Implementation) + Principal Developer (Architecture)
 **Plan Structure:** ⚠️ Design spec, not a full impl plan — File-Changes paths, wave ordering, and commit checkpoints intentionally deferred to `writing-plans` (next gate). Not penalized.
 
@@ -27,7 +27,7 @@ Parts A and B are sound and accurately grounded — the cited facts check out ag
 
 **Resolution (decision required — see §12):**
 - **C1 (in-scope, recommended):** Gate the affordance to manager sessions — render "Batalkan permintaan" only when `session.staff.role === "manager"`. Correct, safe, zero backend. Covers the real case where a *manager* is logged in on the booth device and wants to clear a stuck/duplicate request. Non-manager requesters continue to rely on the existing exits: 60-min token TTL expiry, manager denial, or **sale abandonment** (charge already cascade-denies the pending manual-payment request via `_cancelPendingManualPaymentForTxn_internal` — `transactions/public.ts:420-421`).
-- **C2 (deferred, out of v0.5.7 scope):** Build a staff-requester self-cancel — a new mutation letting the session that *created* a pending request invalidate it (`requireSession`, assert `requested_by === session.staffId`). This is the affordance the handoff imagined, but it is **net-new backend + an approval-semantics decision**, not "wiring." Defer to its own phase.
+- **C2 (deferred, out of v0.5.8 scope):** Build a staff-requester self-cancel — a new mutation letting the session that *created* a pending request invalidate it (`requireSession`, assert `requested_by === session.staffId`). This is the affordance the handoff imagined, but it is **net-new backend + an approval-semantics decision**, not "wiring." Defer to its own phase.
 
 **Recommendation:** Adopt **C1** unless the user wants the C2 feature. Update Part C in the spec to state the manager-gate as a decided constraint (remove the "open question" framing), and document the non-manager exit paths.
 
@@ -85,7 +85,7 @@ Spec doesn't define waves (deferred to plan). Recommended order for the plan:
 
 | Check | Status |
 |-------|--------|
-| Feature branch | ✅ worktree branch `worktree-v0.5.7-orphan-wiring` off `origin/main` |
+| Feature branch | ✅ worktree branch `worktree-v0.5.8-orphan-wiring` off `origin/main` |
 | Atomic commits | ⚠️ specify in plan (one per part + docs) |
 | Pre-push typecheck/build | ✅ in spec "Done when" |
 | Squash-PR convention | ✅ pipeline handles |
@@ -96,13 +96,13 @@ Spec doesn't define waves (deferred to plan). Recommended order for the plan:
 | Item | Update |
 |------|--------|
 | CLAUDE.md | routes table (+`/mgr/audit`), `src/routes` + `src/hooks` file-locations |
-| docs/CHANGELOG.md | v0.5.7 entry |
-| docs/PROGRESS.md | v0.5.7 phase + tasks via `/progress-update`, regen `progress.html` |
+| docs/CHANGELOG.md | v0.5.8 entry |
+| docs/PROGRESS.md | v0.5.8 phase + tasks via `/progress-update`, regen `progress.html` |
 | docs/API_REFERENCE.md | note `audit.public.list` now returns `actor_name` |
 
 ### CHANGELOG draft
 ~~~markdown
-## v0.5.7 — Orphaned-function wiring
+## v0.5.8 — Orphaned-function wiring
 - Manager audit-log viewer at /mgr/audit (append-only trail; actor names server-derived).
 - Home recovery banner for in-flight awaiting-payment txns (resume the charge screen).
 - Cancel a pending approval from ApprovalPending (manager-session gated).
