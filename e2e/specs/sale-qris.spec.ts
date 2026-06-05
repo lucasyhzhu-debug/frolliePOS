@@ -2,14 +2,6 @@ import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
 test("QRIS sale: cart → charge → simulate → paid receipt", async ({ signedInAsLucas: page }) => {
-  // TEMP issue #44: bridge browser console.warn → Playwright stdout to verify
-  // the [useSession#44] transient-null hypothesis. Stripped in Step 5.
-  page.on("console", (msg) => {
-    const txt = msg.text();
-    if (txt.includes("[useSession#44]")) {
-      console.log(`PW>>> ${txt}`);
-    }
-  });
   await page.goto("/sale");
   await page.getByRole("button", { name: /Dubai 1pc/i }).click();
   await page.getByRole("button", { name: /Dubai 1pc/i }).click(); // qty 2
