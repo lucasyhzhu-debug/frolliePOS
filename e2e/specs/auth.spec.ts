@@ -5,7 +5,7 @@ test.describe("auth", () => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: /Lucas/i })).toBeVisible();
     await page.getByRole("button", { name: /Lucas/i }).click();
-    for (const d of "9999") await page.getByRole("button", { name: d, exact: true }).click();
+    for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
     await expect(page).toHaveURL(/\/(mgr|home|sale)/);
   });
 
@@ -13,7 +13,7 @@ test.describe("auth", () => {
     await page.goto("/");
     await page.getByRole("button", { name: /Lucas/i }).click();
     for (let i = 0; i < 3; i++) {
-      for (const d of "1234") await page.getByRole("button", { name: d, exact: true }).click();
+      for (const d of "1234") await page.getByLabel(`Digit ${d}`).click();
       // Either an inline error or a transition to lockout UI — accept either signal.
       await page.waitForTimeout(500);
     }

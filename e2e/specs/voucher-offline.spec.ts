@@ -9,7 +9,7 @@ test("voucher (offline): apply → mgr expires → reconnect → ADR-009 reject 
   await page.getByRole("option", { name: /Amount/i }).click();
   await page.getByLabel(/^Value/i).fill("500");
   await page.getByRole("button", { name: /Create \(PIN\)/i }).click();
-  for (const d of "9999") await page.getByRole("button", { name: d, exact: true }).click();
+  for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
   await expect(page.getByText(/OFFLINE10/)).toBeVisible();
 
   // 2. Hydrate catalog cache by visiting /sale online + adding a product
