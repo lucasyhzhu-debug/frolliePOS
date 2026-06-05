@@ -18,6 +18,7 @@ jobs:
       VITE_CONVEX_URL: ${{ secrets.CONVEX_DEV_URL }}
       XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY_DEV }}
       XENDIT_CALLBACK_TOKEN: ${{ secrets.XENDIT_CALLBACK_TOKEN_DEV }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
       CI: "true"
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +29,6 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
       - run: npm run test:e2e
       - if: failure()
         uses: actions/upload-artifact@v4
