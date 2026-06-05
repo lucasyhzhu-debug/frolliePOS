@@ -1261,6 +1261,73 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
+## v0.5.7.1 — useSession transient-null fix (issue #44) 📋 PLANNED
+**Outcome:** A bug-only fast follow that stops `useSession` from wiping `localStorage` when the Convex session-validation query transiently returns `null` during WS resubscribe after a hard navigation. Real users no longer get bounced to `/login` after a reload; the 6 PIN-gated e2e specs `test.skip`-ed in PR #43 run un-skipped on CI.
+**Spec:** [`docs/superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md`](./superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md) (spec-gate staffreview: Approve with Improvements; 4 Improvements + 4 Refinements folded in)
+**Plan:** [`docs/superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md`](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md) (plan-gate staffreview: Revise → 2 Critical + 3 Improvements addressed; assumptions verified vs code)
+**Target:** TBD
+
+**You'll be able to:**
+- Hard-reload any signed-in route (or do a Playwright `page.goto`) without getting bounced to `/login`
+- See a brief `Loading…` flash during the WS resubscribe window instead of a redirect — the hook now defers trust of a transient `null` from `useQuery(getSession)` by 1500ms
+- Un-skip the 6 PIN-gated e2e specs (refund, sale-bca-va, sale-qris, spoilage, voucher-offline, voucher-online) — CI runs all 8 specs
+
+**Still not yet:**
+- A backend-side fix to `getSession`'s reconnect semantics (deferred — symptom is client-side)
+- A user-facing "Session reconnecting…" banner (the loading state is enough)
+- Investigating whether Convex itself should preserve last-known values across WS reconnect (potential upstream issue, out of v1 scope)
+
+### Frontend (`src/`)
+
+- 📋 **[v0571-fe-verify-hypothesis]** Throwaway instrumentation in `useSession.ts` + draft-PR CI pass — confirm `validation === null` actually appears between post-login `page.goto` and the `/login` redirect; strip after one signal.
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 0](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **subtasks:**
+    - [ ] Add `console.warn` + `sessionStorage` ring-buffer instrumentation after `useQuery(getSession)` (with `eslint-disable-next-line no-console`)
+    - [ ] Push to draft PR; the `pull_request` event fires on draft PRs by default, so the e2e workflow runs without `gh pr ready`
+    - [ ] Inspect Playwright trace / artifact: confirm `validation=null` appears, or refute and STOP (Rollback section in plan)
+    - [ ] Strip instrumentation, commit, comment result on the draft PR
+  - **notes:** _(empty)_
+
+- 📋 **[v0571-fe-hook-fix]** `src/hooks/useSession.ts` — add `DEAD_SESSION_CONFIRM_MS=1500` constant, replace the `isDead` effect with a debounced `setTimeout` whose cleanup-on-deps-change cancels on transient null; replace the stale "Fix V17" comment.
+  - **agent:** `frontend-integrator` · **deps:** `v0571-fe-verify-hypothesis` · **docs:** [Plan Tasks 1-2](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md), [ADR-003](./ADR/003-shared-device-ephemeral-session.md)
+  - **subtasks:**
+    - [ ] Rewrite test-file mock plumbing to `vi.hoisted()` + controllable `vi.fn()`; existing 3 tests stay green
+    - [ ] Write the first failing test (sustained null clears at 1500ms); confirm RED; implement fix; confirm GREEN
+    - [ ] Add the 4 remaining timing tests (transient null ignored, real→null transition, clearSession mid-window, fresh-login mid-window)
+    - [ ] Typecheck + `npx vitest run src/hooks/useSession.test.tsx` — 8 tests pass
+  - **notes:** _(empty)_
+
+### Cross-cutting
+
+- 📋 **[v0571-xc-fixture-cleanup]** `e2e/fixtures.ts` — delete the trailing `page.waitForTimeout(1500)` + the 4-line workaround-comment block above it (lines 37-41). The hook now handles the race; the fixture sleep is dead weight.
+  - **agent:** `—` · **deps:** `v0571-fe-hook-fix` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **subtasks:**
+    - [ ] Delete `e2e/fixtures.ts:37-41`
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0571-xc-unskip-specs]** Revert `test.skip` → `test` on 6 PIN-gated e2e specs and delete their `// SKIPPED:` blocks. `refund.spec.ts` has an 8-line block (4-11); the other 5 have a 2-line block.
+  - **agent:** `—` · **deps:** `v0571-fe-hook-fix`, `v0571-xc-fixture-cleanup` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **subtasks:**
+    - [ ] Un-skip `e2e/specs/refund.spec.ts` (delete lines 4-11; `test.skip` on line 12 → `test`)
+    - [ ] Un-skip `e2e/specs/sale-bca-va.spec.ts` (delete 2-line block; `test.skip` → `test`)
+    - [ ] Un-skip `e2e/specs/sale-qris.spec.ts` (same)
+    - [ ] Un-skip `e2e/specs/spoilage.spec.ts` (delete lines 3-4; `test.skip` → `test`)
+    - [ ] Un-skip `e2e/specs/voucher-offline.spec.ts` (same as sale-bca-va)
+    - [ ] Un-skip `e2e/specs/voucher-online.spec.ts` (same as sale-bca-va)
+    - [ ] Typecheck + lint clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0571-xc-changelog]** `docs/CHANGELOG.md` — one-line v0.5.7.1 bug-fix entry citing issue #44. Convert draft PR to ready; e2e workflow re-runs; all 8 specs green is the acceptance signal.
+  - **agent:** `—` · **deps:** `v0571-xc-unskip-specs` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
+  - **subtasks:**
+    - [ ] Insert v0.5.7.1 entry above the most recent CHANGELOG header
+    - [ ] `git push` + `gh pr ready` → watch `gh pr checks --watch`
+    - [ ] All 8 e2e specs green (was 1 passed / 7 skipped per workflow run #27001616950)
+  - **notes:** _(empty)_
+
+---
+
 ## v0.5.8 — Orphaned-function wiring 📋 PLANNED
 **Outcome:** Three tested-but-doorless backend functions get their UI — the same "backend exists, no entrance" gap v0.5.6 closed. Mostly pure FE wiring; one tiny additive backend change (audit query pre-derives actor names). No schema, no migration. (Renumbered from v0.5.7, which the Telegram /activatepos phase claimed first.)
 **Spec:** [`docs/superpowers/specs/2026-06-05-v0.5.8-orphan-wiring-design.md`](./superpowers/specs/2026-06-05-v0.5.8-orphan-wiring-design.md) (spec-gate staffreview: resolved Part C to manager-gated/refund-only)
