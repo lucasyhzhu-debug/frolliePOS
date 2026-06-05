@@ -44,6 +44,22 @@ export function useSession(): SessionState {
     stored ? { sessionId: stored as Id<"staff_sessions"> } : "skip",
   );
 
+  // TEMP issue #44: prove the transient-null hypothesis. Strip before final commit.
+  useEffect(() => {
+    const tag = `[useSession#44] stored=${stored ? "Y" : "N"} validation=${
+      validation === undefined ? "undefined" : validation === null ? "null" : "object"
+    }`;
+    // TEMP issue #44 instrumentation, stripped in Step 5.
+    console.warn(tag);
+    try {
+      const ring = JSON.parse(sessionStorage.getItem("__issue44_ring") ?? "[]") as string[];
+      ring.push(`${Date.now()}|${tag}`);
+      sessionStorage.setItem("__issue44_ring", JSON.stringify(ring.slice(-20)));
+    } catch {
+      // sessionStorage unavailable / quota — fine, console.warn is enough
+    }
+  }, [stored, validation]);
+
   // Fix V17: remove the dead session from storage in an effect, not during render.
   // `validation === null` means the session row no longer exists (expired/deleted).
   const isDead = stored != null && validation === null;
