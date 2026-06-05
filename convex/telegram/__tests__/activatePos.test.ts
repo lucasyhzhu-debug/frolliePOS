@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { buildActivatePosCommand } from "../activatePos";
+import { buildCommandMatcher } from "../commands";
+import { buildRegistryCommands } from "../registryCommands";
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -103,5 +105,19 @@ describe("buildActivatePosCommand", () => {
       chatTitle: "Frollie · Managers",
       fromId: 4242,
     });
+  });
+});
+
+describe("webhook registry includes /activatepos", () => {
+  it("matches /activatepos and /activatepos@Bot, rejects trailing args", () => {
+    const fakeScheduler = { runAfter: vi.fn() } as any;
+    const registrations = [
+      ...buildRegistryCommands(fakeScheduler),
+      ...buildActivatePosCommand(fakeScheduler),
+    ];
+    const matcher = buildCommandMatcher(registrations);
+    expect(matcher("/activatepos")?.command.name).toBe("activatepos");
+    expect(matcher("/activatepos@FrolliePOS_Bot")?.command.name).toBe("activatepos");
+    expect(matcher("/activatepos 123")).toBeNull();
   });
 });
