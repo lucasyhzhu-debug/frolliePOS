@@ -5,6 +5,7 @@ import { useSession, clearSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
 import { useRecountNudge } from "@/hooks/useRecountNudge";
+import { useAwaitingPaymentRecovery } from "@/hooks/useAwaitingPaymentRecovery";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { Card } from "@/components/ui/card";
@@ -50,6 +51,7 @@ export default function HomeRoute() {
   const logout = useMutation(api.auth.public.logout);
   const logoutKey = useIdempotency(`logout:${session.sessionId ?? "none"}`);
   const nudge = useRecountNudge();
+  const recovery = useAwaitingPaymentRecovery();
 
   if (session.status !== "active") return null; // RootLayout redirected
 
@@ -91,6 +93,16 @@ export default function HomeRoute() {
           className="block rounded-md bg-amber-50 p-3 text-center text-sm text-amber-800"
         >
           Saatnya menghitung ulang stok — ketuk untuk mulai
+        </Link>
+      )}
+
+      {recovery.latest && (
+        <Link
+          to={`/sale/charge/${recovery.latest._id}`}
+          className="block rounded-md bg-amber-50 p-3 text-center text-sm text-amber-800"
+          data-testid="awaiting-recovery-banner"
+        >
+          {recovery.count} pembayaran belum selesai — ketuk untuk lanjutkan
         </Link>
       )}
 

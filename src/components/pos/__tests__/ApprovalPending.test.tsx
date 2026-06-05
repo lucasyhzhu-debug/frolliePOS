@@ -1,5 +1,6 @@
-import { render, waitFor } from "@testing-library/react";
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, test, expect, vi, beforeEach } from "vitest";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { ApprovalPending } from "../ApprovalPending";
 import type { ApprovalStatus } from "@/hooks/useApproval";
 
@@ -111,5 +112,33 @@ describe("ApprovalPending — terminal callbacks", () => {
     expect(onResolved).not.toHaveBeenCalled();
     expect(onDenied).not.toHaveBeenCalled();
     expect(onExpired).not.toHaveBeenCalled();
+  });
+});
+
+const REQ = "req_1" as Id<"pos_approval_requests">;
+
+describe("ApprovalPending cancel button (Part C)", () => {
+  beforeEach(() => {
+    mockStatus = "pending";
+  });
+
+  it("shows the cancel button in pending when onCancel is provided and calls it", () => {
+    const onCancel = vi.fn();
+    render(<ApprovalPending requestId={REQ} onCancel={onCancel} />);
+    const btn = screen.getByTestId("approval-cancel");
+    fireEvent.click(btn);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the cancel button when onCancel is not provided", () => {
+    render(<ApprovalPending requestId={REQ} />);
+    expect(screen.queryByTestId("approval-cancel")).toBeNull();
+  });
+
+  it("hides the cancel button when status is not pending", () => {
+    mockStatus = "resolved";
+    const onCancel = vi.fn();
+    render(<ApprovalPending requestId={REQ} onCancel={onCancel} />);
+    expect(screen.queryByTestId("approval-cancel")).toBeNull();
   });
 });
