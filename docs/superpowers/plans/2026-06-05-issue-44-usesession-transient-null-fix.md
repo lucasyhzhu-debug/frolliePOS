@@ -6,7 +6,7 @@
 
 **Architecture:** Track a `useRef<{ sessionId, seen }>` in `useSession.ts`, keyed on `stored` (the current localStorage sessionId), with a render-phase reset on `stored` change so a same-instance lock+relogin doesn't inherit the previous session's evidence (RootLayout keeps `useSession` alive across route changes). Both the destructive effect AND the render-time null branch consult the derived `hasEverBeenReal` const. Add a `RootLayout` `RouteFallback` escape hatch ("Stuck on loading? Lock device and sign in again.") visible after 5s for the rare genuinely-stale-localStorage case so the user is never trapped on `Loading…`.
 
-**Tech Stack:** React 19 + TypeScript, Vite, Convex 1.31.7 (`useQuery` from `convex/react`), vitest 1.x + `@testing-library/react` + `vi.hoisted()` controllable mocks; `vi.useFakeTimers()` only in `RootLayout.test.tsx`. Playwright (`@playwright/test`) for e2e.
+**Tech Stack:** React 19 + TypeScript, Vite, Convex 1.31.7 (`useQuery` from `convex/react`), vitest 2.1.8 + `@testing-library/react` + `vi.hoisted()` controllable mocks; `vi.useFakeTimers()` only in `RootLayout.test.tsx`. Playwright (`@playwright/test`) for e2e.
 
 **Spec:** `docs/superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md`
 **Spec staffreview:** `docs/reviews/staffreview-usesession-transient-null-fix-spec-option-b-2026-06-05.md`
@@ -60,7 +60,8 @@ useEffect(() => {
   const tag = `[useSession#44] stored=${stored ? "Y" : "N"} validation=${
     validation === undefined ? "undefined" : validation === null ? "null" : "object"
   }`;
-  // eslint-disable-next-line no-console -- TEMP issue #44 instrumentation, stripped in Step 5
+  // TEMP issue #44 instrumentation, stripped in Step 5.
+  // eslint-disable-next-line no-console
   console.warn(tag);
   try {
     const ring = JSON.parse(sessionStorage.getItem("__issue44_ring") ?? "[]") as string[];
@@ -138,8 +139,11 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 
 // Hoisted so the vi.mock factory (which is itself hoisted above imports) can
 // reference a mutable mock fn without relying on initialization order.
+// Untyped vi.fn() — vitest 2.x's fn generic is a function type, not args+return,
+// and the consumer (useSession) sees the real `useQuery` type from convex/react
+// regardless of the mock's typing.
 const { mockUseQuery } = vi.hoisted(() => ({
-  mockUseQuery: vi.fn<[], unknown>().mockReturnValue(undefined),
+  mockUseQuery: vi.fn().mockReturnValue(undefined),
 }));
 vi.mock("convex/react", () => ({
   useQuery: mockUseQuery,
@@ -411,7 +415,12 @@ const { mockUseSession, mockClearSession, mockUseDeviceId, mockUseQuery } = vi.h
   }),
   mockClearSession: vi.fn(),
   mockUseDeviceId: vi.fn().mockReturnValue("dev-test"),
-  mockUseQuery: vi.fn().mockReturnValue(true), // isDeviceRegistered → true
+  // useQuery → true satisfies RootLayout's single isDeviceRegistered query
+  // (RootLayout.tsx:26-29). If RootLayout grows a second useQuery call in the
+  // future, this global mock will return `true` for it too — tighten via
+  // mockImplementation((q) => q === api.staff.public.isDeviceRegistered ? true : undefined)
+  // at that point.
+  mockUseQuery: vi.fn().mockReturnValue(true),
 }));
 vi.mock("@/hooks/useSession", () => ({
   useSession: mockUseSession,
@@ -421,8 +430,13 @@ vi.mock("@/hooks/useSession", () => ({
 vi.mock("@/hooks/useDeviceId", () => ({ useDeviceId: mockUseDeviceId }));
 vi.mock("convex/react", () => ({ useQuery: mockUseQuery }));
 vi.mock("@/hooks/useStartupReconciliation", () => ({ useStartupReconciliation: vi.fn() }));
-// PrinterProvider isn't reached when the gate keeps RouteFallback rendered,
-// but mock it so an accidental render past the gate doesn't crash.
+// Defensive only — every test in this file exercises a gate-fallback path
+// (session.status === "loading"), so RootLayout returns <RouteFallback /> at
+// line 41 and PrinterProvider is never instantiated. PrinterProvider's
+// imports (src/components/pos/PrinterProvider.tsx) have no side effects, so
+// this mock isn't load-bearing today. Kept as a guard in case a future test
+// renders an active-session path (which would otherwise pull in the real
+// useThermalPrinter hook + BLE typings).
 vi.mock("@/components/pos/PrinterProvider", () => ({
   PrinterProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
