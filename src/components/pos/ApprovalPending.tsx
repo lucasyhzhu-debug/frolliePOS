@@ -11,6 +11,8 @@ type Props = {
   onResolved?: () => void;
   onDenied?: () => void;
   onExpired?: () => void;
+  /** When provided (manager session only), shows a "Batalkan permintaan" button in the pending state. */
+  onCancel?: () => void;
 };
 
 export function ApprovalPending({
@@ -19,6 +21,7 @@ export function ApprovalPending({
   onResolved,
   onDenied,
   onExpired,
+  onCancel,
 }: Props) {
   const status = useApproval(requestId);
 
@@ -53,6 +56,16 @@ export function ApprovalPending({
         <p className="text-sm text-muted-foreground">
           Waiting for a manager to approve in Telegram…
         </p>
+        {onCancel && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            data-testid="approval-cancel"
+          >
+            Batalkan permintaan
+          </Button>
+        )}
       </div>
     );
   }
