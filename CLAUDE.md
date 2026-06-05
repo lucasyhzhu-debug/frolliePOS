@@ -150,7 +150,7 @@ Full design: [ADR-036](./docs/ADR/036-xendit-dedicated-apis-inline.md). Load-bea
 
 ## Auth
 
-PIN-based, 4 digits, **argon2id hashed in a Convex action** (not a mutation — verify is long-running) ([ADR-001](./docs/ADR/001-pin-only-authentication.md), [ADR-004](./docs/ADR/004-pin-hashing-server-side.md)). Session = `staff_sessions` row, no auto-logout, ends on explicit Lock ([ADR-003](./docs/ADR/003-shared-device-ephemeral-session.md)). 3 failed PINs = 60s lockout in `pos_auth_attempts` ([ADR-002](./docs/ADR/002-lockout-policy.md)). Devices must be registered via a one-time 6-digit setup code ([foundations §6](./docs/ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)). In dev, `seed:reset` pre-registers a fixed device (`dev-booth-device`) and `useDeviceId` returns it under `vite dev` (`MODE==="development"`), so local / Chrome-MCP loads skip `/activate` (prod/test keep the random UUID path).
+PIN-based, 4 digits, **argon2id hashed in a Convex action** (not a mutation — verify is long-running) ([ADR-001](./docs/ADR/001-pin-only-authentication.md), [ADR-004](./docs/ADR/004-pin-hashing-server-side.md)). Session = `staff_sessions` row, no auto-logout, ends on explicit Lock ([ADR-003](./docs/ADR/003-shared-device-ephemeral-session.md)). 3 failed PINs = 60s lockout in `pos_auth_attempts` ([ADR-002](./docs/ADR/002-lockout-policy.md)). Devices must be registered via a one-time 6-digit setup code ([foundations §6](./docs/ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)). **(v0.5.7)** Setup codes have **two issuance paths**, both funnelling through the single-writer `issueDeviceSetupCode` helper (`convex/staff/internal.ts`): booth manager-session (`generateDeviceSetupCode`) and managers-Telegram (`/activatepos`), distinguished by the `pending_device_setups.issued_via` discriminant (`"booth_inline" | "telegram"`). In dev, `seed:reset` pre-registers a fixed device (`dev-booth-device`) and `useDeviceId` returns it under `vite dev` (`MODE==="development"`), so local / Chrome-MCP loads skip `/activate` (prod/test keep the random UUID path).
 
 Manager actions are **one-off PIN entries**, not modes ([ADR-005](./docs/ADR/005-manager-pin-one-off.md)). Off-booth flows route through Telegram approval ([ADR-035](./docs/ADR/035-telegram-as-internal-comms.md)). PIN management = 3 flows, 1 commit funnel (`_changePinCommit_internal`) — see business rule #18.
 
@@ -161,6 +161,9 @@ In `convex/crons.ts`. Currently one: **`founders-shift-summary`** at 22:00 WIB /
 ## Telegram
 
 Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts + **v0.6** `stock_drift_alert`). Set env vars on **both** dev and prod.
+
+**Commands (v0.5.7):**
+- `/activatepos` — managers-role chat only; replies with a 6-digit device setup code (1h TTL) + a `<POS_BASE_URL>/activate` link so an off-booth manager can activate a new phone/browser. Group privacy mode swallows the bare command — see [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md).
 
 **Template kinds (v0.6 additions):**
 - `spoilage` — approval template, URL button → `/approve/:token` (ADR-035); routes to `managers` role.
