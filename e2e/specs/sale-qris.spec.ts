@@ -1,9 +1,15 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/payments/__tests__ + convex/transactions tests.
-test.skip("QRIS sale: cart → charge → simulate → paid receipt", async ({ signedInAsLucas: page }) => {
+test("QRIS sale: cart → charge → simulate → paid receipt", async ({ signedInAsLucas: page }) => {
+  // TEMP issue #44: bridge browser console.warn → Playwright stdout to verify
+  // the [useSession#44] transient-null hypothesis. Stripped in Step 5.
+  page.on("console", (msg) => {
+    const txt = msg.text();
+    if (txt.includes("[useSession#44]")) {
+      console.log(`PW>>> ${txt}`);
+    }
+  });
   await page.goto("/sale");
   await page.getByRole("button", { name: /Dubai 1pc/i }).click();
   await page.getByRole("button", { name: /Dubai 1pc/i }).click(); // qty 2
