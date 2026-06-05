@@ -69,8 +69,16 @@ device can be activated on the fly.
 - `pending_device_setups.issued_by` → `v.optional(v.id("staff"))`
 - `pending_device_setups.issued_via` → `v.optional(v.union(v.literal("booth_inline"), v.literal("telegram")))`
   (absent = booth, preserving existing rows)
-- `pending_device_setups.issued_by_telegram` → `v.optional(v.object({ from_id: v.number(), chat_title: v.string() }))`
+- `pending_device_setups.issued_by_telegram` → `v.optional(v.object({ from_id: v.optional(v.number()), chat_title: v.string() }))`
 - `registered_devices.activated_by` → `v.optional(v.id("staff"))`
+
+**`from_id` is optional inside the object (staffreview Critical-1):** `MessageContext.fromId`
+is `number | undefined` (`convex/telegram/commands.ts:17`) — Telegram omits `from` for channel
+posts and anonymous group admins (the "send as channel/admin" supergroup feature a managers chat
+may use). The code is **still issued** when `fromId` is absent — chat-role membership is the gate;
+`from_id` is attribution-only. A required `v.number()` here would fail validation on insert and
+silently dead-end the happy path for anonymous admins. Record `chat_title` always; record
+`telegram_from_id` in audit metadata only when present.
 
 **Cascade rationale:** `activateDevice` (`convex/staff/public.ts:159`) copies
 `pending.issued_by` into both `registered_devices.activated_by` and the
@@ -82,22 +90,32 @@ uses the existing `"system"` actor sentinel (`logAudit` already accepts
 ## Single-writer code generation (anti-drift)
 
 Extract the collision-retry loop + `pending_device_setups` insert + issuance audit
-currently inlined in `generateDeviceSetupCode` into a shared internal helper:
+currently inlined in `generateDeviceSetupCode` into shared logic.
+
+**Shape (staffreview Improvement-1) — a plain async fn, NOT a callable mutation.**
+A Convex mutation cannot call another mutation, so the booth path (a mutation) must
+invoke the shared logic as a plain exported async function running in its own
+transaction — the same pattern as `logAudit` (ADR-034: "plain async TypeScript
+function, NOT an internalMutation"). Two definitions:
 
 ```
-_issueDeviceSetupCode_internal(ctx, {
+// plain fn — runs in caller's txn; called directly by the booth mutation
+issueDeviceSetupCode(ctx: MutationCtx, {
   issuedVia: "booth_inline" | "telegram",
-  issuedBy?: Id<"staff">,            // booth path
-  telegramIssuer?: { fromId, chatTitle },  // telegram path
-  deviceId?: string,                 // booth path, for audit device_id
-}) -> { code, expiresAt }
+  issuedBy?: Id<"staff">,                  // booth path
+  telegramIssuer?: { fromId?: number, chatTitle: string },  // telegram path
+  deviceId?: string,                       // booth path, for audit device_id
+}): Promise<{ code: string, expiresAt: number }>
+
+// thin internalMutation wrapper — called by the Telegram internalAction via ctx.runMutation
+_issueDeviceSetupCodeFromTelegram_internal(ctx, { chatId, fromId?, chatTitle })
+  -> calls issueDeviceSetupCode(ctx, { issuedVia: "telegram", ... })
 ```
 
-Both the existing public booth mutation and the new Telegram action call it — one
-writer for `pending_device_setups`, preventing the multi-writer drift called out in
-the v0.5.5 canonical-insert lesson. The booth mutation keeps its
-manager-session + idempotency + authCheck wrapper unchanged; only its body delegates
-to the helper.
+Both paths funnel through `issueDeviceSetupCode` — one writer for
+`pending_device_setups`, preventing the multi-writer drift called out in the v0.5.5
+canonical-insert lesson. The booth mutation keeps its manager-session + idempotency +
+authCheck wrapper unchanged; only its body delegates to `issueDeviceSetupCode`.
 
 ## Telegram flow
 
@@ -106,25 +124,38 @@ to the helper.
    `convex/telegram/activatePos.ts` (factory `buildActivatePosCommand(scheduler)`
    for symmetry with `buildRegistryCommands`).
 2. `dispatch` schedules `internal.telegram.activatePos.handleActivatePos` with the
-   `MessageContext` (chatId, chatType, title, fromId).
+   `MessageContext` (chatId, chatType, title, fromId). The chat-role gate lives in the
+   action, not in `dispatch` — `dispatch` has only a `Scheduler`, no query ctx, so it
+   cannot resolve the role. Consequence: a non-managers chat's update IS processed
+   (deduped + scheduled), but the action bails before issuing. This is the only feasible
+   placement.
 3. `handleActivatePos` (internalAction):
    a. Resolve `getChatIdByRole("managers")`; if it throws (no managers chat bound)
-      or `!== msg.chatId`, return silently (no reply).
-   b. Call `_issueDeviceSetupCode_internal` via `ctx.runMutation` with
-      `issuedVia: "telegram"`, `telegramIssuer: { fromId, chatTitle: title }`.
-   c. `sendTelegramHtml` the reply (below). On send failure, record nothing extra —
-      the code is already minted and usable; the manager can re-issue.
+      or `!== msg.chatId`, return silently (no reply). *Note:* `getChatIdByRole` has an
+      env fallback (`TELEGRAM_FALLBACK_ROLE` + `TELEGRAM_CHAT_ID`,
+      `chatRegistry/internal.ts:177`) — in dev with those set, the gate resolves to the
+      fallback chat. Expected, not a bypass.
+   b. Read `POS_BASE_URL` once. Call `_issueDeviceSetupCodeFromTelegram_internal` via
+      `ctx.runMutation` with `{ chatId, fromId, chatTitle: title }`.
+   c. `sendTelegramHtml` the success reply (below).
+   d. **Failure UX (staffreview Improvement-2):** wrap (b)+(c) in try/catch. On any error
+      (collision-loop exhaustion `CODE_COLLISION`, send failure), best-effort
+      `sendTelegramHtml` a `⚠️ Couldn't generate a setup code — please try again.` to the
+      same chat. If `POS_BASE_URL` is unset, don't throw — send a code-only reply (no link).
+      Never leave the manager with silence.
 
 ## Reply UX
 
 ```
 🔓 Device setup code: <b>123456</b>
-Valid until 14:32 WIB (1 hour).
+Valid until 05 Jun 2026 · 14:32 WIB (1 hour).
 On the new phone/browser, open <POS_BASE_URL>/activate and enter the code.
 ```
 
-- `POS_BASE_URL` is the same env the `/approve` URL buttons use.
-- WIB time formatted via `convex/lib/time.ts` (`WIB_OFFSET_MS`).
+- `POS_BASE_URL` is the same env the `/approve` URL buttons use (`approvals/actions.ts:60`).
+- Expiry formatted via the existing `formatWibDateTime(epochMs)` (`convex/lib/time.ts:100`),
+  which returns `"05 Jun 2026 · 14:32 WIB"` — reuse as-is; do NOT mint a time-only helper
+  (staffreview Improvement-3).
 - All interpolated values HTML-escaped via `escapeHtml`.
 
 ## Audit
@@ -134,7 +165,8 @@ On the new phone/browser, open <POS_BASE_URL>/activate and enter the code.
   `metadata: { telegram_from_id, chat_title }`.
 - Activation (existing `activateDevice`, telegram-sourced code): `actor_id: "system"`,
   `metadata.activated_via: "telegram"` added alongside existing metadata. Booth-sourced
-  activations keep `actor_id: pending.issued_by` unchanged.
+  activations keep `actor_id: pending.issued_by` and set `metadata.activated_via:
+  "booth_inline"` for symmetry (don't leave it implicit — staffreview refinement).
 
 ## Testing
 
@@ -148,8 +180,18 @@ On the new phone/browser, open <POS_BASE_URL>/activate and enter the code.
    `registered_devices.activated_by` absent, `device.activated` audit `actor_id: "system"`.
 5. Audit row for issuance has `source: "telegram_approval"` + `telegram_from_id` metadata
    (audit metadata is a JSON string — parse in the assertion, per v0.5.5 lesson).
-6. Pure unit: command matcher matches `/activatepos` and `/activatepos@Bot`, rejects
+6. **`fromId === undefined` still issues a code (staffreview Critical-1):** call the issuance
+   mutation with no `from_id`; assert the row is created and `issued_by_telegram.from_id` absent.
+7. Pure unit: command matcher matches `/activatepos` and `/activatepos@Bot`, rejects
    `/activatepos extra`.
+
+**Test mechanics:** `handleActivatePos` calls `sendTelegramHtml` (real `fetch`). Mock per the
+established pattern in `send.test.ts:7-10` — `vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token")` +
+`vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, result: { message_id: 42 } }) })))`.
+Test the issuance mutation directly (no fetch) for the schema/audit assertions.
+
+**Non-goal — rate-limiting:** anyone in the managers chat can mint many codes. Each is single-use,
+1h TTL, and audited, so blast radius is small. Conscious v1 choice; revisit only if abused.
 
 ## Docs to update (same PR)
 
