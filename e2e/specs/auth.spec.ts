@@ -9,9 +9,12 @@ test.describe("auth", () => {
     await expect(page).toHaveURL(/\/(mgr|home|sale)/);
   });
 
+  // Targets Bayu (staff, PIN 0000) — NOT Lucas — so the manager account stays
+  // unlocked for live booth use while CI runs. seed:reset wipes pos_auth_attempts
+  // before any subsequent spec, so Bayu's lockout doesn't cross-pollute either.
   test("3 wrong PINs trigger 60s lockout", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /Lucas/i }).click();
+    await page.getByRole("button", { name: /Bayu/i }).click();
     for (let i = 0; i < 3; i++) {
       for (const d of "1234") await page.getByLabel(`Digit ${d}`).click();
       // Either an inline error or a transition to lockout UI — accept either signal.
