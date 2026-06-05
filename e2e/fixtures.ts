@@ -18,9 +18,9 @@ export const test = base.extend<Fixtures>({
     await page.goto("/");
     await page.getByRole("button", { name: /Lucas/i }).click();
     await enterPin(page, "9999");                                    // real manager PIN per seed
-    // Lucas is a manager — RootLayout may land on /mgr or /home depending on role-routing.
-    // Accept either to keep the fixture forgiving.
-    await page.waitForURL(/\/(mgr|home|sale)/, { timeout: 10_000 });
+    // login.tsx navigates to "/" on success; RootLayout renders the home dashboard there.
+    // Wait for the post-login home heading instead of asserting a URL pattern.
+    await page.getByRole("heading", { name: /Frollie · Lucas/i }).waitFor({ timeout: 10_000 });
     await use(page);
   },
 
@@ -29,7 +29,7 @@ export const test = base.extend<Fixtures>({
     await page.goto("/");
     await page.getByRole("button", { name: /Bayu/i }).click();       // first seed-staff
     await enterPin(page, "0000");                                    // real staff PIN per seed
-    await page.waitForURL(/\/(home|sale)/, { timeout: 10_000 });
+    await page.getByRole("heading", { name: /Frollie · Bayu/i }).waitFor({ timeout: 10_000 });
     await use(page);
   },
 });
