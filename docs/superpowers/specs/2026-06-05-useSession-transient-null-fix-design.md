@@ -72,6 +72,8 @@ The hook treats Convex's tri-state query incorrectly: `undefined` means "loading
 
 5. **No new audit / no logging.** This is a client-only race fix. Nothing to audit, no server state mutated.
 
+6. **Verify the null-hypothesis once before claiming the fix.** The issue's reasoning assumes `useQuery` transiently yields `null` (not `undefined`) during WS resubscribe after hard-nav. If empirically the transient state is `undefined` end-to-end, the debounced effect is a **no-op for the e2e symptom** — fix lands, the 6 specs still fail, and we burn a PR + CI cycle to discover it. Plan's first task is a throwaway instrumentation pass: add a temporary `console.warn("[useSession]", { stored, validation })` (or a `sessionStorage` debug-key with the last 5 validation transitions); run one CI draft pass on a signedIn spec; confirm the log contains `validation: null` after `page.goto`; strip the instrumentation; then implement the fix. If the log shows only `undefined`, escalate before writing the fix — the symptom has a different root cause and Option A is the wrong shape.
+
 ## Detailed approach
 
 ### Hook change — `src/hooks/useSession.ts`
@@ -113,13 +115,17 @@ Top of `useSession.ts`, above the `listeners` set, with a comment that names:
 
 ### Fixture change — `e2e/fixtures.ts`
 
-Delete the trailing `await page.waitForTimeout(1500)` from `awaitSignedIn` (current line ~46) and the comment block above it that describes the bug. The three positive readiness checks above it (heading visible, "New sale" tile visible, URL not `/login`) are the real settle signals and stay.
+Delete the trailing `await page.waitForTimeout(1500)` from `awaitSignedIn` (current `e2e/fixtures.ts:41`) **and** the 4-line comment block above it (lines 37-40) that names the bug. The three positive readiness checks above (heading visible, "New sale" tile visible, URL not `/login`) are the real settle signals and stay.
+
+### Stale comment to delete in `useSession.ts`
+
+The existing `// Fix V17: …` comment on lines 47-48 becomes stale once the effect is debounced. Replace it with the new docstring naming `DEAD_SESSION_CONFIRM_MS` + the failure mode + issue #44, not in addition to it.
 
 ### Spec un-skip — `e2e/specs/*.spec.ts`
 
 In each of the 6 specs:
 - `test.skip(...)` → `test(...)`.
-- Delete the `// Tracking note:` comment block referencing issue #44.
+- Delete the `// SKIPPED: session-loss-on-hard-nav…` comment block. **Block size varies:** `refund.spec.ts` has a 9-line block (lines 4-12, with the longer rationale + business-coverage pointer); the other 5 specs (`sale-bca-va`, `sale-qris`, `spoilage`, `voucher-offline`, `voucher-online`) each have a 2-line block. Remove the entire block in each — not just the first line.
 
 No other spec body changes. They use `signedInAsLucas` / `signedInAsStaff` fixtures and were green before PR #43.
 
@@ -127,15 +133,43 @@ No other spec body changes. They use `signedInAsLucas` / `signedInAsStaff` fixtu
 
 ### Unit — `src/hooks/useSession.test.tsx`
 
-Extend the existing file (currently mocks `useQuery: () => undefined`). Add three tests with a **controllable mock** so the test can drive `useQuery`'s return value across renders, plus `vi.useFakeTimers()` for the 1500ms boundary:
+Extend the existing file (currently mocks `useQuery: () => undefined`). Add five tests with a **controllable mock** so the test can drive `useQuery`'s return value across renders, plus `vi.useFakeTimers()` for the 1500ms boundary.
 
-1. **Transient null is ignored.** Mount with stored sessionId; mock returns `null` for one render; `vi.advanceTimersByTime(500)`; mock flips to a real session value; assert `localStorage[SESSION_KEY]` still present, `status` ends `"active"`.
+**Mock plumbing — use `vi.hoisted()` + force a `rerender`.** Two non-obvious gotchas the plan must account for:
 
-2. **Sustained null clears after 1500ms.** Mount with stored sessionId; mock returns `null`; `vi.advanceTimersByTime(1500)`; flush effects; assert `localStorage[SESSION_KEY]` removed, status `"none"`, listeners notified.
+(a) **`vi.mock()` factories are hoisted above imports.** A bare `let mockReturn: any = undefined` outside the factory and referenced inside it is fragile under strict hoisting (works today, breaks on a vitest minor bump). Use `vi.hoisted()`:
 
-3. **Real-session → null transition is honoured.** Mount with a real session value; assert `status: "active"`; flip mock to `null`; `vi.advanceTimersByTime(1500)`; assert cleared. (Covers the genuine "logged out elsewhere" acceptance criterion.)
+```ts
+const { mockUseQuery } = vi.hoisted(() => ({
+  mockUseQuery: vi.fn<[], unknown>().mockReturnValue(undefined),
+}));
+vi.mock("convex/react", () => ({ useQuery: mockUseQuery }));
+```
 
-Mock plumbing: switch from `vi.mock("convex/react", () => ({ useQuery: () => undefined }))` to a `vi.fn()` whose return value is controllable via a ref. Existing 3 tests in this file (status:none, storeSession-notify, clearSession-notify) keep passing because their first render still gets `undefined` from the default mock value.
+(b) **Changing the mock return value does NOT trigger a re-render.** The real Convex `useQuery` subscribes to a server signal; the mock has no such mechanism. Tests that flip the mock value must force a re-render via `renderHook`'s `rerender`, wrapped in `act()`:
+
+```ts
+const { result, rerender } = renderHook(() => useSession());
+// ...later, after seeding localStorage and asserting "loading":
+mockUseQuery.mockReturnValue({ sessionId: "s_1", staff: {...} });
+act(() => { rerender(); });
+```
+
+**`act()` + fake-timer hygiene.** Every `vi.advanceTimersByTime(…)` must be wrapped in `act()` because the timer callback runs `localStorage.removeItem + notify(null)` → `setStored(null)` on every listening hook (a React state update). The suite must use either `vi.useFakeTimers()` at the top of each timing test with `vi.useRealTimers()` in `afterEach`, OR a global `beforeEach`/`afterEach` that calls `vi.useFakeTimers()` / `vi.clearAllTimers() + vi.useRealTimers()`. Without timer cleanup, a test that doesn't advance the clock leaks a pending timer into the next test.
+
+**Default mock value stays `undefined`.** Existing 3 tests (status:none, storeSession-notify, clearSession-notify) keep passing because `mockUseQuery.mockReturnValue(undefined)` is the default; they never observe `validation === null`.
+
+**The 5 tests:**
+
+1. **Transient null is ignored.** Seed `localStorage` with a sessionId; mock returns `null`; `act(() => { vi.advanceTimersByTime(500); })`; flip mock to a real session object; `act(() => { rerender(); })`; advance another 2000ms to be safe; assert `localStorage[SESSION_KEY]` still present, `status` ends `"active"`.
+
+2. **Sustained null clears after 1500ms.** Seed `localStorage`; mock returns `null`; `act(() => { vi.advanceTimersByTime(1500); })`; assert `localStorage[SESSION_KEY]` removed, `status: "none"`, listeners notified (assert via a second mounted hook seeing the change).
+
+3. **Real-session → null transition is honoured.** Mock returns a real session value; mount; assert `status: "active"`; flip mock to `null`; `act(() => { rerender(); vi.advanceTimersByTime(1500); })`; assert cleared. (Covers the genuine "logged out elsewhere" acceptance criterion.)
+
+4. **`clearSession()` mid-pending-timer doesn't race.** Seed; mock = null; advance 500ms (timer pending); call `clearSession()`; advance the remaining 1000ms; assert localStorage cleared **once**, no duplicate notify (assert via a counter listener), status ends `"none"`.
+
+5. **`storeSession(newId, …)` mid-pending-timer cancels the clear.** Seed with `oldId`; mock = null; advance 500ms (timer pending); call `storeSession("newId", ...)`; advance another 1500ms (well past the original deadline); assert `localStorage[SESSION_KEY] === "newId"` (NOT cleared). Validates the spec's Risk 3 claim with a direct test instead of inference.
 
 ### E2E — `e2e/specs/*.spec.ts`
 
@@ -181,7 +215,7 @@ No spec body changes (so no new behaviour to test); CI green is the contract.
 | `e2e/specs/spoilage.spec.ts` | same |
 | `e2e/specs/voucher-offline.spec.ts` | same |
 | `e2e/specs/voucher-online.spec.ts` | same |
-| `docs/CHANGELOG.md` | One-line entry under the next patch version (handled at plan/execute time). |
+| `docs/CHANGELOG.md` | One-line bug-fix entry citing issue #44. Target version: **v0.5.8** if this ships isolated; **v0.5.7.1** if it lands as a hotfix under the v0.5.7 banner; final call deferred to plan time based on what else is in flight. |
 
 ## Acceptance (mirrors issue #44)
 
