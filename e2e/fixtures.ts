@@ -17,17 +17,19 @@ async function enterPin(page: Page, pin: string): Promise<void> {
 }
 
 /**
- * Wait for login to fully settle: post-login heading appears AND the URL is no
- * longer /login AND Convex's session-validation query has fired (networkidle).
- * Without this, the heading can flash during a transitional render while the
- * session is still "loading" — the test then navigates away and the next page
- * load sees a stale session→none redirect back to /login. Belt-and-braces
- * because the symptom (every signedIn*-fixture spec lands on the staff picker
- * after page.goto) is hard to reproduce locally but persistent in CI.
+ * Wait for login to fully settle. Three signals, in order:
+ *   1. Post-login heading visible (RootLayout switched to active session).
+ *   2. The 'New sale' tile link is visible (the home dashboard route lazy
+ *      chunk loaded AND its product/SKU-count queries returned content).
+ *   3. URL is not /login (catches any transient flash-render race).
+ *
+ * Earlier attempt used networkidle, but Vite dev's HMR + Convex subscription
+ * traffic means the page never actually idles in 10s — the fixture would time
+ * out even when login worked.
  */
 async function awaitSignedIn(page: Page, staffName: string): Promise<void> {
   await page.getByRole("heading", { name: new RegExp(`Frollie · ${staffName}`, "i") }).waitFor({ timeout: 10_000 });
-  await page.waitForLoadState("networkidle", { timeout: 10_000 });
+  await page.getByRole("link", { name: /New sale/i }).waitFor({ timeout: 5_000 });
   await expect(page).not.toHaveURL(/\/login/, { timeout: 2_000 });
 }
 
