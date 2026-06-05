@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useAction, useMutation } from "convex/react";
 import { Loader2 } from "lucide-react";
@@ -88,6 +88,7 @@ export default function RefundDetail() {
     Id<"pos_approval_requests"> | null
   >(null);
   const [telegramSubmitting, setTelegramSubmitting] = useState(false);
+  const cancellingRef = useRef(false);
 
   // ---- guards ----
   if (!txnId) {
@@ -242,6 +243,8 @@ export default function RefundDetail() {
   // is requireManagerSession-gated, so this handler is only wired for managers.
   const handleCancelRequest = async () => {
     if (session.status !== "active" || !approvalRequestId) return;
+    if (cancellingRef.current) return;
+    cancellingRef.current = true;
     try {
       await cancelPendingRequest({
         sessionId: session.sessionId,
@@ -253,6 +256,8 @@ export default function RefundDetail() {
       toast.success("Permintaan dibatalkan");
     } catch (err) {
       toast.error(mapErr(err instanceof Error ? err.message : "Cancel failed"));
+    } finally {
+      cancellingRef.current = false;
     }
   };
 
