@@ -53,14 +53,16 @@ function MgrAuditInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             setFilter(e.target.value);
             setLimit(PAGE);
           }}
-          placeholder="Filter by action (e.g. refund.committed)"
+          placeholder="Exact action filter (e.g. refund.committed)"
           data-testid="audit-filter"
         />
         {rows === undefined ? (
           <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
         ) : rows.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
-            <p className="text-sm text-muted-foreground">No audit entries.</p>
+            <p className="text-sm text-muted-foreground">
+              {action ? `No entries for action “${action}”.` : "No audit entries."}
+            </p>
           </div>
         ) : (
           <>
