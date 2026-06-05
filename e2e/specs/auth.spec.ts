@@ -6,7 +6,9 @@ test.describe("auth", () => {
     await expect(page.getByRole("button", { name: /Lucas/i })).toBeVisible();
     await page.getByRole("button", { name: /Lucas/i }).click();
     for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
-    await expect(page).toHaveURL(/\/(mgr|home|sale)/);
+    // login.tsx navigates to "/" on success; assert the home dashboard heading instead
+    // of an URL pattern (post-login URL is "/", not "/mgr|/home|/sale").
+    await expect(page.getByRole("heading", { name: /Frollie · Lucas/i })).toBeVisible({ timeout: 10_000 });
   });
 
   // Targets Bayu (staff, PIN 0000) — NOT Lucas — so the manager account stays
@@ -17,9 +19,15 @@ test.describe("auth", () => {
     await page.getByRole("button", { name: /Bayu/i }).click();
     for (let i = 0; i < 3; i++) {
       for (const d of "1234") await page.getByLabel(`Digit ${d}`).click();
-      // Either an inline error or a transition to lockout UI — accept either signal.
-      await page.waitForTimeout(500);
+      // PinEntry guards `if (buffer.length >= 4) return` — the keypad ignores further
+      // clicks until login.tsx bumps pinReset on error (which clears the buffer). If
+      // we proceed before the server response lands, the next iteration's clicks get
+      // swallowed and we never accumulate 3 fails. Wait for the error toast as proxy
+      // for "PIN was processed and keypad has been reset" — iter 1 & 2 get "Wrong PIN",
+      // iter 3 gets "Locked out…".
+      await page.getByText(/Wrong PIN|Locked out/i).first().waitFor({ state: "visible", timeout: 5_000 });
+      await page.waitForTimeout(200);
     }
-    await expect(page.getByText(/locked|LOCKED_OUT/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Locked out/i)).toBeVisible({ timeout: 5_000 });
   });
 });
