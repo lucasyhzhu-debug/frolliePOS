@@ -1227,6 +1227,40 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
+## v0.5.7 — Telegram /activatepos device activation 📋 PLANNED
+**Outcome:** A manager brings a new device online from anywhere — `/activatepos` in the managers Telegram chat replies with a fresh 6-digit setup code.
+**Spec:** [`docs/superpowers/specs/2026-06-05-telegram-activatepos-command-design.md`](./superpowers/specs/2026-06-05-telegram-activatepos-command-design.md) (spec-gate staffreview: Revise → Critical-1 + 3 improvements addressed)
+**Plan:** [`docs/superpowers/plans/2026-06-05-telegram-activatepos-command.md`](./superpowers/plans/2026-06-05-telegram-activatepos-command.md) (plan-gate staffreview: Revise → 3 improvements addressed; assumptions verified vs code)
+**Target:** TBD
+
+**You'll be able to:**
+- (Manager) Send `/activatepos` in the managers chat → 6-digit setup code, expiry, activation link — no session
+- Activate a new device with that code via the existing `/activate` flow — even with nobody logged in
+- Trust the code stays single-use, 1h TTL, and audited, gated to the `managers`-role chat
+
+**Still not yet:**
+- Per-person Telegram→staff attribution (records the Telegram chat title + sender id only; no staff-mapping table)
+- Rate-limiting on issuance (single-use + 1h TTL + audit is the v1 guard)
+- Device deactivation / active-device management (unchanged; out of scope)
+
+### Backend (`convex/`)
+
+- 📋 **[v0.5.7-be-schema]** `auth/schema.ts` — optional `issued_by`/`activated_by` + `issued_via` discriminant + `issued_by_telegram`
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
+- 📋 **[v0.5.7-be-issue-helper]** `staff/internal.ts` — single-writer `issueDeviceSetupCode` + `_issueDeviceSetupCodeFromTelegram_internal`; booth path delegates
+  - **agent:** `convex-expert` · **deps:** `v0.5.7-be-schema` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
+- 📋 **[v0.5.7-be-activate]** `staff/public.ts` — `activateDevice` tolerates absent `issued_by` (system actor, `activated_via` metadata)
+  - **agent:** `convex-expert` · **deps:** `v0.5.7-be-schema` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
+- 📋 **[v0.5.7-be-telegram-cmd]** `telegram/activatePos.ts` + `http.ts` — chat-gated `/activatepos` command, action, reply, webhook wiring
+  - **agent:** `convex-expert` · **deps:** `v0.5.7-be-issue-helper` · **docs:** [Plan Tasks 4-5](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
+
+### Cross-cutting
+
+- 📋 **[v0.5.7-xc-docs]** SCHEMA.md + API_REFERENCE.md + RUNBOOK-telegram.md (privacy-mode note) + CLAUDE.md + CHANGELOG.md
+  - **agent:** `—` · **deps:** `v0.5.7-be-schema`, `v0.5.7-be-issue-helper`, `v0.5.7-be-activate`, `v0.5.7-be-telegram-cmd` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-05-telegram-activatepos-command.md)
+
+---
+
 ## v0.6 — vouchers + spoilage + nightly stock-recon + Playwright 📋 PLANNED
 **Outcome:** Manager-portal voucher CRUD with ADR-009 offline reject banner; spoilage at booth (manager-PIN) or off-booth (Telegram approval); nightly cron rebuilds `pos_stock_levels` from the movements ledger and alerts on drift (report-only, no silent correction); first Playwright E2E suite proving the transactional golden path.
 **Spec:** [`docs/superpowers/specs/2026-06-02-v0.6-design.md`](./superpowers/specs/2026-06-02-v0.6-design.md) (staffreview-validated)
