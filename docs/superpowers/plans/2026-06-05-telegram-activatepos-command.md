@@ -467,6 +467,10 @@ In `convex/staff/public.ts`, derive the issuer once after loading `pending`, and
 
       // v0.6: codes minted via Telegram have no staff issuer — fall back to the
       // "system" audit actor and carry the issuance channel into metadata.
+      // NOTE: `source` stays "booth_inline" — activation is always a physical
+      // booth act (code typed into the new device); only ISSUANCE came from
+      // Telegram. Don't overload "telegram_approval" (the approval/token flow
+      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
       const auditActor = pending.issued_by ?? ("system" as const);
       const activatedVia = pending.issued_via ?? "booth_inline";
 
@@ -506,7 +510,7 @@ In `convex/staff/public.ts`, derive the issuer once after loading `pending`, and
         action: "device.activated",
         entity_type: "device",
         entity_id: deviceRowId,
-        source: activatedVia === "telegram" ? "telegram_approval" : "booth_inline",
+        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
         device_id: args.deviceId,
         metadata: {
           activated_via_pending_id: pending._id,
@@ -709,15 +713,19 @@ export const handleActivatePos = internalAction({
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN missing");
 
     // Chat-role gate: only the chat bound to "managers" may mint codes.
+    // Narrow catch (mirrors dispatch.ts:42-51): treat ONLY an unbound role as a
+    // silent no-op; rethrow anything else so transient failures surface in the
+    // Convex dashboard instead of looking like an auth rejection.
     let managersChatId: string;
     try {
       managersChatId = await ctx.runQuery(
         internal.telegram.chatRegistry.internal.getChatIdByRole,
         { role: "managers" },
       );
-    } catch {
-      // No managers chat bound — silently ignore (never advertise the command).
-      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("No Telegram chat assigned to role")) return; // unbound — silent
+      throw err; // unexpected — surface it
     }
     if (managersChatId !== args.chatId) return;
 
@@ -859,7 +867,7 @@ git commit -m "feat(telegram): register /activatepos in the webhook command regi
 
 - [ ] **Step 2: `docs/API_REFERENCE.md`** — add under `staff/`: `issueDeviceSetupCode` (plain helper, single writer) and `_issueDeviceSetupCodeFromTelegram_internal` (internalMutation). Under `telegram/`: `activatePos.ts` — `buildActivatePosCommand` factory + `handleActivatePos` internalAction.
 
-- [ ] **Step 3: `docs/RUNBOOK-telegram.md`** — add a `/activatepos` entry: managers-chat-gated, replies with a 6-digit device setup code (1h TTL); requires a chat bound to the `managers` role; `POS_BASE_URL` env used for the activation link.
+- [ ] **Step 3: `docs/RUNBOOK-telegram.md`** — add a `/activatepos` entry: managers-chat-gated, replies with a 6-digit device setup code (1h TTL); requires a chat bound to the `managers` role; `POS_BASE_URL` env used for the activation link. **Operational gotcha (staffreview Imp-3):** the managers chat is a supergroup, and Telegram bot **privacy mode is ON by default** — a bare `/activatepos` in the group is NOT delivered to the bot. Either (a) BotFather → `/setprivacy` → **Disable** (then remove & re-add the bot to the group), or (b) managers must type `/activatepos@<bot_username>` (the matcher accepts the `@Bot` suffix). Register via BotFather `/setcommands` as `activatepos - mint a device setup code` so it autocompletes with the `@Bot` form.
 
 - [ ] **Step 4: `CLAUDE.md`** — in the Telegram section command list, add `/activatepos` (managers role → device setup code). Add a one-line business-rule note that device-setup codes now have two issuance paths: booth manager-session (`generateDeviceSetupCode`) and managers-Telegram (`/activatepos` → `issueDeviceSetupCode`, `issued_via` discriminant).
 
@@ -913,7 +921,7 @@ Expected: PASS. (No public mutation added, so the idempotency ESLint rule is N/A
 ## Rollback / Deployment
 
 - **Deploy order:** backend (`npx convex deploy`) before any prod use — the schema change is **additive and back-compatible** (optional fields; existing rows valid), so no migration and no downtime. Frontend unaffected (no UI change).
-- **Post-deploy:** ensure a chat is bound to the `managers` role (already required for approvals) and `POS_BASE_URL` is set on the deployment. Register the command in BotFather (`/setcommands`) as `activatepos - mint a device setup code` (optional; manual typing works regardless).
+- **Post-deploy:** ensure a chat is bound to the `managers` role (already required for approvals) and `POS_BASE_URL` is set on the deployment. **Telegram privacy mode (Imp-3):** in a supergroup the bot won't see a bare `/activatepos` unless privacy is disabled via BotFather `/setprivacy`; otherwise managers must use `/activatepos@<bot_username>`. Register the command via `/setcommands` as `activatepos - mint a device setup code` so the `@Bot` form autocompletes.
 - **Rollback:** revert the PR. The optional schema fields can remain (harmless) or be reverted once no Telegram-issued rows exist. Removing them while such rows exist would orphan data — leave them if unsure.
 
 ## Edge cases covered
