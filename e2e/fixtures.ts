@@ -29,7 +29,10 @@ async function enterPin(page: Page, pin: string): Promise<void> {
  */
 async function awaitSignedIn(page: Page, staffName: string): Promise<void> {
   await page.getByRole("heading", { name: new RegExp(`Frollie · ${staffName}`, "i") }).waitFor({ timeout: 10_000 });
-  await page.getByRole("link", { name: /New sale/i }).waitFor({ timeout: 5_000 });
+  // home.tsx renders two "New sale" anchors (the SELL-tile + a secondary CTA),
+  // so the locator must be lenient. .first() — we only need ANY New sale link
+  // visible as the readiness signal.
+  await page.getByRole("link", { name: /New sale/i }).first().waitFor({ timeout: 5_000 });
   await expect(page).not.toHaveURL(/\/login/, { timeout: 2_000 });
 }
 
