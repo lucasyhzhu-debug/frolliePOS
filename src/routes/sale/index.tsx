@@ -180,7 +180,7 @@ export default function Sale() {
                     key={p._id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Add ${p.name}`}
+                    aria-label={`Add ${p.name} ${p.pack_label}`}
                     onClick={() => addLine(p._id, p.price_idr)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
