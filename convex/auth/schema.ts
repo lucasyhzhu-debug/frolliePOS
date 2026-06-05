@@ -57,6 +57,10 @@ export const authTables = {
     issued_via: v.optional(
       v.union(v.literal("booth_inline"), v.literal("telegram")),
     ), // absent = booth (legacy rows)
+    // Intentionally write-only for now: the same attribution is also captured in
+    // the device.setup_code_issued audit metadata (the queried forensic trail).
+    // Kept structured on the row for a future "who issued this pending code" UI;
+    // remove if that never materializes.
     issued_by_telegram: v.optional(
       v.object({
         from_id: v.optional(v.number()), // optional: Telegram omits `from` for anonymous admins / channel posts
