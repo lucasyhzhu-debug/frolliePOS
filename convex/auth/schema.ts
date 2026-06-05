@@ -43,7 +43,7 @@ export const authTables = {
   registered_devices: defineTable({
     device_id: v.string(),
     label: v.string(),
-    activated_by: v.id("staff"),
+    activated_by: v.optional(v.id("staff")), // optional v0.6: Telegram-issued codes have no staff issuer
     activated_at: v.number(),
     last_seen_at: v.optional(v.number()),
     active: v.boolean(),
@@ -53,7 +53,16 @@ export const authTables = {
 
   pending_device_setups: defineTable({
     setup_code: v.string(),
-    issued_by: v.id("staff"),
+    issued_by: v.optional(v.id("staff")), // optional v0.6: absent for Telegram-issued codes
+    issued_via: v.optional(
+      v.union(v.literal("booth_inline"), v.literal("telegram")),
+    ), // absent = booth (legacy rows)
+    issued_by_telegram: v.optional(
+      v.object({
+        from_id: v.optional(v.number()), // optional: Telegram omits `from` for anonymous admins / channel posts
+        chat_title: v.string(),
+      }),
+    ),
     expires_at: v.number(),
     consumed_at: v.union(v.number(), v.null()),
   })
