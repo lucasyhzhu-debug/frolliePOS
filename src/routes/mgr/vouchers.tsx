@@ -596,12 +596,12 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Type</Label>
+              <Label htmlFor="new-voucher-type">Type</Label>
               <Select
                 value={addType}
                 onValueChange={(val) => setAddType(val as VoucherType)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="new-voucher-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
