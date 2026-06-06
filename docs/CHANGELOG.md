@@ -24,6 +24,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 - e2e `voucher-offline.spec.ts`: **honest re-skip** (seed/actions:reset doesn't expose stable test IDs for the concurrent-archive race; body deleted to make SKIP unambiguous).
 - e2e `sale-qris`, `sale-bca-va`, `refund`, `spoilage`: **honest re-skip** with three-field SKIP comments. Slice 1 a11y fixes work — Gate 1-3 surfaced different failure modes (Xendit test-mode simulate 404 for QRIS+FVA + spoilage button-state mystery) that need investigation outside this PR's scope. Follow-up issue filed.
 - e2e `auth.spec.ts` lockout body: stays `test.skip` (out of scope per v0.5.7.1).
+- **Verification of all 6 re-skipped specs deferred until v1 feature dev completes** — see [`docs/e2e-gaps-deferred.md`](./e2e-gaps-deferred.md) for the live tracker. Verifying piecemeal in v0.5.9 turned into selector-drift whack-a-mole on UI that may still move before v1.
 
 ### Discipline
 - Global `~/.claude/skills/staffreview/SKILL.md` §4.9 "Evidence-Before-Mitigation Gate" — additive subsection (no existing section reordered). Lands as a file edit on disk; the skill is not a git repo on this machine. Cross-project applicability.

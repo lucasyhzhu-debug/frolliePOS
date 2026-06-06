@@ -4,6 +4,8 @@
 **Triggered by:** PR #48 instrumentation refuting the v0.5.7.1 Option B trust-null hypothesis.
 **Shipped fix:** PR #52 (v0.5.9 e2e stabilization).
 
+> **Live tracker for the unresolved Slice 2 gaps:** [`docs/e2e-gaps-deferred.md`](../e2e-gaps-deferred.md). Verification deferred until v1 feature dev completes so the spec bodies don't get spot-fixed on UI that may still move.
+
 ## Timeline
 
 | When | What | Outcome |
