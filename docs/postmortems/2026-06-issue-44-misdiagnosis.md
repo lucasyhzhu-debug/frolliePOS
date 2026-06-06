@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-06
 **Triggered by:** PR #48 instrumentation refuting the v0.5.7.1 Option B trust-null hypothesis.
-**Shipped fix:** PR #<n> (v0.5.9 e2e stabilization).
+**Shipped fix:** PR #52 (v0.5.9 e2e stabilization).
 
 ## Timeline
 

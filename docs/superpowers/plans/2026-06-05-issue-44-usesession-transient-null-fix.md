@@ -1,4 +1,4 @@
-> **REFUTED 2026-06-06** — see PR #<n> (v0.5.9 e2e stabilization). The transient-null hypothesis this plan addresses was empirically refuted by instrumentation on PR #48 (Playwright run `27021101339`): `validation === null` with `stored=Y` never appears post-login across 17+ captured renders. The bug was a11y/selector drift on catalog buttons + Radix Tabs role + bare `<Label>` siblings without `htmlFor` — not a Convex client race. This plan is kept for historical reference; do not implement. See `docs/postmortems/2026-06-issue-44-misdiagnosis.md`.
+> **REFUTED 2026-06-06** — see PR #52 (v0.5.9 e2e stabilization). The transient-null hypothesis this plan addresses was empirically refuted by instrumentation on PR #48 (Playwright run `27021101339`): `validation === null` with `stored=Y` never appears post-login across 17+ captured renders. The bug was a11y/selector drift on catalog buttons + Radix Tabs role + bare `<Label>` siblings without `htmlFor` — not a Convex client race. This plan is kept for historical reference; do not implement. See `docs/postmortems/2026-06-issue-44-misdiagnosis.md`.
 
 ---
 

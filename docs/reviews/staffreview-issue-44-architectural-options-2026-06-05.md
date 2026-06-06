@@ -1,4 +1,4 @@
-> **REFUTED 2026-06-06** — see PR #<n> (v0.5.9 e2e stabilization). The four architectural options compared in this review (Option A debounce, Option B trust-null, etc.) addressed a misdiagnosed mechanism. PR #48 instrumentation (Playwright run `27021101339`) refuted the transient-null hypothesis empirically. The real bug was a11y/selector drift — see `docs/postmortems/2026-06-issue-44-misdiagnosis.md`. This review is kept as evidence in the postmortem; do not act on its recommendations.
+> **REFUTED 2026-06-06** — see PR #52 (v0.5.9 e2e stabilization). The four architectural options compared in this review (Option A debounce, Option B trust-null, etc.) addressed a misdiagnosed mechanism. PR #48 instrumentation (Playwright run `27021101339`) refuted the transient-null hypothesis empirically. The real bug was a11y/selector drift — see `docs/postmortems/2026-06-issue-44-misdiagnosis.md`. This review is kept as evidence in the postmortem; do not act on its recommendations.
 
 ---
 
