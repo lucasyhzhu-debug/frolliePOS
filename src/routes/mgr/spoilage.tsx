@@ -261,8 +261,9 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   </Select>
                 </div>
                 <div className="w-24 space-y-1.5">
-                  <Label className="text-xs">Qty</Label>
+                  <Label className="text-xs" htmlFor={`spoilage-qty-${i}`}>Qty</Label>
                   <Input
+                    id={`spoilage-qty-${i}`}
                     inputMode="numeric"
                     value={line.qty}
                     onChange={(e) =>
