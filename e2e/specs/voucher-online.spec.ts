@@ -23,7 +23,8 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   // 2. Apply at sale
   await page.goto("/sale");
   await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
-  await page.getByRole("link", { name: /voucher/i }).click();
+  // Voucher entry on /sale is a <button> (sale/index.tsx:273), not a link
+  await page.getByRole("button", { name: /voucher/i }).click();
   await page.getByPlaceholder(/voucher code/i).fill("E2E10");
   await page.getByRole("button", { name: /^Apply$/ }).click();
   await page.waitForURL(/\/sale$/);
