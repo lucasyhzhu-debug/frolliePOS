@@ -1,23 +1,15 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: session-loss-on-hard-nav. The signedInAsLucas fixture passes
-// (heading + tile + URL all confirm signed-in), but page.goto("/sale") inside
-// the spec lands on /login — reproducible on every signedInAs*-fixture spec.
-// Likely a Convex client transient null on the session-validation query during
-// WS reconnect → useSession.isDead effect clears localStorage. Needs dedicated
-// investigation, tracked as the "e2e session-on-hard-nav" follow-up.
-// Business logic IS covered: convex/refunds/__tests__/refund-status.test.ts +
-// the refunds module's other unit tests.
-test.skip("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
+test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
   // 1. Paid sale
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
   await page.getByRole("button", { name: /Charge/i }).click();
-  await page.getByRole("button", { name: /QRIS/i }).click();
+  await page.getByRole("tab", { name: /QRIS/i }).click();
   const qrId = await page.locator("[data-qr-id]").first().getAttribute("data-qr-id");
   if (!qrId) throw new Error("no qrId");
-  await simulateQrisPaid(qrId, 5_000); // CONFIRM
+  await simulateQrisPaid(qrId, 45_000); // 1 × Dubai 1pc @ 45k IDR per seed
   await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
 
   // 2. Open via history; trigger refund
