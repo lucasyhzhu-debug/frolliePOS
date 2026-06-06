@@ -1,13 +1,14 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/vouchers/__tests__.
-test.skip("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
+test("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
   // 1. Manager creates voucher
   await page.goto("/mgr/vouchers");
   await page.getByLabel(/Code/i).fill("E2E10");
-  await page.getByLabel(/Type/i).click();
+  // Pre-authorized fallback selector (plan Task 0): Radix label-click forwarding
+  // via htmlFor can vary by version; getByRole("combobox", { name }) resolves
+  // unambiguously now that Task 4 wired htmlFor=new-voucher-type ↔ SelectTrigger id.
+  await page.getByRole("combobox", { name: /Type/i }).click();
   await page.getByRole("option", { name: /Percentage/i }).click();
   await page.getByLabel(/^Value/i).fill("10");
   await page.getByRole("button", { name: /Create \(PIN\)/i }).click();
@@ -16,7 +17,7 @@ test.skip("voucher (online): mgr creates → staff applies → paid → redempti
 
   // 2. Apply at sale
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
   await page.getByRole("link", { name: /voucher/i }).click();
   await page.getByPlaceholder(/voucher code/i).fill("E2E10");
   await page.getByRole("button", { name: /^Apply$/ }).click();
@@ -24,10 +25,11 @@ test.skip("voucher (online): mgr creates → staff applies → paid → redempti
 
   // 3. Charge + simulate
   await page.getByRole("button", { name: /Charge/i }).click();
-  await page.getByRole("button", { name: /QRIS/i }).click();
+  await page.getByRole("tab", { name: /QRIS/i }).click();
   const qrId = await page.locator("[data-qr-id]").first().getAttribute("data-qr-id");
   if (!qrId) throw new Error("no qrId");
-  await simulateQrisPaid(qrId, 4_500); // 5k - 10% = 4.5k; CONFIRM
+  // Dubai 1pc @ 45k - 10% = 40.5k IDR
+  await simulateQrisPaid(qrId, 40_500);
   await expect(page.getByText(/Paid/i)).toBeVisible({ timeout: 15_000 });
 
   // 4. Verify redemption in mgr drawer
