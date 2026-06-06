@@ -1383,6 +1383,192 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
+## v0.5.9 — e2e Stabilization (issue #44 actual fix) 📋 PLANNED
+**Outcome:** Land the actual fix for issue #44 — a11y / selector drift on catalog `Add` buttons (three "Dubai" SKUs all rendered identical `Add Dubai` labels) + Radix `TabsTrigger` role (`role="tab"` not `button`) + bare `<Label>` siblings without `htmlFor`. Un-skip the 6 PIN-gated e2e specs that have been red since PR #43 (refund, sale-qris, sale-bca-va, spoilage, voucher-online, voucher-offline). Drop the `e2e/fixtures.ts` 1500ms warm-up (refuted mitigation). Document the misdiagnosis trail in a new `docs/postmortems/` dir and install an evidence-before-mitigation gate into the global staffreview skill so the next misdiagnosis is caught at plan-review time. 4 slices, single PR, no Convex changes.
+**Spec:** [`docs/superpowers/specs/2026-06-06-v0.5.9-e2e-stabilization-design.md`](./superpowers/specs/2026-06-06-v0.5.9-e2e-stabilization-design.md)
+**Plan:** [`docs/superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md`](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+**Target:** TBD
+
+**You'll be able to:**
+- (CI) Run all 8 e2e specs un-skipped — auth + refund + sale-qris + sale-bca-va + spoilage + voucher-online + voucher-offline (honest re-skip with body deleted) + the existing happy path
+- (a11y) Hear screen readers announce "Add Dubai 1 pc" / "Add Dubai 3 pcs" / "Add Dubai 8 pcs" instead of three identical "Add Dubai" buttons
+- (a11y) Tab from a `<Label>` to its paired `<Input>` / `<SelectTrigger>` on every form on `/mgr/spoilage` and `/mgr/vouchers` (htmlFor + id wired through Radix)
+- (review) Get caught by the new staffreview §4.9 Evidence-Before-Mitigation Gate before shipping another timing/warm-up "fix" without instrumentation evidence
+- (process) Find post-incident retrospectives in `docs/postmortems/` (distinct from `docs/reviews/` pre-merge artifacts) — first entry is the issue #44 misdiagnosis trail
+
+**Still not yet:**
+- Convex backend changes — this phase is pure FE/e2e/docs (closes #44 / #49 / #50)
+- ESLint rule to enforce the SKIP-comment three-field template at CI time (optional follow-up; deferred until pattern is ignored in practice)
+- Seed-side change to expose stable test IDs for `voucher-offline.spec.ts` (filed as follow-up at PR-open time; until it ships, ADR-009 offline-voucher rejection stays covered by unit tests only)
+
+### Frontend (`src/`)
+
+- 📋 **[v0.5.9-fe-label-helper]** `src/lib/label.ts` + `src/lib/__tests__/label.test.ts` — pure `buildAddCardLabel(name, packLabel)` helper with vitest pinning all 7 seed products + Mixed Box (longest, space-containing) + empty/whitespace-only pack_label edge case (TDD: failing test first, then helper, then green)
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Write failing test `src/lib/__tests__/label.test.ts` (10 cases — 7 seed + 3 edge); confirm RED
+    - [ ] Implement `src/lib/label.ts::buildAddCardLabel` (trim whitespace; omit trailing segment when pack is empty)
+    - [ ] Confirm GREEN (10/10)
+    - [ ] Typecheck + lint clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-fe-sale-catalog-aria]** `src/routes/sale/index.tsx:183` — wire `aria-label={buildAddCardLabel(p.name, p.pack_label)}` (was `Add ${p.name}` which collided across the 3 Dubai SKUs and broke Playwright `/Dubai 1pc/i` selectors). Verifies `p.pack_label` is in the cached product type from `useCatalogCache`.
+  - **agent:** `frontend-integrator` · **deps:** `v0.5.9-fe-label-helper` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Import `buildAddCardLabel` from `@/lib/label`
+    - [ ] Replace `aria-label={\`Add ${p.name}\`}` with helper call
+    - [ ] Typecheck + lint + vitest all green
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-fe-spoilage-htmlfor]** `src/routes/mgr/spoilage.tsx:263-275` — per-row Qty `<Label htmlFor={\`spoilage-qty-${i}\`}>` + `<Input id={\`spoilage-qty-${i}\`}>` inside `lines.map((line, i) => …)`. Matches the existing per-row `aria-label={\`Remove line ${i+1}\`}` convention at line 284. Unblocks `getByLabel(/Qty/i).first()` in spoilage e2e.
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Add `htmlFor`/`id` template-literal per `i`
+    - [ ] DevTools console check: no duplicate ids across rendered rows
+    - [ ] Typecheck + lint clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-fe-vouchers-htmlfor]** `src/routes/mgr/vouchers.tsx:598-611` — Type `<Label htmlFor="new-voucher-type">` + `<SelectTrigger id="new-voucher-type">` (static id; mirrors sibling `new-voucher-value` pattern at lines 613-617). Radix `SelectTrigger` already spreads `...props` so no component change needed.
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Add `htmlFor` + `id` (static, module-scope form)
+    - [ ] Typecheck + lint clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-fe-a11y-audit]** Slice 2.A read-only audit pass — grep `src/routes/sale/`, `src/routes/history/`, `src/routes/refund/`, `src/routes/mgr/*` (excluding spoilage + vouchers, done in Slice 1) for two patterns: (1) bare `<Label>` next to interactive control without `htmlFor`, (2) `aria-label={\`<noun> ${p.name}\`}` patterns that omit a disambiguator. Record inventory inline in the plan file as the source for the next task.
+  - **agent:** `—` · **deps:** `v0.5.9-fe-sale-catalog-aria`, `v0.5.9-fe-spoilage-htmlfor`, `v0.5.9-fe-vouchers-htmlfor` · **docs:** [Plan Task 12](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Grep bare `<Label>` patterns; tabulate findings
+    - [ ] Grep `aria-label` patterns; tabulate findings
+    - [ ] Append inventory table to Task 12 of the plan file
+  - **notes:** _Gate 1 (e2e green) sits between Slice 1 and this task in the plan; conservative dep here is the three Slice 1 FE fixes._
+
+- 📋 **[v0.5.9-fe-a11y-fixes]** Slice 2.B targeted fixes — one commit per file, max 10 files. Apply `htmlFor` + `id` (bare-Label fixes) or conditional disambiguator (aria-label gap fixes). Reuse `buildAddCardLabel` only if the disambiguator format matches `Add <name> <pack_label>`; otherwise do NOT widen the helper (rule of three).
+  - **agent:** `frontend-integrator` · **deps:** `v0.5.9-fe-a11y-audit` · **docs:** [Plan Task 13](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] For each Task 12 finding: apply pattern; one commit per file
+    - [ ] Vitest all green; e2e still green
+  - **notes:** _If Task 12 inventory is empty, no commits here — proceed to Gate 2._
+
+### Cross-cutting
+
+- 📋 **[v0.5.9-xc-radix-select-smoke]** Task 0 verification gate — temporary throwaway probe spec (`e2e/specs/_probe.spec.ts`) + staged-but-uncommitted edit to `src/routes/mgr/vouchers.tsx` to test whether Playwright `page.getByLabel(/Type/i).click()` forwards through `<label htmlFor>` to a Radix `<SelectTrigger role="combobox">` and opens the dropdown. Records `TASK 0 RESULT: YES/NO` inline in the plan; all throwaway artefacts reverted in Step 5. PASS → Tasks 5-7 / 9 use `getByLabel`; FAIL → use pre-authorized `getByRole("combobox", { name: /Type/i })` fallback. No commit.
+  - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 0](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Stage temporary Task-4 edit + create `_probe.spec.ts`
+    - [ ] Run `npx playwright test e2e/specs/_probe.spec.ts --headed`
+    - [ ] Record outcome in plan: `TASK 0 RESULT: YES` or `NO`
+    - [ ] `git restore` + delete probe spec; `git status` clean
+  - **notes:** _Pure investigation step — produces no commit; gates selector strategy for downstream un-skip tasks._
+
+- 📋 **[v0.5.9-xc-drop-warmup]** `e2e/fixtures.ts:37-41` — delete the `await page.waitForTimeout(1500)` + the 4-line workaround-comment block above it. PR #48 instrumentation (run `27021101339`) refuted the session-loss-on-hard-nav hypothesis empirically. The warm-up is dead weight; worktree branched off `48615b7` predates PR #48's `b644d6a` drop so it's still present here.
+  - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 2.5](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Delete lines 37-41 (5 lines net)
+    - [ ] `git diff` confirms -5 lines, no other changes
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-refund]** `e2e/specs/refund.spec.ts` — un-skip + delete 8-line SKIPPED block (lines 4-11); `test.skip(` → `test(`; `/Dubai 1pc/i` → `/Add Dubai 1 ?pc/i`; payment tab `button` role → `tab` role (Radix TabsTrigger at `charge.tsx:495`); amount corrected to `45_000` (Dubai 1pc seed price).
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-sale-catalog-aria` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Rewrite spec per plan
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-sale-qris]** `e2e/specs/sale-qris.spec.ts` — un-skip + delete 5-line SKIPPED block; `test.skip(` → `test(`; button → tab role for QRIS; `/Dubai 1pc/i` → `/Add Dubai 1 ?pc/i`; amount 10_000 → 90_000 (2 × 45k).
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-sale-catalog-aria` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Rewrite spec per plan
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-sale-bca-va]** `e2e/specs/sale-bca-va.spec.ts` — un-skip + delete 4-line SKIPPED block; `test.skip(` → `test(`; button → tab role narrowed to `/BCA VA/i` (exact label at `charge.tsx:496`); `/Dubai 3pcs/i` → `/Add Dubai 3 ?pcs/i`; amount 25_000 → 125_000.
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-sale-catalog-aria` · **docs:** [Plan Task 7](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Rewrite spec per plan
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-spoilage]** `e2e/specs/spoilage.spec.ts` — un-skip + delete 3-line SKIPPED block; `test.skip(` → `test(`. Body untouched (already uses `.first()` correctly; resolves via the new spoilage-qty htmlFor).
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-spoilage-htmlfor` · **docs:** [Plan Task 8](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Rewrite spec per plan
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-voucher-online]** `e2e/specs/voucher-online.spec.ts` — un-skip + delete 3-line SKIPPED block; `test.skip(` → `test(`; `/Dubai 1pc/i` → `/Add Dubai 1 ?pc/i`; button → tab role for QRIS; amount 4_500 → 40_500 (45k - 10%); Type selector strategy per Task 0 result (getByLabel primary, getByRole combobox fallback).
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-sale-catalog-aria`, `v0.5.9-fe-vouchers-htmlfor` · **docs:** [Plan Task 9](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Rewrite spec per plan (with primary or fallback Type selector)
+    - [ ] Typecheck clean
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-spec-voucher-offline]** `e2e/specs/voucher-offline.spec.ts` — honest re-skip with body deleted. Static-analysis decision: `convex/seed/actions.ts::reset` returns only `{wiped, inserted}`, doesn't emit stable test IDs for the spec's `execSync` calls (verified at plan-write). Body had `<TBD>` tokens inside silent try/catch producing false-green CI; replaced with skip-comment-template-compliant SKIP citing observed failure mode + evidence path + follow-up issue.
+  - **agent:** `—` · **deps:** `v0.5.9-xc-radix-select-smoke`, `v0.5.9-fe-vouchers-htmlfor` · **docs:** [Plan Task 10](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Verify `convex/seed/actions.ts` signature unchanged (still `{wiped, inserted}`); STOP-and-surface if changed
+    - [ ] Rewrite spec with honest SKIP + deleted body
+    - [ ] Typecheck clean
+    - [ ] Open follow-up issue ("seed/actions:reset should expose stable test IDs") at PR-open time
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-refuted-banners]** REFUTED banners on 2 stale issue-#44 planning artifacts: `docs/superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md` + `docs/reviews/staffreview-issue-44-architectural-options-2026-06-05.md`. Insert at top, citing PR #48 instrumentation refutation and pointing to the new postmortem. Kept on main (not deleted) so future readers searching for issue #44 land on the refutation context. `PR #<n>` placeholder backfilled in Task 19 ship step.
+  - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 11](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Banner at top of stale plan file
+    - [ ] Banner at top of stale review file
+    - [ ] PowerShell `Select-String` confirms hit on line 1 of each
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-skill-edit]** Cross-project additive insert into `~/.claude/skills/staffreview/SKILL.md` §4.9 "Evidence-Before-Mitigation Gate" — mandatory checklist for spec/plan reviews of flake/race/transient-bug fixes (cite artefact, distinguish fix vs mitigation, require Task 0 verification for invasive untargeted changes). Cautionary precedent cites Frollie POS issue #44 (4 planning cycles before instrumentation). Commit lands in the skill's own git tree, NOT the Frollie PR.
+  - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 14](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] `wc -l` baseline 557; reconcile if different
+    - [ ] Insert §4.9 between §4.8 and Step 5 (additive-only)
+    - [ ] `git diff` shows + lines only; commit in skill's tree
+  - **notes:** _Parallel-safe with Frollie work; Gate 3 in the plan verifies the skill commit landed before PR ships._
+
+- 📋 **[v0.5.9-xc-skip-template]** `docs/PATTERNS/skip-comment-template.md` (new) + `CLAUDE.md` "How to add a feature" §10 cross-link. Three-field SKIP-comment template: observed failure mode + evidence path + follow-up issue. Good/bad examples cite PR #43 (`4aa4119`) six SKIPs as the cautionary anecdote.
+  - **agent:** `—` · **deps:** `v0.5.9-xc-skill-edit` · **docs:** [Plan Task 15](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Write `docs/PATTERNS/skip-comment-template.md`
+    - [ ] Add §10 to CLAUDE.md "How to add a feature"
+    - [ ] Closes #50
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-postmortem-readme]** `docs/postmortems/README.md` (new dir + index + template skeleton) + `CLAUDE.md` docs inventory updated to include `postmortems/` distinguished from `docs/reviews/` (post-incident vs pre-merge artifacts).
+  - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 16](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Write README with genre distinction + index + 7-section template
+    - [ ] Update CLAUDE.md `docs/` inventory line
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-postmortem-44]** `docs/postmortems/2026-06-issue-44-misdiagnosis.md` (new) — full misdiagnosis trail: timeline (PR #41 warm-up → PR #43 test.skip → v0.5.7.1 Option A debounce → v0.5.7.1 Option B trust-null → PR #48 instrumentation), what we thought, what was actually happening (a11y/selector drift), how we caught it (Playwright run `27021101339`), 2-4 lessons, systemic change (links to the staffreview §4.9 gate + skip-comment template shipped in same PR), references.
+  - **agent:** `—` · **deps:** `v0.5.9-xc-postmortem-readme` · **docs:** [Plan Task 17](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Write the 7-section postmortem per the README template
+    - [ ] Cross-link from README index
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-changelog]** `docs/CHANGELOG.md` — v0.5.9 entry summarizing the a11y/e2e fix + the postmortem + the staffreview §4.9 gate + the skip-comment template. Cites closes #44, #49, #50.
+  - **agent:** `—` · **deps:** `v0.5.9-fe-a11y-fixes`, `v0.5.9-xc-spec-refund`, `v0.5.9-xc-spec-sale-qris`, `v0.5.9-xc-spec-sale-bca-va`, `v0.5.9-xc-spec-spoilage`, `v0.5.9-xc-spec-voucher-online`, `v0.5.9-xc-spec-voucher-offline`, `v0.5.9-xc-drop-warmup`, `v0.5.9-xc-refuted-banners`, `v0.5.9-xc-skip-template`, `v0.5.9-xc-postmortem-44` · **docs:** [Plan Task 18](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] Insert v0.5.9 entry above the most recent CHANGELOG header
+    - [ ] Cite #44, #49, #50 closures + the parallel skill commit SHA
+  - **notes:** _(empty)_
+
+- 📋 **[v0.5.9-xc-ship]** `gh pr create` (convert draft → ready), close PR #48 with reference to this PR, backfill `PR #<n>` placeholder in REFUTED banners + postmortem references, watch `gh pr checks --watch` until all 8 e2e specs green (1 un-skipped + 6 newly un-skipped + 1 honest re-skip).
+  - **agent:** `—` · **deps:** `v0.5.9-xc-changelog` · **docs:** [Plan Task 19](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
+  - **subtasks:**
+    - [ ] `gh pr ready` → CI re-runs
+    - [ ] Backfill `PR #<n>` → actual PR number in banners + postmortem
+    - [ ] Close PR #48 with "superseded by PR #<this>" comment
+    - [ ] All 8 e2e specs green
+  - **notes:** _(empty)_
+
+---
+
 ## v0.6 — vouchers + spoilage + nightly stock-recon + Playwright 📋 PLANNED
 **Outcome:** Manager-portal voucher CRUD with ADR-009 offline reject banner; spoilage at booth (manager-PIN) or off-booth (Telegram approval); nightly cron rebuilds `pos_stock_levels` from the movements ledger and alerts on drift (report-only, no silent correction); first Playwright E2E suite proving the transactional golden path.
 **Spec:** [`docs/superpowers/specs/2026-06-02-v0.6-design.md`](./superpowers/specs/2026-06-02-v0.6-design.md) (staffreview-validated)
