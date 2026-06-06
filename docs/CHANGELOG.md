@@ -20,9 +20,9 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 ### Tests
 - e2e `auth.spec.ts` happy path: still green.
-- e2e `voucher-online.spec.ts`: un-skipped, Slice 2 fixes (open Add-voucher Dialog first, button role for /sale voucher entry, Continue submit text).
+- e2e `voucher-online.spec.ts`: **honest re-skip**. Slice 1 a11y fixes + Slice 2 form-flow fixes (open Add-voucher Dialog first, button role for /sale voucher entry, Continue submit text) all work — spec reaches the simulate step where the Xendit 404 reappears (same root cause as sale-qris). Body kept intact for auto-un-skip when the upstream lands.
 - e2e `voucher-offline.spec.ts`: **honest re-skip** (seed/actions:reset doesn't expose stable test IDs for the concurrent-archive race; body deleted to make SKIP unambiguous).
-- e2e `sale-qris`, `sale-bca-va`, `refund`, `spoilage`: **honest re-skip** with three-field SKIP comments. Slice 1 a11y fixes work — Gate 1+2 surfaced different failure modes (Xendit test-mode simulate 404 + spoilage button-state mystery) that need investigation outside this PR's scope. Follow-up issue filed.
+- e2e `sale-qris`, `sale-bca-va`, `refund`, `spoilage`: **honest re-skip** with three-field SKIP comments. Slice 1 a11y fixes work — Gate 1-3 surfaced different failure modes (Xendit test-mode simulate 404 for QRIS+FVA + spoilage button-state mystery) that need investigation outside this PR's scope. Follow-up issue filed.
 - e2e `auth.spec.ts` lockout body: stays `test.skip` (out of scope per v0.5.7.1).
 
 ### Discipline
