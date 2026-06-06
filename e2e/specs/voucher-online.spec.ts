@@ -4,6 +4,9 @@ import { simulateQrisPaid } from "../helpers/xendit-simulate";
 test("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
   // 1. Manager creates voucher
   await page.goto("/mgr/vouchers");
+  // The Add-voucher form is inside a Dialog gated by `addOpen` state
+  // (src/routes/mgr/vouchers.tsx:570). Spec must open the dialog first.
+  await page.getByRole("button", { name: /Add voucher/i }).click();
   await page.getByLabel(/Code/i).fill("E2E10");
   // Pre-authorized fallback selector (plan Task 0): Radix label-click forwarding
   // via htmlFor can vary by version; getByRole("combobox", { name }) resolves
@@ -11,7 +14,9 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   await page.getByRole("combobox", { name: /Type/i }).click();
   await page.getByRole("option", { name: /Percentage/i }).click();
   await page.getByLabel(/^Value/i).fill("10");
-  await page.getByRole("button", { name: /Create \(PIN\)/i }).click();
+  // Dialog submit button is "Continue" (vouchers.tsx:678), which opens the
+  // PIN sheet — Manager PIN is required after Continue per DialogDescription.
+  await page.getByRole("button", { name: /^Continue$/i }).click();
   for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
   await expect(page.getByText(/E2E10/)).toBeVisible();
 
