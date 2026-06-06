@@ -1,13 +1,11 @@
 import { test, expect } from "../fixtures";
 
-// SKIPPED: session-loss-on-hard-nav (see refund.spec.ts for full context).
-// Business logic covered by convex/inventory/__tests__/spoilage tests.
-test.skip("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects -2", async ({ signedInAsLucas: page }) => {
+test("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects -2", async ({ signedInAsLucas: page }) => {
   await page.goto("/mgr/spoilage");
   // Pick first SKU
   await page.getByRole("combobox").first().click();
   await page.getByRole("option").first().click();
-  // Qty input first occurrence
+  // Qty input row 0 — now resolves via htmlFor=spoilage-qty-0 added in src commit
   await page.getByLabel(/Qty|Quantity/i).first().fill("2");
   await page.getByPlaceholder(/What happened|reason/i).fill("E2E expired batch");
   await page.getByRole("button", { name: /Log spoilage now/i }).click();
