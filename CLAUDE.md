@@ -108,7 +108,7 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`), `escpos.ts` (v0.5.4 — pure ESC/POS `encodeReceipt` + `SAMPLE_RECEIPT`, ADR-043) |
 | `pwa/` | Service worker bootstrap |
 
-**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`.
+**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`, `postmortems/` (post-incident retrospectives — distinct from `docs/reviews/` pre-merge artifacts).
 
 **Other:** `frollie-pos design files/` (wireframes, gitignored — IA source for v0.5), `packages/ceo-progress-report/` (frozen snapshot; build path is now the published npm package via `buildlog.config.mjs`).
 
@@ -180,6 +180,7 @@ Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./do
 7. Payment/refund/stock features → write tests. Others: optional but encouraged.
 8. **New approval KIND** → wire all four touch-points: **(a)** `convex/approvals/kinds.ts` (`ApprovalKind` union, `validateContext` case, `KIND_AUDIT`, `KIND_TEMPLATE`) + `approvals/schema.ts` + `approvals/internal.ts` validators; **(b)** Telegram template — literal in `sendTemplate`'s `kind` union (`convex/telegram/send.ts`) + `renderXxx` in `convex/lib/telegramHtml.ts` (URL button → `${POS_BASE_URL}/approve/${rawToken}`, never `callback_data`); **(c)** `/approve/:token` UI variant (`src/routes/approve/index.tsx` discriminates on `kind`; `approve/pin.tsx` for ACT); **(d)** public action in `approvals/actions.ts` following the `requestManualPaymentApproval`/`approveManualPayment`/`denyRequest` pattern, reusing `_createRequest_internal`/`_markNotified_internal`/`_markResolved_internal`/`_markDenied_internal`. Thread `source: "telegram_approval"` everywhere. Admin surface is `api.telegram.chatRegistry.public.mgr*`.
 9. Update `docs/CHANGELOG.md` in the same PR.
+10. **`test.skip` blocks** require the [`docs/PATTERNS/skip-comment-template.md`](./docs/PATTERNS/skip-comment-template.md) three-field format (observed failure mode + evidence path + follow-up issue). A SKIP without all three is rejected at review.
 
 ## When to push back
 

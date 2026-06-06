@@ -51,3 +51,4 @@ docs/progress.html
 .claude/worktrees/
 .claude/handoff/
 *.diff_*.txt
+.gstack/

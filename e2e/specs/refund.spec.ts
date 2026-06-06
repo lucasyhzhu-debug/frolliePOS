@@ -1,23 +1,35 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: session-loss-on-hard-nav. The signedInAsLucas fixture passes
-// (heading + tile + URL all confirm signed-in), but page.goto("/sale") inside
-// the spec lands on /login — reproducible on every signedInAs*-fixture spec.
-// Likely a Convex client transient null on the session-validation query during
-// WS reconnect → useSession.isDead effect clears localStorage. Needs dedicated
-// investigation, tracked as the "e2e session-on-hard-nav" follow-up.
-// Business logic IS covered: convex/refunds/__tests__/refund-status.test.ts +
-// the refunds module's other unit tests.
+// SKIPPED: Refund spec depends on `simulateQrisPaid` succeeding to create the
+// paid sale that will be refunded. That helper currently returns 404
+// DATA_NOT_FOUND on dev (see sale-qris.spec.ts SKIP for full diagnosis).
+// The refund-specific selectors (Refund button, Qty/Reason labels, Confirm
+// refund, PIN sheet) are unblocked by Slice 1 a11y work — they're just
+// unreachable until the upstream paid-sale step works.
+//
+// Observed failure mode (Gate 1 of PR #52, Playwright run `27054044763`):
+//   "simulateQrisPaid failed: 404 {\"error_code\":\"DATA_NOT_FOUND\",
+//    \"message\":\"Data not found\"}"
+//   at e2e/helpers/xendit-simulate.ts:25 from spec line ~13.
+//
+// Evidence path: docs/postmortems/2026-06-issue-44-misdiagnosis.md +
+//   .claude/pw-report/run-27054044763/data/f80f3d436b20ba4517a98976fe056cba7c0a5420.md
+//   (refund error-context with page snapshot at the simulate 404).
+//
+// Follow-up issue: same as sale-qris — "Xendit QRIS simulate 404 …". When
+// that lands, this spec un-skips automatically. Refund business logic (PIN
+// gate, audit verb, single-writer funnel, ADR-038 settlement separation) is
+// covered by convex/refunds/__tests__ + the refunds module unit tests.
 test.skip("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
   // 1. Paid sale
   await page.goto("/sale");
-  await page.getByRole("button", { name: /Dubai 1pc/i }).click();
+  await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
   await page.getByRole("button", { name: /Charge/i }).click();
-  await page.getByRole("button", { name: /QRIS/i }).click();
+  await page.getByRole("tab", { name: /QRIS/i }).click();
   const qrId = await page.locator("[data-qr-id]").first().getAttribute("data-qr-id");
   if (!qrId) throw new Error("no qrId");
-  await simulateQrisPaid(qrId, 5_000); // CONFIRM
+  await simulateQrisPaid(qrId, 45_000); // 1 × Dubai 1pc @ 45k IDR per seed
   await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
 
   // 2. Open via history; trigger refund

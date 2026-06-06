@@ -8,6 +8,7 @@ import { useCart } from "@/hooks/useCart";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { rp } from "@/lib/format";
+import { buildAddCardLabel } from "@/lib/label";
 import { hasFlag, NEG_STOCK } from "../../../convex/transactions/flags";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -180,7 +181,7 @@ export default function Sale() {
                     key={p._id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Add ${p.name}`}
+                    aria-label={buildAddCardLabel(p.name, p.pack_label)}
                     onClick={() => addLine(p._id, p.price_idr)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
