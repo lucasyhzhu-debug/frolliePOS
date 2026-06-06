@@ -108,7 +108,7 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`), `escpos.ts` (v0.5.4 — pure ESC/POS `encodeReceipt` + `SAMPLE_RECEIPT`, ADR-043) |
 | `pwa/` | Service worker bootstrap |
 
-**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`.
+**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`, `postmortems/` (post-incident retrospectives — distinct from `docs/reviews/` pre-merge artifacts).
 
 **Other:** `frollie-pos design files/` (wireframes, gitignored — IA source for v0.5), `packages/ceo-progress-report/` (frozen snapshot; build path is now the published npm package via `buildlog.config.mjs`).
 
