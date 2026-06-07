@@ -16,4 +16,5 @@ test("BCA VA sale: cart → charge → simulate → paid receipt", async ({ sign
   // Dubai 3 pcs @ 125k IDR per seed (convex/seed/internal.ts:103)
   await simulateBcaVaPaid(extId, 125_000);
   await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Payment confirmed/i)).toBeVisible();
 });

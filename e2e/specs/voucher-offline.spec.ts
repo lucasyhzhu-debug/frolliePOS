@@ -22,6 +22,7 @@ test("voucher (offline): apply → mgr archives → reconnect → ADR-009 reject
   // silently passing; the query itself also throws if the rows are absent.
   const raw = execSync("npx convex run seed/internal:_e2eFixtureIds_internal", {
     encoding: "utf8",
+    timeout: 30_000,
   });
   const seed = JSON.parse(raw) as {
     managerSessionId?: string;
@@ -61,7 +62,7 @@ test("voucher (offline): apply → mgr archives → reconnect → ADR-009 reject
   //    page is offline.
   execSync(
     `npx convex run vouchers/public:archiveVoucher "{\\"idempotencyKey\\":\\"e2e-archive-${Date.now()}\\",\\"sessionId\\":\\"${managerSessionId}\\",\\"voucherId\\":\\"${voucherId}\\"}"`,
-    { stdio: "inherit" },
+    { stdio: "inherit", timeout: 30_000 },
   );
 
   // 4. Reconnect and reload so the session + catalog queries re-resolve cleanly
