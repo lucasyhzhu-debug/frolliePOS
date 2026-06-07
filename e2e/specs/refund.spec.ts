@@ -1,27 +1,8 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
 
-// SKIPPED: Refund spec depends on `simulateQrisPaid` succeeding to create the
-// paid sale that will be refunded. That helper currently returns 404
-// DATA_NOT_FOUND on dev (see sale-qris.spec.ts SKIP for full diagnosis).
-// The refund-specific selectors (Refund button, Qty/Reason labels, Confirm
-// refund, PIN sheet) are unblocked by Slice 1 a11y work — they're just
-// unreachable until the upstream paid-sale step works.
-//
-// Observed failure mode (Gate 1 of PR #52, Playwright run `27054044763`):
-//   "simulateQrisPaid failed: 404 {\"error_code\":\"DATA_NOT_FOUND\",
-//    \"message\":\"Data not found\"}"
-//   at e2e/helpers/xendit-simulate.ts:25 from spec line ~13.
-//
-// Evidence path: docs/postmortems/2026-06-issue-44-misdiagnosis.md +
-//   .claude/pw-report/run-27054044763/data/f80f3d436b20ba4517a98976fe056cba7c0a5420.md
-//   (refund error-context with page snapshot at the simulate 404).
-//
-// Follow-up issue: same as sale-qris — "Xendit QRIS simulate 404 …". When
-// that lands, this spec un-skips automatically. Refund business logic (PIN
-// gate, audit verb, single-writer funnel, ADR-038 settlement separation) is
-// covered by convex/refunds/__tests__ + the refunds module unit tests.
-test.skip("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
+// Un-skipped in v0.6.1 — see docs/postmortems/2026-06-issue-43-e2e-skip-triage.md.
+test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt updated", async ({ signedInAsLucas: page }) => {
   // 1. Paid sale
   await page.goto("/sale");
   await page.getByRole("button", { name: /Add Dubai 1 ?pc/i }).click();
@@ -32,13 +13,36 @@ test.skip("refund: paid sale → mgr refund 1 line with PIN → refund row + rec
   await simulateQrisPaid(qrId, 45_000); // 1 × Dubai 1pc @ 45k IDR per seed
   await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
 
-  // 2. Open via history; trigger refund
+  // 2. Open via history; the Refund button navigates to /refund/:txnId
+  // (src/routes/history/$txnId.tsx:259 — data-testid="history-refund").
+  // Stale-expectation fix: the history list rows do NOT render the receipt
+  // number — each row shows the total + time + staff and links to
+  // /history/:txnId (src/routes/history/index.tsx:97,105-108). Click the
+  // first list row (a <Link>) rather than receipt-number text.
   await page.goto("/history");
-  await page.getByText(/R-\d{4}-\d{4}/).first().click();
-  await page.getByRole("button", { name: /Refund/i }).click();
-  await page.getByLabel(/qty|Quantity/i).first().fill("1");
-  await page.getByLabel(/Reason/i).fill("E2E test refund");
-  await page.getByRole("button", { name: /Confirm refund/i }).click();
+  await page.getByTestId("history-list").getByRole("link").first().click();
+  await page.getByTestId("history-refund").click();
+  await page.waitForURL(/\/refund\//);
+
+  // 3. On /refund/:txnId — per-line stepper, reason textarea, then the
+  //    manager-picker → PIN-sheet inline flow (src/routes/refund/detail.tsx).
+  //    Stale-expectation rewrite: the original spec assumed an inline-on-history
+  //    refund with getByLabel("qty"/"Reason") + a "Confirm refund" button and a
+  //    "Refunded" badge. The real UI is a dedicated route: the qty input is
+  //    aria-label "Refund quantity for <product>" (RefundLineSelector.tsx:41),
+  //    the reason is data-testid="refund-reason" (detail.tsx:370), the submit is
+  //    data-testid="refund-submit-inline" labelled "Refund with manager PIN"
+  //    (detail.tsx:396,400), which opens the ManagerPickerOverlay
+  //    (data-testid="pick-manager-<code>") then the "Confirm refund" PinSheet
+  //    (detail.tsx:434). On success it toasts "Refund committed" and navigates
+  //    back to /refund (detail.tsx:198,204).
+  await page.getByLabel(/Refund quantity for/i).first().fill("1");
+  await page.getByTestId("refund-reason").fill("E2E test refund");
+  await page.getByTestId("refund-submit-inline").click();
+  // Manager picker — Lucas is the sole seeded manager (S-0005 per seed).
+  await page.getByTestId("manager-picker").waitFor({ timeout: 10_000 });
+  await page.getByTestId(/^pick-manager-/).first().click();
   for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
-  await expect(page.getByText(/Refunded/i)).toBeVisible({ timeout: 10_000 });
+  // Success: navigates back to the refundable list at /refund.
+  await page.waitForURL(/\/refund$/, { timeout: 15_000 });
 });
