@@ -28,7 +28,13 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/r\//, /^\/approve\//],
+        // `/presentation/` is a self-contained static deck (conference talk),
+        // not a React Router route — exempt it from the SPA fallback so the
+        // browser loads the real HTML instead of index.html. Mirrors /r/ + /approve/.
+        navigateFallbackDenylist: [/^\/r\//, /^\/approve\//, /^\/presentation\//],
+        // Keep the deck's images out of the precache manifest so they don't
+        // bloat every PWA install; they load on demand when the deck is opened.
+        globIgnores: ["**/presentation/**"],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/api/"),

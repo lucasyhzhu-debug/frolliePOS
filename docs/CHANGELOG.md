@@ -2,6 +2,18 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-07 — Presentation hosting
+
+### Added
+- **Conference-talk deck hosted in-app** at `/presentation/frolliepos-talk.html` — the self-contained 10-slide Frollie POS talk, served as static files from `public/presentation/` (rides the existing Vercel deploy, no separate project). Fonts load from Google Fonts CDN; 4 screenshots ship alongside the HTML.
+- **Manager-home "Presentation" card** (`▶`) opens the deck in a new tab. Rendered as a real `<a target="_blank" rel="noopener noreferrer">` (not a React Router `<Link>`) so the browser loads the static file directly. Manager-gated like the rest of `/mgr/home`.
+
+### Changed
+- `vite.config.ts` PWA workbox: added `/^\/presentation\//` to `navigateFallbackDenylist` (so the SW serves the real deck, not the SPA shell) and `globIgnores: ["**/presentation/**"]` (keeps the deck out of the precache manifest).
+
+### Backend
+- None. Frontend + static assets only.
+
 ## 2026-06-06 — v0.5.9 e2e stabilization + evidence-before-mitigation discipline
 
 **Closes:** #44 (e2e session-on-hard-nav), #49 (a11y aria-label sweep), #50 (selector-drift discipline)
