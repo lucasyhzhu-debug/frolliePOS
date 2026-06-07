@@ -6,143 +6,135 @@
 
 # Frollie POS — talk deck content
 
-10-minute talk, 6 slides, speaker-led, low density. By Lucas Zhu (ex-McKinsey, solo agentic engineer). Audience: AI enthusiasts.
+~10-minute talk, 10 slides, speaker-led, low density. By Lucas Zhu (ex-McKinsey, non-technical founder). **Audience: peer CEOs / founders.** The frame: how a non-technical CEO built a real, money-taking product with AI, and the lessons a CEO can take away.
 
-Voice: verbs first, short sentences, numbers over adjectives, em dashes, sentence case, first person. No banned words (leverage, synergy, unlock, journey, holistic, game-changer, 10x, transform your business). No emoji.
+Voice: verbs first, short sentences, numbers over adjectives, sentence case, first person. No jargon, no engineering vocabulary on the slides — every mechanism is named by the business risk it kills. No banned words (leverage, synergy, unlock, journey, holistic, game-changer, 10x, transform your business). No emoji.
 
----
-
-## Slide 1 — I built a real POS from scratch, alone, in 12 days
-
-**Dek:** ex-McKinsey, zero engineering hires, one operator and a swarm of agents.
-
-**Bullets:**
-- I spent 7 years at McKinsey learning what good looks like. On Christmas Day 2025 my build stack was pasting ChatGPT code into something the model told me was Python.
-- This is Frollie POS — a production point-of-sale for our cookie booth at Pakuwon Mall. Real money, real Xendit payments, on a real Android phone.
-- v0.2 to v0.6 in about 12 days. 500-plus tests. Prod cutover on day 9.
-- I'm barely writing code. The job is the spec, the review, and the failure modes.
-- The promise of this talk: how one person ran a whole org-chart of tooling — and what rewrote itself underneath me.
-
-**Screenshot/visual cue:** POS home/hub screen on the booth phone (the title hero). One clean device shot.
-
-**Speaker notes:** I'm Lucas — seven years at McKinsey, now building solo with agents. Twelve days ago this was a planning doc, today it takes real QRIS payments at our mall booth. I'll show you what I built, how I worked, and the decisions that flipped on me mid-build.
+> **Rewrite note (2026-06-07):** the slides were de-jargoned for a CEO audience. The original engineer-facing language and the full technical research live in the appendix below, unchanged — that's the backing detail if a peer asks "but how does it actually work?"
 
 ---
 
-## Slide 2 — what is it, and what holds it together?
+## Slide 1 — I built a real product from scratch, alone, in 12 days
 
-**Dek:** a single-booth POS where every feature hangs off a few load-bearing chains.
+**Dek:** ex-McKinsey. no engineering team. a non-technical founder, and a swarm of AI agents.
 
-**Bullets (the feature spine):**
-- Sell: cart to commit to Xendit charge — QRIS QR or BCA VA rendered in-POS, price and name frozen onto each line at sale.
-- Confirm: signature-verified webhook is primary, manager PIN is the only fallback. Polling is gone.
-- Prove: every paid sale mints a signed-URL receipt and prints to a 58mm thermal printer over Web Bluetooth, one tap.
-- Govern: refunds are new rows, never status edits. Append-only audit log is the system of record.
-- Reach off-booth: gated actions post a Telegram card with an approve link — token authorizes view, PIN authorizes the act.
+**On the slide:** the title hero + a real device shot. Chips: idea → live in 12 days · 500+ automated tests · taking real money, day 9 · no engineers hired.
 
-**Structured payload — the sale settlement chain (arrows):**
-`commitCart (snapshot price+name+tax)` → `mint Xendit QRIS/VA invoice` → `signature-verified webhook matches qr_id` → `_confirmPaid (allocate receipt no., confirmed_via:webhook)` → `signed stock movement (deduped)` → `audit: payment.confirmed`
-
-**Architectural spines (one line each):**
-- Single-writer funnels — one internal mutation owns each table, booth and Telegram paths converge there.
-- Snapshot-on-line, integer rupiah — never re-join history, no floats.
-- Token-VIEW / PIN-ACT + idempotency at client and webhook.
-
-**Screenshot/visual cue:** three real screens left-to-right — sale cart, charge/QRIS screen, customer receipt. (Optionally a 4th inset: the printed receipt.)
-
-**Speaker notes:** It looks like a normal POS — cart, charge, receipt. The interesting part is underneath: every feature funnels through one writer per table, so the booth path and the off-booth Telegram path can't drift. Money is snapshotted at sale and never re-joined, which is the bug you only learn to fear after it bites you.
+**Speaker notes:** I'm Lucas — seven years at McKinsey, no engineering background. Twelve days ago this was a planning doc. Today it takes real money at our cookie booth in Jakarta, and I hired no engineers to get there. I'll show you what I built, how I ran a swarm of AI agents like a team, and the lessons that carry over to any CEO.
 
 ---
 
-## Slide 3 — I never review my own code with one pass
+## Slide 2 — what is it?
 
-**Dek:** one operator, but the tooling reads like an org chart — a PM tool, a review board, a planning department, a swarm.
+**Dek:** a real cash register for our cookie booth at Pakuwon Mall, Jakarta. real money, real payments, on one phone.
 
-**Structured payload — the agent patterns I actually run (2-col):**
+**On the slide (what it does):**
+- **sell** — ring up a cart and take payment in the app, a QR code or a bank transfer. price and product name lock onto the receipt the second the sale happens.
+- **confirm** — the bank tells us the instant money lands. we stopped guessing. a manager's PIN is the only manual override.
+- **prove** — every paid sale makes a receipt with its own private link, and prints to a pocket thermal printer in one tap.
+- **govern** — a refund is a new record, never an edit. nothing is ever deleted. every action sits on a permanent log.
+- **reach** — when a manager is off-site, the system messages them an approve button. the link lets them see; their PIN lets them act.
 
-| Pattern | How I use it on Frollie |
-|---|---|
-| Fan-out-and-synthesize | 3 reviewers, 3 distinct lenses (ADR / code-quality / architecture) + 4 simplify agents (reuse, simplification, efficiency, altitude). Different files each. The bug 2 of 3 flag wins. |
-| Adversarial verification | Double staffreview gate — review the spec, then review the plan, both before any code. Then triple-review the diff against 22 ADR rules. |
-| Loop-until-done | Review, fix, re-review until zero Criticals. Verify the actual command is green — no "looks done." |
-| Classify-and-act | /progress routes tasks by lane; approval kinds route by validator. Plumbing, not a reasoning agent. |
-| Generate-and-filter | Simplify generates every cleanup; filter is brutal — does it change behavior? Findings filter: can I verify it without a live API? |
-| Tournament | Not used — my agents collaborate by division of labor, they don't compete on the same task. |
-
-**Structured payload — the tool stack (L1 inside to L5 metal):**
-- L1 bespoke: custom /progress kanban, ceo-progress-report renderer, idempotency-required ESLint rule, project-local /triple-review.
-- L2 skills: superpowers, staffreview, /simplify, gsd suite, gstack.
-- L3 brain: Claude Code Opus + subagent fan-out + MCP servers.
-- L4 runtime: Convex, Vercel, Xendit, Telegram Bot API, Web Bluetooth, argon2id.
-- L5 plumbing: GitHub, git worktrees, vitest (500+), TypeScript, Tailwind 4 + shadcn.
-
-**Screenshot/visual cue:** the Telegram approval card + the /approve PIN screen side by side — the clearest proof that "off-booth" is a real product surface, and a nice stand-in for the agent-coordination theme.
-
-**Speaker notes:** The cheapest bug to kill is one in the plan, so I review the spec and the plan adversarially before writing a line. Then I fan the diff out to three reviewers with three different jobs — they read different files, and I never let them merge their notes. The solo engineer didn't get faster; they got staffed.
+**Speaker notes:** It looks like a normal cash register — ring up, take payment, print a receipt. The interesting part is underneath: a few rules that make sure the money is always right, whoever is running the booth.
 
 ---
 
-## Slide 4 — the rules rewrote themselves
+## Slide 3 — what holds it together?
 
-**Dek:** five decisions I wrote down, then tore up mid-build. The ADRs are the diary.
+**Dek:** a few rules every sale obeys, no matter who runs it or where. the on-site path and the off-site path cannot drift apart.
 
-**Structured payload — before to after (2-col):**
+**On the slide (what happens when money moves):** lock the sale → request payment → bank confirms → mark paid → stock + log. Three rules: **one rulebook** (every path runs the same logic; the system can't contradict itself), **frozen receipts** (an old receipt never changes, even if I change the menu tomorrow), **press twice, charge once** (a double-tap or a dropped signal can never double-charge a customer).
 
-| What I planned | What it became |
-|---|---|
-| Share one Convex project with our other product | Own dev + prod deployments; talk over a versioned HTTP API (ADR-034). "Integrate by sharing the database" is the decision you regret first. |
-| QRIS needs status polling + reconcile-on-reload | Webhook confirms, manager PIN is the only fallback, polling gone. The reconcile hook is a no-op shell I left in on purpose (ADR-036). |
-| Approvals over WhatsApp share-intent links | Telegram URL buttons carry the auth token in the link — no bot-side state. The wa.me literal sits in the schema like a fossil. |
-| Settlement arrives on a webhook | The webhook doesn't exist. Settlement is poll-only — GET the transactions list, match on my own reference_id. |
-| Xendit invoice returns a scannable QR at creation | It returns a URL to a hosted page. One wrong sentence meant zero payments could complete — fixed with the dedicated QR Codes + FVA APIs. |
-
-**Screenshot/visual cue:** the charge/QRIS screen (the inline QR that ADR-011 said wouldn't need to exist) — paired with a small "ADR superseded" marker. Manager dashboard works here too if a second visual is wanted.
-
-**Speaker notes:** Half my load-bearing assumptions were wrong, and I'd written some of them twelve days earlier. The fix wasn't being smarter up front — it was making the decisions cheap to reverse, in writing, where a reviewer could catch them. The ADRs are why one person can move this fast without re-deciding everything daily.
+**Speaker notes:** Every sale obeys the same short rulebook, so the on-site path and the off-site approval path can never disagree. Prices freeze at the moment of sale. A customer can never be double-charged. The CEO lesson is small and boring on purpose: a handful of rules you never break is what prevents the expensive mistakes.
 
 ---
 
-## Slide 5 — the build was the cheap part
+## Slide 4 — I never let my own work ship on one pass
 
-**Dek:** features took an afternoon. The boring load-bearing wiring took the days.
+**Dek:** the cheapest mistake to fix is the one still in the plan. so I have the plan reviewed before anyone builds a thing.
 
-**Bullets — short vs long:**
-- Short: whole features in a session. Telegram as the real approval channel — 444 tests, 29 commits. Receipts, reporting, admin CRUD — each a single slice.
-- Long: which order auth and the idempotency cache run in. Threading one `source` argument through every call site. Keeping two divergent mutations in parity.
-- The worst bug-to-fix ratio in the project was one HTTP header — `api-version: 2022-07-31` on QR creation. Leave it off and the payment webhook never fires. No error. The QR works. The money never confirms. Now asserted by a test.
+**On the slide:** idea + spec → review the spec → plan → review the plan → build → hand it to 3 reviewers (does it follow our rules? · is it well-made? · will it hold as we grow?) → agree + tidy up → ship. Closer: *the solo founder didn't get faster. they got staffed.*
 
-**Bullets — surprises that lied to me:**
-- A green test suite lied — convex-test matched absent rows on `undefined`, not `null`; the payment query would have returned null in prod every time. 288 passing tests. Filter in JS.
-- `tsc --noEmit` reported clean while checking zero files. The only real typecheck is `tsc -b`. I now distrust any agent that says "typecheck clean."
-- The Vite "Network: 192.168.x.x" line is a lie — Windows Defender silently drops the inbound TCP. One PowerShell rule fixed a day of "why won't my phone load it."
-
-**Screenshot/visual cue:** the manager dashboard (totals, payment mix, top SKUs, hourly curve) — the payoff screen that proves the boring wiring works end to end.
-
-**Speaker notes:** Greenfield code is cheap now. Sixty-five percent of my effort went to making code I already had not break in production. The slow, unglamorous part — call-site threading, cache ordering, cross-path parity — is exactly where the real engineering lives.
+**Speaker notes:** The cheapest mistake to fix is the one still in the plan, so I get the plan reviewed before anyone builds. Then I hand the finished work to three reviewers with three different jobs, and I never let them compare notes — independence is the point. The solo founder didn't get faster. They got staffed.
 
 ---
 
-## Slide 6 — force is free now; direction is the whole job
+## Slide 5 — the moves I actually run
 
-**Dek:** what I'd tell you if you're about to do this yourself.
+**Dek:** six ways to run a team of AI agents. I lean on three, hard.
 
-**Bullets — learnings as one-liners:**
-- Before I write "fix," I finish the sentence: the root cause is X and this removes it because Y. If it's fuzzy, it's a mitigation — and I name it one. (A co-founder caught me calling a 1.5-second debounce "the fix.")
-- The same six findings come back every review — wrong audit source, missing idempotency wrap, `??` papering over corruption. I could write the review before running it, which is exactly why I run it.
-- The docs are the moat. The previous engineer who left the diary in the code was me, last Tuesday.
-- Reviews aren't a gate at the end — they're where the quality gets made. Two of my worst bugs were caught by independent reviewers, not by me.
-- The agent will be confidently wrong, fast, if you let it. The discipline of pausing is the new senior contribution. McKinsey trained mine over seven years.
+**On the slide:**
+- **split + combine** (backbone) — hand one job to several agents at once, each on a different piece, then merge. never let them compare notes early.
+- **make them argue** (signature move) — agents check each other's work, and check it against my written rules. agreement is earned, not assumed.
+- **loop until it's actually done** (discipline) — review, fix, review again until nothing serious is left, then check it really works — not "looks done."
+- supporting: **route the work** (simple rules, no judgment needed), **generate then cut hard** (propose everything, then be ruthless), **a bake-off** (not used — mine divide the work, they don't compete).
+
+**Speaker notes:** Six ways to run a team of agents; I lean on three. Split the work across several and combine it. Make them argue, so agreement is earned, not assumed. Loop until it's actually done, then check it really works. This is a management problem, not a coding one.
+
+---
+
+## Slide 6 — one person. an org chart of tooling.
+
+**Dek:** from a project-management tool I built myself, down to the payment rails. five layers, run by one person.
+
+**On the slide:** L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the swarm · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
+
+**Speaker notes:** One person, but the setup reads like a company: tools I built, my reusable playbooks, the AI brain and the helpers it spins up, the product's plumbing, the everyday machinery. Eleven manager screens, one person built them. The team you don't hire saves you the coordination, not just the salary.
+
+---
+
+## Slide 7 — the rules rewrote themselves
+
+**Dek:** five decisions I wrote down, then tore up mid-build. writing them down is what let me catch them.
+
+**On the slide (planned → became):**
+- share one database with our other product → give each its own system, talk through a clean handoff. "integrate by sharing the database" is the decision you regret first.
+- keep checking the provider for payment status → the provider tells us the instant it's paid; we stopped checking.
+- approve things over WhatsApp → approvals run on a channel where the link carries its own permission; nothing to store, nothing to leak.
+- the provider will notify us when cash settles → no such notification exists; we pull the list and match it ourselves.
+- the payment QR is ready instantly → it wasn't; one wrong sentence in a spec meant zero payments could complete. caught and fixed.
+
+**Speaker notes:** Half my confident assumptions were wrong, and I'd written some of them down twelve days earlier. The fix wasn't being smarter up front — it was writing decisions down so they were cheap to reverse, in a place where someone else could catch them. That written record is the reason one person can move this fast.
+
+---
+
+## Slide 8 — the build was the cheap part
+
+**Dek:** features took an afternoon. the boring wiring that keeps them from breaking took the days.
+
+**On the slide:** SHORT (a whole feature in a sitting) vs LONG (the unglamorous wiring). The costliest tiny bug: one missing line in a payment setting — money moved, the QR worked, but the sale never confirmed, and there was no error to see. The safety net grew 288 → 733 tests. The dashboards that lied: green tests hiding a real-world payment bug, an "all clear" check that checked nothing, a firewall silently blocking the phone.
+
+**Speaker notes:** Building features is cheap now — an afternoon each. Making them not break in production took the days; about two-thirds of my effort went there. And watch your dashboards: a fully green test run was hiding a bug that would have broken every payment in the real world. Green does not mean safe.
+
+---
+
+## Slide 9 — I used the method to build this talk
+
+**Dek:** one AI run sent 5 agents across my own files — the product, the lessons, my essays — to pull out what mattered. in parallel, it grabbed live screenshots. then it wrote itself into one page.
+
+**On the slide:** one AI run → 5 agents (what it does · how I work · the tools · the lessons · the voice) → combine → build this deck; live screenshots captured at the same time. Chips: 1 run · 6 agents · a few dollars of AI · 4m 40s to a first draft.
+
+**Speaker notes:** This deck built itself the same way I build features. One run sent five agents across my own files to pull out what mattered, grabbed the live screenshots in parallel, and wrote everything into one page — under five minutes, a few dollars. The pitch about delegation was produced by delegation.
+
+---
+
+## Slide 10 — force is free now; direction is the whole job
+
+**Dek (the takeaway):**
+- AI gives you almost free force. it will also be confidently wrong, fast, if you let it. the discipline of pausing is the new senior job.
+- the written record is the moat — it's why nothing ever has to be decided twice. the last person who left me notes to follow was me, last Tuesday.
+- reviews are not a gate at the end. they are where the quality gets made.
 
 **Closer (say it):**
-> Force is free now — so the only question left worth your week is whether you're pointed at the right destination, because a wrong vector at full speed just gets you to the wrong answer faster, with better typography.
+> a wrong vector at full speed just gets you to the wrong answer faster, with better typography.
 
-**Screenshot/visual cue:** back to the POS home/hub on the booth phone (bookend with slide 1), or a single-line title card with the closer.
-
-**Speaker notes:** If you take one thing: agents give you almost free force, and the moat is direction. My whole job now is calibration — giving the agent enough of what good and bad look like to keep it honest, and pausing before I ship the confidently-wrong answer. Thanks.
+**Speaker notes:** If you take one thing: AI gives you almost free force, and the moat is direction. It will be confidently wrong, at full speed, if you let it. My whole job now is pointing it at the right thing, and pausing before the confident-wrong answer ships. Thanks.
 
 ---
 
-## Appendix: raw research
+## Appendix: technical reference (original, unchanged)
+
+> The research below is the engineering-level backing for the talk — the detail behind each slide, in the original builder-facing language. Kept verbatim as the source material; not the CEO script.
 
 ### Deliverable: features + linkage
 

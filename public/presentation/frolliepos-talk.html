@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Frollie POS — building a real POS as a one-person agentic engineer</title>
+<title>Frollie POS — how a non-technical founder built a real product with AI</title>
 
 <!-- Brand faces: Arvo (slab-serif display), Lato (humanist body), JetBrains Mono (metadata).
      Lifted from Lucas's portfolio design system (lucas-frollie-design-system). -->
@@ -168,14 +168,14 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 <section class="slide visible">
   <div class="row gap-xl grow" style="align-items:center">
     <div class="col gap-l" style="flex:1.35">
-      <div class="reveal eyebrow">Frollie POS <span class="dot">/</span> a one-person build story</div>
-      <h1 class="reveal head">I built a real POS<br>from scratch, alone,<br>in <span class="mark citrus">12 days</span>.</h1>
-      <div class="reveal dek">ex-McKinsey. zero engineering hires. one operator, and a swarm of agents.</div>
+      <div class="reveal eyebrow">Frollie POS <span class="dot">/</span> a founder's build story</div>
+      <h1 class="reveal head">I built a real product<br>from scratch, alone,<br>in <span class="mark citrus">12 days</span>.</h1>
+      <div class="reveal dek">ex-McKinsey. no engineering team. a non-technical founder, and a swarm of AI agents.</div>
       <div class="reveal row gap-s" style="flex-wrap:wrap">
-        <span class="chip">v0.2 → v0.6 in 12 days</span>
-        <span class="chip citrus">500+ tests</span>
-        <span class="chip moss">prod cutover, day 9</span>
-        <span class="chip">~23M tokens of Claude Code</span>
+        <span class="chip">idea → live in 12 days</span>
+        <span class="chip citrus">500+ automated tests</span>
+        <span class="chip moss">taking real money, day 9</span>
+        <span class="chip">no engineers hired</span>
       </div>
       <div class="reveal mono" style="margin-top:6px">Lucas Zhu &nbsp;·&nbsp; lucaszhu.com &nbsp;·&nbsp; built for the Frollie cookie booth, Pakuwon Mall</div>
     </div>
@@ -187,21 +187,21 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
       <div class="shotcap">live, on the booth's Android phone</div>
     </div>
   </div>
-  <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>real money · real QRIS · one phone</span></div>
+  <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>real money · real payments · one phone</span></div>
 </section>
 
 <!-- ============================ SLIDE 2 — WHAT IS IT ============================ -->
 <section class="slide">
   <div class="reveal eyebrow">01 <span class="dot">·</span> the product</div>
   <h2 class="reveal head" style="margin-top:18px">what is it?</h2>
-  <div class="reveal dek" style="margin-top:18px">a production point-of-sale for our cookie booth at Pakuwon Mall. real money, real QRIS, on one Android phone.</div>
+  <div class="reveal dek" style="margin-top:18px">a real cash register for our cookie booth at Pakuwon Mall, Jakarta. real money, real payments, on one phone.</div>
   <div class="row gap-xl grow center" style="margin-top:44px">
     <div class="reveal spine" style="flex:1.25">
-      <div class="li"><div class="verb">sell</div><div class="txt">cart to commit to charge. QRIS QR or BCA VA rendered in the app. price and name frozen onto each line at the moment of sale.</div></div>
-      <div class="li"><div class="verb">confirm</div><div class="txt">a signature-verified webhook is primary. a manager PIN is the only fallback. polling is gone.</div></div>
-      <div class="li"><div class="verb">prove</div><div class="txt">every paid sale mints a signed-URL receipt and prints to a 58mm thermal printer over Web Bluetooth, in one tap.</div></div>
-      <div class="li"><div class="verb">govern</div><div class="txt">refunds are new rows, never status edits. an append-only audit log is the system of record.</div></div>
-      <div class="li"><div class="verb">reach</div><div class="txt">off-booth, a gated action posts a Telegram card with an approve link. the token authorizes the view, the PIN authorizes the act.</div></div>
+      <div class="li"><div class="verb">sell</div><div class="txt">ring up a cart and take payment in the app — a QR code or a bank transfer, right on the phone. the price and product name lock onto the receipt the second the sale happens.</div></div>
+      <div class="li"><div class="verb">confirm</div><div class="txt">the bank tells us the instant money lands. we stopped guessing. if it ever fails, a manager's PIN is the only manual override.</div></div>
+      <div class="li"><div class="verb">prove</div><div class="txt">every paid sale makes a receipt with its own private link, and prints to a pocket thermal printer in one tap.</div></div>
+      <div class="li"><div class="verb">govern</div><div class="txt">a refund is a new record, never an edit to the old one. nothing is ever deleted. every action sits on a permanent log.</div></div>
+      <div class="li"><div class="verb">reach</div><div class="txt">when a manager is off-site, the system messages them an approve button. the link lets them see; their PIN lets them act.</div></div>
     </div>
     <div class="reveal row gap" style="flex:1;justify-content:flex-end">
       <div class="col center">
@@ -210,7 +210,7 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
       </div>
       <div class="col center" style="margin-top:48px">
         <div class="phone glass" style="width:262px;height:583px"><div class="notch"></div><img src="assets/shots/05-charge-qris.png" alt="QRIS charge"></div>
-        <div class="shotcap">live QRIS charge</div>
+        <div class="shotcap">a live payment</div>
       </div>
     </div>
   </div>
@@ -219,12 +219,12 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 
 <!-- ============================ SLIDE 3 — WHAT HOLDS IT TOGETHER ============================ -->
 <section class="slide">
-  <div class="reveal eyebrow">02 <span class="dot">·</span> the architecture</div>
+  <div class="reveal eyebrow">02 <span class="dot">·</span> what keeps the money safe</div>
   <h2 class="reveal head" style="margin-top:18px">what holds it together?</h2>
-  <div class="reveal dek" style="margin-top:16px">every feature funnels through one writer per table. the booth path and the off-booth path cannot drift.</div>
+  <div class="reveal dek" style="margin-top:16px">a few rules every sale obeys, no matter who runs it or where. the on-site path and the off-site path cannot drift apart.</div>
 
   <div class="reveal" style="margin-top:40px">
-    <div class="mono" style="margin-bottom:16px;color:var(--ink-3)">the sale settlement chain</div>
+    <div class="mono" style="margin-bottom:16px;color:var(--ink-3)">what happens when money moves</div>
     <svg viewBox="0 0 1660 220" width="100%" style="max-width:1660px">
       <defs>
         <marker id="ar" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
@@ -236,52 +236,52 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         <!-- node template: rect + title + sub -->
         <g>
           <rect x="0" y="40" width="245" height="120" rx="16" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
-          <text x="122" y="86" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">commit cart</text>
-          <text x="122" y="120" text-anchor="middle" fill="#8E8878" font-size="17">snapshot price + name + tax</text>
+          <text x="122" y="86" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">lock the sale</text>
+          <text x="122" y="120" text-anchor="middle" fill="#8E8878" font-size="17">price + name fixed</text>
         </g>
         <line x1="245" y1="100" x2="305" y2="100" stroke="#F9A84A" stroke-width="3" marker-end="url(#ar)"/>
         <g>
           <rect x="312" y="40" width="245" height="120" rx="16" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
-          <text x="434" y="86" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">mint invoice</text>
-          <text x="434" y="120" text-anchor="middle" fill="#8E8878" font-size="17">Xendit QRIS / BCA VA</text>
+          <text x="434" y="86" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">request payment</text>
+          <text x="434" y="120" text-anchor="middle" fill="#8E8878" font-size="17">QR or bank transfer</text>
         </g>
         <line x1="557" y1="100" x2="617" y2="100" stroke="#F9A84A" stroke-width="3" marker-end="url(#ar)"/>
         <g>
           <rect x="624" y="40" width="265" height="120" rx="16" fill="#1E4740" stroke="rgba(241,233,216,0.18)"/>
-          <text x="756" y="86" text-anchor="middle" fill="#8CA6FF" font-size="25" font-weight="700">signed webhook</text>
-          <text x="756" y="120" text-anchor="middle" fill="#8E8878" font-size="17">verify sig · match qr_id</text>
+          <text x="756" y="86" text-anchor="middle" fill="#8CA6FF" font-size="25" font-weight="700">bank confirms</text>
+          <text x="756" y="120" text-anchor="middle" fill="#8E8878" font-size="17">verified · matched to the sale</text>
         </g>
         <line x1="889" y1="100" x2="949" y2="100" stroke="#F9A84A" stroke-width="3" marker-end="url(#ar)"/>
         <g>
           <rect x="956" y="40" width="265" height="120" rx="16" fill="#1E4740" stroke="rgba(241,233,216,0.18)"/>
-          <text x="1088" y="80" text-anchor="middle" fill="#8CA6FF" font-size="25" font-weight="700">confirm paid</text>
-          <text x="1088" y="112" text-anchor="middle" fill="#8E8878" font-size="17">allocate receipt no.</text>
-          <text x="1088" y="134" text-anchor="middle" fill="#8E8878" font-size="17">confirmed_via: webhook</text>
+          <text x="1088" y="80" text-anchor="middle" fill="#8CA6FF" font-size="25" font-weight="700">mark paid</text>
+          <text x="1088" y="112" text-anchor="middle" fill="#8E8878" font-size="17">assign receipt number</text>
+          <text x="1088" y="134" text-anchor="middle" fill="#8E8878" font-size="17">one source of truth</text>
         </g>
         <line x1="1221" y1="100" x2="1281" y2="100" stroke="#F9A84A" stroke-width="3" marker-end="url(#ar)"/>
         <g>
           <rect x="1288" y="40" width="245" height="120" rx="16" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
-          <text x="1410" y="80" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">stock + audit</text>
-          <text x="1410" y="112" text-anchor="middle" fill="#8E8878" font-size="17">signed movement (deduped)</text>
-          <text x="1410" y="134" text-anchor="middle" fill="#8E8878" font-size="17">append-only audit row</text>
+          <text x="1410" y="80" text-anchor="middle" fill="#F1E9D8" font-size="25" font-weight="700">stock + log</text>
+          <text x="1410" y="112" text-anchor="middle" fill="#8E8878" font-size="17">counted exactly once</text>
+          <text x="1410" y="134" text-anchor="middle" fill="#8E8878" font-size="17">recorded forever</text>
         </g>
-        <text x="830" y="200" text-anchor="middle" fill="#5E594E" font-family="JetBrains Mono, monospace" font-size="17">one mutation owns each table · the off-booth Telegram path converges on the very same writer</text>
+        <text x="830" y="200" text-anchor="middle" fill="#5E594E" font-family="JetBrains Mono, monospace" font-size="17">one set of rules owns each step · the off-site approval path runs through the very same rules</text>
       </g>
     </svg>
   </div>
 
   <div class="reveal row gap" style="margin-top:30px;flex-wrap:wrap">
     <div class="card" style="flex:1;padding:24px 28px">
-      <div class="body" style="font-weight:700;color:var(--ink)">single-writer funnels</div>
-      <div class="body" style="font-size:22px;margin-top:6px">one internal mutation per table. booth and Telegram both go through it.</div>
+      <div class="body" style="font-weight:700;color:var(--ink)">one rulebook</div>
+      <div class="body" style="font-size:22px;margin-top:6px">every path — on-site or remote — runs the same logic. the system can't contradict itself.</div>
     </div>
     <div class="card" style="flex:1;padding:24px 28px">
-      <div class="body" style="font-weight:700;color:var(--ink)">snapshot, integer rupiah</div>
-      <div class="body" style="font-size:22px;margin-top:6px">never re-join history for a price. no floats, ever.</div>
+      <div class="body" style="font-weight:700;color:var(--ink)">frozen receipts</div>
+      <div class="body" style="font-size:22px;margin-top:6px">an old receipt never changes, even if I change the menu tomorrow.</div>
     </div>
     <div class="card" style="flex:1;padding:24px 28px">
-      <div class="body" style="font-weight:700;color:var(--ink)">token-VIEW, PIN-ACT</div>
-      <div class="body" style="font-size:22px;margin-top:6px">idempotency at the client and again at the webhook.</div>
+      <div class="body" style="font-weight:700;color:var(--ink)">press twice, charge once</div>
+      <div class="body" style="font-size:22px;margin-top:6px">a double-tap or a dropped signal can never double-charge a customer.</div>
     </div>
   </div>
   <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>03 / 10</span></div>
@@ -290,8 +290,8 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 <!-- ============================ SLIDE 4 — REVIEW PIPELINE ============================ -->
 <section class="slide">
   <div class="reveal eyebrow">03 <span class="dot">·</span> how I work</div>
-  <h2 class="reveal head" style="margin-top:18px">I never review my own code<br>with one pass.</h2>
-  <div class="reveal dek" style="margin-top:16px">the cheapest bug to kill lives in the plan. so I review the spec and the plan before a line of code exists.</div>
+  <h2 class="reveal head" style="margin-top:18px">I never let my own work<br>ship on one pass.</h2>
+  <div class="reveal dek" style="margin-top:16px">the cheapest mistake to fix is the one still in the plan. so I have the plan reviewed before anyone builds a thing.</div>
 
   <div class="reveal" style="margin-top:30px">
     <svg viewBox="0 0 1664 470" width="100%" style="max-width:1664px">
@@ -303,37 +303,37 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         <!-- linear pre-code gates -->
         <g>
           <rect x="0" y="20" width="180" height="92" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
-          <text x="90" y="62" text-anchor="middle" fill="#F1E9D8" font-size="23" font-weight="700">brainstorm</text>
+          <text x="90" y="62" text-anchor="middle" fill="#F1E9D8" font-size="23" font-weight="700">idea</text>
           <text x="90" y="90" text-anchor="middle" fill="#8E8878" font-size="16">+ spec</text>
         </g>
         <line x1="180" y1="66" x2="232" y2="66" stroke="#8CA6FF" stroke-width="3" marker-end="url(#ar2)"/>
         <g>
           <rect x="239" y="20" width="210" height="92" rx="14" fill="#1E4740" stroke="#F9A84A" stroke-opacity="0.5"/>
-          <text x="344" y="56" text-anchor="middle" fill="#F9A84A" font-size="22" font-weight="700">staffreview</text>
-          <text x="344" y="84" text-anchor="middle" fill="#8E8878" font-size="16">gate the spec</text>
+          <text x="344" y="56" text-anchor="middle" fill="#F9A84A" font-size="22" font-weight="700">review</text>
+          <text x="344" y="84" text-anchor="middle" fill="#8E8878" font-size="16">check the spec</text>
         </g>
         <line x1="449" y1="66" x2="501" y2="66" stroke="#8CA6FF" stroke-width="3" marker-end="url(#ar2)"/>
         <g>
           <rect x="508" y="20" width="170" height="92" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
           <text x="593" y="62" text-anchor="middle" fill="#F1E9D8" font-size="23" font-weight="700">plan</text>
-          <text x="593" y="90" text-anchor="middle" fill="#8E8878" font-size="16">writing-plans</text>
+          <text x="593" y="90" text-anchor="middle" fill="#8E8878" font-size="16">write it down</text>
         </g>
         <line x1="678" y1="66" x2="730" y2="66" stroke="#8CA6FF" stroke-width="3" marker-end="url(#ar2)"/>
         <g>
           <rect x="737" y="20" width="210" height="92" rx="14" fill="#1E4740" stroke="#F9A84A" stroke-opacity="0.5"/>
-          <text x="842" y="56" text-anchor="middle" fill="#F9A84A" font-size="22" font-weight="700">staffreview</text>
-          <text x="842" y="84" text-anchor="middle" fill="#8E8878" font-size="16">gate the plan</text>
+          <text x="842" y="56" text-anchor="middle" fill="#F9A84A" font-size="22" font-weight="700">review</text>
+          <text x="842" y="84" text-anchor="middle" fill="#8E8878" font-size="16">check the plan</text>
         </g>
         <line x1="947" y1="66" x2="999" y2="66" stroke="#8CA6FF" stroke-width="3" marker-end="url(#ar2)"/>
         <g>
           <rect x="1006" y="20" width="210" height="92" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
-          <text x="1111" y="56" text-anchor="middle" fill="#F1E9D8" font-size="23" font-weight="700">execute</text>
-          <text x="1111" y="84" text-anchor="middle" fill="#8E8878" font-size="16">parallel waves</text>
+          <text x="1111" y="56" text-anchor="middle" fill="#F1E9D8" font-size="23" font-weight="700">build</text>
+          <text x="1111" y="84" text-anchor="middle" fill="#8E8878" font-size="16">in parallel</text>
         </g>
 
         <!-- down into fan-out -->
         <path d="M1111,112 L1111,150" stroke="#F9A84A" stroke-width="3" fill="none" marker-end="url(#ar3)"/>
-        <text x="1664" y="150" text-anchor="end" fill="#8E8878" font-family="JetBrains Mono, monospace" font-size="16">fan-out: 3 reviewers · 3 lenses · different files</text>
+        <text x="1664" y="150" text-anchor="end" fill="#8E8878" font-family="JetBrains Mono, monospace" font-size="16">hand it to 3 reviewers · 3 different jobs · different sections</text>
 
         <!-- triple-review fan -->
         <path d="M1111,160 C1111,185 720,185 720,210" stroke="#F9A84A" stroke-width="2.5" fill="none"/>
@@ -342,17 +342,17 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         <g>
           <rect x="560" y="212" width="320" height="100" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
           <text x="720" y="252" text-anchor="middle" fill="#8CA6FF" font-size="22" font-weight="700">reviewer 1</text>
-          <text x="720" y="282" text-anchor="middle" fill="#8E8878" font-size="16">ADR / invariant lens</text>
+          <text x="720" y="282" text-anchor="middle" fill="#8E8878" font-size="16">does it follow our rules?</text>
         </g>
         <g>
           <rect x="951" y="212" width="320" height="100" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
           <text x="1111" y="252" text-anchor="middle" fill="#8CA6FF" font-size="22" font-weight="700">reviewer 2</text>
-          <text x="1111" y="282" text-anchor="middle" fill="#8E8878" font-size="16">code-quality lens</text>
+          <text x="1111" y="282" text-anchor="middle" fill="#8E8878" font-size="16">is it well-made?</text>
         </g>
         <g>
           <rect x="1340" y="212" width="320" height="100" rx="14" fill="#163630" stroke="rgba(241,233,216,0.18)"/>
           <text x="1500" y="252" text-anchor="middle" fill="#8CA6FF" font-size="22" font-weight="700">reviewer 3</text>
-          <text x="1500" y="282" text-anchor="middle" fill="#8E8878" font-size="16">deep-module architecture</text>
+          <text x="1500" y="282" text-anchor="middle" fill="#8E8878" font-size="16">will it hold as we grow?</text>
         </g>
 
         <!-- converge to consensus -->
@@ -361,28 +361,28 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         <path d="M1500,312 C1500,345 1111,345 1111,360" stroke="#F9A84A" stroke-width="2.5" fill="none" marker-end="url(#ar3)"/>
         <g>
           <rect x="861" y="362" width="500" height="92" rx="14" fill="#1E4740" stroke="#F9A84A" stroke-opacity="0.6"/>
-          <text x="1111" y="400" text-anchor="middle" fill="#F9A84A" font-size="23" font-weight="700">consensus + /simplify</text>
-          <text x="1111" y="430" text-anchor="middle" fill="#8E8878" font-size="16">2-of-3 wins · loop until zero criticals · then ship</text>
+          <text x="1111" y="400" text-anchor="middle" fill="#F9A84A" font-size="23" font-weight="700">agree + tidy up</text>
+          <text x="1111" y="430" text-anchor="middle" fill="#8E8878" font-size="16">what 2 of 3 flag wins · fix until nothing critical remains</text>
         </g>
         <!-- ship -->
         <line x1="861" y1="408" x2="690" y2="408" stroke="#8CA6FF" stroke-width="3" marker-end="url(#ar2)"/>
         <g>
           <rect x="470" y="362" width="200" height="92" rx="14" fill="#163630" stroke="rgba(143,168,136,0.5)"/>
           <text x="570" y="400" text-anchor="middle" fill="#8FA888" font-size="23" font-weight="700">ship</text>
-          <text x="570" y="428" text-anchor="middle" fill="#8E8878" font-size="16">squash-merge PR</text>
+          <text x="570" y="428" text-anchor="middle" fill="#8E8878" font-size="16">it goes live</text>
         </g>
       </g>
     </svg>
   </div>
-  <div class="reveal body" style="margin-top:14px;font-size:26px;color:var(--ink-2)"><span class="mark">the solo engineer didn't get faster. they got staffed.</span></div>
+  <div class="reveal body" style="margin-top:14px;font-size:26px;color:var(--ink-2)"><span class="mark">the solo founder didn't get faster. they got staffed.</span></div>
   <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>04 / 10</span></div>
 </section>
 
 <!-- ============================ SLIDE 5 — AGENT PATTERNS ============================ -->
 <section class="slide">
-  <div class="reveal eyebrow">04 <span class="dot">·</span> the patterns</div>
-  <h2 class="reveal head" style="margin-top:18px">the patterns I actually run</h2>
-  <div class="reveal dek" style="margin-top:14px">six patterns in the playbook. I lean on three, hard. (the diagram on the last slide was all three at once.)</div>
+  <div class="reveal eyebrow">04 <span class="dot">·</span> how I run the agents</div>
+  <h2 class="reveal head" style="margin-top:18px">the moves I actually run</h2>
+  <div class="reveal dek" style="margin-top:14px">six ways to run a team of AI agents. I lean on three, hard. (the diagram before this was all three at once.)</div>
 
   <div class="row gap-l grow" style="margin-top:38px">
     <!-- left: three hero patterns with mini-svg -->
@@ -393,8 +393,8 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
           <circle cx="104" cy="18" r="8" fill="#8CA6FF"/><circle cx="104" cy="46" r="8" fill="#8CA6FF"/><circle cx="104" cy="74" r="8" fill="#8CA6FF"/>
           <path d="M25,46 L96,18 M25,46 L96,46 M25,46 L96,74" stroke="#8E8878" stroke-width="2" fill="none"/>
         </svg>
-        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">fan-out + synthesize <span class="tag-used">backbone</span></div>
-        <div class="body" style="font-size:21px;margin-top:4px">3 reviewers, 3 lenses, different files. 4 simplify agents. I never let them merge notes early.</div></div>
+        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">split + combine <span class="tag-used">backbone</span></div>
+        <div class="body" style="font-size:21px;margin-top:4px">hand one job to several agents at once, each on a different piece, then merge. I never let them compare notes early — independence is the point.</div></div>
       </div>
       <div class="card row center gap" style="padding:20px 24px">
         <svg width="120" height="92" viewBox="0 0 120 92">
@@ -403,31 +403,31 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
           <path d="M50,46 L70,46" stroke="#F9A84A" stroke-width="2"/>
           <text x="90" y="24" text-anchor="middle" fill="#F9A84A" font-family="Lato" font-size="13">refute</text>
         </svg>
-        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">adversarial verify <span class="tag-used">signature move</span></div>
-        <div class="body" style="font-size:21px;margin-top:4px">double staffreview gate before code. then triple-review the diff against 22 ADR rules.</div></div>
+        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">make them argue <span class="tag-used">signature move</span></div>
+        <div class="body" style="font-size:21px;margin-top:4px">agents check each other's work, and check it against my written rules. agreement is earned, not assumed.</div></div>
       </div>
       <div class="card row center gap" style="padding:20px 24px">
         <svg width="120" height="92" viewBox="0 0 120 92">
           <path d="M60,18 a28,28 0 1 1 -20,8" stroke="#8FA888" stroke-width="4" fill="none"/>
           <path d="M40,34 l-6,-10 l12,-2 Z" fill="#8FA888"/>
         </svg>
-        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">loop until done <span class="tag-used">convergence</span></div>
-        <div class="body" style="font-size:21px;margin-top:4px">review, fix, re-review until zero criticals. then run the actual command and confirm green.</div></div>
+        <div><div style="font-family:var(--serif);font-size:27px;color:var(--ink)">loop until it's actually done <span class="tag-used">discipline</span></div>
+        <div class="body" style="font-size:21px;margin-top:4px">review, fix, review again until nothing serious is left. then I check it really works — not "looks done."</div></div>
       </div>
     </div>
     <!-- right: supporting + not used -->
     <div class="reveal col gap" style="flex:.85">
       <div class="card" style="padding:22px 26px">
-        <div style="font-family:var(--serif);font-size:25px;color:var(--ink)">classify + act <span class="tag-no">plumbing</span></div>
-        <div class="body" style="font-size:21px;margin-top:6px">/progress routes tasks by lane. approval kinds route by validator. deterministic routers, not reasoning agents.</div>
+        <div style="font-family:var(--serif);font-size:25px;color:var(--ink)">route the work <span class="tag-no">plumbing</span></div>
+        <div class="body" style="font-size:21px;margin-top:6px">simple rules send each task to the right place. no judgment needed, so I don't pay an agent to make one.</div>
       </div>
       <div class="card" style="padding:22px 26px">
-        <div style="font-family:var(--serif);font-size:25px;color:var(--ink)">generate + filter <span class="tag-no">supporting</span></div>
-        <div class="body" style="font-size:21px;margin-top:6px">/simplify generates every cleanup. the filter is brutal: does it change behavior? can I verify it without a live API?</div>
+        <div style="font-family:var(--serif);font-size:25px;color:var(--ink)">generate, then cut hard <span class="tag-no">supporting</span></div>
+        <div class="body" style="font-size:21px;margin-top:6px">let the agent propose every improvement. then I'm ruthless: does it change what the customer sees? can I prove it's safe?</div>
       </div>
       <div class="card off" style="padding:22px 26px;border-style:dashed">
-        <div style="font-family:var(--serif);font-size:25px;color:var(--ink-2)">tournament <span class="tag-no">not used</span></div>
-        <div class="body" style="font-size:21px;margin-top:6px">my agents collaborate by division of labor. they don't compete on the same task. no winner to crown.</div>
+        <div style="font-family:var(--serif);font-size:25px;color:var(--ink-2)">a bake-off <span class="tag-no">not used</span></div>
+        <div class="body" style="font-size:21px;margin-top:6px">I never have two agents fight over the same task. mine divide the work; they don't compete.</div>
       </div>
     </div>
   </div>
@@ -436,46 +436,46 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 
 <!-- ============================ SLIDE 6 — TOOL LAYERS ============================ -->
 <section class="slide">
-  <div class="reveal eyebrow">05 <span class="dot">·</span> the stack</div>
+  <div class="reveal eyebrow">05 <span class="dot">·</span> the org chart</div>
   <h2 class="reveal head" style="margin-top:8px;font-size:70px">one person. an org chart of tooling.</h2>
-  <div class="reveal dek" style="margin-top:8px;font-size:30px">from a PM tool I built myself, down to the metal. five layers, operated solo.</div>
+  <div class="reveal dek" style="margin-top:8px;font-size:30px">from a project-management tool I built myself, down to the payment rails. five layers, run by one person.</div>
 
   <div class="row gap-xl grow center" style="margin-top:30px">
     <div class="reveal col" style="flex:1.5;gap:11px">
       <!-- L1 -->
       <div class="row center" style="background:var(--citrus-soft);border:1px solid rgba(249,168,74,.4);border-radius:13px;padding:13px 24px">
         <div style="width:60px;font-family:var(--mono);color:var(--citrus);font-weight:700;font-size:21px">L1</div>
-        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">bespoke, for this repo</div>
-        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">/progress kanban · ceo-progress-report · spec-plan-pipeline · idempotency ESLint rule</div></div>
+        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">tools I built for this job</div>
+        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">a custom task board · a progress report for non-engineers · a checklist the build won't ship without</div></div>
       </div>
       <!-- L2 -->
       <div class="row center" style="background:var(--cobalt-soft);border:1px solid rgba(140,166,255,.35);border-radius:13px;padding:13px 24px">
         <div style="width:60px;font-family:var(--mono);color:var(--cobalt);font-weight:700;font-size:21px">L2</div>
-        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">reusable agentic skills</div>
-        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">superpowers · staffreview · triple-persona-review · /simplify · gsd · gstack</div></div>
+        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">my reusable playbooks</div>
+        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">how I plan, review, debug, and simplify — written once, reused on every job</div></div>
       </div>
       <!-- L3 -->
       <div class="row center" style="background:var(--paper-3);border:1px solid var(--line-strong);border-radius:13px;padding:13px 24px">
         <div style="width:60px;font-family:var(--mono);color:var(--ink);font-weight:700;font-size:21px">L3</div>
         <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">the brain + the swarm</div>
-        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">Claude Code (Opus) · subagent fan-out · dynamic workflows · MCP servers</div></div>
+        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">the AI that does the work · plus the helpers it spins up to work in parallel</div></div>
       </div>
       <!-- L4 -->
       <div class="row center" style="background:var(--paper-2);border:1px solid var(--line);border-radius:13px;padding:13px 24px">
         <div style="width:60px;font-family:var(--mono);color:var(--moss);font-weight:700;font-size:21px">L4</div>
-        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">runtime + product infra</div>
-        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">Convex (own dev + prod) · Vercel · Xendit · Telegram · Web Bluetooth · argon2id</div></div>
+        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">the product's plumbing</div>
+        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">the database · the hosting · the payment provider · the messaging · the printer · the security</div></div>
       </div>
       <!-- L5 -->
       <div class="row center" style="background:var(--paper-2);border:1px solid var(--line);border-radius:13px;padding:13px 24px">
         <div style="width:60px;font-family:var(--mono);color:var(--clay);font-weight:700;font-size:21px">L5</div>
-        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">dev plumbing</div>
-        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">GitHub + gh · git worktrees · vitest (500+) · TypeScript · Tailwind 4 + shadcn</div></div>
+        <div><div style="font-family:var(--serif);font-size:23px;color:var(--ink)">the workshop floor</div>
+        <div class="mono" style="font-size:16px;color:var(--ink-3);margin-top:3px">version control · 500+ automated tests · the design system · the everyday machinery</div></div>
       </div>
     </div>
     <div class="reveal col center" style="flex:1">
       <div class="phone glass" style="width:278px;height:618px"><div class="notch"></div><img src="assets/shots/06-manager.png" alt="Manager surfaces"></div>
-      <div class="shotcap">11 manager surfaces, one solo build</div>
+      <div class="shotcap">11 manager screens, one person built them</div>
     </div>
   </div>
   <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>06 / 10</span></div>
@@ -485,38 +485,38 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 <section class="slide">
   <div class="reveal eyebrow">06 <span class="dot">·</span> what changed under me</div>
   <h2 class="reveal head" style="margin-top:18px">the rules rewrote themselves</h2>
-  <div class="reveal dek" style="margin-top:14px">five decisions I wrote down, then tore up mid-build. the ADRs are the diary.</div>
+  <div class="reveal dek" style="margin-top:14px">five decisions I wrote down, then tore up mid-build. writing them down is what let me catch them.</div>
 
   <div class="reveal" style="margin-top:30px">
     <table class="cmp">
       <tr>
-        <td class="was">share one Convex project with our other product</td>
+        <td class="was">share one database with our other product</td>
         <td class="arrow">▸</td>
-        <td class="now">own dev + prod deployments. talk over a versioned HTTP API. <b>"integrate by sharing the database" is the decision you regret first.</b> (ADR-034)</td>
+        <td class="now">give each product its own system; let them talk through a clean, defined handoff. <b>"integrate by sharing the database" is the decision you regret first.</b></td>
       </tr>
       <tr>
-        <td class="was">QRIS needs status polling plus reconcile-on-reload</td>
+        <td class="was">we'll keep checking the provider to see if a payment landed</td>
         <td class="arrow">▸</td>
-        <td class="now">webhook confirms, manager PIN is the only fallback, polling gone. <b>the reconcile hook is a no-op shell I left in on purpose.</b> (ADR-036)</td>
+        <td class="now">the provider tells us the instant it's paid. we stopped checking. <b>a manager's PIN is the only manual override.</b></td>
       </tr>
       <tr>
-        <td class="was">approvals over WhatsApp share-intent links</td>
+        <td class="was">approve things over WhatsApp</td>
         <td class="arrow">▸</td>
-        <td class="now">Telegram URL buttons carry the auth token in the link, no bot-side state. <b>the wa.me literal sits in the schema like a fossil.</b></td>
+        <td class="now">approvals run on Telegram. the approve link carries its own permission — <b>nothing to store, nothing to leak.</b></td>
       </tr>
       <tr>
-        <td class="was">settlement arrives on a webhook</td>
+        <td class="was">the provider will notify us when the cash actually settles</td>
         <td class="arrow">▸</td>
-        <td class="now">the webhook does not exist. <b>settlement is poll-only: GET the transactions list, match on my own reference_id.</b></td>
+        <td class="now">no such notification exists. <b>we pull the transaction list and match it to ours.</b> (found out by reading the fine print the hard way.)</td>
       </tr>
       <tr>
-        <td class="was">the Xendit invoice returns a scannable QR at creation</td>
+        <td class="was">the payment QR is ready the instant we ask for it</td>
         <td class="arrow">▸</td>
-        <td class="now">it returns a URL to a hosted page. <b>one wrong sentence meant zero payments could complete.</b> fixed with the dedicated QR Codes + FVA APIs.</td>
+        <td class="now">it wasn't — it handed back a web page instead. <b>one wrong sentence in a spec meant zero payments could complete.</b> caught and fixed.</td>
       </tr>
     </table>
   </div>
-  <div class="reveal body" style="margin-top:20px;font-size:25px;color:var(--ink-2)"><span class="mark">the fix was not being smarter up front. it was making decisions cheap to reverse, in writing, where a reviewer could catch them.</span></div>
+  <div class="reveal body" style="margin-top:20px;font-size:25px;color:var(--ink-2)"><span class="mark">the fix was not being smarter up front. it was making decisions cheap to reverse, in writing, where someone else could catch them.</span></div>
   <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>07 / 10</span></div>
 </section>
 
@@ -524,26 +524,26 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 <section class="slide">
   <div class="reveal eyebrow">07 <span class="dot">·</span> what it actually cost</div>
   <h2 class="reveal head" style="margin-top:18px">the build was the cheap part</h2>
-  <div class="reveal dek" style="margin-top:14px">features took an afternoon. the boring, load-bearing wiring took the days.</div>
+  <div class="reveal dek" style="margin-top:14px">features took an afternoon. the boring wiring that keeps them from breaking took the days.</div>
 
   <div class="row gap-l grow" style="margin-top:36px">
     <div class="reveal col gap" style="flex:1">
       <div class="card" style="padding:22px 26px">
-        <div class="mono moss" style="font-size:18px;margin-bottom:8px">SHORT · a whole slice in a session</div>
-        <div class="body" style="font-size:23px">Telegram as the real approval channel: 444 tests, 29 commits. receipts, reporting, admin CRUD: each one slice. the design system: one baseline commit.</div>
+        <div class="mono moss" style="font-size:18px;margin-bottom:8px">SHORT · a whole feature in a sitting</div>
+        <div class="body" style="font-size:23px">the off-site approval system: 444 tests, 29 saves, one stretch. receipts, reporting, the admin tools: each one sitting. the whole look-and-feel: one go.</div>
       </div>
       <div class="card" style="padding:22px 26px">
         <div class="mono clay" style="font-size:18px;margin-bottom:8px">LONG · the unglamorous wiring</div>
-        <div class="body" style="font-size:23px">which order auth and the idempotency cache run in. threading one <span class="mono" style="font-size:20px">source</span> argument through every call site. keeping two divergent mutations in parity.</div>
+        <div class="body" style="font-size:23px">the exact order two safety checks run in. making a remote approval and an on-site one behave identically. the plumbing nobody sees and everybody depends on.</div>
       </div>
       <div class="card" style="padding:22px 26px;border-color:rgba(249,168,74,.4)">
-        <div class="mono citrus" style="font-size:18px;margin-bottom:8px">WORST BUG-TO-FIX RATIO</div>
-        <div class="body" style="font-size:23px">one HTTP header: <span class="mono citrus" style="font-size:20px">api-version: 2022-07-31</span>. leave it off and the payment webhook never fires. no error. the QR works. the money never confirms. now asserted by a test.</div>
+        <div class="mono citrus" style="font-size:18px;margin-bottom:8px">THE COSTLIEST TINY BUG</div>
+        <div class="body" style="font-size:23px">one missing line in a payment setting. money moved. the QR worked. but the sale never confirmed — and there was no error to see. invisible. a test now catches it every time.</div>
       </div>
     </div>
     <div class="reveal col gap" style="flex:1">
       <div class="card" style="padding:24px 26px">
-        <div class="mono" style="font-size:18px;margin-bottom:18px;color:var(--ink-3)">tests, version by version</div>
+        <div class="mono" style="font-size:18px;margin-bottom:18px;color:var(--ink-3)">the safety net, version by version</div>
         <svg viewBox="0 0 560 250" width="100%">
           <g font-family="JetBrains Mono, monospace" font-size="15" fill="#8E8878">
             <!-- baseline grid -->
@@ -574,11 +574,11 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         </svg>
       </div>
       <div class="card" style="padding:22px 26px">
-        <div class="mono" style="font-size:18px;margin-bottom:8px;color:var(--ink-3)">the surprises that lied to me</div>
+        <div class="mono" style="font-size:18px;margin-bottom:8px;color:var(--ink-3)">the dashboards that lied to me</div>
         <div class="body" style="font-size:21px;line-height:1.5">
-          a green suite lied: convex-test matched absent rows on <span class="mono" style="font-size:18px">undefined</span>, not prod reality. 288 passing, would have returned null in prod.<br>
-          <span class="mono" style="font-size:18px">tsc --noEmit</span> reported clean while checking zero files.<br>
-          the Vite "Network:" line is a lie. Windows Defender silently drops the inbound TCP.
+          288 tests passing green — while hiding a bug that would have broken every payment in the real world.<br>
+          an "all clear" check that was quietly checking nothing at all.<br>
+          a tool swore the phone could reach the app. the firewall was silently blocking it. a day lost to a confident lie.
         </div>
       </div>
     </div>
@@ -590,7 +590,7 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 <section class="slide">
   <div class="reveal eyebrow">meta <span class="dot">·</span> this slide built the others</div>
   <h2 class="reveal head" style="margin-top:8px;font-size:66px">I used the method<br>to build this talk.</h2>
-  <div class="reveal dek" style="margin-top:10px;font-size:29px">one ultracode run fanned out 5 agents over my repo, lessons, and essays. then I drove the live app for the screenshots. then it wrote itself into one file.</div>
+  <div class="reveal dek" style="margin-top:10px;font-size:29px">one AI run sent 5 agents across my own files — the product, the lessons, my essays — to pull out what mattered. in parallel, it grabbed live screenshots. then it wrote itself into one page.</div>
 
   <div class="reveal" style="margin-top:26px">
     <svg viewBox="0 0 1664 470" width="100%" style="max-width:1664px">
@@ -601,22 +601,22 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
       <g font-family="Lato, sans-serif">
         <!-- trigger -->
         <rect x="10" y="150" width="220" height="150" rx="16" fill="#1E4740" stroke="#F9A84A" stroke-opacity="0.55"/>
-        <text x="120" y="208" text-anchor="middle" fill="#F9A84A" font-size="26" font-weight="700">ultracode</text>
-        <text x="120" y="240" text-anchor="middle" fill="#8E8878" font-size="16">dynamic Workflow</text>
-        <text x="120" y="262" text-anchor="middle" fill="#8E8878" font-size="16">(this tool)</text>
+        <text x="120" y="208" text-anchor="middle" fill="#F9A84A" font-size="26" font-weight="700">one AI run</text>
+        <text x="120" y="240" text-anchor="middle" fill="#8E8878" font-size="16">the same</text>
+        <text x="120" y="262" text-anchor="middle" fill="#8E8878" font-size="16">split + combine</text>
 
         <!-- 5 agents -->
         <g>
           <rect x="440" y="14"  width="360" height="66" rx="12" fill="#163630" stroke="rgba(140,166,255,0.4)"/>
-          <text x="464" y="44" fill="#8CA6FF" font-size="20" font-weight="700">agent 1</text><text x="556" y="44" fill="#D4CBB9" font-size="20">features + linkage</text><text x="464" y="66" fill="#8E8878" font-size="15">CLAUDE.md · SCHEMA · CHANGELOG · ADRs</text>
+          <text x="464" y="44" fill="#8CA6FF" font-size="20" font-weight="700">agent 1</text><text x="556" y="44" fill="#D4CBB9" font-size="20">what it does</text><text x="464" y="66" fill="#8E8878" font-size="15">the product notes</text>
           <rect x="440" y="90"  width="360" height="66" rx="12" fill="#163630" stroke="rgba(140,166,255,0.4)"/>
-          <text x="464" y="120" fill="#8CA6FF" font-size="20" font-weight="700">agent 2</text><text x="556" y="120" fill="#D4CBB9" font-size="20">agent patterns</text><text x="464" y="142" fill="#8E8878" font-size="15">lessons library · review cadence</text>
+          <text x="464" y="120" fill="#8CA6FF" font-size="20" font-weight="700">agent 2</text><text x="556" y="120" fill="#D4CBB9" font-size="20">how I work</text><text x="464" y="142" fill="#8E8878" font-size="15">my lessons file</text>
           <rect x="440" y="166" width="360" height="66" rx="12" fill="#163630" stroke="rgba(140,166,255,0.4)"/>
-          <text x="464" y="196" fill="#8CA6FF" font-size="20" font-weight="700">agent 3</text><text x="556" y="196" fill="#D4CBB9" font-size="20">tool layers</text><text x="464" y="218" fill="#8E8878" font-size="15">stack · commands · .claude skills</text>
+          <text x="464" y="196" fill="#8CA6FF" font-size="20" font-weight="700">agent 3</text><text x="556" y="196" fill="#D4CBB9" font-size="20">the tools</text><text x="464" y="218" fill="#8E8878" font-size="15">what's in the stack</text>
           <rect x="440" y="242" width="360" height="66" rx="12" fill="#163630" stroke="rgba(140,166,255,0.4)"/>
-          <text x="464" y="272" fill="#8CA6FF" font-size="20" font-weight="700">agent 4</text><text x="556" y="272" fill="#D4CBB9" font-size="20">learnings + ADR shifts</text><text x="464" y="294" fill="#8E8878" font-size="15">supersedes · divergences · surprises</text>
+          <text x="464" y="272" fill="#8CA6FF" font-size="20" font-weight="700">agent 4</text><text x="556" y="272" fill="#D4CBB9" font-size="20">the lessons</text><text x="464" y="294" fill="#8E8878" font-size="15">what changed and why</text>
           <rect x="440" y="318" width="360" height="66" rx="12" fill="#163630" stroke="rgba(140,166,255,0.4)"/>
-          <text x="464" y="348" fill="#8CA6FF" font-size="20" font-weight="700">agent 5</text><text x="556" y="348" fill="#D4CBB9" font-size="20">voice + philosophy</text><text x="464" y="370" fill="#8E8878" font-size="15">portfolio essays · CONTENT.md</text>
+          <text x="464" y="348" fill="#8CA6FF" font-size="20" font-weight="700">agent 5</text><text x="556" y="348" fill="#D4CBB9" font-size="20">the voice</text><text x="464" y="370" fill="#8E8878" font-size="15">my essays</text>
         </g>
         <!-- fan-out arrows -->
         <path d="M230,210 C340,210 340,47  440,47"  stroke="#F9A84A" stroke-width="2.4" fill="none" marker-end="url(#am)"/>
@@ -627,8 +627,8 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
 
         <!-- synthesize barrier -->
         <rect x="930" y="140" width="270" height="120" rx="16" fill="#1E4740" stroke="#F9A84A" stroke-opacity="0.55"/>
-        <text x="1065" y="190" text-anchor="middle" fill="#F9A84A" font-size="24" font-weight="700">synthesize</text>
-        <text x="1065" y="222" text-anchor="middle" fill="#8E8878" font-size="16">barrier · merge into</text>
+        <text x="1065" y="190" text-anchor="middle" fill="#F9A84A" font-size="24" font-weight="700">combine</text>
+        <text x="1065" y="222" text-anchor="middle" fill="#8E8878" font-size="16">merge it all into</text>
         <text x="1065" y="244" text-anchor="middle" fill="#8E8878" font-size="16">a slide outline</text>
         <!-- converge arrows -->
         <path d="M800,47  C870,47  870,180 930,180" stroke="#8CA6FF" stroke-width="2.2" fill="none"/>
@@ -640,24 +640,24 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
         <!-- deck -->
         <rect x="1330" y="150" width="324" height="120" rx="16" fill="#163630" stroke="rgba(143,168,136,0.55)"/>
         <text x="1492" y="198" text-anchor="middle" fill="#8FA888" font-size="24" font-weight="700">build this deck</text>
-        <text x="1492" y="230" text-anchor="middle" fill="#8E8878" font-size="16">one self-contained .html</text>
+        <text x="1492" y="230" text-anchor="middle" fill="#8E8878" font-size="16">one self-contained page</text>
         <path d="M1200,200 L1330,205" stroke="#F9A84A" stroke-width="3" fill="none" marker-end="url(#am)"/>
 
         <!-- parallel screenshot lane -->
         <rect x="930" y="300" width="270" height="74" rx="12" fill="#163630" stroke="rgba(20,184,166,0.5)"/>
-        <text x="1065" y="332" text-anchor="middle" fill="#14B8A6" font-size="20" font-weight="700">live browser capture</text>
-        <text x="1065" y="356" text-anchor="middle" fill="#8E8878" font-size="15">6 real screenshots, dev booth app</text>
-        <text x="1065" y="294" text-anchor="middle" fill="#5E594E" font-family="JetBrains Mono, monospace" font-size="14">in parallel</text>
+        <text x="1065" y="332" text-anchor="middle" fill="#14B8A6" font-size="20" font-weight="700">live screenshots</text>
+        <text x="1065" y="356" text-anchor="middle" fill="#8E8878" font-size="15">6 real shots from the app</text>
+        <text x="1065" y="294" text-anchor="middle" fill="#5E594E" font-family="JetBrains Mono, monospace" font-size="14">at the same time</text>
         <path d="M1200,337 C1280,337 1300,290 1380,272" stroke="#14B8A6" stroke-width="2.4" fill="none" marker-end="url(#am)"/>
       </g>
     </svg>
   </div>
 
   <div class="reveal row gap-s" style="margin-top:18px;flex-wrap:wrap">
-    <span class="chip citrus">1 workflow · 6 agents</span>
-    <span class="chip">~430k tokens</span>
-    <span class="chip moss">4m 40s to draft</span>
-    <span class="chip">then the live app, then this file</span>
+    <span class="chip citrus">1 run · 6 agents</span>
+    <span class="chip">a few dollars of AI</span>
+    <span class="chip moss">4m 40s to a first draft</span>
+    <span class="chip">then the live app, then this page</span>
   </div>
   <div class="foot"><span class="brand"><b>frollie</b> pos</span><span>09 / 10</span></div>
 </section>
@@ -669,8 +669,8 @@ h2.head{font-family:var(--serif);font-weight:700;font-size:78px;line-height:1.04
       <div class="reveal eyebrow">08 <span class="dot">·</span> the takeaway</div>
       <h2 class="reveal head" style="font-size:88px">force is free now.<br><span class="citrus">direction is the whole job.</span></h2>
       <div class="reveal col gap-s" style="margin-top:8px">
-        <div class="body" style="font-size:25px">before I write "fix," I finish the sentence: the root cause is X, and this removes it because Y. if it stays fuzzy, it is a mitigation, and I name it one.</div>
-        <div class="body" style="font-size:25px">the docs are the moat. the previous engineer who left the diary in the code was me, last Tuesday.</div>
+        <div class="body" style="font-size:25px">AI gives you almost free force. it will also be confidently wrong, fast, if you let it. the discipline of pausing is the new senior job.</div>
+        <div class="body" style="font-size:25px">the written record is the moat — it's why nothing ever has to be decided twice. the last person who left me notes to follow was me, last Tuesday.</div>
         <div class="body" style="font-size:25px">reviews are not a gate at the end. they are where the quality gets made.</div>
       </div>
       <div class="reveal dek" style="margin-top:14px;font-size:30px;color:var(--ink)">
