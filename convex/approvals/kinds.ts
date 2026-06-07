@@ -135,8 +135,9 @@ export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: str
   // distinctly from approval-row state transitions (approval_resolved).
   refund:                  { requested: "refund.requested",                  resolved: "refund.approval_resolved",         denied: "refund.denied" },
   // v0.6 S2: spoilage. resolved verb is spoilage.approval_resolved to match
-  // refund's split (approval-row state ≠ commit verb). The commit path (S5)
-  // will emit "spoilage.committed" for the spoilage row itself.
+  // refund's split (approval-row state ≠ commit verb). The commit path
+  // (_recordSpoilage_internal) emits "stock.spoilage" for the spoilage row
+  // itself — see convex/inventory/internal.ts, SCHEMA.md, CHANGELOG.
   spoilage:                { requested: "spoilage.requested",                resolved: "spoilage.approval_resolved",       denied: "spoilage.denied" },
 };
 
