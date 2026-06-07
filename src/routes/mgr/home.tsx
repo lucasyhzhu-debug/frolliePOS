@@ -8,6 +8,9 @@ interface NavCard {
   label: string;
   hint: string;
   glyph: string;
+  /** When true, `to` is an external/static URL opened in a new tab via <a>,
+   *  not a React Router route. Used for the static presentation deck. */
+  external?: boolean;
 }
 
 const NAV_CARDS: NavCard[] = [
@@ -22,6 +25,13 @@ const NAV_CARDS: NavCard[] = [
   { to: "/mgr/stock", label: "Stock drift", hint: "Cron-detected ledger gaps", glyph: "Δ" },
   { to: "/mgr/device-setup", label: "Device setup", hint: "Aktivasi perangkat baru", glyph: "⊕" },
   { to: "/mgr/audit", label: "Audit log", hint: "Append-only activity trail", glyph: "❡" },
+  {
+    to: "/presentation/frolliepos-talk.html",
+    label: "Presentation",
+    hint: "Frollie POS conference talk",
+    glyph: "▶",
+    external: true,
+  },
 ];
 
 export default function MgrHome() {
@@ -48,9 +58,9 @@ export default function MgrHome() {
           Pick a manager surface.
         </p>
         <div className="grid grid-cols-2 gap-2">
-          {NAV_CARDS.map((c) => (
-            <Card key={c.to} className="p-0 transition-colors hover:bg-accent">
-              <Link to={c.to} className="block p-3">
+          {NAV_CARDS.map((c) => {
+            const inner = (
+              <>
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl leading-none text-muted-foreground">
                     {c.glyph}
@@ -60,9 +70,27 @@ export default function MgrHome() {
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{c.hint}</p>
-              </Link>
-            </Card>
-          ))}
+              </>
+            );
+            return (
+              <Card key={c.to} className="p-0 transition-colors hover:bg-accent">
+                {c.external ? (
+                  <a
+                    href={c.to}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-3"
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <Link to={c.to} className="block p-3">
+                    {inner}
+                  </Link>
+                )}
+              </Card>
+            );
+          })}
         </div>
       </div>
     </SpokeLayout>
