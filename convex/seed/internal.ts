@@ -12,13 +12,76 @@ export const _countStaff_internal = internalQuery({
   },
 });
 
+/**
+ * DEV/E2E-ONLY: resolve the stable test IDs seeded by `_reset_internal` WITHOUT
+ * re-running reset. e2e/specs/voucher-offline.spec.ts (C2) consumes these to
+ * drive the manager archiveVoucher CLI step. Reading (rather than re-seeding)
+ * matters: the Playwright fixture already ran reset to sign in, and re-running
+ * it mid-spec would wipe staff_sessions and log the page out.
+ *
+ * Returns the active session for the seeded manager (Lucas) and the OFFLINE10
+ * voucher. Throws LOUDLY if either is absent so a seed regression fails the
+ * spec rather than silently passing. INTERNAL — not exposed via api.*.
+ */
+export const _e2eFixtureIds_internal = internalQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    managerSessionId: Id<"staff_sessions">;
+    voucherId: Id<"pos_vouchers">;
+    voucherCode: string;
+    managerStaffCode: string;
+  }> => {
+    const manager = (await ctx.db.query("staff").collect()).find(
+      (s) => s.role === "manager" && s.active && s.name === "Lucas",
+    );
+    if (!manager) {
+      throw new Error("_e2eFixtureIds_internal: no active manager 'Lucas' — run seed/actions:reset first.");
+    }
+    const session = (await ctx.db
+      .query("staff_sessions")
+      .withIndex("by_staff_active", (q) => q.eq("staff_id", manager._id).eq("ended_at", null))
+      .first());
+    if (!session) {
+      throw new Error("_e2eFixtureIds_internal: no active session for the seeded manager — run seed/actions:reset first.");
+    }
+    const voucher = await ctx.db
+      .query("pos_vouchers")
+      .withIndex("by_code", (q) => q.eq("code", "OFFLINE10"))
+      .first();
+    if (!voucher) {
+      throw new Error("_e2eFixtureIds_internal: OFFLINE10 voucher absent — run seed/actions:reset first.");
+    }
+    if (!manager.code) {
+      throw new Error("_e2eFixtureIds_internal: seeded manager has no staff code.");
+    }
+    return {
+      managerSessionId: session._id,
+      voucherId: voucher._id,
+      voucherCode: voucher.code,
+      managerStaffCode: manager.code,
+    };
+  },
+});
+
 export const _reset_internal = internalMutation({
   args: {
     staffPinHash: v.string(),
     mgrPinHash: v.string(),
     staffNames: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    wiped: number;
+    inserted: number;
+    managerSessionId: Id<"staff_sessions">;
+    voucherId: Id<"pos_vouchers">;
+    voucherCode: string;
+    managerStaffCode: string;
+  }> => {
     const now = Date.now();
     let wiped = 0;
 
@@ -139,6 +202,39 @@ export const _reset_internal = internalMutation({
       }
     }
 
+    // ── E2E fixtures (dev-only; `reset` is prod-guarded by deployment slug) ──
+    // Stable test IDs consumed by e2e/specs/voucher-offline.spec.ts (C2). The
+    // offline-voucher spec needs (a) an active manager session it can drive the
+    // CLI archiveVoucher mutation with, and (b) a pre-created voucher to apply
+    // offline then race against the archive. Both are returned below so the spec
+    // never carries hardcoded/<TBD> IDs. Tables are wiped above, so re-running
+    // reset replaces these rows.
+
+    // Active, non-ended manager session for the seeded manager (Lucas), shaped
+    // exactly like a real session row (ended_at/end_reason null while active),
+    // bound to the pre-registered dev device.
+    const managerSessionId = await ctx.db.insert("staff_sessions", {
+      staff_id: lucasId,
+      device_id: "dev-booth-device",
+      started_at: now,
+      ended_at: null,
+      end_reason: null,
+    });
+    inserted++;
+
+    // Pre-created voucher for the offline-apply → mgr-archive → reject flow.
+    const voucherCode = "OFFLINE10";
+    const voucherId = await ctx.db.insert("pos_vouchers", {
+      code: voucherCode,
+      type: "amount",
+      value: 500,
+      used_count: 0,
+      active: true,
+      created_at: now,
+      created_by_staff_id: lucasId,
+    });
+    inserted++;
+
     await logAudit(ctx, {
       actor_id: "system",
       action: "seed.reset",
@@ -147,7 +243,14 @@ export const _reset_internal = internalMutation({
       metadata: { wiped, inserted, staff_names: args.staffNames },
     });
 
-    return { wiped, inserted };
+    return {
+      wiped,
+      inserted,
+      managerSessionId,
+      voucherId,
+      voucherCode,
+      managerStaffCode: mgrCode,
+    };
   },
 });
 

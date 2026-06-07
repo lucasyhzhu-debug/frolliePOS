@@ -13,6 +13,10 @@ const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
  *   - 7 products from the wireframe catalog
  *   - initial stock levels
  *
+ * Returns stable test IDs (managerSessionId, voucherId, voucherCode,
+ * managerStaffCode) consumed by e2e/specs/voucher-offline.spec.ts (C2). These
+ * are emitted as JSON on stdout by `npx convex run`, parseable by the spec.
+ *
  * Prod guard (deny-list): aborts if CONVEX_CLOUD_URL contains the known prod
  * deployment slug. All other deployments (dev, localhost, ephemeral test) are
  * allowed through. If the prod deployment ever changes, update KNOWN_PROD_SLUG
@@ -20,7 +24,17 @@ const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
  */
 export const reset = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ wiped: number; inserted: number }> => {
+  handler: async (
+    ctx,
+  ): Promise<{
+    wiped: number;
+    inserted: number;
+    // Stable test IDs for e2e (C2) — see _reset_internal. Dev-only; prod-guarded.
+    managerSessionId: string;
+    voucherId: string;
+    voucherCode: string;
+    managerStaffCode: string;
+  }> => {
     const url = process.env.CONVEX_CLOUD_URL ?? "";
     // POS prod deployment slug per CLAUDE.md §"Convex deployment".
     // Update this constant if the prod deployment is ever replaced.
