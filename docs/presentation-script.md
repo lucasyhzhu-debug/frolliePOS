@@ -30,7 +30,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 **On the slide (what it does):**
 - **sell** — ring up a cart and take payment in the app, a QR code or a bank transfer. price and product name lock onto the receipt the second the sale happens.
-- **confirm** — the bank tells us the instant money lands. we stopped guessing. a manager's PIN is the only manual override.
+- **confirm** — the payment provider tells us the instant money lands. we stopped guessing — though one wrong setting makes it fail silently, so a manager's PIN is the only manual override.
 - **prove** — every paid sale makes a receipt with its own private link, and prints to a pocket thermal printer in one tap.
 - **govern** — a refund is a new record, never an edit. nothing is ever deleted. every action sits on a permanent log.
 - **reach** — when a manager is off-site, the system messages them an approve button. the link lets them see; their PIN lets them act.
@@ -43,7 +43,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 **Dek:** a few rules every sale obeys, no matter who runs it or where. the on-site path and the off-site path cannot drift apart.
 
-**On the slide (what happens when money moves):** lock the sale → request payment → bank confirms → mark paid → stock + log. Three rules: **one rulebook** (every path runs the same logic; the system can't contradict itself), **frozen receipts** (an old receipt never changes, even if I change the menu tomorrow), **press twice, charge once** (a double-tap or a dropped signal can never double-charge a customer).
+**On the slide (what happens when money moves):** lock the sale → request payment → provider confirms → mark paid → stock + log. Three rules: **one rulebook** (every path runs the same logic; the system can't contradict itself), **frozen receipts** (an old receipt never changes, even if I change the menu tomorrow), **press twice, charge once** (a double-tap or a dropped signal can never double-charge a customer).
 
 **Speaker notes:** Every sale obeys the same short rulebook, so the on-site path and the off-site approval path can never disagree. Prices freeze at the moment of sale. A customer can never be double-charged. The CEO lesson is small and boring on purpose: a handful of rules you never break is what prevents the expensive mistakes.
 
@@ -77,7 +77,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 **Dek:** from a project-management tool I built myself, down to the payment rails. five layers, run by one person.
 
-**On the slide:** L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the swarm · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
+**On the slide:** L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
 
 **Speaker notes:** One person, but the setup reads like a company: tools I built, my reusable playbooks, the AI brain and the helpers it spins up, the product's plumbing, the everyday machinery. Eleven manager screens, one person built them. The team you don't hire saves you the coordination, not just the salary.
 
