@@ -237,7 +237,8 @@ export const changePin = action({
  *
  *   1. Cache pre-check.
  *   2. Validate newPin (4 digits).
- *   3. Resolve session → caller must be an active manager (else NOT_MANAGER).
+ *   3. Resolve session → caller must be an active manager (else MANAGER_SESSION_REQUIRED,
+ *      thrown by the pre-cache authCheck before step 1).
  *   4. Reject self-reset (use changePin instead).
  *   5. Resolve target staff (missing/deactivated → TARGET_NOT_FOUND).
  *   6. argon2-verify managerPin against the MANAGER's pin_hash. On fail, record a

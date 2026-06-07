@@ -9,11 +9,12 @@ import { internal } from "../_generated/api";
  *   - On cache miss: runs fn, caches the JSON-stringified result under `key`
  *     with `mutationName` for debugging, returns the result.
  *
- * Seven PIN-gated admin actions follow this exact lookup/run/write shape:
+ * Eight PIN-gated admin actions follow this exact lookup/run/write shape:
  *   - staff.setStaffRole, staff.deactivateStaff
  *   - catalog.createProduct, catalog.createInventorySku, catalog.updateProductPricing
  *   - vouchers.createVoucher
  *   - inventory.recordSpoilage
+ *   - auth.resetStaffPin
  *
  * ADR-046 (auth hardening): `authCheck` runs BEFORE the cache lookup so a
  * replay with a spent idempotencyKey is rejected when the caller no longer holds

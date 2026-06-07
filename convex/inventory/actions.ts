@@ -27,7 +27,7 @@ import { withActionCache } from "../idempotency/action";
  *      That single-writer also handles N pos_stock_movements rows + per-SKU
  *      on_hand decrement + the stock.spoilage audit row (ADR-007).
  *
- * Errors: LINES_EMPTY, REASON_INVALID, QTY_INVALID, INVALID_PIN, NOT_MANAGER,
+ * Errors: LINES_EMPTY, REASON_INVALID, QTY_INVALID, INVALID_PIN, MANAGER_SESSION_REQUIRED,
  * SESSION_INVALID, LOCKED_OUT:<secs>.
  *
  * Server time wins (ADR-031) — the S3 writer captures a single Date.now()
