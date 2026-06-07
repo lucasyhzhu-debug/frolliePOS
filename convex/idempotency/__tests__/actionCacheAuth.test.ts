@@ -24,19 +24,33 @@ import { api, internal } from "../../_generated/api";
  *   5. Expected (BEFORE fix — red state): returns cached voucher id with no throw.
  */
 describe("withActionCache auth-before-lookup (via createVoucher)", () => {
+  // In-file arg-block helper: only key/sessionId/managerPin (and the unique
+  // voucher code) vary per call; type/value are constant across all 4 tests.
+  // Vouchers carry a unique-code constraint, so each test passes its own code.
+  const mkVoucher = (
+    t: ReturnType<typeof convexTest>,
+    {
+      sessionId,
+      key,
+      pin,
+      code,
+    }: { sessionId: unknown; key: string; pin: string; code: string },
+  ) =>
+    t.action(api.vouchers.actions.createVoucher, {
+      idempotencyKey: key,
+      sessionId: sessionId as never,
+      code,
+      type: "amount",
+      value: 1000,
+      managerPin: pin,
+    });
+
   it("a cached key cannot be replayed without a valid manager session", async () => {
     const t = convexTest(schema);
 
     // Step 1: seed manager + session and create a voucher (warms the cache)
     const { sessionId } = await seedManagerSession(t);
-    await t.action(api.vouchers.actions.createVoucher, {
-      idempotencyKey: "K",
-      sessionId,
-      code: "AUTHCHK",
-      type: "amount",
-      value: 1000,
-      managerPin: "9999",
-    });
+    await mkVoucher(t, { sessionId, key: "K", pin: "9999", code: "AUTHCHK" });
 
     // Step 2: seed a STAFF member (not manager) and an active session for them
     const staffId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
@@ -59,14 +73,7 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
     // cache lookup → throws MANAGER_SESSION_REQUIRED.
     // BEFORE the fix (red): would return the cached Id<"pos_vouchers"> with no throw.
     await expect(
-      t.action(api.vouchers.actions.createVoucher, {
-        idempotencyKey: "K",
-        sessionId: staffSession,
-        code: "AUTHCHK",
-        type: "amount",
-        value: 1000,
-        managerPin: "0000",
-      }),
+      mkVoucher(t, { sessionId: staffSession, key: "K", pin: "0000", code: "AUTHCHK" }),
     ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
 
@@ -82,27 +89,13 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
     const { sessionId } = await seedManagerSession(t);
 
     // First call: valid PIN, warms the cache
-    const a = await t.action(api.vouchers.actions.createVoucher, {
-      idempotencyKey: "HIT",
-      sessionId,
-      code: "SKIPPIN",
-      type: "amount",
-      value: 1000,
-      managerPin: "9999",
-    });
+    const a = await mkVoucher(t, { sessionId, key: "HIT", pin: "9999", code: "SKIPPIN" });
 
     // Same key + valid manager session, but WRONG pin →
     // pre-cache authCheck passes (session is still active manager),
     // cache is hit, verifyManagerPinOrThrow/argon2 does NOT run,
     // so the cached id is returned without throwing.
-    const b = await t.action(api.vouchers.actions.createVoucher, {
-      idempotencyKey: "HIT",
-      sessionId,
-      code: "SKIPPIN",
-      type: "amount",
-      value: 1000,
-      managerPin: "0000",
-    });
+    const b = await mkVoucher(t, { sessionId, key: "HIT", pin: "0000", code: "SKIPPIN" });
 
     expect(b).toBe(a);
   });
@@ -128,14 +121,7 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
     // Fresh key — no cache row exists yet — but session is ended,
     // so the pre-cache authCheck must reject it.
     await expect(
-      t.action(api.vouchers.actions.createVoucher, {
-        idempotencyKey: "ENDED",
-        sessionId,
-        code: "PARITY",
-        type: "amount",
-        value: 1000,
-        managerPin: "9999",
-      }),
+      mkVoucher(t, { sessionId, key: "ENDED", pin: "9999", code: "PARITY" }),
     ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
 
@@ -150,10 +136,7 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
     const { managerId, sessionId } = await seedManagerSession(t);
     await t.run(async (ctx) => ctx.db.patch(managerId, { active: false }));
     await expect(
-      t.action(api.vouchers.actions.createVoucher, {
-        idempotencyKey: "DEACTIVATED", sessionId, code: "PARITY2",
-        type: "amount", value: 1000, managerPin: "9999",
-      }),
+      mkVoucher(t, { sessionId, key: "DEACTIVATED", pin: "9999", code: "PARITY2" }),
     ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
 });

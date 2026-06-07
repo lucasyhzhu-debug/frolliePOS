@@ -4,6 +4,39 @@ import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { issueDeviceSetupCode } from "../staff/internal";
 
+/**
+ * POS prod deployment slug per CLAUDE.md §"Convex deployment". Update this
+ * constant (and CLAUDE.md) if the prod deployment is ever replaced.
+ */
+export const KNOWN_PROD_SLUG = "savory-zebra-800";
+
+/**
+ * Single-writer prod guard, shared by `seed/actions.ts::reset` (the "use node"
+ * action) and `_e2eFixtureIds_internal` (V8 internalQuery). Both read
+ * `process.env.CONVEX_CLOUD_URL`; this pure helper throws if it matches the
+ * known prod slug so neither path can wipe data or leak live session IDs on
+ * production. Keep the exact slug + throw shape — tests/specs assert on it.
+ */
+export function assertNotProd(): void {
+  const url = process.env.CONVEX_CLOUD_URL ?? "";
+  if (url.includes(KNOWN_PROD_SLUG)) {
+    throw new Error(
+      `seed is BLOCKED on production (${url}). ` +
+      `Refuses to run on the known prod deployment slug "${KNOWN_PROD_SLUG}".`,
+    );
+  }
+}
+
+/**
+ * Stable test IDs seeded by `_reset_internal` and resolved by
+ * `_e2eFixtureIds_internal`, consumed by e2e/specs/voucher-offline.spec.ts (C2).
+ */
+type SeedFixtureIds = {
+  managerSessionId: Id<"staff_sessions">;
+  voucherId: Id<"pos_vouchers">;
+  voucherCode: string;
+};
+
 export const _countStaff_internal = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -25,27 +58,16 @@ export const _countStaff_internal = internalQuery({
  */
 export const _e2eFixtureIds_internal = internalQuery({
   args: {},
-  handler: async (
-    ctx,
-  ): Promise<{
-    managerSessionId: Id<"staff_sessions">;
-    voucherId: Id<"pos_vouchers">;
-    voucherCode: string;
-    managerStaffCode: string;
-  }> => {
-    // Prod deny-list guard (mirrors seed/actions.ts::reset): never return live
-    // session IDs on the known prod deployment. Update KNOWN_PROD_SLUG here and
-    // in CLAUDE.md §"Convex deployment" if prod is ever replaced.
-    const KNOWN_PROD_SLUG = "savory-zebra-800";
-    if ((process.env.CONVEX_CLOUD_URL ?? "").includes(KNOWN_PROD_SLUG)) {
-      throw new Error(
-        `_e2eFixtureIds_internal is BLOCKED on production. ` +
-        `Refuses to return live session IDs on the known prod deployment slug "${KNOWN_PROD_SLUG}".`,
-      );
-    }
-    const manager = (await ctx.db.query("staff").collect()).find(
-      (s) => s.role === "manager" && s.active && s.name === "Lucas",
-    );
+  handler: async (ctx): Promise<SeedFixtureIds> => {
+    // Single-writer prod guard (shared with seed/actions.ts::reset): never
+    // return live session IDs on the known prod deployment.
+    assertNotProd();
+    const manager = (
+      await ctx.db
+        .query("staff")
+        .withIndex("by_role", (q) => q.eq("role", "manager"))
+        .collect()
+    ).find((s) => s.active && s.name === "Lucas");
     if (!manager) {
       throw new Error("_e2eFixtureIds_internal: no active manager 'Lucas' — run seed/actions:reset first.");
     }
@@ -63,14 +85,10 @@ export const _e2eFixtureIds_internal = internalQuery({
     if (!voucher) {
       throw new Error("_e2eFixtureIds_internal: OFFLINE10 voucher absent — run seed/actions:reset first.");
     }
-    if (!manager.code) {
-      throw new Error("_e2eFixtureIds_internal: seeded manager has no staff code.");
-    }
     return {
       managerSessionId: session._id,
       voucherId: voucher._id,
       voucherCode: voucher.code,
-      managerStaffCode: manager.code,
     };
   },
 });
@@ -84,14 +102,7 @@ export const _reset_internal = internalMutation({
   handler: async (
     ctx,
     args,
-  ): Promise<{
-    wiped: number;
-    inserted: number;
-    managerSessionId: Id<"staff_sessions">;
-    voucherId: Id<"pos_vouchers">;
-    voucherCode: string;
-    managerStaffCode: string;
-  }> => {
+  ): Promise<{ wiped: number; inserted: number } & SeedFixtureIds> => {
     const now = Date.now();
     let wiped = 0;
 
@@ -261,7 +272,6 @@ export const _reset_internal = internalMutation({
       managerSessionId,
       voucherId,
       voucherCode,
-      managerStaffCode: mgrCode,
     };
   },
 });
