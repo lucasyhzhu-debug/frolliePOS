@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures";
+import { selectFromRadixCombobox } from "../helpers/radix";
 
 // Un-skipped in v0.6.1 — C3 spoilage submit-enable fix; see docs/postmortems/2026-06-issue-43-e2e-skip-triage.md.
 //
@@ -16,9 +17,7 @@ test("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects
 
   // Select the SKU and wait for the combobox to display the picked value, so
   // the Radix portal has fully closed before we fill the controlled inputs.
-  await page.getByRole("combobox").first().click();
-  await page.getByRole("option").first().click();
-  await expect(page.getByRole("combobox").first()).toContainText(/Dubai|—/i);
+  await selectFromRadixCombobox(page, { settleMatcher: /Dubai|—/i });
 
   // Fill Qty and confirm the controlled value committed (not just placeholder).
   const qty = page.getByLabel(/Qty|Quantity/i).first();

@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures";
 import { simulateQrisPaid } from "../helpers/xendit-simulate";
+import { selectFromRadixCombobox } from "../helpers/radix";
 
 // Un-skipped in v0.6.1 — see docs/postmortems/2026-06-issue-43-e2e-skip-triage.md.
 test("voucher (online): mgr creates → staff applies → paid → redemption visible", async ({ signedInAsLucas: page }) => {
@@ -12,8 +13,13 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   // Pre-authorized fallback selector (plan Task 0): Radix label-click forwarding
   // via htmlFor can vary by version; getByRole("combobox", { name }) resolves
   // unambiguously now that Task 4 wired htmlFor=new-voucher-type ↔ SelectTrigger id.
-  await page.getByRole("combobox", { name: /Type/i }).click();
-  await page.getByRole("option", { name: /Percentage/i }).click();
+  // settleMatcher hardens the same mobile/touch portal-close race the spoilage
+  // spec hit, so the controlled Value input below fills deterministically.
+  await selectFromRadixCombobox(page, {
+    triggerName: /Type/i,
+    optionName: /Percentage/i,
+    settleMatcher: /Percentage/i,
+  });
   await page.getByLabel(/^Value/i).fill("10");
   // Dialog submit button is "Continue" (vouchers.tsx:678), which opens the
   // PIN sheet — Manager PIN is required after Continue per DialogDescription.
