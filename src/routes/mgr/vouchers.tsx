@@ -77,7 +77,7 @@ function humanizeVoucherError(e: unknown): string {
   if (m.includes("LOCKED_OUT")) return "Too many attempts — locked out for 60s.";
   if (m.includes("SESSION_INVALID"))
     return "Session expired. Lock and log in again.";
-  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY"))
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY") || m.includes("MANAGER_SESSION_REQUIRED"))
     return "Manager access required.";
   return "Something went wrong. Try again.";
 }

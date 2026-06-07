@@ -77,7 +77,7 @@ function humanizeAuthError(e: unknown): string {
   if (m.includes("USE_CHANGE_PIN_FOR_SELF")) return "Use change-PIN for yourself.";
   if (m.includes("STAFF_NOT_FOUND")) return "Staff member not found.";
   if (m.includes("SESSION_INVALID")) return "Session expired. Lock and log in again.";
-  if (m.includes("NOT_MANAGER")) return "Only managers can do that.";
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_SESSION_REQUIRED")) return "Only managers can do that.";
   return "Something went wrong.";
 }
 

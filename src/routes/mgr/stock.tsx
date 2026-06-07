@@ -39,7 +39,7 @@ function humanizeDriftError(e: unknown): string {
   if (m.includes("NOTE_TOO_LONG")) return "Note must be ≤ 500 characters.";
   if (m.includes("NOTE_INVALID") || m.includes("NOTE_REQUIRED"))
     return "Note cannot be blank.";
-  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY"))
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY") || m.includes("MANAGER_SESSION_REQUIRED"))
     return "Manager access required.";
   if (m.includes("NO_SESSION") || m.includes("SESSION_INVALID"))
     return "Session expired. Lock and log in again.";

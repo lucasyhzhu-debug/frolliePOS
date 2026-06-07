@@ -103,7 +103,7 @@ function humanizeCatalogError(e: unknown): string {
   if (m.includes("INVALID_PIN")) return "Wrong manager PIN.";
   if (m.includes("LOCKED_OUT")) return "Too many attempts — locked out for 60s.";
   if (m.includes("SESSION_INVALID")) return "Session expired. Lock and log in again.";
-  if (m.includes("NOT_MANAGER")) return "Only managers can do that.";
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_SESSION_REQUIRED")) return "Only managers can do that.";
   return "Something went wrong.";
 }
 

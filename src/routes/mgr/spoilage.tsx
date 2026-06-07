@@ -53,7 +53,7 @@ function humanizeSpoilageError(e: unknown): string {
   if (m.includes("QTY_INVALID")) return "Quantity must be a positive whole number.";
   if (m.includes("INVALID_PIN")) return "Wrong manager PIN.";
   if (m.includes("LOCKED_OUT")) return "Too many attempts — locked out for 60s.";
-  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY"))
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_ONLY") || m.includes("MANAGER_SESSION_REQUIRED"))
     return "Manager access required.";
   if (m.includes("NO_SESSION") || m.includes("SESSION_INVALID"))
     return "Session expired. Lock and log in again.";

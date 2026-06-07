@@ -273,6 +273,7 @@ export const resetStaffPin = action({
         const session = await ctx.runQuery(api.auth.public.getSession, {
           sessionId: args.sessionId,
         });
+        // Unreachable in normal flow after assertManagerSessionInAction (ADR-046); covers the narrow TOCTOU window where the session ends between the pre-cache authCheck and fn execution.
         if (!session) throw new Error("SESSION_INVALID");
         if (session.staff._id === args.targetStaffId) {
           throw new Error("USE_CHANGE_PIN_FOR_SELF");

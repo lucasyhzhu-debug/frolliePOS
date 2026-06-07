@@ -33,6 +33,16 @@ export const _e2eFixtureIds_internal = internalQuery({
     voucherCode: string;
     managerStaffCode: string;
   }> => {
+    // Prod deny-list guard (mirrors seed/actions.ts::reset): never return live
+    // session IDs on the known prod deployment. Update KNOWN_PROD_SLUG here and
+    // in CLAUDE.md §"Convex deployment" if prod is ever replaced.
+    const KNOWN_PROD_SLUG = "savory-zebra-800";
+    if ((process.env.CONVEX_CLOUD_URL ?? "").includes(KNOWN_PROD_SLUG)) {
+      throw new Error(
+        `_e2eFixtureIds_internal is BLOCKED on production. ` +
+        `Refuses to return live session IDs on the known prod deployment slug "${KNOWN_PROD_SLUG}".`,
+      );
+    }
     const manager = (await ctx.db.query("staff").collect()).find(
       (s) => s.role === "manager" && s.active && s.name === "Lucas",
     );
@@ -93,8 +103,10 @@ export const _reset_internal = internalMutation({
       // Without these, a dev reset left orphaned txns + an ever-climbing receipt
       // counter, breaking the "wipe + bootstrap" smoke-flow premise (I5).
       "pos_voucher_redemptions", "pos_stock_movements", "pos_xendit_invoices",
+      "pos_refunds",
       "pos_transaction_lines", "pos_transactions", "pos_receipt_counters",
       "pos_vouchers", "pos_approval_requests",
+      "pos_low_stock_alerts", "pos_recount_state",
       "pos_stock_levels", "pos_product_components", "pos_products", "pos_inventory_skus",
       "staff",
     ] as const) {

@@ -138,4 +138,22 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
       }),
     ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
+
+  /**
+   * Regression test: a manager whose staff row is DEACTIVATED (active=false)
+   * must be rejected by the pre-cache authCheck gate (MANAGER_SESSION_REQUIRED)
+   * even on a fresh key — the session row is still live, but the actor is no
+   * longer an active manager.
+   */
+  it("deactivated manager (active=false) is rejected by the pre-cache gate", async () => {
+    const t = convexTest(schema);
+    const { managerId, sessionId } = await seedManagerSession(t);
+    await t.run(async (ctx) => ctx.db.patch(managerId, { active: false }));
+    await expect(
+      t.action(api.vouchers.actions.createVoucher, {
+        idempotencyKey: "DEACTIVATED", sessionId, code: "PARITY2",
+        type: "amount", value: 1000, managerPin: "9999",
+      }),
+    ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
+  });
 });
