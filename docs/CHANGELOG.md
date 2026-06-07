@@ -62,9 +62,11 @@ All four parts are additive UI wiring of existing backend (no schema, no migrati
 
 - `seed:reset` now pre-registers a fixed dev device (`dev-booth-device`), and `useDeviceId` returns that id under the Vite dev server, so local / Chrome-MCP loads skip the `/activate` device-registration gate. No production impact — gated on `import.meta.env.MODE === "development"`, so the prod build and the test runner keep the random per-install UUID path. Dev credentials after seed: Lucas (manager, PIN 9999), Bayu/Citra/Dewi/Eka (staff, PIN 0000).
 
-## v0.6 — Vouchers + spoilage + nightly stock-recon (unreleased)
+## 2026-06-03 — v0.6 Vouchers + spoilage + nightly stock-recon (PR #25, `2c0133c`)
 
-Manager voucher CRUD, a new `spoilage` approval kind (booth + Telegram paths sharing one writer), and a nightly report-only stock-drift cron ([ADR-044](./ADR/044-nightly-stock-recon-report-only.md)). Wave 4 (Playwright E2E suite) is **deferred to v0.6.1** — implementation depends on the v0.6 backend being deployed to the dev Convex deployment first. Plan + task manifest at `docs/superpowers/plans/2026-06-02-v0.6.md` (tasks P1–P10).
+Manager voucher CRUD, a new `spoilage` approval kind (booth + Telegram paths sharing one writer), and a nightly report-only stock-drift cron ([ADR-044](./ADR/044-nightly-stock-recon-report-only.md)). Plan + task manifest at `docs/superpowers/plans/2026-06-02-v0.6.md`.
+
+**Playwright E2E (Wave 4) — scaffold landed, suite mostly quarantined.** The harness (`playwright.config.ts`, fixtures, `globalSetup`, Xendit-simulate helper, `.github/workflows/e2e.yml`) and all 7 spec files shipped in this PR. However **only `auth` sign-in is an active test** — the other 6 specs (`sale-qris`, `sale-bca-va`, `voucher-online`, `voucher-offline`, `refund`, `spoilage`) plus the lockout test are `test.skip`'d, blocked on hard-nav session loss (issue tracked in #43; stabilization arc ran through v0.5.7–v0.5.9). The earlier "deferred to v0.6.1" note is superseded: the files exist on main but do **not** yet prove the golden path. Un-skipping is the real v0.6.1 work.
 
 ### Vouchers
 

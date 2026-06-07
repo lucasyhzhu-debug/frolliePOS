@@ -4,7 +4,7 @@ import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
-import { computeVoucherDiscount } from "../lib/voucher";
+import { validateVoucherAgainst } from "../lib/voucherValidate";
 import { NEG_STOCK, withFlag } from "./flags";
 import { wibDayWindow, parseWibDayLabel } from "../lib/time";
 import { computeDaySummary, type DayTxn, type DaySummary, type RefundStatus } from "./lib";
@@ -217,14 +217,11 @@ export const commitCart = mutation({
       }
 
       // Voucher re-validation (ADR-009) — look up via vouchers internal surface
-      // (ADR-034); discount math + active/expiry/min-cart checks run here.
+      // (ADR-034), then delegate to the shared V8-safe helper so BE re-validation
+      // and the FE offline path can't drift on reason codes or boundary semantics.
       // Reason-aware: when re-validation drops the voucher we still commit the
       // txn (recovery is "no discount", not "abort sale") but surface the reason
       // back to the FE so cart-build/charge can show the user why.
-      // Boundary semantics MUST match convex/lib/voucherValidate.ts (V1):
-      //   expires_at <= now → EXPIRED   (strict <=)
-      //   subtotal < min   → MIN_CART_VALUE (strict <)
-      // so BE re-validation and the FE offline path can't drift.
       let voucherDiscount = 0;
       let voucherCodeSnapshot: string | undefined;
       let voucherRejected:
@@ -235,18 +232,14 @@ export const commitCart = mutation({
           internal.vouchers.internal._getVoucherByCode_internal,
           { code: args.voucherCode },
         );
-        const now = Date.now();
-        if (!voucher) {
-          voucherRejected = { code: args.voucherCode, reason: "NOT_FOUND" };
-        } else if (!voucher.active) {
-          voucherRejected = { code: args.voucherCode, reason: "INACTIVE" };
-        } else if (voucher.expires_at != null && voucher.expires_at <= now) {
-          voucherRejected = { code: args.voucherCode, reason: "EXPIRED" };
-        } else if (voucher.min_cart_value != null && subtotal < voucher.min_cart_value) {
-          voucherRejected = { code: args.voucherCode, reason: "MIN_CART_VALUE" };
+        const result = validateVoucherAgainst(voucher, subtotal, Date.now());
+        if (result.valid) {
+          voucherDiscount = result.discountAmount;
+          // result.valid ⟹ voucher non-null (helper returns NOT_FOUND otherwise);
+          // snapshot the canonical stored code, not the (possibly lowercased) input.
+          voucherCodeSnapshot = voucher?.code;
         } else {
-          voucherDiscount = computeVoucherDiscount(voucher.type, voucher.value, subtotal);
-          voucherCodeSnapshot = voucher.code;
+          voucherRejected = { code: args.voucherCode, reason: result.reason };
         }
       }
 

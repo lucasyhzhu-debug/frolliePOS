@@ -2,7 +2,7 @@ import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { computeVoucherDiscount } from "../lib/voucher";
+import { validateVoucherAgainst } from "../lib/voucherValidate";
 import { requireManagerSession } from "../auth/sessions";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
@@ -53,16 +53,10 @@ export const validateVoucher = query({
       .query("pos_vouchers")
       .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))
       .first();
-    if (!voucher) return { valid: false, discountAmount: 0, reason: "NOT_FOUND" };
-    if (!voucher.active) return { valid: false, discountAmount: 0, reason: "INACTIVE" };
-    if (voucher.expires_at != null && voucher.expires_at <= Date.now()) {
-      return { valid: false, discountAmount: 0, reason: "EXPIRED" };
-    }
-    if (voucher.min_cart_value != null && args.cartSubtotal < voucher.min_cart_value) {
-      return { valid: false, discountAmount: 0, reason: "MIN_CART_VALUE" };
-    }
-    const discountAmount = computeVoucherDiscount(voucher.type, voucher.value, args.cartSubtotal);
-    return { valid: true, discountAmount, voucherId: voucher._id };
+    // Delegate to the shared V8-safe helper so this BE query, commitCart's
+    // re-validation, and the FE offline fallback cannot drift on reason codes
+    // or boundary semantics (ADR-009). Server time wins (rule #15).
+    return validateVoucherAgainst(voucher, args.cartSubtotal, Date.now());
   },
 });
 
