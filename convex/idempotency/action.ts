@@ -9,10 +9,18 @@ import { internal } from "../_generated/api";
  *   - On cache miss: runs fn, caches the JSON-stringified result under `key`
  *     with `mutationName` for debugging, returns the result.
  *
- * Five PIN-gated actions follow this exact lookup/run/write shape:
+ * Seven PIN-gated admin actions follow this exact lookup/run/write shape:
  *   - staff.setStaffRole, staff.deactivateStaff
- *   - catalog.createProduct, catalog.updateProductPricing
- *   - auth.resetStaffPin
+ *   - catalog.createProduct, catalog.createInventorySku, catalog.updateProductPricing
+ *   - vouchers.createVoucher
+ *   - inventory.recordSpoilage
+ *
+ * ADR-046 (auth hardening): `authCheck` runs BEFORE the cache lookup so a
+ * replay with a spent idempotencyKey is rejected when the caller no longer holds
+ * a valid manager session. Mirrors `withIdempotency`'s `authCheck` ordering in
+ * `convex/idempotency/internal.ts` (lines 57–63). The PIN verify
+ * (`verifyManagerPinOrThrow`) stays INSIDE `fn` so a legit retry skips the
+ * expensive argon2 verify while still enforcing the session check.
  *
  * The helper does NOT replace the `:commit`-derived idempotencyKey passed to
  * the wrapped internal mutation — callers still pass `${key}:commit` to the
@@ -34,8 +42,10 @@ import { internal } from "../_generated/api";
 export async function withActionCache<T>(
   ctx: ActionCtx,
   params: { key: string; mutationName: string },
+  authCheck: () => Promise<void>, // ADR-046: runs BEFORE cache lookup; throws on bad auth
   fn: () => Promise<T>,
 ): Promise<T> {
+  await authCheck();
   const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
     key: params.key,
   });

@@ -3,7 +3,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { withActionCache } from "../idempotency/action";
 
@@ -53,6 +53,7 @@ export const recordSpoilage = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "inventory.recordSpoilage" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         // ── Fail-before-PIN guards (cheap rejection; avoid argon2 cycles) ──
         if (args.lines.length === 0) throw new Error("LINES_EMPTY");

@@ -146,7 +146,12 @@ describe("auth/actions.resetStaffPin", () => {
     ).rejects.toThrow(/INVALID_PIN/);
   });
 
-  it("rejects non-manager caller (NOT_MANAGER)", async () => {
+  it("rejects non-manager caller (MANAGER_SESSION_REQUIRED)", async () => {
+    // ADR-046: assertManagerSessionInAction now fires BEFORE the cache lookup
+    // (pre-cache authCheck). A staff-role caller gets MANAGER_SESSION_REQUIRED
+    // from the authCheck rather than NOT_MANAGER from verifyManagerPinOrThrow
+    // (which ran inside the cached body before this fix). Both errors assert "not
+    // a manager" — the new error fires earlier and is semantically more precise.
     const t = convexTest(schema);
     const callerId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
       name: "Lucy",
@@ -175,7 +180,7 @@ describe("auth/actions.resetStaffPin", () => {
         managerPin: "1234",
         idempotencyKey: "k-notmgr",
       }),
-    ).rejects.toThrow(/NOT_MANAGER/);
+    ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
 
   it("rejects self-reset (USE_CHANGE_PIN_FOR_SELF)", async () => {

@@ -3,7 +3,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 /**
@@ -28,6 +28,7 @@ export const setStaffRole = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "staff.setStaffRole" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         const { managerId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,
@@ -64,6 +65,7 @@ export const deactivateStaff = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "staff.deactivateStaff" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         const { managerId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,

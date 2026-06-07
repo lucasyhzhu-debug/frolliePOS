@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 /**
@@ -52,6 +52,7 @@ export const createProduct = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "catalog.createProduct" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,
@@ -111,6 +112,7 @@ export const createInventorySku = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "catalog.createInventorySku" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,
@@ -151,6 +153,7 @@ export const updateProductPricing = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "catalog.updateProductPricing" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         const { managerId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,

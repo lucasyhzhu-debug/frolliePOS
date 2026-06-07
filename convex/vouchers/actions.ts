@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 /**
@@ -56,6 +56,7 @@ export const createVoucher = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "vouchers.createVoucher" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async (): Promise<Id<"pos_vouchers">> => {
         // ── Validation (fail-before-PIN: cheap rejection of malformed input) ──
         const code = args.code.toUpperCase();

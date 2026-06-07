@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { argon2id } from "hash-wasm";
-import { verifyPinOrThrow, verifyManagerPinOrThrow } from "./verifyPin";
+import { verifyPinOrThrow, verifyManagerPinOrThrow, assertManagerSessionInAction } from "./verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 const ARGON2_PARAMS = {
@@ -265,6 +265,7 @@ export const resetStaffPin = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "auth.resetStaffPin" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         if (!/^\d{4}$/.test(args.newPin)) throw new Error("NEW_PIN_INVALID");
 
