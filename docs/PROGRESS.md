@@ -1746,7 +1746,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 - ✅ **[v061-be-assert-mgr-session]** `auth.assertManagerSessionInAction` — action-context manager gate (cc1fac8)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task A1]
-- ✅ **[v061-be-actioncache-authcheck]** `withActionCache` required `authCheck` param + wire all 7 admin actions (f344a2d)
+- ✅ **[v061-be-actioncache-authcheck]** `withActionCache` required `authCheck` param + wire all 8 admin actions (f344a2d)
   - **agent:** `convex-expert` · **deps:** `v061-be-assert-mgr-session` · **docs:** [Plan Task A2]
 - ✅ **[v061-be-actioncache-tests]** Regression tests — replay-rejected, cache-hit-skips-PIN, resolution-parity (8afd14f)
   - **agent:** `convex-expert` · **deps:** `v061-be-actioncache-authcheck` · **docs:** [Plan Task A3]
