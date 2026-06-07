@@ -18,7 +18,7 @@ function basicAuth(): string {
 export async function simulateQrisPaid(qrId: string, amount: number): Promise<void> {
   const res = await fetch(`${XENDIT_BASE}/qr_codes/${qrId}/payments/simulate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": basicAuth() },
+    headers: { "Content-Type": "application/json", "Authorization": basicAuth(), "api-version": "2022-07-31" },
     body: JSON.stringify({ amount }),
   });
   if (!res.ok) {
