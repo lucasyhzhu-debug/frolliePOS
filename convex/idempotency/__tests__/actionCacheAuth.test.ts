@@ -69,4 +69,73 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
       }),
     ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
   });
+
+  /**
+   * Regression test: cache-hit path must NOT re-run verifyManagerPinOrThrow
+   * (argon2). Proven by replaying the same idempotencyKey with a WRONG PIN —
+   * if the cached id is returned (not a throw), argon2 was skipped on the
+   * hit path. If it throws instead, that means PIN was re-checked, which is a
+   * regression (the assertion must NOT be weakened to hide that failure).
+   */
+  it("cache hit returns cached value without re-verifying PIN", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+
+    // First call: valid PIN, warms the cache
+    const a = await t.action(api.vouchers.actions.createVoucher, {
+      idempotencyKey: "HIT",
+      sessionId,
+      code: "SKIPPIN",
+      type: "amount",
+      value: 1000,
+      managerPin: "9999",
+    });
+
+    // Same key + valid manager session, but WRONG pin →
+    // pre-cache authCheck passes (session is still active manager),
+    // cache is hit, verifyManagerPinOrThrow/argon2 does NOT run,
+    // so the cached id is returned without throwing.
+    const b = await t.action(api.vouchers.actions.createVoucher, {
+      idempotencyKey: "HIT",
+      sessionId,
+      code: "SKIPPIN",
+      type: "amount",
+      value: 1000,
+      managerPin: "0000",
+    });
+
+    expect(b).toBe(a);
+  });
+
+  /**
+   * Regression test: an ENDED manager session must be rejected by the
+   * pre-cache authCheck gate (MANAGER_SESSION_REQUIRED) even on a fresh key,
+   * proving the resolution-parity between a live-session check and a
+   * post-end replay.
+   */
+  it("ended manager session is rejected by the pre-cache gate", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedManagerSession(t);
+
+    // Terminate the session
+    await t.run(async (ctx) =>
+      ctx.db.patch(sessionId, {
+        ended_at: Date.now(),
+        end_reason: "manual_lock",
+      }),
+    );
+
+    // Fresh key — no cache row exists yet — but session is ended,
+    // so the pre-cache authCheck must reject it.
+    await expect(
+      t.action(api.vouchers.actions.createVoucher, {
+        idempotencyKey: "ENDED",
+        sessionId,
+        code: "PARITY",
+        type: "amount",
+        value: 1000,
+        managerPin: "9999",
+      }),
+    ).rejects.toThrow(/MANAGER_SESSION_REQUIRED/);
+  });
 });
