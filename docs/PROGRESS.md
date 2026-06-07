@@ -1589,7 +1589,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 - (Staff) Apply a voucher offline against the cached list and either commit cleanly OR see a clear ADR-009 banner if the voucher expired/deactivated between cart-build and payment
 - (Manager) Log multi-SKU spoilage at the booth with PIN, OR request via Telegram with a single-use approval URL — both paths converge on one ledger writer
 - Watch the nightly 02:00 WIB cron rebuild `on_hand` from `pos_stock_movements` and Telegram-alert the `inventory` role if any SKU drifts
-- (DevX/CI) ⚠️ **Partial:** the Playwright scaffold + CI workflow shipped, but only 1 of 7 specs (`auth` sign-in) actually runs — the other 6 (sale-qris, sale-bca-va, voucher-online, voucher-offline, refund, spoilage) are `test.skip`'d pending the hard-nav session-loss fix (#43). The suite does NOT yet prove the golden path; un-skipping is v0.6.1 work.
+- (DevX/CI) ✅ **Full coverage (as of v0.6.1):** all 7 e2e specs active, 0 skipped — `auth`, `sale-qris`, `sale-bca-va`, `voucher-online`, `voucher-offline`, `refund`, `spoilage`. The 6 quarantined specs were un-skipped in v0.6.1 Wave B after fixing three real, evidenced causes (C1 Xendit simulate-id mismatch, C2 seed stable test IDs, C3 spoilage submit-disable). See triage doc `docs/postmortems/2026-06-issue-43-e2e-skip-triage.md`. CI workflow (`e2e.yml`) runs `playwright test` unfiltered — no per-spec allowlist.
 
 **Still not yet:**
 - `stock_in` and manager `adjustment` mutations (deferred — not in v0.6 scope per the explicit decomposition)
@@ -1713,10 +1713,22 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
   - **agent:** `general-purpose` · **deps:** `none`
   - **notes:**
     - 2026-06-07: The #43 "hard-nav session loss" label is a mis-attribution — the per-spec skip headers document **three** unrelated causes (C1 Xendit simulate id mismatch ×4, C2 seed test IDs ×1, C3 spoilage submit-disable ×1). **Carried into v0.6.1 Wave B** (per-cluster, evidence-gated) — see the v0.6.1 phase below.
+- 📋 **[v06-fu-collapse-mgr-session-resolve]** Collapse double manager-session resolve across the 8 PIN-gated admin actions
+  - **agent:** `convex-expert` · **deps:** `v061-be-actioncache-authcheck` · **docs:** none
+  - [ ] Thread the pre-cache `assertManagerSessionInAction` resolution forward so `verifyManagerPinOrThrow` reuses it instead of re-resolving the same session (drops 2–4 RPC hops/call)
+  - [ ] Preserve the auth-before-cache ordering + resolution-parity invariant (ADR-046)
+  - **notes:**
+    - 2026-06-07: surfaced by v0.6.1 /simplify (efficiency) + triple-review (architecture I1) — both flagged non-blocking. resetStaffPin resolves the session 3×; all 8 callers double-resolve. Deferred to avoid refactoring the auth funnel at ship time.
+- 📋 **[v06-fu-shared-auth-error-humanizer]** Extract shared auth-error humanizer (6 mgr route mappers duplicate auth/session/PIN branches)
+  - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** none
+  - [ ] Add a shared `humanizeAuthError` (in `src/lib/errors.ts`, which already exposes `errorMessage`) covering NOT_MANAGER / MANAGER_SESSION_REQUIRED / MANAGER_ONLY / SESSION_INVALID / NO_SESSION / INVALID_PIN / LOCKED_OUT
+  - [ ] Refactor the 6 `src/routes/mgr/*.tsx` `humanize*Error` fns to compose it, keeping each route's domain-specific branches; reconcile the divergent copy as a deliberate product choice
+  - **notes:**
+    - 2026-06-07: surfaced by v0.6.1 /simplify (reuse HIGH + altitude) — adding MANAGER_SESSION_REQUIRED was a 6-file touch. Deferred: consolidation unifies 3 intentionally-divergent copy strings (a product decision), out of v0.6.1 scope.
 
 ---
 
-## v0.6.1 — admin-action auth hardening + e2e un-skip 📋 PLANNED
+## v0.6.1 — admin-action auth hardening + e2e un-skip ✅ SHIPPED
 **Outcome:** Every PIN-gated admin action rejects a non-manager/expired session BEFORE the idempotency cache lookup (closing a cached-result replay gap, ADR-046), and the 6 quarantined Playwright specs are un-skipped by fixing their three real, evidenced causes — proving the transactional golden path on CI.
 **Spec:** [`docs/superpowers/specs/2026-06-07-v0.6.1-admin-auth-hardening-e2e-unskip-design.md`](./superpowers/specs/2026-06-07-v0.6.1-admin-auth-hardening-e2e-unskip-design.md) (staffreview-validated)
 **Plan:** [`docs/superpowers/plans/2026-06-07-v0.6.1-auth-hardening-e2e.md`](./superpowers/plans/2026-06-07-v0.6.1-auth-hardening-e2e.md) (staffreview-validated; Wave A + Wave B clusters)
@@ -1732,28 +1744,28 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Wave A — Action-cache auth-before-lookup (convex-expert)
 
-- 📋 **[v061-be-assert-mgr-session]** `auth.assertManagerSessionInAction` — action-context manager gate
+- ✅ **[v061-be-assert-mgr-session]** `auth.assertManagerSessionInAction` — action-context manager gate (cc1fac8)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task A1]
-- 📋 **[v061-be-actioncache-authcheck]** `withActionCache` required `authCheck` param + wire all 7 admin actions
+- ✅ **[v061-be-actioncache-authcheck]** `withActionCache` required `authCheck` param + wire all 8 admin actions (f344a2d)
   - **agent:** `convex-expert` · **deps:** `v061-be-assert-mgr-session` · **docs:** [Plan Task A2]
-- 📋 **[v061-be-actioncache-tests]** Regression tests — replay-rejected, cache-hit-skips-PIN, resolution-parity
+- ✅ **[v061-be-actioncache-tests]** Regression tests — replay-rejected, cache-hit-skips-PIN, resolution-parity (8afd14f)
   - **agent:** `convex-expert` · **deps:** `v061-be-actioncache-authcheck` · **docs:** [Plan Task A3]
-- 📋 **[v061-xc-adr-046]** ADR-046 + CLAUDE.md rule #20 note + CHANGELOG
+- ✅ **[v061-xc-adr-046]** ADR-046 + CLAUDE.md rule #20 note + CHANGELOG (bef5321)
   - **agent:** `—` · **deps:** `v061-be-actioncache-authcheck` · **docs:** [Plan Task A4]
 
 ### Wave B — e2e un-skip by cluster (general-purpose, evidence-gated)
 
-- 📋 **[v061-e2e-c1-verify]** C1 verify — Xendit test-mode simulate id mismatch (findings note)
+- ✅ **[v061-e2e-c1-verify]** C1 verify — Xendit test-mode simulate id mismatch (findings note) (4bbfea6)
   - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B1]
-- 📋 **[v061-e2e-c1-fix-saleqris]** C1 fix id source + un-skip `sale-qris`
+- ✅ **[v061-e2e-c1-fix-saleqris]** C1 fix id source + un-skip `sale-qris` (0d74b97)
   - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-verify` · **docs:** [Plan Task B2]
-- 📋 **[v061-e2e-c1-unskip-rest]** Un-skip `sale-bca-va`, `voucher-online`, `refund` (green-gated)
+- ✅ **[v061-e2e-c1-unskip-rest]** Un-skip `sale-bca-va`, `voucher-online`, `refund` (green-gated) (119981b)
   - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-fix-saleqris` · **docs:** [Plan Task B3]
-- 📋 **[v061-e2e-c2-seed-ids]** C2 — seed stable test IDs + un-skip `voucher-offline`
+- ✅ **[v061-e2e-c2-seed-ids]** C2 — seed stable test IDs + un-skip `voucher-offline` (4ec8924)
   - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B4]
-- 📋 **[v061-e2e-c3-spoilage]** C3 — spoilage submit-disable repro + fix + un-skip `spoilage`
+- ✅ **[v061-e2e-c3-spoilage]** C3 — spoilage submit-disable repro + fix + un-skip `spoilage` (9c9e9bd)
   - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B5]
-- 📋 **[v061-e2e-ci-board]** Confirm CI runs un-skipped specs + update v0.6 PROGRESS coverage note
+- ✅ **[v061-e2e-ci-board]** Confirm CI runs un-skipped specs + update v0.6 PROGRESS coverage note (d4b8b22)
   - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-unskip-rest`, `v061-e2e-c2-seed-ids`, `v061-e2e-c3-spoilage` · **docs:** [Plan Task B6]
 
 ---

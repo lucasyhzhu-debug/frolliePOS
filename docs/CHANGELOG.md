@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-07 — v0.6.1 admin-action auth hardening + e2e un-skip
+
+### Security
+- `withActionCache` now runs a required pre-cache `authCheck` (ADR-046): the 8
+  PIN-gated admin actions assert a live manager session before the idempotency
+  lookup, closing a cached-result replay gap. PIN verify still skipped on legit retry.
+
 ## 2026-06-07 — Presentation hosting
 
 ### Added

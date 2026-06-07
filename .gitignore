@@ -52,3 +52,8 @@ docs/progress.html
 .claude/handoff/
 *.diff_*.txt
 .gstack/
+
+# playwright run artifacts
+test-results/
+playwright-report/
+.claude/pw-report/

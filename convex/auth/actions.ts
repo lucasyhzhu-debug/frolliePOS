@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { argon2id } from "hash-wasm";
-import { verifyPinOrThrow, verifyManagerPinOrThrow } from "./verifyPin";
+import { verifyPinOrThrow, verifyManagerPinOrThrow, assertManagerSessionInAction } from "./verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 const ARGON2_PARAMS = {
@@ -237,7 +237,8 @@ export const changePin = action({
  *
  *   1. Cache pre-check.
  *   2. Validate newPin (4 digits).
- *   3. Resolve session → caller must be an active manager (else NOT_MANAGER).
+ *   3. Resolve session → caller must be an active manager (else MANAGER_SESSION_REQUIRED,
+ *      thrown by the pre-cache authCheck before step 1).
  *   4. Reject self-reset (use changePin instead).
  *   5. Resolve target staff (missing/deactivated → TARGET_NOT_FOUND).
  *   6. argon2-verify managerPin against the MANAGER's pin_hash. On fail, record a
@@ -265,12 +266,14 @@ export const resetStaffPin = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "auth.resetStaffPin" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         if (!/^\d{4}$/.test(args.newPin)) throw new Error("NEW_PIN_INVALID");
 
         const session = await ctx.runQuery(api.auth.public.getSession, {
           sessionId: args.sessionId,
         });
+        // Unreachable in normal flow after assertManagerSessionInAction (ADR-046); covers the narrow TOCTOU window where the session ends between the pre-cache authCheck and fn execution.
         if (!session) throw new Error("SESSION_INVALID");
         if (session.staff._id === args.targetStaffId) {
           throw new Error("USE_CHANGE_PIN_FOR_SELF");

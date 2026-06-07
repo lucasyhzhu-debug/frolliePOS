@@ -58,6 +58,27 @@ export async function verifyPinOrThrow(
 }
 
 /**
+ * Action-context fail-cheap manager-session assert. Throws if the session is
+ * ended/absent or the staff is not an active manager. Does NOT verify PIN.
+ *
+ * Used as the pre-cache authCheck for withActionCache (ADR-046): it must accept
+ * exactly the session set verifyManagerPinOrThrow accepts (active manager, not
+ * ended) — keep the two in lockstep (resolution-parity invariant, spec §3.2).
+ */
+export async function assertManagerSessionInAction(
+  ctx: ActionCtx,
+  sessionId: Id<"staff_sessions">,
+): Promise<void> {
+  const resolved = await ctx.runQuery(
+    internal.auth.internal._resolveSessionRole_internal,
+    { sessionId },
+  );
+  if (!resolved || resolved.role !== "manager") {
+    throw new Error("MANAGER_SESSION_REQUIRED");
+  }
+}
+
+/**
  * Manager-PIN gate for inline (at-portal) admin actions. Resolves the session,
  * asserts the caller is an ACTIVE MANAGER, then runs the shared verifyPinOrThrow
  * funnel against the MANAGER's own hash (lockout pre-check + argon2 + failed-attempt

@@ -3,7 +3,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { withActionCache } from "../idempotency/action";
 
@@ -27,7 +27,7 @@ import { withActionCache } from "../idempotency/action";
  *      That single-writer also handles N pos_stock_movements rows + per-SKU
  *      on_hand decrement + the stock.spoilage audit row (ADR-007).
  *
- * Errors: LINES_EMPTY, REASON_INVALID, QTY_INVALID, INVALID_PIN, NOT_MANAGER,
+ * Errors: LINES_EMPTY, REASON_INVALID, QTY_INVALID, INVALID_PIN, MANAGER_SESSION_REQUIRED,
  * SESSION_INVALID, LOCKED_OUT:<secs>.
  *
  * Server time wins (ADR-031) — the S3 writer captures a single Date.now()
@@ -53,6 +53,7 @@ export const recordSpoilage = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "inventory.recordSpoilage" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
         // ── Fail-before-PIN guards (cheap rejection; avoid argon2 cycles) ──
         if (args.lines.length === 0) throw new Error("LINES_EMPTY");

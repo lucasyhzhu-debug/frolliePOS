@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
-import { verifyManagerPinOrThrow } from "../auth/verifyPin";
+import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 
 /**
@@ -33,7 +33,7 @@ const CODE_MAX = 32;
  *      emits voucher.created audit (ADR-007).
  *
  * Errors: CODE_INVALID, VALUE_INVALID, MIN_INVALID, MAX_INVALID,
- * EXPIRES_IN_PAST, CODE_EXISTS, INVALID_PIN, NOT_MANAGER, SESSION_INVALID,
+ * EXPIRES_IN_PAST, CODE_EXISTS, INVALID_PIN, MANAGER_SESSION_REQUIRED, SESSION_INVALID,
  * LOCKED_OUT:<secs>.
  *
  * Money rules: integer rupiah only (ADR-015 / CLAUDE.md #14). For percentage
@@ -56,6 +56,7 @@ export const createVoucher = action({
     withActionCache(
       ctx,
       { key: args.idempotencyKey, mutationName: "vouchers.createVoucher" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
       async (): Promise<Id<"pos_vouchers">> => {
         // ── Validation (fail-before-PIN: cheap rejection of malformed input) ──
         const code = args.code.toUpperCase();

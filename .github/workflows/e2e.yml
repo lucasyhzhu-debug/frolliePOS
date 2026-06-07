@@ -16,7 +16,11 @@ jobs:
     timeout-minutes: 15
     env:
       VITE_CONVEX_URL: ${{ secrets.CONVEX_DEV_URL }}
-      XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY_DEV }}
+      # XENDIT_SECRET_KEY is intentionally NOT set here: the e2e simulate helper
+      # must use the SAME Xendit key the deployment uses to CREATE the charge,
+      # otherwise create/simulate hit different accounts → 404 DATA_NOT_FOUND /
+      # CALLBACK_VIRTUAL_ACCOUNT_NOT_FOUND. It is sourced from the deployed
+      # deployment after `convex deploy` (see step below; issue-#43 triage).
       XENDIT_CALLBACK_TOKEN: ${{ secrets.XENDIT_CALLBACK_TOKEN_DEV }}
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
       CI: "true"
@@ -29,6 +33,14 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL
+      # Source the Xendit secret from the just-deployed deployment so the simulate
+      # helper and the charge-creating Convex action use the SAME Xendit account
+      # (create/simulate key parity). Fails loudly if the deployment has no key set.
+      - name: Source Xendit secret key from the deployed deployment
+        run: |
+          KEY=$(npx convex env get XENDIT_SECRET_KEY)
+          if [ -z "$KEY" ]; then echo "::error::XENDIT_SECRET_KEY not set on the deployment"; exit 1; fi
+          echo "XENDIT_SECRET_KEY=$KEY" >> "$GITHUB_ENV"
       - run: npm run test:e2e
       - if: failure()
         uses: actions/upload-artifact@v4

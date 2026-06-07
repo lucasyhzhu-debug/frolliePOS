@@ -2,6 +2,7 @@
 
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { assertNotProd } from "./internal";
 
 const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
 
@@ -13,27 +14,32 @@ const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
  *   - 7 products from the wireframe catalog
  *   - initial stock levels
  *
+ * Returns stable test IDs (managerSessionId, voucherId, voucherCode) consumed
+ * by e2e/specs/voucher-offline.spec.ts (C2). These are emitted as JSON on
+ * stdout by `npx convex run`, parseable by the spec.
+ *
  * Prod guard (deny-list): aborts if CONVEX_CLOUD_URL contains the known prod
- * deployment slug. All other deployments (dev, localhost, ephemeral test) are
- * allowed through. If the prod deployment ever changes, update KNOWN_PROD_SLUG
- * here and in CLAUDE.md §"Convex deployment". INTERNAL — not exposed via api.*.
+ * deployment slug (via shared `assertNotProd`). All other deployments (dev,
+ * localhost, ephemeral test) are allowed through. INTERNAL — not exposed via
+ * api.*.
  */
 export const reset = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ wiped: number; inserted: number }> => {
+  handler: async (
+    ctx,
+  ): Promise<{
+    wiped: number;
+    inserted: number;
+    // Stable test IDs for e2e (C2) — see _reset_internal. IDs are stringified
+    // across the action boundary. Dev-only; prod-guarded.
+    managerSessionId: string;
+    voucherId: string;
+    voucherCode: string;
+  }> => {
+    // Single-writer prod guard (shared with _e2eFixtureIds_internal).
+    assertNotProd();
+
     const url = process.env.CONVEX_CLOUD_URL ?? "";
-    // POS prod deployment slug per CLAUDE.md §"Convex deployment".
-    // Update this constant if the prod deployment is ever replaced.
-    const KNOWN_PROD_SLUG = "savory-zebra-800";
-    const isProd = url.includes(KNOWN_PROD_SLUG);
-
-    if (isProd) {
-      throw new Error(
-        `seedActions.reset is BLOCKED on production (${url}). ` +
-        `Refuses to run on the known prod deployment slug "${KNOWN_PROD_SLUG}".`,
-      );
-    }
-
     const existingStaff = await ctx.runQuery(internal.seed.internal._countStaff_internal, {});
     if (existingStaff > 0) {
       console.warn(

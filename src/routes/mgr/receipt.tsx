@@ -46,7 +46,7 @@ type ReceiptConfig = {
 function humanizeSettingsError(e: unknown): string {
   const m = String((e as Error)?.message ?? e);
   if (/FIELD_TOO_LONG/.test(m)) return "One of the fields is too long (max 120 chars).";
-  if (m.includes("NOT_MANAGER")) return "Manager session required.";
+  if (m.includes("NOT_MANAGER") || m.includes("MANAGER_SESSION_REQUIRED")) return "Manager session required.";
   if (m.includes("SESSION_INVALID")) return "Session expired. Lock and log in again.";
   return "Couldn't save. Try again.";
 }
