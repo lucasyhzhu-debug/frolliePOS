@@ -1697,22 +1697,64 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Post-merge follow-ups (retrospective code review, 2026-06-07)
 
-- 📋 **[v06-fu-actioncache-authcheck]** Action-cache pre-cache authCheck — `convex/idempotency/action.ts`
+- 📋 **[v06-fu-actioncache-authcheck]** Action-cache pre-cache authCheck — `convex/idempotency/action.ts` → **planned as v0.6.1 Wave A**
   - **agent:** `convex-expert` · **deps:** `none`
   - **notes:**
-    - 2026-06-07: Review found `withActionCache` does the idempotency cache lookup BEFORE any auth (`action.ts:39`); PIN/session checks live inside `fn()`. A holder of a used `idempotencyKey` can replay the cached result (opaque doc-id) with no creds. **Systemic, NOT v0.6-introduced** — all 5 v0.5.3b admin actions (`setStaffRole`, `deactivateStaff`, `createProduct`, `createInventorySku`, `updateProductPricing`) plus v0.6's `createVoucher`/`recordSpoilage` follow the same `withActionCache` pattern (`catalog/actions.ts:88` documents "cache hit skips PIN" — deliberate, avoids re-running argon2 on retry). Low real-world severity (unguessable client UUID, opaque payload). Fix once at the helper level: add an optional fail-cheap session/role authCheck callback that runs before the cache lookup, wire all 7 actions. Needs an ADR (mirrors the mutation-side `withIdempotency` dual-call rule #20).
-- 📋 **[v06-fu-voucher-shared-helper]** Route BE `validateVoucher` + `commitCart` through `convex/lib/voucherValidate.ts`
+    - 2026-06-07: Review found `withActionCache` does the idempotency cache lookup BEFORE any auth (`action.ts:39`); systemic across all 7 PIN-gated admin actions (v0.5.3b pattern), NOT v0.6-introduced. **Carried into v0.6.1 Wave A** (required pre-cache authCheck + ADR-046) — see the v0.6.1 phase below.
+- ✅ **[v06-fu-voucher-shared-helper]** Route BE `validateVoucher` + `commitCart` through `convex/lib/voucherValidate.ts` (e2b1184)
   - **agent:** `convex-expert` · **deps:** `none`
   - **notes:**
-    - 2026-06-07: Review found 3 copies of voucher validation — `validateVoucherAgainst` (FE-only), inline in `vouchers/public.ts:52` (`validateVoucher` query), inline in `transactions/public.ts:239` (`commitCart`, with a "MUST match" comment). No active drift today, but FE/BE can silently diverge on boundary semantics (`expires_at <=`, `subtotal <`) if the shared helper changes without the two inline copies. Have both BE paths call the V8-safe shared helper.
-- 📋 **[v06-fu-spoilage-comment-fix]** Fix stale `KIND_AUDIT` comment — `convex/approvals/kinds.ts:139`
+    - 2026-06-07: Done in PR #56 (`e2b1184`). Both BE paths now delegate to the shared V8-safe `validateVoucherAgainst`; the two inline copies are gone.
+- ✅ **[v06-fu-spoilage-comment-fix]** Fix stale `KIND_AUDIT` comment — `convex/approvals/kinds.ts:139` (e2b1184)
   - **agent:** `—` · **deps:** `none`
   - **notes:**
-    - 2026-06-07: Comment says the commit path emits `"spoilage.committed"`; the actual verb is `"stock.spoilage"` (`inventory/internal.ts:474`, matches SCHEMA.md + CHANGELOG). One-line comment fix; misleads future dashboard/query authors.
-- 📋 **[v06-fu-e2e-unskip]** Un-skip the 6 quarantined Playwright specs (hard-nav session loss, #43)
+    - 2026-06-07: Done in PR #56 (`e2b1184`). Comment now reads `"stock.spoilage"`.
+- 📋 **[v06-fu-e2e-unskip]** Un-skip the 6 quarantined Playwright specs → **planned as v0.6.1 Wave B**
   - **agent:** `general-purpose` · **deps:** `none`
   - **notes:**
-    - 2026-06-07: 6 of 7 specs (sale-qris, sale-bca-va, voucher-online, voucher-offline, refund, spoilage) + the lockout test are `test.skip`'d. The v0.6 "golden path proven by e2e" outcome is not met until these run green. This is the real v0.6.1 e2e work.
+    - 2026-06-07: The #43 "hard-nav session loss" label is a mis-attribution — the per-spec skip headers document **three** unrelated causes (C1 Xendit simulate id mismatch ×4, C2 seed test IDs ×1, C3 spoilage submit-disable ×1). **Carried into v0.6.1 Wave B** (per-cluster, evidence-gated) — see the v0.6.1 phase below.
+
+---
+
+## v0.6.1 — admin-action auth hardening + e2e un-skip 📋 PLANNED
+**Outcome:** Every PIN-gated admin action rejects a non-manager/expired session BEFORE the idempotency cache lookup (closing a cached-result replay gap, ADR-046), and the 6 quarantined Playwright specs are un-skipped by fixing their three real, evidenced causes — proving the transactional golden path on CI.
+**Spec:** [`docs/superpowers/specs/2026-06-07-v0.6.1-admin-auth-hardening-e2e-unskip-design.md`](./superpowers/specs/2026-06-07-v0.6.1-admin-auth-hardening-e2e-unskip-design.md) (staffreview-validated)
+**Plan:** [`docs/superpowers/plans/2026-06-07-v0.6.1-auth-hardening-e2e.md`](./superpowers/plans/2026-06-07-v0.6.1-auth-hardening-e2e.md) (staffreview-validated; Wave A + Wave B clusters)
+**Target:** TBD
+
+**You'll be able to:**
+- Trust that a leaked `idempotencyKey` can't replay a cached admin-action result without a live manager session (parity with the mutation-side rule #20)
+- (DevX/CI) Run the QRIS/BCA-VA/refund/voucher/spoilage golden-path specs green on CI instead of `test.skip`
+
+**Still not yet:**
+- The empty lockout-test stub (`auth.spec.ts:24`) — separate follow-up (Sonner toast race; needs `[data-locked]` signal)
+- Any new e2e coverage beyond the existing 6 specs
+
+### Wave A — Action-cache auth-before-lookup (convex-expert)
+
+- 📋 **[v061-be-assert-mgr-session]** `auth.assertManagerSessionInAction` — action-context manager gate
+  - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task A1]
+- 📋 **[v061-be-actioncache-authcheck]** `withActionCache` required `authCheck` param + wire all 7 admin actions
+  - **agent:** `convex-expert` · **deps:** `v061-be-assert-mgr-session` · **docs:** [Plan Task A2]
+- 📋 **[v061-be-actioncache-tests]** Regression tests — replay-rejected, cache-hit-skips-PIN, resolution-parity
+  - **agent:** `convex-expert` · **deps:** `v061-be-actioncache-authcheck` · **docs:** [Plan Task A3]
+- 📋 **[v061-xc-adr-046]** ADR-046 + CLAUDE.md rule #20 note + CHANGELOG
+  - **agent:** `—` · **deps:** `v061-be-actioncache-authcheck` · **docs:** [Plan Task A4]
+
+### Wave B — e2e un-skip by cluster (general-purpose, evidence-gated)
+
+- 📋 **[v061-e2e-c1-verify]** C1 verify — Xendit test-mode simulate id mismatch (findings note)
+  - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B1]
+- 📋 **[v061-e2e-c1-fix-saleqris]** C1 fix id source + un-skip `sale-qris`
+  - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-verify` · **docs:** [Plan Task B2]
+- 📋 **[v061-e2e-c1-unskip-rest]** Un-skip `sale-bca-va`, `voucher-online`, `refund` (green-gated)
+  - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-fix-saleqris` · **docs:** [Plan Task B3]
+- 📋 **[v061-e2e-c2-seed-ids]** C2 — seed stable test IDs + un-skip `voucher-offline`
+  - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B4]
+- 📋 **[v061-e2e-c3-spoilage]** C3 — spoilage submit-disable repro + fix + un-skip `spoilage`
+  - **agent:** `general-purpose` · **deps:** `none` · **docs:** [Plan Task B5]
+- 📋 **[v061-e2e-ci-board]** Confirm CI runs un-skipped specs + update v0.6 PROGRESS coverage note
+  - **agent:** `general-purpose` · **deps:** `v061-e2e-c1-unskip-rest`, `v061-e2e-c2-seed-ids`, `v061-e2e-c3-spoilage` · **docs:** [Plan Task B6]
 
 ---
 
