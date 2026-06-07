@@ -1589,7 +1589,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 - (Staff) Apply a voucher offline against the cached list and either commit cleanly OR see a clear ADR-009 banner if the voucher expired/deactivated between cart-build and payment
 - (Manager) Log multi-SKU spoilage at the booth with PIN, OR request via Telegram with a single-use approval URL — both paths converge on one ledger writer
 - Watch the nightly 02:00 WIB cron rebuild `on_hand` from `pos_stock_movements` and Telegram-alert the `inventory` role if any SKU drifts
-- (DevX/CI) ⚠️ **Partial:** the Playwright scaffold + CI workflow shipped, but only 1 of 7 specs (`auth` sign-in) actually runs — the other 6 (sale-qris, sale-bca-va, voucher-online, voucher-offline, refund, spoilage) are `test.skip`'d pending the hard-nav session-loss fix (#43). The suite does NOT yet prove the golden path; un-skipping is v0.6.1 work.
+- (DevX/CI) ✅ **Full coverage (as of v0.6.1):** all 7 e2e specs active, 0 skipped — `auth`, `sale-qris`, `sale-bca-va`, `voucher-online`, `voucher-offline`, `refund`, `spoilage`. The 6 quarantined specs were un-skipped in v0.6.1 Wave B after fixing three real, evidenced causes (C1 Xendit simulate-id mismatch, C2 seed stable test IDs, C3 spoilage submit-disable). See triage doc `docs/postmortems/2026-06-issue-43-e2e-skip-triage.md`. CI workflow (`e2e.yml`) runs `playwright test` unfiltered — no per-spec allowlist.
 
 **Still not yet:**
 - `stock_in` and manager `adjustment` mutations (deferred — not in v0.6 scope per the explicit decomposition)
