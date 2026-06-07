@@ -23,6 +23,10 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   await page.getByTestId("history-list").getByRole("link").first().click();
   await page.getByTestId("history-refund").click();
   await page.waitForURL(/\/refund\//);
+  // Capture the txnId from /refund/:txnId so we can re-open the history detail
+  // after the refund commits and assert the persisted refund-status badge.
+  const txnId = page.url().match(/\/refund\/([^/?#]+)/)?.[1];
+  if (!txnId) throw new Error("no txnId in /refund URL");
 
   // 3. On /refund/:txnId — per-line stepper, reason textarea, then the
   //    manager-picker → PIN-sheet inline flow (src/routes/refund/detail.tsx).
@@ -38,6 +42,10 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   //    back to /refund (detail.tsx:198,204).
   await page.getByLabel(/Refund quantity for/i).first().fill("1");
   await page.getByTestId("refund-reason").fill("E2E test refund");
+  // Guard: canSubmit needs qty>0 AND non-empty reason. A non-firing onChange
+  // would leave this disabled, making .click() a silent no-op — assert ENABLED
+  // so the flow fails loudly instead.
+  await expect(page.getByTestId("refund-submit-inline")).toBeEnabled();
   await page.getByTestId("refund-submit-inline").click();
   // Manager picker — Lucas is the sole seeded manager (S-0005 per seed).
   await page.getByTestId("manager-picker").waitFor({ timeout: 10_000 });
@@ -45,4 +53,16 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   for (const d of "9999") await page.getByLabel(`Digit ${d}`).click();
   // Success: navigates back to the refundable list at /refund.
   await page.waitForURL(/\/refund$/, { timeout: 15_000 });
+
+  // Prove the refund actually COMMITTED (not just navigation): re-open the
+  // transaction detail and assert the persisted refund-status badge flipped
+  // from "LUNAS" to "DIKEMBALIKAN". This is a 1-item / 1-qty FULL refund, so
+  // refundStatus() returns "full" → REFUND_BADGE.full.label === "DIKEMBALIKAN"
+  // (src/lib/pos-labels.ts:12, rendered at history/$txnId.tsx:163). The txn
+  // drops off the /refund refundable list, so we assert against the detail
+  // badge rather than the list.
+  // Exact match: "SEBAGIAN DIKEMBALIKAN" (partial) also contains "DIKEMBALIKAN",
+  // so assert the precise full-refund label to distinguish full from partial.
+  await page.goto(`/history/${txnId}`);
+  await expect(page.getByTestId("history-refund-status")).toHaveText(/^DIKEMBALIKAN$/i);
 });
