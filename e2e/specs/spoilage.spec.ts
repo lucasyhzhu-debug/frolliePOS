@@ -44,5 +44,14 @@ test("spoilage (booth): mgr logs SKU+qty+reason with PIN → /mgr/stock reflects
   await expect(page.getByText(/Logged spoilage/i)).toBeVisible({ timeout: 10_000 });
 
   await page.goto("/stock");
-  await expect(page).toHaveURL(/\/stock/);
+
+  // Stock-reflection assertion (fulfils the test name "→ /mgr/stock reflects -2"):
+  // /stock renders one <Link> row per SKU with the name span + an on-hand span
+  // formatted "<n> pcs" (src/routes/stock/index.tsx). The seed sets dubai's
+  // initial on_hand to 18 (convex/seed/internal.ts:144 — the 5th tuple field),
+  // and seed/actions:reset runs in the fixture before each test, so after this
+  // test's own -2 spoilage the dubai row must display 18 − 2 = 16 pcs.
+  // Scope to the dubai row link so the number can't match another SKU.
+  const dubaiRow = page.getByRole("link", { name: /Dubai cookie/i });
+  await expect(dubaiRow).toContainText(/16\s*pcs/i, { timeout: 10_000 });
 });
