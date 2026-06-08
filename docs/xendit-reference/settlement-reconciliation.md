@@ -64,6 +64,59 @@ created/updated date windows; paginated. Each row carries `reference_id`
 > writing the parser — treat field names as asserted-not-verified, exactly as
 > ADR-036 treats the BCA VA FVA callback shape.
 
+### List Transactions — confirmed shape (2026-06-08, v0.7 Task 0)
+
+Confirmed against **a real `GET /transactions` call on the live TEST key** (HTTP 200,
+3 PENDING QRIS rows) + the OpenAPI page `apidocs/list-transactions.md`. These
+correct several **asserted-not-verified** assumptions the v0.7 plan was drafted on —
+the parser/adapter (Tasks 2 & 3) adopt the names below, not the plan's placeholders.
+
+**Endpoint:** `GET https://api.xendit.co/transactions` · Basic auth (`secret_key:`).
+
+**Envelope:** `{ has_more: boolean, data: [...], links: [...] }` (HATEOAS `links`, no
+`paging` object). Pagination = `limit` (default 10) + `after_id` / `before_id`
+cursors (the row's `id`). `has_more` drives the loop.
+
+**Query params (exact):** `created[gte]` / `created[lte]` / `updated[gte]` /
+`updated[lte]` (bracket notation — NOT `created_gte`), `types`, `statuses`,
+`channel_categories`, `reference_id`, `currency`, `amount`, `limit`, `after_id`,
+`before_id`. **There is NO `settlement_status` query filter** — it exists only on
+the response row, so settled-status filtering MUST be done client-side in
+`aggregateSettledByDate` (the plan's R1 fallback note was correct).
+
+**Transaction row fields (confirmed present on a real row):**
+`id, product_id, type, status, channel_category, channel_code, reference_id,
+account_identifier, currency, amount, net_amount, net_amount_currency, cashflow,
+settlement_status, business_id, created, updated, fee, payment_date,
+estimated_settlement_time, channel_reference, product_data`.
+
+Load-bearing corrections vs the plan's assumed shape:
+
+1. **`fee` is an OBJECT, not a number:**
+   `{ xendit_fee, value_added_tax, xendit_withholding_tax, third_party_withholding_tax, status }`.
+   The plan assumed `fee: number`. **Use `net_amount` (Xendit-provided "amount after
+   fees/VAT") directly**, and derive `mdr = amount - net_amount`. This reconciles to
+   "what hit BCA" regardless of which fee components apply, and avoids guessing the
+   MDR formula.
+2. **There is NO `settlement_date` field.** The row carries `estimated_settlement_time`
+   (a **UTC ISO timestamp**, e.g. `2026-06-10T04:34:39.259Z`) and `payment_date`.
+   The settlement *bucket key* must be **derived**: take the WIB calendar date of
+   `estimated_settlement_time` (`new Date(ts + WIB_OFFSET_MS).toISOString().slice(0,10)`).
+   This **overrides the plan's R3 decision** ("settlement_date is already a calendar
+   date, use verbatim") — it's a timestamp, so WIB re-bucketing IS required.
+   *(Caveat: all observable TEST rows are PENDING; whether a SETTLED row gains a
+   distinct actual-settlement field is unverifiable pre-KYB — kept as the N3
+   live-verification follow-up. `estimated_settlement_time` is the best available
+   bucketing source today.)*
+3. **`cashflow` = `"MONEY_IN"` / `"MONEY_OUT"`** and `type` = `PAYMENT` /
+   `DISBURSEMENT` / … A SETTLED `MONEY_OUT` payout is NOT a collected-sales
+   settlement — the aggregator MUST filter to `cashflow === "MONEY_IN"` so payouts
+   don't inflate the day's gross.
+4. `settlement_status` values confirmed: `PENDING | SETTLED | EARLY_SETTLED | null`.
+   On TEST keys pre-KYB every row is `PENDING` (no real payouts) → the aggregator
+   yields zero settled days → the cron's audited `no_settlements` skip is the normal
+   path today (R2).
+
 ### Option B — Reports (CSV/PDF)
 
 - **Transactions Report** — full itemized transaction history incl. custom

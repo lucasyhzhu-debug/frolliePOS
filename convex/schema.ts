@@ -12,6 +12,7 @@ import { inventoryTables } from "./inventory/schema";
 import { vouchersTables } from "./vouchers/schema";
 import { approvalsTables } from "./approvals/schema";
 import { settingsTables } from "./settings/schema";
+import { settlementsTables } from "./settlements/schema";
 
 export default defineSchema({
   ...authTables,
@@ -27,4 +28,5 @@ export default defineSchema({
   ...vouchersTables,
   ...approvalsTables,
   ...settingsTables,
+  ...settlementsTables,
 });

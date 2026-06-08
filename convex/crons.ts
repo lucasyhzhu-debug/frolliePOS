@@ -43,4 +43,16 @@ crons.daily(
   {},
 );
 
+// 03:30 WIB settlement poll = 20:30 UTC. Pre-dawn, clear of the existing jobs
+// (19:00, 20:00, 20:05 UTC). Resilient wrapper retries transient errors; zero
+// settled rows is the expected pre-KYB result (audited skip, not an error).
+// Settlement has NO webhook — poll-only via List Transactions API.
+// See settlements/cronActions.ts and docs/xendit-reference/settlement-reconciliation.md.
+crons.daily(
+  "settlement-sync",
+  { hourUTC: 20, minuteUTC: 30 },
+  internal.settlements.cronActions.syncSettlementsResilient,
+  { attempt: 0 },
+);
+
 export default crons;

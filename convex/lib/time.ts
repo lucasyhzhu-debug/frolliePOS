@@ -27,6 +27,21 @@ export function wibYear(timestamp: number = Date.now()): number {
 }
 
 /**
+ * Convert a UTC epoch ms to its WIB calendar date label "YYYY-MM-DD" (UTC+7,
+ * no DST). The single owner of the "epoch → WIB date string" idiom that the
+ * settlement poll (cronActions lookback) and aggregator (lib) both need —
+ * lib/time.ts owns the WIB helpers, so neither re-inlines the arithmetic.
+ * Runtime-neutral: no Convex API.
+ */
+export function wibDateLabel(epochMs: number): string {
+  const wib = new Date(epochMs + WIB_OFFSET_MS);
+  const y = wib.getUTCFullYear();
+  const m = wib.getUTCMonth();
+  const d = wib.getUTCDate();
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
  * Compute the WIB calendar day window for a given UTC epoch ms timestamp.
  *
  * WIB = UTC+7, no DST. A WIB day starts at 17:00 UTC of the *previous* UTC

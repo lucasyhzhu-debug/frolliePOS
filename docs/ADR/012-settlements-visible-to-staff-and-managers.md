@@ -24,3 +24,16 @@ Staff care that the sales they made on their shift actually hit the bank. Hiding
 - *Harder:* UX must be careful not to suggest staff have any control over settlement (it's automated by Xendit + the bank). View is read-only with clear "this is when Xendit paid out" framing.
 - *Schema:* `pos_settlements` carries `xendit_settlement_id`, `settlement_date`, `gross_amount`, `mdr_amount`, `net_amount`, `transaction_count`, `bca_account_destination` (last 4 digits), `payload` (raw Xendit JSON for debugging), `synced_to_frollie_pro_at` (future v1.1 hook).
 - *UX-Q6 closed:* flipped from admin-only.
+
+## Amended 2026-06-08 (v0.7)
+
+The original schema sketch (`xendit_settlement_id`, a "settlement webhook") assumed a Xendit **settlement object**. **There is none.** Settlement is per-transaction, knowable only by polling `GET /transactions` — verified false 2026-06-02 and confirmed against a live TEST-key `GET /transactions` call 2026-06-08. There is **no settlement webhook**.
+
+`pos_settlements` is therefore **our own per-day aggregate**, keyed by `settlement_key` (`settle-YYYY-MM-DD`), **dual-source**:
+
+- **manual** — a manager records a payout day by hand (PIN-gated `enterSettlementManually`). The verified launch path while Xendit KYB is pending.
+- **xendit_poll** — a nightly `GET /transactions` poll (03:30 WIB) aggregates `SETTLED`/`EARLY_SETTLED` `MONEY_IN` rows by WIB settlement date (derived from `estimated_settlement_time`, since the API carries no `settlement_date` field).
+
+**Conflict rule: poll wins.** A later `xendit_poll` overwrites a prior `manual` row's amounts and flips `source`, audited `settlement.poll_superseded_manual` (single writer `_upsertSettlementDay_internal`). Poll-over-poll and manual-over-manual patch in place under `settlement.upserted`.
+
+The **read-access decision is UNCHANGED**: staff + managers both, role-agnostic `listSettlements`, BCA `bca_account_destination` last-4 only. Auto-poll **live-verification is KYB-gated** — TEST keys produce no real settlements, so the poll path is built + shape-tested but not yet live-verified end-to-end. See [`docs/xendit-reference/settlement-reconciliation.md`](../xendit-reference/settlement-reconciliation.md) for the confirmed API shape.
