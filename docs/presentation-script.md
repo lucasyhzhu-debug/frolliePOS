@@ -6,7 +6,7 @@
 
 # Frollie POS — talk deck content
 
-~10-minute talk, 10 slides, speaker-led, low density. By Lucas Zhu (ex-McKinsey, non-technical founder). **Audience: peer CEOs / founders.** The frame: how a non-technical CEO built a real, money-taking product with AI, and the lessons a CEO can take away.
+~10-minute talk, 9 slides, speaker-led, low density. By Lucas Zhu (ex-McKinsey, non-technical founder). **Audience: peer CEOs / founders.** The frame: how a non-technical CEO built a real, money-taking product with AI, and the lessons a CEO can take away.
 
 Voice: verbs first, short sentences, numbers over adjectives, sentence case, first person. No jargon, no engineering vocabulary on the slides — every mechanism is named by the business risk it kills. No banned words (leverage, synergy, unlock, journey, holistic, game-changer, 10x, transform your business). No emoji.
 
@@ -59,31 +59,21 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 5 — the moves I actually run
+## Slide 5 — one person. a whole org chart.
 
-**Dek:** six ways to run a team of AI agents. I lean on three, hard.
+> _(Merged from the former slides 5 + 6 — the six-pattern taxonomy was cut; the three core moves now live in the dek, and the slide lands on the management lesson rather than a tooling tour.)_
 
-**On the slide:**
-- **split + combine** (backbone) — hand one job to several agents at once, each on a different piece, then merge. never let them compare notes early.
-- **make them argue** (signature move) — agents check each other's work, and check it against my written rules. agreement is earned, not assumed.
-- **loop until it's actually done** (discipline) — review, fix, review again until nothing serious is left, then check it really works — not "looks done."
-- supporting: **route the work** (simple rules, no judgment needed), **generate then cut hard** (propose everything, then be ruthless), **a bake-off** (not used — mine divide the work, they don't compete).
+**Dek:** I ran a swarm of AI agents like a company — split the work, make them check each other, loop until it's right. the team I didn't hire saved the coordination, not just the salary.
 
-**Speaker notes:** Six ways to run a team of agents; I lean on three. Split the work across several and combine it. Make them argue, so agreement is earned, not assumed. Loop until it's actually done, then check it really works. This is a management problem, not a coding one.
+**On the slide:** the org chart, run by one person — L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
 
----
+**The three moves (folded into the dek):** *split + combine* (hand one job to several agents, then merge — never let them compare notes early); *make them argue* (they check each other's work against my written rules — agreement is earned); *loop until it's done* (review, fix, review again, then check it really works, not "looks done").
 
-## Slide 6 — one person. an org chart of tooling.
-
-**Dek:** from a project-management tool I built myself, down to the payment rails. five layers, run by one person.
-
-**On the slide:** L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
-
-**Speaker notes:** One person, but the setup reads like a company: tools I built, my reusable playbooks, the AI brain and the helpers it spins up, the product's plumbing, the everyday machinery. Eleven manager screens, one person built them. The team you don't hire saves you the coordination, not just the salary.
+**Speaker notes:** I didn't write much code — I ran a swarm of AI agents like a company. I split the work across several, made them check each other against my written rules, and looped until it was right. One person covering a whole org chart of functions: the tools I built, my playbooks, the AI and its helpers, the product's plumbing, the everyday machinery. The team I didn't hire saved me the coordination, not just the salary.
 
 ---
 
-## Slide 7 — the rules rewrote themselves
+## Slide 6 — the rules rewrote themselves
 
 **Dek:** five decisions I wrote down, then tore up mid-build. writing them down is what let me catch them.
 
@@ -98,7 +88,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 8 — the build was the cheap part
+## Slide 7 — the build was the cheap part
 
 **Dek:** features took an afternoon. the boring wiring that keeps them from breaking took the days.
 
@@ -108,7 +98,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 9 — I used the method to build this talk
+## Slide 8 — I used the method to build this talk
 
 **Dek:** one AI run sent 5 agents across my own files — the product, the lessons, my essays — to pull out what mattered. in parallel, it grabbed live screenshots. then it wrote itself into one page.
 
@@ -118,7 +108,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 10 — force is free now; direction is the whole job
+## Slide 9 — force is free now; direction is the whole job
 
 **Dek (the takeaway):**
 - AI gives you almost free force. it will also be confidently wrong, fast, if you let it. the discipline of pausing is the new senior job.
