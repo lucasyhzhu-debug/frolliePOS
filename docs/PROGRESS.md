@@ -1770,11 +1770,11 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.7 — Xendit settlement reconciliation 📋 PLANNED
+## v0.7 — Xendit settlement reconciliation ✅ SHIPPED
 **Outcome:** Staff and managers can see, per day, what Xendit actually paid out to the booth's BCA account — closing the last load-bearing pre-launch risk ("Xendit settlement timing"). A manager can record a settlement day by hand (the verified path while Xendit KYB is pending); a nightly auto-poll of Xendit's transaction ledger is built and shape-tested, with live-verification gated behind KYB.
 **Spec:** [`docs/superpowers/specs/2026-06-08-v0.7-xendit-settlement-reconciliation-design.md`](./superpowers/specs/2026-06-08-v0.7-xendit-settlement-reconciliation-design.md) (spec-gate staffreview: Approve; 4 improvements folded)
 **Plan:** [`docs/superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md`](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md) (plan-gate staffreview: Approve; 3 improvements folded; assumptions verified vs code)
-**Target:** TBD
+**Shipped:** 8 Jun 2026 (squash-merge `643a188`, PR #67). Task-0 live-API gate corrected the Xendit shape (fee-object/no-settlement_date/cashflow); triple-review (0 Critical) + simplify(xhigh) folded; 991 tests green. KYB live-verification follow-up: [#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66). Post-impl staffreview: [`docs/reviews/staffreview-worktree-v0.7-settlements-2026-06-08.md`](./reviews/staffreview-worktree-v0.7-settlements-2026-06-08.md).
 
 **You'll be able to:**
 - Open `/settlements` and see each payout day — net into BCA, gross, Xendit fee (MDR), and transaction count (visible to staff and managers, ADR-012)
@@ -1789,33 +1789,33 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Backend (`convex/`)
 
-- 📋 **[v07-xc-r1-confirm]** Confirm `GET /transactions` field shapes against live Xendit / OpenAPI (spec R1) — investigation gate, no commit; record findings in `docs/xendit-reference/`
+- ✅ **[v07-xc-r1-confirm]** Confirm `GET /transactions` field shapes against live Xendit / OpenAPI (spec R1) — investigation gate, no commit; record findings in `docs/xendit-reference/` (643a188)
   - **agent:** `—` · **deps:** `none` · **docs:** [Plan Task 0](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-schema]** `settlements/schema.ts` — `pos_settlements` per-day-aggregate table (`settlement_key`, `source`, dual-source) + compose into root
+- ✅ **[v07-be-schema]** `settlements/schema.ts` — `pos_settlements` per-day-aggregate table (`settlement_key`, `source`, dual-source) + compose into root (643a188)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-lib]** `settlements/lib.ts` — pure `parseListTransactions` (throws on bad shape) + `aggregateSettledByDate`; golden tests
+- ✅ **[v07-be-lib]** `settlements/lib.ts` — pure `parseListTransactions` (throws on bad shape) + `aggregateSettledByDate`; golden tests (643a188)
   - **agent:** `convex-expert` · **deps:** `none` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-adapter]** `payments/xendit.ts` — `listTransactions` + `buildListTransactionsUrl` (plain adapter fn, reuses `authHeader`); URL test
+- ✅ **[v07-be-adapter]** `payments/xendit.ts` — `listTransactions` + `buildListTransactionsUrl` (plain adapter fn, reuses `authHeader`); URL test (643a188)
   - **agent:** `convex-expert` · **deps:** `v07-xc-r1-confirm` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-upsert]** `settlements/internal.ts` — single-writer `_upsertSettlementDay_internal` (poll-wins-over-manual + audit); upsert tests
+- ✅ **[v07-be-upsert]** `settlements/internal.ts` — single-writer `_upsertSettlementDay_internal` (poll-wins-over-manual + audit); upsert tests (643a188)
   - **agent:** `convex-expert` · **deps:** `v07-be-schema` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-manual-action]** `settlements/actions.ts` — PIN-gated `enterSettlementManually` (rule #22, `createVoucher` template); convex-test
+- ✅ **[v07-be-manual-action]** `settlements/actions.ts` — PIN-gated `enterSettlementManually` (rule #22, `createVoucher` template); convex-test (643a188)
   - **agent:** `convex-expert` · **deps:** `v07-be-upsert` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-cron]** `settlements/cronActions.ts` — resilient nightly `syncSettlements` (stock-recon template) + `crons.ts` 20:30 UTC; sync tests
+- ✅ **[v07-be-cron]** `settlements/cronActions.ts` — resilient nightly `syncSettlements` (stock-recon template) + `crons.ts` 20:30 UTC; sync tests (643a188)
   - **agent:** `convex-expert` · **deps:** `v07-be-lib`, `v07-be-adapter`, `v07-be-upsert` · **docs:** [Plan Task 6](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-be-query]** `settlements/public.ts` — role-agnostic `listSettlements` (ADR-012); query test
+- ✅ **[v07-be-query]** `settlements/public.ts` — role-agnostic `listSettlements` (ADR-012); query test (643a188)
   - **agent:** `convex-expert` · **deps:** `v07-be-schema` · **docs:** [Plan Task 7](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
 
 ### Frontend (`src/`)
 
-- 📋 **[v07-fe-route]** Extend the existing `src/routes/settlements.tsx` stub — read-only per-day list + manager-only manual-entry (`PinSheet` + local `PinAction`) + home tile (no router re-register)
+- ✅ **[v07-fe-route]** Extend the existing `src/routes/settlements.tsx` stub — read-only per-day list + manager-only manual-entry (`PinSheet` + local `PinAction`) + home tile (no router re-register) (643a188)
   - **agent:** `ui-component-builder` · **deps:** `v07-be-manual-action`, `v07-be-query` · **docs:** [Plan Task 8](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
 
 ### Cross-cutting
 
-- 📋 **[v07-xc-docs]** `SCHEMA.md` (corrected `pos_settlements` + audit verbs) + ADR-012 amendment + `API_REFERENCE.md` + `CLAUDE.md` (module + rule #22 + crons) + `CHANGELOG.md` + `xendit-reference`
+- ✅ **[v07-xc-docs]** `SCHEMA.md` (corrected `pos_settlements` + audit verbs) + ADR-012 amendment + `API_REFERENCE.md` + `CLAUDE.md` (module + rule #22 + crons) + `CHANGELOG.md` + `xendit-reference` (643a188)
   - **agent:** `—` · **deps:** `v07-be-manual-action`, `v07-be-cron`, `v07-be-query`, `v07-fe-route` · **docs:** [Plan Task 9](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
-- 📋 **[v07-xc-verify]** Full `typecheck` + `lint` + `vitest run` + `build`; file the KYB live-verification follow-up issue
+- ✅ **[v07-xc-verify]** Full `typecheck` + `lint` + `vitest run` + `build`; file the KYB live-verification follow-up issue (643a188)
   - **agent:** `—` · **deps:** `v07-xc-docs` · **docs:** [Plan Task 10](./superpowers/plans/2026-06-08-v0.7-settlement-reconciliation.md)
 
 ---
