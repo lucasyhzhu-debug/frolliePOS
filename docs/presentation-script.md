@@ -26,7 +26,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ## Slide 2 — what is it?
 
-**Dek:** a real cash register for our cookie booth at Pakuwon Mall, Jakarta. real money, real payments, on one phone.
+**Dek:** a real cash register for our cookie booth in Block M, South Jakarta. real money, real payments, on one phone.
 
 **On the slide (what it does):**
 - **sell** — ring up a cart and take payment in the app, a QR code or a bank transfer. price and product name lock onto the receipt the second the sale happens.
@@ -98,13 +98,17 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 8 — I used the method to build this talk
+## Slide 8 — this deck built itself
 
-**Dek:** one AI run sent 5 agents across my own files — the product, the lessons, my essays — to pull out what mattered. in parallel, it grabbed live screenshots. then it wrote itself into one page.
+> _(Shrunk from a full workflow-diagram slide to a fast aside — the elaborate 5-agent diagram was a victory lap; the wow-metrics stay.)_
 
-**On the slide:** one AI run → 5 agents (what it does · how I work · the tools · the lessons · the voice) → combine → build this deck; live screenshots captured at the same time. Chips: 1 run · 6 agents · a few dollars of AI · 4m 40s to a first draft.
+**Head:** this deck built itself.
 
-**Speaker notes:** This deck built itself the same way I build features. One run sent five agents across my own files to pull out what mattered, grabbed the live screenshots in parallel, and wrote everything into one page — under five minutes, a few dollars. The pitch about delegation was produced by delegation.
+**Dek:** same method I used on the product — pointed at my own notes and the live app.
+
+**On the slide:** just the headline + dek + three chips: 6 agents · a few dollars · 4m 40s to a first draft. No diagram.
+
+**Speaker notes:** This deck built itself the same way I build features — the same method, pointed at my own notes and the live app. Six agents, a few dollars, a first draft in under five minutes. The pitch about delegation was produced by delegation.
 
 ---
 
