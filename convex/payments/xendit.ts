@@ -128,6 +128,55 @@ export async function createBcaVaCharge(
  *  - QRIS (reference-proven): { event: "qr.payment", data: { status, qr_id } }.
  *  - Anything else (incl. the legacy flat Invoice {id,status:"PAID"}) → ignored.
  */
+/** Build the GET /transactions URL. Confirmed shape (v0.7 Task 0): the date
+ *  window is `created[gte]` (bracket notation); there is NO `settlement_status`
+ *  query filter — settled-status filtering happens client-side in
+ *  aggregateSettledByDate. Exported so a test asserts the window param without a
+ *  live call. */
+export function buildListTransactionsUrl(params: { settledAfterIso: string; afterId?: string }): string {
+  const u = new URL(`${XENDIT_BASE}/transactions`);
+  u.searchParams.set("created[gte]", params.settledAfterIso);
+  u.searchParams.set("limit", "50");
+  if (params.afterId) u.searchParams.set("after_id", params.afterId);
+  return u.toString();
+}
+
+/** V8-safe Basic auth for listTransactions (called from the default-runtime
+ *  settlement cron). The default runtime provides the web-standard `btoa`; the
+ *  "use node" create-charge funcs use `Buffer` instead (Buffer is undefined in
+ *  the V8 runtime, btoa is undefined in node). Isolated so node-runtime
+ *  importers of this module never evaluate btoa. */
+function listTransactionsAuthHeader(): string {
+  const key = process.env.XENDIT_SECRET_KEY;
+  if (!key) throw new Error("XENDIT_SECRET_KEY not set");
+  return "Basic " + btoa(`${key}:`);
+}
+
+/** Fetch settled transactions since `settledAfterIso` (paginated via after_id).
+ *  Returns the concatenated raw `{ data }` envelope for parseListTransactions.
+ *  Plain async fn (like createQrisCharge), called directly by the V8 cron —
+ *  fetch + btoa both work there. */
+export async function listTransactions(params: { settledAfterIso: string }): Promise<unknown> {
+  const rows: unknown[] = [];
+  let afterId: string | undefined;
+  // Bounded pagination guard (defensive — a booth day is << 50 settled txns).
+  for (let page = 0; page < 20; page++) {
+    const res = await fetch(
+      buildListTransactionsUrl({ settledAfterIso: params.settledAfterIso, afterId }),
+      { method: "GET", headers: { "Content-Type": "application/json", Authorization: listTransactionsAuthHeader() } },
+    );
+    if (!res.ok) {
+      throw new Error(`XENDIT_LIST_TXN_FAILED: ${res.status} ${await res.text()}`);
+    }
+    const json = (await res.json()) as { data?: unknown[]; has_more?: boolean };
+    if (Array.isArray(json.data)) rows.push(...json.data);
+    const last = json.data?.[json.data.length - 1] as { id?: string } | undefined;
+    if (!json.has_more || !last?.id) break;
+    afterId = last.id;
+  }
+  return { data: rows };
+}
+
 export function parseXenditWebhook(rawBody: string): WebhookParse {
   let p: any;
   try {
