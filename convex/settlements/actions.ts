@@ -5,9 +5,9 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
+import { parseWibDayLabel } from "../lib/time";
 import { internal } from "../_generated/api";
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const LAST4_RE = /^\d{4}$/;
 
 /**
@@ -42,12 +42,12 @@ export const enterSettlementManually = action({
       { key: args.idempotencyKey, mutationName: "settlements.enterSettlementManually" },
       () => assertManagerSessionInAction(ctx, args.sessionId),
       async (): Promise<Id<"pos_settlements">> => {
-        if (!DATE_RE.test(args.settlementDate)) throw new Error("DATE_INVALID");
-        // Syntactic regex is not enough — reject impossible calendar dates
-        // (e.g. 2026-13-45, 2026-02-30) via a round-trip through Date so the key
-        // can never desync from a real Xendit settlement date.
-        const asUtc = new Date(`${args.settlementDate}T00:00:00Z`);
-        if (Number.isNaN(asUtc.getTime()) || asUtc.toISOString().slice(0, 10) !== args.settlementDate) {
+        // Strict YYYY-MM-DD + impossible-date rejection (2026-13-45, 2026-02-30)
+        // via the canonical labelled-WIB-day parser (lib/time.ts), so the
+        // settlement key can never desync from a real Xendit settlement date.
+        try {
+          parseWibDayLabel(args.settlementDate);
+        } catch {
           throw new Error("DATE_INVALID");
         }
         if (!LAST4_RE.test(args.bcaAccountLast4)) throw new Error("LAST4_INVALID");

@@ -6,7 +6,7 @@
 // `settlement_date` field — derive the WIB calendar date from the UTC
 // `estimated_settlement_time` timestamp; `cashflow` gates collected sales
 // (MONEY_IN) vs payouts (MONEY_OUT).
-import { WIB_OFFSET_MS } from "../lib/time";
+import { wibDateLabel } from "../lib/time";
 
 export type SettlementStatus = "PENDING" | "SETTLED" | "EARLY_SETTLED" | null;
 
@@ -28,12 +28,13 @@ export type SettlementDay = {
   transaction_count: number;
 };
 
-/** UTC ISO timestamp → WIB (UTC+7) calendar date YYYY-MM-DD. null/unparseable → null. */
+/** UTC ISO timestamp → WIB (UTC+7) calendar date YYYY-MM-DD. null/unparseable → null.
+ *  Delegates the WIB arithmetic to lib/time.ts (the single owner). */
 function wibCalendarDate(utcIso: string | null): string | null {
   if (!utcIso) return null;
   const t = Date.parse(utcIso);
   if (Number.isNaN(t)) return null;
-  return new Date(t + WIB_OFFSET_MS).toISOString().slice(0, 10);
+  return wibDateLabel(t);
 }
 
 /** Parse a raw GET /transactions body into normalized rows. Throws on an
@@ -46,6 +47,11 @@ export function parseListTransactions(body: unknown): XenditTxnRow[] {
   return (body as { data: unknown[] }).data.map((r) => {
     const row = r as Record<string, unknown>;
     const gross = Number(row.amount ?? 0);
+    // Tradeoff: net_amount is a CONFIRMED field (Task 0), but if a row omits it
+    // we fall back to gross (→ mdr 0 for that row) rather than dropping the row,
+    // so the day's gross/count stay correct even on a partial row. The envelope
+    // throw above guards a STRUCTURAL regression; a per-row miss only understates
+    // that row's fee. Live-verify the field is always present post-KYB (#66).
     const net = Number(row.net_amount ?? gross);
     return {
       reference_id: String(row.reference_id ?? ""),

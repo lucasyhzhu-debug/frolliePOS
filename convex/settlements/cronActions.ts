@@ -36,18 +36,19 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { listTransactions } from "../payments/xendit";
 import { parseListTransactions, aggregateSettledByDate } from "./lib";
+import type { XenditTxnRow } from "./lib";
 import {
   isTransientError,
   resilientRetryDelayMs,
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
-import { WIB_OFFSET_MS } from "../lib/time";
+import { wibDateLabel } from "../lib/time";
 
 const LOOKBACK_DAYS = 7;
 
-/** Returns a WIB YYYY-MM-DD string for `n` days before `now`. */
+/** Returns a WIB YYYY-MM-DD string for `n` days before `now` (shared helper). */
 function wibDateNDaysAgo(now: number, n: number): string {
-  return new Date(now + WIB_OFFSET_MS - n * 86_400_000).toISOString().slice(0, 10);
+  return wibDateLabel(now - n * 86_400_000);
 }
 
 // ─── syncSettlements ─────────────────────────────────────────────────────────
@@ -88,7 +89,15 @@ export const syncSettlements = internalAction({
       return { skipped: "no_settlements" };
     }
 
-    const payload = JSON.stringify(rows);
+    // Scope payload to each day's own rows (not the whole 7-day blob) so a
+    // row's payload is a usable per-day debug + future match-back artifact (N1).
+    const rowsByDate = new Map<string, XenditTxnRow[]>();
+    for (const r of rows) {
+      if (!r.settlement_date) continue;
+      const bucket = rowsByDate.get(r.settlement_date);
+      if (bucket) bucket.push(r);
+      else rowsByDate.set(r.settlement_date, [r]);
+    }
     for (const d of days) {
       await ctx.runMutation(
         internal.settlements.internal._upsertSettlementDay_internal,
@@ -99,7 +108,7 @@ export const syncSettlements = internalAction({
           net_amount: d.net_amount,
           transaction_count: d.transaction_count,
           source: "xendit_poll",
-          payload,
+          payload: JSON.stringify(rowsByDate.get(d.settlement_date) ?? []),
         },
       );
     }
