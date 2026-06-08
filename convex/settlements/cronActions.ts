@@ -19,7 +19,17 @@
 // ADR-007: audit_log is append-only; skip events are audited via _auditSyncSkip_internal.
 // lib/cronRetry.ts: shared transient-classification + back-off helpers.
 // docs/xendit-reference/settlement-reconciliation.md: no settlement webhook —
-//   poll-only. LOOKBACK_DAYS = 7 covers late settlement windows.
+//   poll-only. LOOKBACK_DAYS = 7 covers late settlement windows; the query
+//   windows on `updated[gte]` (settlement posting updates the txn) so a txn
+//   created >7d ago but settled recently is still caught (self-heal, spec G5).
+//
+// ── KYB-gated caveat (#66) ───────────────────────────────────────────────────
+// The day bucket key derives from `estimated_settlement_time` (an ESTIMATE). If
+// that estimate shifts to an adjacent day after a row is written, the re-poll
+// keys a second day-row and the original under-reports. Unverifiable pre-KYB
+// (TEST keys produce no real settlements); the raw `payload` is retained so a
+// post-KYB reconciliation can detect + repair drift. Manual entry is the
+// verified launch path; the auto-poll is shape-tested only. See issue #66.
 
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";

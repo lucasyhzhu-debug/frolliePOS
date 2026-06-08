@@ -10,8 +10,6 @@ import { logAudit } from "../audit/internal";
  * created_at, and audits settlement.poll_superseded_manual. Manual-over-manual
  * and poll-over-poll simply patch in place. Never lossy-silent.
  * ADR-031: created_at / last_synced_at set inside the handler (server time).
- *
- * Note: a separate _auditSyncSkip_internal will be added in Task 6.
  */
 export const _upsertSettlementDay_internal = internalMutation({
   args: {
@@ -45,7 +43,12 @@ export const _upsertSettlementDay_internal = internalMutation({
         ? { bca_account_destination: args.bca_account_destination }
         : {}),
       ...(args.payload !== undefined ? { payload: args.payload } : {}),
-      ...(args.source === "xendit_poll" ? { last_synced_at: now } : {}),
+      // A poll is machine-sourced: stamp last_synced_at and clear any stale
+      // manual entered_by so a poll-superseded row doesn't carry a phantom human
+      // actor (patch removes the field; fresh poll insert leaves it absent).
+      ...(args.source === "xendit_poll"
+        ? { last_synced_at: now, entered_by: undefined }
+        : {}),
     };
 
     if (existing) {

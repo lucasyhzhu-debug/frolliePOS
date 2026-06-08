@@ -85,6 +85,9 @@ describe("settlements._upsertSettlementDay_internal", () => {
     expect(after!.source).toBe("xendit_poll");
     expect(after!.gross_amount).toBe(135000);
     expect(after!.created_at).toBe(before!.created_at);
+    // The stale manual entered_by must be cleared when flipping to a poll row —
+    // a machine-sourced row should not carry a phantom human actor.
+    expect(after!.entered_by).toBeUndefined();
     const audits = await t.run((ctx) => ctx.db.query("audit_log").collect());
     expect(
       audits.some((a) => a.action === "settlement.poll_superseded_manual"),

@@ -551,7 +551,7 @@ Per-day payout aggregate ([strategic foundations §7](./ADR/000-strategic-founda
 | `settlement_key` | `string` | `settle-YYYY-MM-DD` — unique upsert key (one row per settlement day) |
 | `settlement_date` | `string` | `YYYY-MM-DD` (WIB calendar) |
 | `gross_amount` | `number` | Collected sales total for the day |
-| `mdr_amount` | `number` | Xendit's total deductions (`gross - net`) |
+| `mdr_amount` | `number` | Xendit's total deductions = `gross - net` (poll path uses Xendit's `net_amount` directly). **Note:** the *total* deduction — the MDR fee **plus** any VAT/withholding on that fee — not strictly the MDR. UI label "Biaya Xendit". Relevant if PKP/PPN flips (rule #3). |
 | `net_amount` | `number` | What hits BCA (`gross - mdr`) |
 | `transaction_count` | `number` | |
 | `source` | `"xendit_poll" \| "manual"` | Row origin: nightly poll or manual manager entry |

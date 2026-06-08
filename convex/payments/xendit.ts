@@ -129,13 +129,16 @@ export async function createBcaVaCharge(
  *  - Anything else (incl. the legacy flat Invoice {id,status:"PAID"}) → ignored.
  */
 /** Build the GET /transactions URL. Confirmed shape (v0.7 Task 0): the date
- *  window is `created[gte]` (bracket notation); there is NO `settlement_status`
- *  query filter — settled-status filtering happens client-side in
- *  aggregateSettledByDate. Exported so a test asserts the window param without a
- *  live call. */
+ *  window uses bracket notation; there is NO `settlement_status` query filter —
+ *  settled-status filtering happens client-side in aggregateSettledByDate.
+ *  Windows on `updated[gte]`, not `created[gte]`: a settlement posting UPDATES
+ *  the txn, so an updated-window catches a txn that was created long ago but
+ *  settled recently (the self-heal target, spec G5) — a created-window would
+ *  miss it. (The exact created-vs-updated semantics are KYB-gated, see #66.)
+ *  Exported so a test asserts the window param without a live call. */
 export function buildListTransactionsUrl(params: { settledAfterIso: string; afterId?: string }): string {
   const u = new URL(`${XENDIT_BASE}/transactions`);
-  u.searchParams.set("created[gte]", params.settledAfterIso);
+  u.searchParams.set("updated[gte]", params.settledAfterIso);
   u.searchParams.set("limit", "50");
   if (params.afterId) u.searchParams.set("after_id", params.afterId);
   return u.toString();
