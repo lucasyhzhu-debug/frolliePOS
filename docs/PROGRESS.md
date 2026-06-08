@@ -1842,7 +1842,7 @@ Plan not yet written.
 
 ### Backend (`convex/`)
 - 🗂️ Negative-stock reconciliation manager tools
-- 🗂️ Settlement reconciliation polish (variance detection, alerts)
+- 🗂️ Settlement reconciliation polish (variance detection, alerts; per-transaction match-back N1; auto-poll **live-verification** once Xendit KYB clears — [#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66))
 
 ### Frontend (`src/`)
 - 🗂️ PWA install prompt polish (Android Chrome A2HS UX)
