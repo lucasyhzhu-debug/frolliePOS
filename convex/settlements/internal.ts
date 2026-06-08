@@ -95,3 +95,29 @@ export const _upsertSettlementDay_internal = internalMutation({
     return id;
   },
 });
+
+/**
+ * Audit an audited-skip for the settlement sync cron. Called when
+ * listTransactions returns zero settled rows — expected pre-KYB result; not
+ * an error, but worth logging so the cron dashboard and audit trail can
+ * distinguish "ran and found nothing" from "never ran".
+ *
+ * entity_id is omitted intentionally: a sync-skip has no entity (matches the
+ * inventory stock-recon skip audit pattern in inventory/internal.ts).
+ * ADR-007: audit_log is append-only; ADR-031: created_at set inside logAudit.
+ */
+export const _auditSyncSkip_internal = internalMutation({
+  args: {
+    reason: v.string(),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "settlement.sync_skipped",
+      entity_type: "pos_settlements",
+      source: "system",
+      metadata: { reason: args.reason, ...(args.metadata ?? {}) },
+    });
+  },
+});
