@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-08 — v0.7 Xendit settlement reconciliation
+- `/settlements` now shows per-day payout figures (net to BCA, gross, MDR, txn count) to staff + managers (ADR-012).
+- Managers can record a settlement day manually (PIN-gated) — the verified launch path while Xendit KYB is pending.
+- Nightly auto-poll of Xendit `GET /transactions` aggregates settled transactions by WIB date (built + shape-tested; live-verification gated behind KYB). Confirmed real API shape: `fee` is an object (use `net_amount`), no `settlement_date` field (derive from `estimated_settlement_time`), `cashflow` gates MONEY_IN.
+- New `pos_settlements` table (per-day aggregate, dual-source); ADR-012 amended to the verified per-transaction model (no settlement webhook).
+
 ## 2026-06-07 — v0.6.1 admin-action auth hardening + e2e un-skip
 
 ### Security

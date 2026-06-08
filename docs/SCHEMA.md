@@ -543,23 +543,26 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
 ### `pos_settlements`
-Daily settlement records from Xendit ([strategic foundations §7](./ADR/000-strategic-foundations.md#7-settlement-as-a-second-stage-record), [ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)).
+Per-day payout aggregate ([strategic foundations §7](./ADR/000-strategic-foundations.md#7-settlement-as-a-second-stage-record), [ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md) + amendment). **Corrected 2026-06-08 (v0.7): there is no Xendit 'settlement object' — a row is our own per-day aggregate keyed by `settlement_key`, dual-source (manual + nightly poll), poll-wins-on-conflict.** See [ADR-012 amendment](./ADR/012-settlements-visible-to-staff-and-managers.md#amended-2026-06-08-v07) + [`docs/xendit-reference/settlement-reconciliation.md`](./xendit-reference/settlement-reconciliation.md). All money integer rupiah (ADR-015).
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_settlements">` | |
-| `xendit_settlement_id` | `string` | |
-| `settlement_date` | `string` | ISO date |
-| `gross_amount` | `number` | |
-| `mdr_amount` | `number` | Xendit's fee |
-| `net_amount` | `number` | What hits BCA |
+| `settlement_key` | `string` | `settle-YYYY-MM-DD` — unique upsert key (one row per settlement day) |
+| `settlement_date` | `string` | `YYYY-MM-DD` (WIB calendar) |
+| `gross_amount` | `number` | Collected sales total for the day |
+| `mdr_amount` | `number` | Xendit's total deductions (`gross - net`) |
+| `net_amount` | `number` | What hits BCA (`gross - mdr`) |
 | `transaction_count` | `number` | |
-| `bca_account_destination` | `string` | Last 4 digits for verification |
-| `payload` | `string` | Raw Xendit payload JSON |
-| `synced_to_frollie_pro_at` | `number?` | Future v1.1 hook |
+| `source` | `"xendit_poll" \| "manual"` | Row origin: nightly poll or manual manager entry |
+| `entered_by` | `Id<"staff">?` | Set for `source="manual"` only (the recording manager) |
+| `last_synced_at` | `number?` | Set on each `xendit_poll` upsert (poll only) |
+| `bca_account_destination` | `string?` | Last 4 digits for verification (ADR-012) |
+| `payload` | `string?` | Raw aggregated rows JSON (poll); debug + future match-back |
+| `synced_to_frollie_pro_at` | `number?` | Dormant v1.1 hook |
 | `created_at` | `number` | |
 
-Indexes: `by_settlement_date` on `settlement_date`, `by_xendit_id` on `xendit_settlement_id`.
+Indexes: `by_settlement_date` on `settlement_date`, `by_settlement_key` on `settlement_key`.
 
 ### `pos_receipt_counters` — v0.3 shipped *(owned by `transactions/`)*
 Atomic counter for `R-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-format.md)). The `next_number` is allocated atomically inside `_confirmPaid`.
@@ -731,6 +734,10 @@ stock.recon_skip            # nightly recon cron — one row per cron run that d
 # v0.5.7 device activation (two issuance paths)
 device.setup_code_issued    # issueDeviceSetupCode helper. Booth path: source=booth_inline, actor=issuing manager, metadata={ issued_via:"booth_inline" }. Telegram path (/activatepos): source=system (NOT telegram_approval — no PIN/approval gate), actor_id="system", metadata={ issued_via:"telegram", telegram_from_id?, chat_title }
 device.activated            # device activated by consuming a setup code. ALWAYS source=booth_inline (activation is a physical booth act); metadata.activated_via ∈ "booth_inline" | "telegram"; actor_id="system" when the code was Telegram-issued
+# v0.7 settlements (pos_settlements; single writer _upsertSettlementDay_internal)
+settlement.upserted             # one row inserted OR a non-supersede patch (poll-over-poll, manual-over-manual). Covers manual entries too — distinguish via metadata.source="manual". source=booth_inline (manual) | system (poll); metadata={ settlement_date, source, net_amount }
+settlement.poll_superseded_manual # a nightly xendit_poll overwrote a prior manual row (poll-wins-on-conflict). source=system; metadata={ settlement_date, source:"xendit_poll", net_amount }
+settlement.sync_skipped         # _auditSyncSkip_internal — sync cron ran and found zero settled rows (expected pre-KYB). actor=system; source=system; no entity_id; metadata={ reason, ... }
 ```
 
 ## Relationship to Frollie Pro tables

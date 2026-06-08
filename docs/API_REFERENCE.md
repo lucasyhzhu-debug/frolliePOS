@@ -252,13 +252,30 @@ Off-booth device-setup-code minting. A manager sends `/activatepos` in the `mana
 | q | `vouchersUsage` | `{ range, sessionId }` | `VoucherUsage[]` | |
 | a | `exportCsv` | `{ kind: "transactions" \| "refunds" \| "settlements", range }` | `{ csvUrl }` | Returns signed download URL |
 
-## `settlements.ts`
+## `settlements/` *(v0.7 — Xendit settlement reconciliation)*
+
+Per-day payout aggregate. No Xendit "settlement object"/webhook — dual-source (manual + nightly poll), poll-wins-on-conflict. See [ADR-012 amendment](./ADR/012-settlements-visible-to-staff-and-managers.md#amended-2026-06-08-v07).
+
+### Public
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| m | `ingest_internal` | `{ xenditPayload }` | `Settlement` | Called from webhook |
-| a | `pollDaily_scheduled` | `{}` | `{ count }` | Scheduled 06:00 Jakarta |
-| q | `list` | `{ range }` | `Settlement[]` | Visible to staff + managers ([ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)) |
+| q | `settlements.public.listSettlements` | `{ sessionId, fromDate?, toDate? }` | `Doc<"pos_settlements">[]` | **Role-agnostic** ([ADR-012](./ADR/012-settlements-visible-to-staff-and-managers.md)) — any valid session passes; absent/ended session throws `SESSION_INVALID`. Newest `settlement_date` first; optional `YYYY-MM-DD` inclusive range pushed into `by_settlement_date` index. |
+
+### Actions (Node runtime)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| a | `settlements.actions.enterSettlementManually` | `{ idempotencyKey, sessionId, settlementDate, grossAmount, mdrAmount, transactionCount, bcaAccountLast4, managerPin }` | `Id<"pos_settlements">` | **Manager-PIN** gated (ADR-022 tiering). The verified launch path while KYB pending. `net = gross - mdr` computed server-side (ADR-031/-015). `withActionCache` (auth-before-cache, ADR-046) + keyed-upsert idempotency. Errors: `DATE_INVALID`, `AMOUNT_INVALID`, `NET_INVALID`, `LAST4_INVALID`, `MANAGER_SESSION_REQUIRED`, `SESSION_INVALID`, `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. |
+
+### Internal (single-writer + sync — see `convex/settlements/` for full signatures)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| m | `settlements.internal._upsertSettlementDay_internal` | `{ settlement_date, gross_amount, mdr_amount, net_amount, transaction_count, source, entered_by?, bca_account_destination?, payload? }` | `Id<"pos_settlements">` | **Single writer.** Upserts one row per day (key `settle-<date>`). Poll-wins-on-conflict: poll-over-manual flips source + audits `settlement.poll_superseded_manual`; else `settlement.upserted`. Server time inside (ADR-031). |
+| m | `settlements.internal._auditSyncSkip_internal` | `{ reason, metadata? }` | `void` | Audits `settlement.sync_skipped` when a sync run finds zero settled rows (expected pre-KYB). No entity_id; actor=system. |
+| a | `settlements.cronActions.syncSettlements` | `{}` | `{ ok, days } \| { skipped: "no_settlements" }` | V8-safe inner action. Calls `GET /transactions` (LOOKBACK_DAYS=7), `parseListTransactions` + `aggregateSettledByDate`, upserts one row per WIB settlement day. On-demand callable. |
+| a | `settlements.cronActions.syncSettlementsResilient` | `{ attempt? }` | `{ ok, days } \| { skipped } \| { ok, retried, nextAttempt }` | **Cron entry-point** (`settlement-sync`, 20:30 UTC / 03:30 WIB). Wraps `syncSettlements` with shared `cronRetry` policy (linear back-off, `RESILIENT_MAX_ATTEMPTS`). |
 
 ## `settings.ts` *(v0.4 + v0.5.3b)*
 
