@@ -132,6 +132,13 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
 .layer.f{background:linear-gradient(180deg,var(--clay-soft),transparent 70%);border-color:rgba(219,132,97,.4)}
 .layer.d{background:linear-gradient(180deg,var(--citrus-soft),transparent 70%);border-color:rgba(249,168,74,.45)}
 
+/* QR contact card (close slide) */
+.qrcard{display:flex;flex-direction:column;align-items:center;gap:18px}
+.qrbox{width:316px;height:316px;background:var(--ink);border-radius:26px;padding:24px;
+  box-shadow:0 1px 0 rgba(0,0,0,.35),0 26px 52px -30px rgba(0,0,0,.7)}
+.qrbox svg{display:block;width:100%;height:100%}
+.qrcap{font-family:var(--mono);font-size:18px;line-height:1.5;color:var(--ink-3);text-align:center}
+
 /* big pull quote */
 .quote{font-family:var(--serif);font-style:italic;font-weight:400;font-size:58px;line-height:1.22;color:var(--ink);max-width:1480px}
 .attrib{font-family:var(--mono);font-size:24px;color:var(--ink-3);margin-top:8px}
@@ -171,17 +178,30 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
 <!-- ============================ SLIDE 1 — TITLE ============================ -->
 <section class="slide visible">
   <div class="reveal eyebrow">UNSW guest lecture <span class="dot">/</span> 16 April 2026 edition</div>
-  <div class="col grow" style="justify-content:center;gap:30px;margin-top:-30px">
+  <div class="col grow" style="justify-content:center;gap:36px;margin-top:-20px">
     <h1 class="reveal head">Force <span class="citrus">×</span> Direction</h1>
-    <div class="reveal dek" style="font-style:normal;font-family:var(--serif);font-weight:400;font-size:46px;color:var(--ink-2)">what AI actually amplifies in strategy work.</div>
-    <div class="reveal row gap-s" style="flex-wrap:wrap;margin-top:10px">
-      <span class="chip clay">force is almost free now</span>
-      <span class="chip">direction is the whole job</span>
-      <span class="chip moss">right direction slowly &gt; wrong direction fast</span>
+    <div class="reveal dek" style="font-style:normal;font-family:var(--serif);font-weight:400;font-size:50px;color:var(--ink-2)">what AI actually amplifies in strategy work.</div>
+  </div>
+  <div class="reveal mono" style="color:var(--ink-3);font-size:24px">Lucas Zhu</div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>01 / 13</span></div>
+</section>
+
+<!-- ============================ SLIDE 2 — WHO'S SAYING THIS (credibility) ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">who's saying this</div>
+  <h2 class="reveal head" style="margin-top:14px;font-size:82px">I've stood on both<br>sides of the trade.</h2>
+  <div class="reveal row gap-l" style="margin-top:48px">
+    <div class="card" style="flex:1;padding:36px 40px">
+      <div class="mono clay" style="font-size:19px;margin-bottom:14px;letter-spacing:.05em">THE FORCE</div>
+      <div class="body" style="font-size:29px;line-height:1.45">7 years at McKinsey — strategy, corporate finance, private-equity diligence. I <em>was</em> the analytical horsepower clients paid for.</div>
+    </div>
+    <div class="card" style="flex:1;padding:36px 40px">
+      <div class="mono citrus" style="font-size:19px;margin-bottom:14px;letter-spacing:.05em">THE TOOLS THAT REPLACE IT</div>
+      <div class="body" style="font-size:29px;line-height:1.45">Then strategy at HelloFresh ANZ. Now co-founder of Frollie, building real products with AI every day — the tools replacing that horsepower.</div>
     </div>
   </div>
-  <div class="reveal mono" style="color:var(--ink-3)">Lucas Zhu &nbsp;·&nbsp; ex-McKinsey, ex-HelloFresh ANZ &nbsp;·&nbsp; co-founder, Frollie &nbsp;·&nbsp; lucaszhu.com</div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>01 / 12</span></div>
+  <div class="reveal dek" style="margin-top:46px;font-size:42px;color:var(--ink)">So this isn't a prediction. <span class="mark">It's what changed under my own hands.</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>02 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 2 — THE THESIS (vector anatomy) ============================ -->
@@ -227,7 +247,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       </svg>
     </div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>02 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>03 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 3 — FORCE WAS THE BOTTLENECK ============================ -->
@@ -243,7 +263,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       <span class="chip clay">force = the whole invoice</span>
     </div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>03 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>04 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 4 — THE BOTTLENECK IS GONE ============================ -->
@@ -255,7 +275,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     <div class="reveal lede">A first-draft deck. A benchmarking sweep. A model template. Overnight outputs now.<br>So what is left? <span class="mark">The direction.</span> And direction does <em>not</em> get cheaper with AI.</div>
     <div class="reveal dek" style="margin-top:8px;color:var(--ink)">If anything it gets more expensive — because you can now move at full speed in <span class="clay">whichever direction you happen to point at</span>.</div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>04 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>05 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 5 — THE FAILURE MODE NAMED ============================ -->
@@ -265,7 +285,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     <div class="reveal huge" style="font-size:128px;text-align:center"><span class="clay">More force,</span><br><span class="clay">faster,</span><br><span class="ink">confidently wrong.</span></div>
     <div class="reveal lede" style="text-align:center;max-width:1300px">The output looks polished. It moves. It compiles. It even reads well.<br>But if the question underneath was wrong, all that polish does is <span class="mark clay">make the wrong answer easier to ship</span>.</div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>05 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>06 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 6 — CASE STUDY: THE APPRENTICESHIP (vector thickens) ============================ -->
@@ -306,7 +326,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     </svg>
   </div>
   <div class="reveal body" style="margin-top:14px;font-size:30px"><span class="mark cobalt">The thick line was earned through days of Excel, dead ends, and being told it was wrong.</span> That is how judgment and taste get built.</div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>06 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>07 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 7 — THE AI DAY-1 ANALYST (vectors spray, then thin) ============================ -->
@@ -352,7 +372,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     </svg>
   </div>
   <div class="reveal body" style="margin-top:14px;font-size:30px"><span class="mark clay">AI fluency arrived before direction discipline.</span> They automated the wrong half of the job and called it productivity.</div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>07 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>08 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 8 — TWO LAYERS + QUOTE ============================ -->
@@ -377,7 +397,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     <div class="quote" style="font-size:46px">"They can do 80%. They need the last 20%.<br>That last 20% is <span class="citrus">direction</span>, not force."</div>
     <div class="attrib">— Dr. Trung Nghia Ton, Foundry Health</div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>08 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>09 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 9 — THE VENN ============================ -->
@@ -407,7 +427,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       <div class="body" style="font-size:23px;color:var(--ink-3);margin-top:4px">Drop one and there's a gap: taste + fluency without expertise is just <span class="clay">beautiful arrows into the air</span>.</div>
     </div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>09 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>10 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 10 — SECTION DIVIDER: MONDAY MORNING ============================ -->
@@ -417,7 +437,7 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     <div class="reveal huge" style="font-size:120px">Three things,<br>starting <span class="citrus">tomorrow</span>.</div>
     <div class="reveal lede">Do these and you're ahead of 95% of people on what AI can actually do for you — and for your business.</div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>10 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>11 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 11 — THE THREE TAKEAWAYS ============================ -->
@@ -446,27 +466,33 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
     </div>
   </div>
   <div class="reveal body" style="margin-top:24px;font-size:28px"><span class="mark">The operator's test:</span> audit one workflow you just sped up — was the question right, or did you just ship the wrong answer faster?</div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>11 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>12 / 13</span></div>
 </section>
 
 <!-- ============================ SLIDE 12 — CLOSE ============================ -->
 <section class="slide">
-  <div class="col grow" style="justify-content:center;gap:34px">
-    <div class="reveal eyebrow">the takeaway</div>
-    <h2 class="reveal head" style="font-size:104px"><span class="clay">Force is free now.</span><br><span class="citrus">Direction is the whole job.</span></h2>
-    <div class="reveal dek" style="font-size:42px;color:var(--ink);max-width:1480px">
-      <span class="mark">A wrong vector at full force just gets you to the wrong answer faster — and now with better typography.</span>
+  <div class="row grow center gap-xl">
+    <div class="col" style="flex:1.55;gap:30px">
+      <div class="reveal eyebrow">the takeaway</div>
+      <h2 class="reveal head" style="font-size:92px"><span class="clay">Force is free now.</span><br><span class="citrus">Direction is the whole job.</span></h2>
+      <div class="reveal dek" style="font-size:40px;color:var(--ink);max-width:1040px">
+        <span class="mark">A wrong vector at full force just gets you to the wrong answer faster — and now with better typography.</span>
+      </div>
+      <div class="reveal lede" style="font-size:32px;color:var(--ink-2);margin-top:4px;max-width:1040px">Before you fire up the AI, ask the only question it can't ask for you:<br><span class="ink">am I sure I'm pointing at the right destination?</span></div>
+      <div class="reveal mono" style="margin-top:16px;color:var(--ink-3)">Lucas Zhu &nbsp;·&nbsp; UNSW BIS guest lecture, April 2026 &nbsp;·&nbsp; thank you</div>
     </div>
-    <div class="reveal lede" style="font-size:34px;color:var(--ink-2);margin-top:4px">Before you fire up the AI, ask the only question it can't ask for you:<br><span class="ink">am I sure I'm pointing at the right destination?</span></div>
-    <div class="reveal mono" style="margin-top:18px;color:var(--ink-3)">Lucas Zhu &nbsp;·&nbsp; lucaszhu.com &nbsp;·&nbsp; UNSW BIS guest lecture, April 2026 &nbsp;·&nbsp; thank you</div>
+    <div class="reveal qrcard" style="flex:0.85">
+      <div class="qrbox"><svg viewBox="0 0 29 29" width="100%" height="100%" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1h-1zM1 0h1v1h-1zM2 0h1v1h-1zM3 0h1v1h-1zM4 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM8 0h1v1h-1zM10 0h1v1h-1zM11 0h1v1h-1zM12 0h1v1h-1zM13 0h1v1h-1zM15 0h1v1h-1zM16 0h1v1h-1zM17 0h1v1h-1zM18 0h1v1h-1zM22 0h1v1h-1zM23 0h1v1h-1zM24 0h1v1h-1zM25 0h1v1h-1zM26 0h1v1h-1zM27 0h1v1h-1zM28 0h1v1h-1zM0 1h1v1h-1zM6 1h1v1h-1zM9 1h1v1h-1zM12 1h1v1h-1zM13 1h1v1h-1zM14 1h1v1h-1zM17 1h1v1h-1zM19 1h1v1h-1zM22 1h1v1h-1zM28 1h1v1h-1zM0 2h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM6 2h1v1h-1zM9 2h1v1h-1zM15 2h1v1h-1zM16 2h1v1h-1zM17 2h1v1h-1zM18 2h1v1h-1zM22 2h1v1h-1zM24 2h1v1h-1zM25 2h1v1h-1zM26 2h1v1h-1zM28 2h1v1h-1zM0 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM8 3h1v1h-1zM11 3h1v1h-1zM12 3h1v1h-1zM13 3h1v1h-1zM15 3h1v1h-1zM19 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM25 3h1v1h-1zM26 3h1v1h-1zM28 3h1v1h-1zM0 4h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM6 4h1v1h-1zM8 4h1v1h-1zM11 4h1v1h-1zM12 4h1v1h-1zM14 4h1v1h-1zM15 4h1v1h-1zM16 4h1v1h-1zM17 4h1v1h-1zM18 4h1v1h-1zM22 4h1v1h-1zM24 4h1v1h-1zM25 4h1v1h-1zM26 4h1v1h-1zM28 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM10 5h1v1h-1zM16 5h1v1h-1zM19 5h1v1h-1zM20 5h1v1h-1zM22 5h1v1h-1zM28 5h1v1h-1zM0 6h1v1h-1zM1 6h1v1h-1zM2 6h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM6 6h1v1h-1zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM22 6h1v1h-1zM23 6h1v1h-1zM24 6h1v1h-1zM25 6h1v1h-1zM26 6h1v1h-1zM27 6h1v1h-1zM28 6h1v1h-1zM8 7h1v1h-1zM9 7h1v1h-1zM11 7h1v1h-1zM12 7h1v1h-1zM14 7h1v1h-1zM15 7h1v1h-1zM16 7h1v1h-1zM17 7h1v1h-1zM18 7h1v1h-1zM20 7h1v1h-1zM0 8h1v1h-1zM4 8h1v1h-1zM6 8h1v1h-1zM7 8h1v1h-1zM8 8h1v1h-1zM9 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM14 8h1v1h-1zM17 8h1v1h-1zM20 8h1v1h-1zM21 8h1v1h-1zM22 8h1v1h-1zM23 8h1v1h-1zM24 8h1v1h-1zM25 8h1v1h-1zM28 8h1v1h-1zM0 9h1v1h-1zM1 9h1v1h-1zM2 9h1v1h-1zM4 9h1v1h-1zM8 9h1v1h-1zM10 9h1v1h-1zM14 9h1v1h-1zM15 9h1v1h-1zM16 9h1v1h-1zM21 9h1v1h-1zM22 9h1v1h-1zM23 9h1v1h-1zM24 9h1v1h-1zM25 9h1v1h-1zM26 9h1v1h-1zM27 9h1v1h-1zM28 9h1v1h-1zM4 10h1v1h-1zM5 10h1v1h-1zM6 10h1v1h-1zM7 10h1v1h-1zM8 10h1v1h-1zM9 10h1v1h-1zM10 10h1v1h-1zM12 10h1v1h-1zM13 10h1v1h-1zM14 10h1v1h-1zM15 10h1v1h-1zM16 10h1v1h-1zM17 10h1v1h-1zM20 10h1v1h-1zM21 10h1v1h-1zM22 10h1v1h-1zM28 10h1v1h-1zM0 11h1v1h-1zM2 11h1v1h-1zM3 11h1v1h-1zM10 11h1v1h-1zM13 11h1v1h-1zM17 11h1v1h-1zM19 11h1v1h-1zM20 11h1v1h-1zM23 11h1v1h-1zM25 11h1v1h-1zM27 11h1v1h-1zM28 11h1v1h-1zM1 12h1v1h-1zM3 12h1v1h-1zM6 12h1v1h-1zM7 12h1v1h-1zM8 12h1v1h-1zM9 12h1v1h-1zM10 12h1v1h-1zM11 12h1v1h-1zM12 12h1v1h-1zM13 12h1v1h-1zM15 12h1v1h-1zM17 12h1v1h-1zM20 12h1v1h-1zM27 12h1v1h-1zM3 13h1v1h-1zM4 13h1v1h-1zM10 13h1v1h-1zM12 13h1v1h-1zM13 13h1v1h-1zM14 13h1v1h-1zM15 13h1v1h-1zM17 13h1v1h-1zM18 13h1v1h-1zM22 13h1v1h-1zM23 13h1v1h-1zM24 13h1v1h-1zM25 13h1v1h-1zM26 13h1v1h-1zM27 13h1v1h-1zM28 13h1v1h-1zM1 14h1v1h-1zM3 14h1v1h-1zM5 14h1v1h-1zM6 14h1v1h-1zM7 14h1v1h-1zM8 14h1v1h-1zM9 14h1v1h-1zM15 14h1v1h-1zM16 14h1v1h-1zM17 14h1v1h-1zM24 14h1v1h-1zM25 14h1v1h-1zM26 14h1v1h-1zM28 14h1v1h-1zM0 15h1v1h-1zM1 15h1v1h-1zM2 15h1v1h-1zM3 15h1v1h-1zM7 15h1v1h-1zM9 15h1v1h-1zM11 15h1v1h-1zM12 15h1v1h-1zM14 15h1v1h-1zM15 15h1v1h-1zM17 15h1v1h-1zM18 15h1v1h-1zM19 15h1v1h-1zM20 15h1v1h-1zM22 15h1v1h-1zM23 15h1v1h-1zM27 15h1v1h-1zM28 15h1v1h-1zM2 16h1v1h-1zM3 16h1v1h-1zM4 16h1v1h-1zM5 16h1v1h-1zM6 16h1v1h-1zM8 16h1v1h-1zM9 16h1v1h-1zM11 16h1v1h-1zM13 16h1v1h-1zM14 16h1v1h-1zM15 16h1v1h-1zM17 16h1v1h-1zM18 16h1v1h-1zM19 16h1v1h-1zM20 16h1v1h-1zM21 16h1v1h-1zM27 16h1v1h-1zM0 17h1v1h-1zM1 17h1v1h-1zM2 17h1v1h-1zM4 17h1v1h-1zM5 17h1v1h-1zM8 17h1v1h-1zM11 17h1v1h-1zM15 17h1v1h-1zM16 17h1v1h-1zM17 17h1v1h-1zM18 17h1v1h-1zM21 17h1v1h-1zM22 17h1v1h-1zM23 17h1v1h-1zM24 17h1v1h-1zM25 17h1v1h-1zM27 17h1v1h-1zM28 17h1v1h-1zM2 18h1v1h-1zM3 18h1v1h-1zM4 18h1v1h-1zM6 18h1v1h-1zM7 18h1v1h-1zM8 18h1v1h-1zM12 18h1v1h-1zM13 18h1v1h-1zM14 18h1v1h-1zM15 18h1v1h-1zM18 18h1v1h-1zM21 18h1v1h-1zM22 18h1v1h-1zM26 18h1v1h-1zM28 18h1v1h-1zM4 19h1v1h-1zM9 19h1v1h-1zM11 19h1v1h-1zM13 19h1v1h-1zM15 19h1v1h-1zM17 19h1v1h-1zM20 19h1v1h-1zM21 19h1v1h-1zM22 19h1v1h-1zM27 19h1v1h-1zM28 19h1v1h-1zM0 20h1v1h-1zM1 20h1v1h-1zM2 20h1v1h-1zM3 20h1v1h-1zM6 20h1v1h-1zM8 20h1v1h-1zM10 20h1v1h-1zM11 20h1v1h-1zM12 20h1v1h-1zM13 20h1v1h-1zM17 20h1v1h-1zM19 20h1v1h-1zM20 20h1v1h-1zM21 20h1v1h-1zM22 20h1v1h-1zM23 20h1v1h-1zM24 20h1v1h-1zM25 20h1v1h-1zM28 20h1v1h-1zM8 21h1v1h-1zM13 21h1v1h-1zM14 21h1v1h-1zM15 21h1v1h-1zM16 21h1v1h-1zM20 21h1v1h-1zM24 21h1v1h-1zM28 21h1v1h-1zM0 22h1v1h-1zM1 22h1v1h-1zM2 22h1v1h-1zM3 22h1v1h-1zM4 22h1v1h-1zM5 22h1v1h-1zM6 22h1v1h-1zM8 22h1v1h-1zM12 22h1v1h-1zM15 22h1v1h-1zM18 22h1v1h-1zM19 22h1v1h-1zM20 22h1v1h-1zM22 22h1v1h-1zM24 22h1v1h-1zM25 22h1v1h-1zM26 22h1v1h-1zM28 22h1v1h-1zM0 23h1v1h-1zM6 23h1v1h-1zM9 23h1v1h-1zM14 23h1v1h-1zM16 23h1v1h-1zM17 23h1v1h-1zM19 23h1v1h-1zM20 23h1v1h-1zM24 23h1v1h-1zM27 23h1v1h-1zM0 24h1v1h-1zM2 24h1v1h-1zM3 24h1v1h-1zM4 24h1v1h-1zM6 24h1v1h-1zM8 24h1v1h-1zM10 24h1v1h-1zM12 24h1v1h-1zM13 24h1v1h-1zM14 24h1v1h-1zM17 24h1v1h-1zM19 24h1v1h-1zM20 24h1v1h-1zM21 24h1v1h-1zM22 24h1v1h-1zM23 24h1v1h-1zM24 24h1v1h-1zM25 24h1v1h-1zM27 24h1v1h-1zM0 25h1v1h-1zM2 25h1v1h-1zM3 25h1v1h-1zM4 25h1v1h-1zM6 25h1v1h-1zM10 25h1v1h-1zM11 25h1v1h-1zM12 25h1v1h-1zM15 25h1v1h-1zM16 25h1v1h-1zM18 25h1v1h-1zM19 25h1v1h-1zM21 25h1v1h-1zM23 25h1v1h-1zM28 25h1v1h-1zM0 26h1v1h-1zM2 26h1v1h-1zM3 26h1v1h-1zM4 26h1v1h-1zM6 26h1v1h-1zM9 26h1v1h-1zM10 26h1v1h-1zM12 26h1v1h-1zM13 26h1v1h-1zM15 26h1v1h-1zM16 26h1v1h-1zM17 26h1v1h-1zM18 26h1v1h-1zM21 26h1v1h-1zM25 26h1v1h-1zM26 26h1v1h-1zM27 26h1v1h-1zM28 26h1v1h-1zM0 27h1v1h-1zM6 27h1v1h-1zM9 27h1v1h-1zM16 27h1v1h-1zM17 27h1v1h-1zM18 27h1v1h-1zM19 27h1v1h-1zM20 27h1v1h-1zM23 27h1v1h-1zM25 27h1v1h-1zM27 27h1v1h-1zM28 27h1v1h-1zM0 28h1v1h-1zM1 28h1v1h-1zM2 28h1v1h-1zM3 28h1v1h-1zM4 28h1v1h-1zM5 28h1v1h-1zM6 28h1v1h-1zM8 28h1v1h-1zM13 28h1v1h-1zM14 28h1v1h-1zM16 28h1v1h-1zM17 28h1v1h-1zM20 28h1v1h-1zM21 28h1v1h-1zM22 28h1v1h-1zM23 28h1v1h-1zM25 28h1v1h-1zM27 28h1v1h-1z" fill="#102821"/></svg></div>
+      <div class="qrcap">scan → the essay + more writing<br><span style="color:var(--cobalt)">lucas-portfolio-pi.vercel.app</span></div>
+    </div>
   </div>
-  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>12 / 12</span></div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>13 / 13</span></div>
 </section>
 
 </main>
 </div>
 
-<div class="counter" id="counter">01 / 12</div>
+<div class="counter" id="counter">01 / 13</div>
 <div class="controls">
   <button id="prevBtn" aria-label="Previous slide">◀ prev</button>
   <button id="nextBtn" aria-label="Next slide">next ▶</button>
