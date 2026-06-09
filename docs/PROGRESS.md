@@ -1192,7 +1192,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.6 — Admin wiring + receipt/refund UX 📋 PLANNED
+## v0.5.6 — Admin wiring + receipt/refund UX ✅ SHIPPED (`ad8888b`, 2026-06-05)
 **Outcome:** Four UX/admin gaps from the prod cutover close — all pure UI wiring of already-built backend (no schema, no migration): staff change their own PIN in-app, a manager mints a device setup-code without the CLI, history detail reprints an earlier sale, and the refund flow finally has a door.
 **Spec:** [`docs/superpowers/specs/2026-06-03-v0.5.6-admin-wiring-and-receipt-refund-ux-design.md`](./superpowers/specs/2026-06-03-v0.5.6-admin-wiring-and-receipt-refund-ux-design.md) (spec-gate staffreview passed)
 **Plan:** [`docs/superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md`](./superpowers/plans/2026-06-03-v0.5.6-admin-wiring.md) (plan-gate staffreview: Approve; assumptions verified vs code)
@@ -1261,8 +1261,10 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.7.1 — useSession transient-null fix Option B (issue #44) 📋 PLANNED
-**Outcome:** A bug-only fast follow that replaces `useSession`'s "any null means dead" interpretation with evidence-based detection: a `null` from `useQuery(getSession)` is only treated as authoritative after we've successfully validated the current `sessionId` at least once (tracked via a `useRef` keyed on `stored`, so a same-instance lock+relogin resets the evidence). Real users no longer get bounced to `/login` after a reload; the 6 PIN-gated e2e specs `test.skip`-ed in PR #43 run un-skipped on CI; `RootLayout` gets a 5-second "Stuck on loading?" escape hatch for the rare genuinely-stale-localStorage case.
+## v0.5.7.1 — useSession transient-null fix Option B (issue #44) 🗂️ SUPERSEDED BY v0.5.9
+**⚠️ SUPERSEDED 2026-06-06 — DO NOT EXECUTE.** The transient-null hypothesis this phase was built on was empirically **refuted** by PR #48 instrumentation (Playwright run `27021101339`): `validation === null` with `stored=Y` never appears post-login. The real root cause was a11y/selector drift (catalog `Add` labels, Radix Tabs role, bare `<Label>` siblings) and shipped in **v0.5.9** (`ae225ef`, closes #44). Full trail: [`docs/postmortems/2026-06-issue-44-misdiagnosis.md`](./postmortems/2026-06-issue-44-misdiagnosis.md). Tasks below are struck (🗂️) — kept for historical context, not for work.
+
+**Outcome (original, refuted):** A bug-only fast follow that replaces `useSession`'s "any null means dead" interpretation with evidence-based detection: a `null` from `useQuery(getSession)` is only treated as authoritative after we've successfully validated the current `sessionId` at least once (tracked via a `useRef` keyed on `stored`, so a same-instance lock+relogin resets the evidence). Real users no longer get bounced to `/login` after a reload; the 6 PIN-gated e2e specs `test.skip`-ed in PR #43 run un-skipped on CI; `RootLayout` gets a 5-second "Stuck on loading?" escape hatch for the rare genuinely-stale-localStorage case.
 **Spec:** [`docs/superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md`](./superpowers/specs/2026-06-05-useSession-transient-null-fix-design.md) (spec-gate staffreview: Revise → 1 Critical + 2 Improvements folded in; relogin-safe ref shape is canonical)
 **Plan:** [`docs/superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md`](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md) (plan-gate staffreview: Revise → 1 Critical + 3 Improvements addressed; assumptions verified vs code)
 **Architectural-options review:** [`docs/reviews/staffreview-issue-44-architectural-options-2026-06-05.md`](./reviews/staffreview-issue-44-architectural-options-2026-06-05.md) — supersedes the Option A debounce plan that landed in PR #45 (same filename).
@@ -1282,7 +1284,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Frontend (`src/`)
 
-- 📋 **[v0571-fe-verify-hypothesis]** Throwaway instrumentation in `useSession.ts` + draft-PR CI pass — confirm `validation === null` actually appears between post-login `page.goto` and the `/login` redirect; strip after one signal. Kept as defence-in-depth even under Option B — if the symptom is actually `validation === undefined` throughout, the bug has a different root cause that the Option B render-time branch only partially helps with.
+- 🗂️ **[v0571-fe-verify-hypothesis]** Throwaway instrumentation in `useSession.ts` + draft-PR CI pass — confirm `validation === null` actually appears between post-login `page.goto` and the `/login` redirect; strip after one signal. Kept as defence-in-depth even under Option B — if the symptom is actually `validation === undefined` throughout, the bug has a different root cause that the Option B render-time branch only partially helps with.
   - **agent:** `frontend-integrator` · **deps:** `none` · **docs:** [Plan Task 0](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Add `console.warn` + `sessionStorage` ring-buffer instrumentation after `useQuery(getSession)` (rationale comment + `eslint-disable-next-line no-console` per house style)
@@ -1291,7 +1293,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
     - [ ] Strip instrumentation, commit, comment result on the draft PR
   - **notes:** _(empty)_
 
-- 📋 **[v0571-fe-hook-fix]** `src/hooks/useSession.ts` — add `useRef` import; insert `realSeenForStored` ref (object `{ sessionId, seen }`) with render-phase reset on `stored` change and render-phase set when validation is real; derive `hasEverBeenReal`; replace `isDead` effect with evidence-gated wipe; flip the render-time null branch from `"none"` to `hasEverBeenReal ? "none" : "loading"`; replace the stale `// Fix V17` comment. Pattern precedent: `src/hooks/useCatalogCache.ts:53` (`liveSeenRef`).
+- 🗂️ **[v0571-fe-hook-fix]** `src/hooks/useSession.ts` — add `useRef` import; insert `realSeenForStored` ref (object `{ sessionId, seen }`) with render-phase reset on `stored` change and render-phase set when validation is real; derive `hasEverBeenReal`; replace `isDead` effect with evidence-gated wipe; flip the render-time null branch from `"none"` to `hasEverBeenReal ? "none" : "loading"`; replace the stale `// Fix V17` comment. Pattern precedent: `src/hooks/useCatalogCache.ts:53` (`liveSeenRef`).
   - **agent:** `frontend-integrator` · **deps:** `v0571-fe-verify-hypothesis` · **docs:** [Plan Task 1](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md), [ADR-003](./ADR/003-shared-device-ephemeral-session.md)
   - **subtasks:**
     - [ ] Rewrite test-file mock plumbing to `vi.hoisted()` + untyped `vi.fn()` (vitest 2.x mock plumbing); existing 3 tests stay green
@@ -1301,7 +1303,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
     - [ ] Typecheck + lint + `npx vitest run src/hooks/useSession.test.tsx` — 6 tests pass (3 existing + 3 new)
   - **notes:** _(empty)_
 
-- 📋 **[v0571-fe-root-layout-escape-hatch]** `src/components/layout/RootLayout.tsx` — add `STUCK_LOADING_REVEAL_MS = 5000`; compute `showSessionStuck`; pass to `RouteFallback`; rewrite `RouteFallback` with a `useEffect` + `setTimeout` that reveals a "Stuck on loading? Lock device and sign in again." button after the threshold; cleanup via `clearTimeout` ensures normal loading→active transitions never flash the button. NEW test file `__tests__/RootLayout.test.tsx` with 3 tests (`vi.useFakeTimers()` + `vi.hoisted()` controllable mocks).
+- 🗂️ **[v0571-fe-root-layout-escape-hatch]** `src/components/layout/RootLayout.tsx` — add `STUCK_LOADING_REVEAL_MS = 5000`; compute `showSessionStuck`; pass to `RouteFallback`; rewrite `RouteFallback` with a `useEffect` + `setTimeout` that reveals a "Stuck on loading? Lock device and sign in again." button after the threshold; cleanup via `clearTimeout` ensures normal loading→active transitions never flash the button. NEW test file `__tests__/RootLayout.test.tsx` with 3 tests (`vi.useFakeTimers()` + `vi.hoisted()` controllable mocks).
   - **agent:** `ui-component-builder` · **deps:** `v0571-fe-hook-fix` · **docs:** [Plan Task 2](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Write the 3 RootLayout tests with vi.hoisted() mocks for useSession + clearSession + useDeviceId + useQuery + useStartupReconciliation; verify the "hidden initially" test passes against current code
@@ -1313,14 +1315,14 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Cross-cutting
 
-- 📋 **[v0571-xc-fixture-cleanup]** `e2e/fixtures.ts` — delete the trailing `page.waitForTimeout(1500)` + the 4-line workaround-comment block above it (lines 37-41). The hook now handles the race evidence-aware; the fixture sleep is dead weight.
+- 🗂️ **[v0571-xc-fixture-cleanup]** `e2e/fixtures.ts` — delete the trailing `page.waitForTimeout(1500)` + the 4-line workaround-comment block above it (lines 37-41). The hook now handles the race evidence-aware; the fixture sleep is dead weight.
   - **agent:** `—` · **deps:** `v0571-fe-hook-fix` · **docs:** [Plan Task 3](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Delete `e2e/fixtures.ts:37-41`
     - [ ] Typecheck clean
   - **notes:** _(empty)_
 
-- 📋 **[v0571-xc-unskip-specs]** Revert `test.skip` → `test` on 6 PIN-gated e2e specs and delete their `// SKIPPED:` blocks. `refund.spec.ts` has an 8-line block (4-11); the other 5 have a 2-line block.
+- 🗂️ **[v0571-xc-unskip-specs]** Revert `test.skip` → `test` on 6 PIN-gated e2e specs and delete their `// SKIPPED:` blocks. `refund.spec.ts` has an 8-line block (4-11); the other 5 have a 2-line block.
   - **agent:** `—` · **deps:** `v0571-fe-hook-fix`, `v0571-fe-root-layout-escape-hatch`, `v0571-xc-fixture-cleanup` · **docs:** [Plan Task 4](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Un-skip `e2e/specs/refund.spec.ts` (delete lines 4-11; `test.skip` on line 12 → `test`)
@@ -1332,7 +1334,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
     - [ ] Typecheck + lint clean
   - **notes:** _(empty)_
 
-- 📋 **[v0571-xc-changelog]** `docs/CHANGELOG.md` — one-line v0.5.7.1 bug-fix entry citing issue #44 + file the two follow-up issues (Option D tagged-union migration; null-handling audit across `useQuery` hooks) in the SAME PR per the architectural-options mitigation-vs-root-cause discipline. Convert draft PR to ready; e2e workflow re-runs; all 8 specs green is the acceptance signal.
+- 🗂️ **[v0571-xc-changelog]** `docs/CHANGELOG.md` — one-line v0.5.7.1 bug-fix entry citing issue #44 + file the two follow-up issues (Option D tagged-union migration; null-handling audit across `useQuery` hooks) in the SAME PR per the architectural-options mitigation-vs-root-cause discipline. Convert draft PR to ready; e2e workflow re-runs; all 8 specs green is the acceptance signal.
   - **agent:** `—` · **deps:** `v0571-xc-unskip-specs` · **docs:** [Plan Task 5](./superpowers/plans/2026-06-05-issue-44-usesession-transient-null-fix.md)
   - **subtasks:**
     - [ ] Insert v0.5.7.1 entry above the most recent CHANGELOG header
@@ -1383,7 +1385,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v0.5.9 — e2e Stabilization (issue #44 actual fix) 📋 PLANNED
+## v0.5.9 — e2e Stabilization (issue #44 actual fix) ✅ SHIPPED (`ae225ef`, 2026-06-06)
 **Outcome:** Land the actual fix for issue #44 — a11y / selector drift on catalog `Add` buttons (three "Dubai" SKUs all rendered identical `Add Dubai` labels) + Radix `TabsTrigger` role (`role="tab"` not `button`) + bare `<Label>` siblings without `htmlFor`. Un-skip the 6 PIN-gated e2e specs that have been red since PR #43 (refund, sale-qris, sale-bca-va, spoilage, voucher-online, voucher-offline). Drop the `e2e/fixtures.ts` 1500ms warm-up (refuted mitigation). Document the misdiagnosis trail in a new `docs/postmortems/` dir and install an evidence-before-mitigation gate into the global staffreview skill so the next misdiagnosis is caught at plan-review time. 4 slices, single PR, no Convex changes.
 **Spec:** [`docs/superpowers/specs/2026-06-06-v0.5.9-e2e-stabilization-design.md`](./superpowers/specs/2026-06-06-v0.5.9-e2e-stabilization-design.md)
 **Plan:** [`docs/superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md`](./superpowers/plans/2026-06-06-v0.5.9-e2e-stabilization.md)
@@ -1697,10 +1699,11 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ### Post-merge follow-ups (retrospective code review, 2026-06-07)
 
-- 📋 **[v06-fu-actioncache-authcheck]** Action-cache pre-cache authCheck — `convex/idempotency/action.ts` → **planned as v0.6.1 Wave A**
+- ✅ **[v06-fu-actioncache-authcheck]** Action-cache pre-cache authCheck — `convex/idempotency/action.ts` → **delivered in v0.6.1 Wave A** (1a4c8b6)
   - **agent:** `convex-expert` · **deps:** `none`
   - **notes:**
     - 2026-06-07: Review found `withActionCache` does the idempotency cache lookup BEFORE any auth (`action.ts:39`); systemic across all 7 PIN-gated admin actions (v0.5.3b pattern), NOT v0.6-introduced. **Carried into v0.6.1 Wave A** (required pre-cache authCheck + ADR-046) — see the v0.6.1 phase below.
+    - 2026-06-09: Delivered via v0.6.1 Wave A (ADR-046 pre-cache authCheck); see v0.6.1 phase.
 - ✅ **[v06-fu-voucher-shared-helper]** Route BE `validateVoucher` + `commitCart` through `convex/lib/voucherValidate.ts` (e2b1184)
   - **agent:** `convex-expert` · **deps:** `none`
   - **notes:**
@@ -1709,10 +1712,11 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
   - **agent:** `—` · **deps:** `none`
   - **notes:**
     - 2026-06-07: Done in PR #56 (`e2b1184`). Comment now reads `"stock.spoilage"`.
-- 📋 **[v06-fu-e2e-unskip]** Un-skip the 6 quarantined Playwright specs → **planned as v0.6.1 Wave B**
+- ✅ **[v06-fu-e2e-unskip]** Un-skip the 6 quarantined Playwright specs → **delivered in v0.6.1 Wave B** (1a4c8b6)
   - **agent:** `general-purpose` · **deps:** `none`
   - **notes:**
     - 2026-06-07: The #43 "hard-nav session loss" label is a mis-attribution — the per-spec skip headers document **three** unrelated causes (C1 Xendit simulate id mismatch ×4, C2 seed test IDs ×1, C3 spoilage submit-disable ×1). **Carried into v0.6.1 Wave B** (per-cluster, evidence-gated) — see the v0.6.1 phase below.
+    - 2026-06-09: Delivered via v0.6.1 Wave B (per-cluster, evidence-gated); see v0.6.1 phase.
 - 📋 **[v06-fu-collapse-mgr-session-resolve]** Collapse double manager-session resolve across the 8 PIN-gated admin actions
   - **agent:** `convex-expert` · **deps:** `v061-be-actioncache-authcheck` · **docs:** none
   - [ ] Thread the pre-cache `assertManagerSessionInAction` resolution forward so `verifyManagerPinOrThrow` reuses it instead of re-resolving the same session (drops 2–4 RPC hops/call)
