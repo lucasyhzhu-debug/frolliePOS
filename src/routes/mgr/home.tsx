@@ -32,6 +32,13 @@ const NAV_CARDS: NavCard[] = [
     glyph: "▶",
     external: true,
   },
+  {
+    to: "/presentation/force-times-direction.html",
+    label: "Force × Direction",
+    hint: "UNSW talk — AI & strategy",
+    glyph: "↗",
+    external: true,
+  },
 ];
 
 export default function MgrHome() {

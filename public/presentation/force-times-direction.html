@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Force × Direction — what AI actually amplifies in strategy work · Lucas Zhu</title>
+
+<!-- Brand faces lifted from Lucas's Frollie design system:
+     Arvo (slab-serif display) · Lato (humanist body) · JetBrains Mono (metadata). -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Arvo:ital,wght@0,400;0,700;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;0,900;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<style>
+/* =========================================================================
+   FORCE × DIRECTION — phthalo-green dark editorial deck
+   Visual system inherited from frolliepos-talk.html (Frollie design system).
+   Accents re-assigned to carry the thesis:
+     FORCE       = clay   (#DB8461)  — what AI replaces / sprayed energy
+     DIRECTION   = citrus (#F9A84A)  — the question that matters / the guiding line
+     DESTINATION = cobalt (#8CA6FF)  — the right answer / the star
+   ========================================================================= */
+:root{
+  /* phthalo palette */
+  --paper:#102821; --paper-2:#163630; --paper-3:#1E4740;
+  --ink:#F1E9D8; --ink-2:#D4CBB9; --ink-3:#8E8878; --ink-4:#5E594E;
+  --line:rgba(241,233,216,0.09); --line-strong:rgba(241,233,216,0.18);
+  --cobalt:#8CA6FF; --cobalt-soft:rgba(140,166,255,0.14);
+  --citrus:#F9A84A; --citrus-soft:rgba(249,168,74,0.18);
+  --moss:#8FA888; --moss-soft:rgba(143,168,136,0.18);
+  --clay:#DB8461; --clay-soft:rgba(219,132,97,0.16);
+  --teal:#14B8A6;
+  /* semantic aliases */
+  --force:var(--clay); --force-soft:var(--clay-soft);
+  --direction:var(--citrus); --direction-soft:var(--citrus-soft);
+  --destination:var(--cobalt); --destination-soft:var(--cobalt-soft);
+  /* fonts */
+  --serif:'Arvo','Rockwell','Iowan Old Style',Georgia,serif;
+  --sans:'Lato',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  --stage-bg:#0a1714;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--stage-bg);font-family:var(--sans);color:var(--ink)}
+
+/* ---- Fixed 16:9 stage (frontend-slides mandatory model) ---- */
+.deck-viewport{position:fixed;inset:0;overflow:hidden;background:
+  radial-gradient(1200px 800px at 78% -8%, rgba(140,166,255,0.10), transparent 60%),
+  radial-gradient(900px 700px at -6% 108%, rgba(249,168,74,0.07), transparent 55%),
+  var(--stage-bg);}
+.deck-stage{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;transform-origin:0 0;background:var(--paper)}
+
+.slide{position:absolute;inset:0;width:1920px;height:1080px;overflow:hidden;
+  visibility:hidden;opacity:0;pointer-events:none;
+  transition:opacity .5s ease;
+  padding:104px 132px;display:flex;flex-direction:column;
+  background:var(--paper);border:1px solid var(--line);}
+.slide.visible{visibility:visible;opacity:1;pointer-events:auto;z-index:1}
+
+/* subtle paper texture: hairline grid faded toward center */
+.slide::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:160px 160px;opacity:.32;mask-image:radial-gradient(80% 70% at 50% 40%,#000 30%,transparent 100%)}
+.slide > *{position:relative;z-index:1}
+
+/* ---- reveal animation ---- */
+.reveal{opacity:0;transform:translateY(28px);
+  transition:opacity .65s cubic-bezier(0.16,1,0.3,1),transform .65s cubic-bezier(0.16,1,0.3,1)}
+.slide.visible .reveal{opacity:1;transform:none}
+.slide.visible .reveal:nth-child(1){transition-delay:.06s}
+.slide.visible .reveal:nth-child(2){transition-delay:.16s}
+.slide.visible .reveal:nth-child(3){transition-delay:.26s}
+.slide.visible .reveal:nth-child(4){transition-delay:.36s}
+.slide.visible .reveal:nth-child(5){transition-delay:.46s}
+.slide.visible .reveal:nth-child(6){transition-delay:.56s}
+.slide.visible .reveal:nth-child(7){transition-delay:.66s}
+
+/* ---- typography ---- */
+.eyebrow{font-family:var(--mono);font-size:21px;font-weight:500;letter-spacing:.20em;
+  text-transform:uppercase;color:var(--ink-3)}
+.eyebrow .dot{color:var(--citrus)}
+.huge{font-family:var(--serif);font-weight:700;font-size:150px;line-height:0.98;letter-spacing:-.02em;color:var(--ink)}
+h1.head{font-family:var(--serif);font-weight:700;font-size:120px;line-height:1.0;letter-spacing:-.02em;color:var(--ink);max-width:1480px}
+h2.head{font-family:var(--serif);font-weight:700;font-size:96px;line-height:1.03;letter-spacing:-.02em;color:var(--ink);max-width:1500px}
+h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05;letter-spacing:-.015em;color:var(--ink)}
+.dek{font-family:var(--serif);font-style:italic;font-weight:400;font-size:40px;line-height:1.38;color:var(--ink-2);max-width:1280px}
+.body{font-size:32px;line-height:1.5;color:var(--ink-2)}
+.lede{font-size:38px;line-height:1.45;color:var(--ink-2);max-width:1340px}
+.mono{font-family:var(--mono);font-size:21px;letter-spacing:.01em;color:var(--ink-3)}
+.mark{background:linear-gradient(180deg,transparent 56%,var(--citrus-soft) 56%);padding:0 .12em}
+.mark.clay{background:linear-gradient(180deg,transparent 56%,var(--clay-soft) 56%)}
+.mark.cobalt{background:linear-gradient(180deg,transparent 56%,var(--cobalt-soft) 56%)}
+.cobalt{color:var(--cobalt)} .citrus{color:var(--citrus)} .moss{color:var(--moss)} .clay{color:var(--clay)} .teal{color:var(--teal)}
+.force{color:var(--force)} .direction{color:var(--direction)} .destination{color:var(--destination)}
+.ink{color:var(--ink)}
+
+.chip{display:inline-flex;align-items:center;gap:12px;padding:12px 24px;border-radius:999px;
+  font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:.02em;
+  background:var(--cobalt-soft);color:var(--cobalt);border:1px solid var(--line)}
+.chip.citrus{background:var(--citrus-soft);color:var(--citrus)}
+.chip.moss{background:var(--moss-soft);color:var(--moss)}
+.chip.clay{background:var(--clay-soft);color:var(--clay)}
+
+.card{background:var(--paper-2);border:1px solid var(--line);border-radius:22px;
+  box-shadow:0 1px 0 rgba(0,0,0,.35),0 26px 52px -30px rgba(0,0,0,.7)}
+
+/* layout helpers */
+.row{display:flex} .col{display:flex;flex-direction:column}
+.between{justify-content:space-between} .center{align-items:center}
+.grow{flex:1} .gap-s{gap:16px}.gap{gap:28px}.gap-l{gap:46px}.gap-xl{gap:72px}
+.spacer{flex:1}
+
+/* vector legend */
+.legend{display:flex;gap:40px;align-items:center;flex-wrap:wrap}
+.legend .lg{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:20px;color:var(--ink-2)}
+.legend .sw{width:46px;height:8px;border-radius:99px}
+
+/* numbered takeaway cards */
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:34px}
+.three .cell{background:var(--paper-2);border:1px solid var(--line);border-radius:22px;padding:42px 40px;display:flex;flex-direction:column;gap:18px}
+.three .cell .no{font-family:var(--mono);font-weight:700;font-size:30px;color:var(--citrus)}
+.three .cell h4{font-family:var(--serif);font-weight:700;font-size:38px;line-height:1.08;color:var(--ink)}
+.three .cell p{font-size:25px;line-height:1.45;color:var(--ink-2)}
+.three .cell .tag{margin-top:auto;font-family:var(--mono);font-size:17px;color:var(--ink-3);letter-spacing:.04em}
+
+/* two-layer split */
+.layer{border-radius:22px;padding:40px 44px;border:1px solid var(--line)}
+.layer .lab{font-family:var(--mono);font-size:21px;letter-spacing:.06em;margin-bottom:14px}
+.layer h4{font-family:var(--serif);font-weight:700;font-size:42px;color:var(--ink);margin-bottom:14px}
+.layer p{font-size:26px;line-height:1.45;color:var(--ink-2)}
+.layer.f{background:linear-gradient(180deg,var(--clay-soft),transparent 70%);border-color:rgba(219,132,97,.4)}
+.layer.d{background:linear-gradient(180deg,var(--citrus-soft),transparent 70%);border-color:rgba(249,168,74,.45)}
+
+/* big pull quote */
+.quote{font-family:var(--serif);font-style:italic;font-weight:400;font-size:58px;line-height:1.22;color:var(--ink);max-width:1480px}
+.attrib{font-family:var(--mono);font-size:24px;color:var(--ink-3);margin-top:8px}
+
+/* footer / page chrome */
+.foot{position:absolute;left:132px;right:132px;bottom:54px;
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:18px;color:var(--ink-4);letter-spacing:.04em;z-index:3}
+.foot .brand{color:var(--ink-3)} .foot .brand b{color:var(--citrus);font-weight:700}
+
+/* nav controls */
+.controls{position:fixed;right:26px;bottom:22px;z-index:1000;display:flex;gap:10px;align-items:center}
+.controls button{font-family:var(--mono);font-size:16px;background:var(--paper-2);color:var(--ink-2);
+  border:1px solid var(--line-strong);border-radius:10px;padding:8px 13px;cursor:pointer}
+.controls button:hover{background:var(--paper-3);color:var(--ink)}
+.counter{position:fixed;left:26px;bottom:22px;z-index:1000;font-family:var(--mono);font-size:16px;color:var(--ink-4)}
+.progress{position:fixed;left:0;top:0;height:4px;background:var(--citrus);z-index:1001;transition:width .35s ease}
+
+@media (prefers-reduced-motion: reduce){
+  .reveal,.slide{transition-duration:.01ms!important}
+}
+@media print{
+  html,body{width:1920px;height:auto;overflow:visible;background:#fff}
+  .deck-viewport{position:static;overflow:visible}
+  .deck-stage{position:static;width:auto;height:auto;transform:none!important}
+  .controls,.counter,.progress{display:none}
+  .slide{position:relative;visibility:visible;opacity:1;break-after:page;page-break-after:always;border:none}
+  .slide .reveal{opacity:1!important;transform:none!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck-viewport">
+<main class="deck-stage" id="deckStage">
+
+<!-- ============================ SLIDE 1 — TITLE ============================ -->
+<section class="slide visible">
+  <div class="reveal eyebrow">UNSW guest lecture <span class="dot">/</span> 16 April 2026 edition</div>
+  <div class="col grow" style="justify-content:center;gap:30px;margin-top:-30px">
+    <h1 class="reveal head">Force <span class="citrus">×</span> Direction</h1>
+    <div class="reveal dek" style="font-style:normal;font-family:var(--serif);font-weight:400;font-size:46px;color:var(--ink-2)">what AI actually amplifies in strategy work.</div>
+    <div class="reveal row gap-s" style="flex-wrap:wrap;margin-top:10px">
+      <span class="chip clay">force is almost free now</span>
+      <span class="chip">direction is the whole job</span>
+      <span class="chip moss">right direction slowly &gt; wrong direction fast</span>
+    </div>
+  </div>
+  <div class="reveal mono" style="color:var(--ink-3)">Lucas Zhu &nbsp;·&nbsp; ex-McKinsey, ex-HelloFresh ANZ &nbsp;·&nbsp; co-founder, Frollie &nbsp;·&nbsp; lucaszhu.com</div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>01 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 2 — THE THESIS (vector anatomy) ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">01 <span class="dot">·</span> the frame</div>
+  <h2 class="reveal head" style="margin-top:14px">Every strategic problem<br>is a <span class="citrus">vector</span>.</h2>
+  <div class="reveal dek" style="margin-top:18px">A slide looks like a slide. Underneath it is a vector — three components, in this order.</div>
+
+  <div class="row grow center gap-xl" style="margin-top:30px">
+    <div class="reveal col gap" style="flex:1.05">
+      <div class="card row center gap" style="padding:30px 34px;border-color:rgba(249,168,74,.4)">
+        <div class="mono" style="font-size:22px;color:var(--direction);min-width:230px;font-weight:700">DIRECTION</div>
+        <div class="body" style="font-size:28px">which question are you actually asking?</div>
+      </div>
+      <div class="card row center gap" style="padding:30px 34px;border-color:rgba(219,132,97,.4)">
+        <div class="mono" style="font-size:22px;color:var(--force);min-width:230px;font-weight:700">FORCE</div>
+        <div class="body" style="font-size:28px">how much analytical horsepower behind it?</div>
+      </div>
+      <div class="card row center gap" style="padding:30px 34px;border-color:rgba(140,166,255,.4)">
+        <div class="mono" style="font-size:22px;color:var(--destination);min-width:230px;font-weight:700">DESTINATION</div>
+        <div class="body" style="font-size:28px">where are you trying to get to?</div>
+      </div>
+    </div>
+
+    <div class="reveal col center" style="flex:1">
+      <svg viewBox="0 0 620 460" width="100%" style="max-width:600px">
+        <defs>
+          <marker id="vh" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#F9A84A"/></marker>
+        </defs>
+        <!-- destination star -->
+        <g transform="translate(520,86)">
+          <circle r="46" fill="rgba(140,166,255,0.10)"/>
+          <path d="M0,-22 L6,-7 L22,-7 L9,3 L14,19 L0,9 L-14,19 L-9,3 L-22,-7 L-6,-7 Z" fill="#8CA6FF"/>
+        </g>
+        <text x="520" y="170" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="19" fill="#8CA6FF">destination</text>
+        <!-- the vector -->
+        <line x1="80" y1="400" x2="486" y2="120" stroke="#F9A84A" stroke-width="11" stroke-linecap="round" marker-end="url(#vh)"/>
+        <text x="150" y="300" transform="rotate(-34 150 300)" font-family="JetBrains Mono,monospace" font-size="20" fill="#F9A84A" font-weight="700">direction</text>
+        <!-- force = magnitude bracket -->
+        <line x1="58" y1="412" x2="120" y2="370" stroke="#DB8461" stroke-width="4" stroke-dasharray="2 8" stroke-linecap="round"/>
+        <text x="60" y="438" font-family="JetBrains Mono,monospace" font-size="19" fill="#DB8461" font-weight="700">force = length</text>
+        <circle cx="80" cy="400" r="9" fill="#F1E9D8"/>
+      </svg>
+    </div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>02 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 3 — FORCE WAS THE BOTTLENECK ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">02 <span class="dot">·</span> the economics that broke</div>
+  <div class="col grow" style="justify-content:center;gap:40px">
+    <div class="reveal mono clay" style="font-size:24px;letter-spacing:.06em">UNTIL 2023</div>
+    <h2 class="reveal head"><span class="clay">Force</span> was the bottleneck.</h2>
+    <div class="reveal lede">Smart, expensive humans took weeks to gather, model, synthesise and present.<br>The reason consulting cost what it did is that raw analytical <span class="clay">force was scarce</span>.</div>
+    <div class="reveal row gap-s" style="flex-wrap:wrap;margin-top:6px">
+      <span class="chip clay">weeks of grind</span>
+      <span class="chip clay">a team of analysts</span>
+      <span class="chip clay">force = the whole invoice</span>
+    </div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>03 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 4 — THE BOTTLENECK IS GONE ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">02 <span class="dot">·</span> the economics that broke</div>
+  <div class="col grow" style="justify-content:center;gap:36px">
+    <div class="reveal mono citrus" style="font-size:24px;letter-spacing:.06em">SINCE 2023</div>
+    <h2 class="reveal head" style="font-size:104px">That bottleneck is gone.<br><span class="citrus">Force is almost free.</span></h2>
+    <div class="reveal lede">A first-draft deck. A benchmarking sweep. A model template. Overnight outputs now.<br>So what is left? <span class="mark">The direction.</span> And direction does <em>not</em> get cheaper with AI.</div>
+    <div class="reveal dek" style="margin-top:8px;color:var(--ink)">If anything it gets more expensive — because you can now move at full speed in <span class="clay">whichever direction you happen to point at</span>.</div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>04 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 5 — THE FAILURE MODE NAMED ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">03 <span class="dot">·</span> the failure mode</div>
+  <div class="col grow center" style="justify-content:center;gap:40px;text-align:center">
+    <div class="reveal huge" style="font-size:128px;text-align:center"><span class="clay">More force,</span><br><span class="clay">faster,</span><br><span class="ink">confidently wrong.</span></div>
+    <div class="reveal lede" style="text-align:center;max-width:1300px">The output looks polished. It moves. It compiles. It even reads well.<br>But if the question underneath was wrong, all that polish does is <span class="mark clay">make the wrong answer easier to ship</span>.</div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>05 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 6 — CASE STUDY: THE APPRENTICESHIP (vector thickens) ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">04 <span class="dot">·</span> a true story · 2018, my first due diligence</div>
+  <h2 class="reveal head" style="margin-top:10px;font-size:74px">How a human got to the answer.</h2>
+  <div class="reveal dek" style="margin-top:12px;font-size:34px">A medical-AI company reading millions of chest x-rays. A client paid us to answer one question: which country should it sell in first? I ran that work. No AI — just iteration.</div>
+
+  <div class="reveal" style="margin-top:26px">
+    <svg viewBox="0 0 1664 430" width="100%" style="max-width:1664px">
+      <defs>
+        <marker id="ah6" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#F9A84A"/></marker>
+        <marker id="ah6b" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#8CA6FF"/></marker>
+      </defs>
+      <!-- destination star, top-right -->
+      <text x="1560" y="44" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="19" fill="#8CA6FF">the right answer</text>
+      <g transform="translate(1560,96)">
+        <circle r="46" fill="rgba(140,166,255,0.10)"/>
+        <path d="M0,-22 L6,-7 L22,-7 L9,3 L14,19 L0,9 L-14,19 L-9,3 L-22,-7 L-6,-7 Z" fill="#8CA6FF"/>
+      </g>
+      <!-- start node -->
+      <circle cx="92" cy="360" r="11" fill="#F1E9D8"/>
+      <!-- ascending, thickening polyline (labels live in the open triangle BELOW the line) -->
+      <line x1="100" y1="354" x2="470" y2="300" stroke="#F9A84A" stroke-width="4"  stroke-linecap="round" opacity="0.85" marker-end="url(#ah6)"/>
+      <line x1="470" y1="300" x2="850" y2="235" stroke="#F9A84A" stroke-width="7"  stroke-linecap="round" marker-end="url(#ah6)"/>
+      <line x1="850" y1="235" x2="1200" y2="165" stroke="#F9A84A" stroke-width="10" stroke-linecap="round" marker-end="url(#ah6)"/>
+      <line x1="1200" y1="165" x2="1492" y2="118" stroke="#8CA6FF" stroke-width="14" stroke-linecap="round" marker-end="url(#ah6b)"/>
+      <!-- iteration labels, all BELOW the line, horizontal, no collision -->
+      <g font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">
+        <text x="118" y="392">day one — "just go to the US" · skinny</text>
+        <text x="540" y="330">manager: too fragmented → India, UK</text>
+        <text x="900" y="262">partner: reframe the question</text>
+        <text x="1228" y="196" fill="#8CA6FF" font-weight="700">client board: "walk me through it"</text>
+      </g>
+      <!-- baseline -->
+      <line x1="92" y1="402" x2="1610" y2="402" stroke="rgba(241,233,216,0.12)"/>
+      <text x="92" y="428" font-family="JetBrains Mono,monospace" font-size="17" fill="#5E594E">thicker line = more defensible — work you can stand behind in the room (not more force)</text>
+    </svg>
+  </div>
+  <div class="reveal body" style="margin-top:14px;font-size:30px"><span class="mark cobalt">The thick line was earned through days of Excel, dead ends, and being told it was wrong.</span> That is how judgment and taste get built.</div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>06 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 7 — THE AI DAY-1 ANALYST (vectors spray, then thin) ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">04 <span class="dot">·</span> same job · day one with AI</div>
+  <h2 class="reveal head" style="margin-top:10px;font-size:74px">How AI gets to the answer.</h2>
+  <div class="reveal dek" style="margin-top:12px;font-size:34px">Thirty polished pages by lunch. Six markets at once: US, China, Japan, all of it — thick, convincing arrows, every direction at full force.</div>
+
+  <div class="reveal" style="margin-top:26px">
+    <svg viewBox="0 0 1664 430" width="100%" style="max-width:1664px">
+      <defs>
+        <marker id="ah7" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#DB8461"/></marker>
+        <marker id="ah7t" markerWidth="9" markerHeight="9" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#8E8878"/></marker>
+      </defs>
+      <!-- destination star, top-right -->
+      <text x="1560" y="44" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="19" fill="#8CA6FF">the right answer</text>
+      <g transform="translate(1560,96)">
+        <circle r="46" fill="rgba(140,166,255,0.10)"/>
+        <path d="M0,-22 L6,-7 L22,-7 L9,3 L14,19 L0,9 L-14,19 L-9,3 L-22,-7 L-6,-7 Z" fill="#8CA6FF"/>
+      </g>
+      <!-- descriptor sits ABOVE the fan, top-left, clear of every arrow -->
+      <text x="96" y="40" font-family="JetBrains Mono,monospace" font-size="18" fill="#DB8461" font-weight="700">thick, convincing — every direction at once</text>
+      <!-- start node -->
+      <circle cx="100" cy="320" r="11" fill="#F1E9D8"/>
+      <text x="100" y="360" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">day one</text>
+      <!-- spray: many thick confident vectors, all pointing wrong, none near the star -->
+      <line x1="110" y1="314" x2="560" y2="92"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
+      <line x1="110" y1="316" x2="590" y2="170" stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
+      <line x1="110" y1="320" x2="600" y2="250" stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
+      <line x1="110" y1="324" x2="560" y2="330" stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
+      <line x1="110" y1="326" x2="510" y2="380" stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.70" marker-end="url(#ah7)"/>
+      <!-- course-correct: thin, wandering, never reaches the star -->
+      <line x1="600" y1="170" x2="940" y2="232" stroke="#8E8878" stroke-width="3"   stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
+      <line x1="940" y1="232" x2="1250" y2="195" stroke="#8E8878" stroke-width="3"   stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
+      <line x1="1250" y1="195" x2="1470" y2="168" stroke="#8E8878" stroke-width="2.5" stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
+      <!-- correction labels sit BELOW the gentle dashed path, in open space -->
+      <g font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">
+        <text x="700" y="285">"show me the model." — what model?</text>
+        <text x="1080" y="262">correct from nowhere → thinner</text>
+      </g>
+      <line x1="100" y1="402" x2="1610" y2="402" stroke="rgba(241,233,216,0.12)"/>
+      <text x="100" y="428" font-family="JetBrains Mono,monospace" font-size="17" fill="#5E594E">no direction underneath → corrections start from nowhere, and the line only thins</text>
+    </svg>
+  </div>
+  <div class="reveal body" style="margin-top:14px;font-size:30px"><span class="mark clay">AI fluency arrived before direction discipline.</span> They automated the wrong half of the job and called it productivity.</div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>07 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 8 — TWO LAYERS + QUOTE ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">05 <span class="dot">·</span> the work, in two layers</div>
+  <h2 class="reveal head" style="margin-top:10px;font-size:78px">One layer AI replaces.<br>One it can't reach — <span class="citrus">yet</span>.</h2>
+
+  <div class="row gap-l" style="margin-top:34px">
+    <div class="reveal layer f" style="flex:1">
+      <div class="lab clay">LAYER 01 — FORCE</div>
+      <h4>AI replaces this</h4>
+      <p>Research synthesis. Benchmarking. Model templating. First-draft decks. Data gathering. Not augments — <b style="color:var(--ink)">replaces</b>.</p>
+    </div>
+    <div class="reveal layer d" style="flex:1">
+      <div class="lab citrus">LAYER 02 — DIRECTION</div>
+      <h4>AI doesn't own this</h4>
+      <p>Which question to ask. Reading a room. Telling a CEO what they don't want to hear. Earning a scared client's trust. A judgement call when the data is genuinely ambiguous.</p>
+    </div>
+  </div>
+
+  <div class="reveal card" style="margin-top:34px;padding:36px 44px;border-color:rgba(140,166,255,.35)">
+    <div class="quote" style="font-size:46px">"They can do 80%. They need the last 20%.<br>That last 20% is <span class="citrus">direction</span>, not force."</div>
+    <div class="attrib">— Dr. Trung Nghia Ton, Foundry Health</div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>08 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 9 — THE VENN ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">06 <span class="dot">·</span> what makes you distinctive</div>
+  <h2 class="reveal head" style="margin-top:8px;font-size:72px">Three circles. The job is the overlap.</h2>
+
+  <div class="row grow center gap-xl" style="margin-top:8px">
+    <div class="reveal col center" style="flex:1.1">
+      <svg viewBox="0 0 560 520" width="100%" style="max-width:560px">
+        <circle cx="220" cy="190" r="180" fill="rgba(140,166,255,0.16)" stroke="#8CA6FF" stroke-width="2"/>
+        <circle cx="340" cy="190" r="180" fill="rgba(249,168,74,0.16)" stroke="#F9A84A" stroke-width="2"/>
+        <circle cx="280" cy="330" r="180" fill="rgba(143,168,136,0.16)" stroke="#8FA888" stroke-width="2"/>
+        <text x="150" y="120" text-anchor="middle" font-family="Arvo,serif" font-size="25" font-weight="700" fill="#8CA6FF">domain</text>
+        <text x="150" y="150" text-anchor="middle" font-family="Arvo,serif" font-size="25" font-weight="700" fill="#8CA6FF">expertise</text>
+        <text x="410" y="135" text-anchor="middle" font-family="Arvo,serif" font-size="25" font-weight="700" fill="#F9A84A">taste</text>
+        <text x="280" y="430" text-anchor="middle" font-family="Arvo,serif" font-size="25" font-weight="700" fill="#8FA888">AI</text>
+        <text x="280" y="460" text-anchor="middle" font-family="Arvo,serif" font-size="25" font-weight="700" fill="#8FA888">fluency</text>
+        <circle cx="280" cy="250" r="20" fill="#F1E9D8"/>
+        <text x="280" y="256" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="20" font-weight="700" fill="#102821">★</text>
+      </svg>
+    </div>
+    <div class="reveal col gap" style="flex:1">
+      <div class="card" style="padding:24px 30px"><div class="body" style="font-size:25px"><b class="cobalt">Domain expertise</b> — knowing the detail, and reading the room.</div></div>
+      <div class="card" style="padding:24px 30px"><div class="body" style="font-size:25px"><b class="citrus">Taste</b> — the right answer, and the story that lands it. <span style="color:var(--ink-3)">AI is an execution engine, not a taste engine.</span></div></div>
+      <div class="card" style="padding:24px 30px"><div class="body" style="font-size:25px"><b class="moss">AI fluency</b> — knowing what it can do, and more importantly <b style="color:var(--ink)">what it cannot</b>.</div></div>
+      <div class="body" style="font-size:23px;color:var(--ink-3);margin-top:4px">Drop one and there's a gap: taste + fluency without expertise is just <span class="clay">beautiful arrows into the air</span>.</div>
+    </div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>09 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 10 — SECTION DIVIDER: MONDAY MORNING ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">07 <span class="dot">·</span> what to do Monday morning</div>
+  <div class="col grow" style="justify-content:center;gap:30px">
+    <div class="reveal huge" style="font-size:120px">Three things,<br>starting <span class="citrus">tomorrow</span>.</div>
+    <div class="reveal lede">Do these and you're ahead of 95% of people on what AI can actually do for you — and for your business.</div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>10 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 11 — THE THREE TAKEAWAYS ============================ -->
+<section class="slide">
+  <div class="reveal eyebrow">07 <span class="dot">·</span> the takeaways</div>
+  <h2 class="reveal head" style="margin-top:6px;font-size:64px">Build the half AI can't.</h2>
+
+  <div class="reveal three" style="margin-top:36px;flex:1">
+    <div class="cell">
+      <div class="no">01</div>
+      <h4>Critique, don't just produce</h4>
+      <p>Take an old assignment. Ask AI to do it. Hunt for where it hallucinates, stalls, sounds sure and is wrong. Those are the failure modes only you can catch.</p>
+      <div class="tag">→ build your QA instinct</div>
+    </div>
+    <div class="cell">
+      <div class="no">02</div>
+      <h4>Earn the right to a direction</h4>
+      <p>Go deep before you go fast. Not TikTok news — the ecosystem: reports, operator calls, investor calls. Understand which industry you enjoy, and why they do what they do.</p>
+      <div class="tag">→ depth, not headlines</div>
+    </div>
+    <div class="cell">
+      <div class="no">03</div>
+      <h4>Start building actual things</h4>
+      <p>Lock yourself in a room. Pick a real use case you care about. Solo-build it with an agent. Ship something. You'll learn more in a weekend than in a year of reading about it.</p>
+      <div class="tag">→ accelerate your taste</div>
+    </div>
+  </div>
+  <div class="reveal body" style="margin-top:24px;font-size:28px"><span class="mark">The operator's test:</span> audit one workflow you just sped up — was the question right, or did you just ship the wrong answer faster?</div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>11 / 12</span></div>
+</section>
+
+<!-- ============================ SLIDE 12 — CLOSE ============================ -->
+<section class="slide">
+  <div class="col grow" style="justify-content:center;gap:34px">
+    <div class="reveal eyebrow">the takeaway</div>
+    <h2 class="reveal head" style="font-size:104px"><span class="clay">Force is free now.</span><br><span class="citrus">Direction is the whole job.</span></h2>
+    <div class="reveal dek" style="font-size:42px;color:var(--ink);max-width:1480px">
+      <span class="mark">A wrong vector at full force just gets you to the wrong answer faster — and now with better typography.</span>
+    </div>
+    <div class="reveal lede" style="font-size:34px;color:var(--ink-2);margin-top:4px">Before you fire up the AI, ask the only question it can't ask for you:<br><span class="ink">am I sure I'm pointing at the right destination?</span></div>
+    <div class="reveal mono" style="margin-top:18px;color:var(--ink-3)">Lucas Zhu &nbsp;·&nbsp; lucaszhu.com &nbsp;·&nbsp; UNSW BIS guest lecture, April 2026 &nbsp;·&nbsp; thank you</div>
+  </div>
+  <div class="foot"><span class="brand"><b>force</b> × direction</span><span>12 / 12</span></div>
+</section>
+
+</main>
+</div>
+
+<div class="counter" id="counter">01 / 12</div>
+<div class="controls">
+  <button id="prevBtn" aria-label="Previous slide">◀ prev</button>
+  <button id="nextBtn" aria-label="Next slide">next ▶</button>
+</div>
+
+<script>
+/* frontend-slides: fixed-stage presentation controller */
+class SlidePresentation{
+  constructor(){
+    this.slides=[...document.querySelectorAll('.slide')];
+    this.i=0;
+    this.stage=document.getElementById('deckStage');
+    this.counter=document.getElementById('counter');
+    this.progress=document.getElementById('progress');
+    this.scale();
+    window.addEventListener('resize',()=>this.scale());
+    this.keys();this.touch();
+    document.getElementById('nextBtn').onclick=()=>this.go(this.i+1);
+    document.getElementById('prevBtn').onclick=()=>this.go(this.i-1);
+    this.show(0);
+  }
+  scale(){ // uniform-fit the 1920x1080 stage, letterbox/pillarbox
+    const f=Math.min(innerWidth/1920,innerHeight/1080);
+    const x=(innerWidth-1920*f)/2, y=(innerHeight-1080*f)/2;
+    this.stage.style.transform=`translate(${x}px,${y}px) scale(${f})`;
+  }
+  show(n){
+    this.i=Math.max(0,Math.min(n,this.slides.length-1));
+    this.slides.forEach((s,k)=>s.classList.toggle('visible',k===this.i));
+    const num=String(this.i+1).padStart(2,'0'), tot=String(this.slides.length).padStart(2,'0');
+    this.counter.textContent=`${num} / ${tot}`;
+    this.progress.style.width=`${((this.i+1)/this.slides.length)*100}%`;
+  }
+  go(n){this.show(n);}
+  keys(){
+    addEventListener('keydown',e=>{
+      if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){e.preventDefault();this.go(this.i+1);}
+      else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();this.go(this.i-1);}
+      else if(e.key==='Home'){this.go(0);} else if(e.key==='End'){this.go(this.slides.length-1);}
+    });
+  }
+  touch(){
+    let x0=null;
+    addEventListener('touchstart',e=>x0=e.touches[0].clientX,{passive:true});
+    addEventListener('touchend',e=>{if(x0===null)return;const dx=e.changedTouches[0].clientX-x0;
+      if(Math.abs(dx)>50)this.go(this.i+(dx<0?1:-1));x0=null;},{passive:true});
+  }
+}
+new SlidePresentation();
+</script>
+</body>
+</html>
