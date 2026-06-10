@@ -333,21 +333,22 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       <circle cx="100" cy="370" r="11" fill="#F1E9D8"/>
       <!-- iterating vector: MANY small corrections — each push aims a little closer,
            gets longer + thicker (confidence), overshoots the answer, then settles onto it -->
-      <line x1="105" y1="359" x2="170" y2="266" stroke="#F9A84A" stroke-width="3"   stroke-linecap="round" opacity="0.8" marker-end="url(#ah6)"/>
-      <line x1="170" y1="266" x2="375" y2="208" stroke="#F9A84A" stroke-width="5"   stroke-linecap="round" opacity="0.88" marker-end="url(#ah6)"/>
-      <line x1="375" y1="208" x2="650" y2="124" stroke="#F9A84A" stroke-width="7.5" stroke-linecap="round" opacity="0.95" marker-end="url(#ah6)"/>
-      <!-- overshoot: climbs above the answer... -->
-      <line x1="650" y1="124" x2="940" y2="78"  stroke="#F9A84A" stroke-width="10"  stroke-linecap="round" marker-end="url(#ah6)"/>
+      <!-- every elbow turns: steep → flat → steeper → flat overshoot → back down → settle -->
+      <line x1="104" y1="360" x2="170" y2="262" stroke="#F9A84A" stroke-width="3"   stroke-linecap="round" opacity="0.8" marker-end="url(#ah6)"/>
+      <line x1="170" y1="262" x2="390" y2="232" stroke="#F9A84A" stroke-width="5"   stroke-linecap="round" opacity="0.88" marker-end="url(#ah6)"/>
+      <line x1="390" y1="232" x2="660" y2="118" stroke="#F9A84A" stroke-width="7.5" stroke-linecap="round" opacity="0.95" marker-end="url(#ah6)"/>
+      <!-- overshoot: flattens out, climbing above the answer... -->
+      <line x1="660" y1="118" x2="950" y2="72"  stroke="#F9A84A" stroke-width="10"  stroke-linecap="round" marker-end="url(#ah6)"/>
       <!-- ...and comes back down -->
-      <line x1="940" y1="78"  x2="1215" y2="130" stroke="#F9A84A" stroke-width="12" stroke-linecap="round" marker-end="url(#ah6)"/>
-      <!-- final settle, straight onto the answer -->
-      <line x1="1215" y1="130" x2="1492" y2="118" stroke="#8CA6FF" stroke-width="15" stroke-linecap="round" marker-end="url(#ah6b)"/>
+      <line x1="950" y1="72"  x2="1220" y2="128" stroke="#F9A84A" stroke-width="12" stroke-linecap="round" marker-end="url(#ah6)"/>
+      <!-- final settle, near-level onto the answer -->
+      <line x1="1220" y1="128" x2="1492" y2="118" stroke="#8CA6FF" stroke-width="15" stroke-linecap="round" marker-end="url(#ah6b)"/>
       <!-- elbow dots: each turn is a correction -->
-      <circle cx="170" cy="266" r="5" fill="#F9A84A" opacity="0.85"/>
-      <circle cx="375" cy="208" r="6" fill="#F9A84A" opacity="0.9"/>
-      <circle cx="650" cy="124" r="7" fill="#F9A84A"/>
-      <circle cx="940" cy="78"  r="7" fill="#F9A84A"/>
-      <circle cx="1215" cy="130" r="8" fill="#F9A84A"/>
+      <circle cx="170" cy="262" r="5" fill="#F9A84A" opacity="0.85"/>
+      <circle cx="390" cy="232" r="6" fill="#F9A84A" opacity="0.9"/>
+      <circle cx="660" cy="118" r="7" fill="#F9A84A"/>
+      <circle cx="950" cy="72"  r="7" fill="#F9A84A"/>
+      <circle cx="1220" cy="128" r="8" fill="#F9A84A"/>
       <!-- iteration labels, BELOW the path, horizontal, no collision -->
       <g font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">
         <text x="140" y="330">day one — "just go to the US" · skinny</text>

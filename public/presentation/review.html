@@ -320,7 +320,7 @@ function boot(){
     // keep parent in sync if anything inside the deck changes slides
     pollTimer = setInterval(()=>{
       const v = slides.findIndex(s=>s.classList.contains('visible'));
-      if(v>=0 && v!==cur){ cur=v; paint(); }
+      if(v>=0 && v!==cur){ cur=v; slides[cur].querySelectorAll('.frag').forEach(f=>f.classList.add('on')); paint(); }
       fitGhost();
     }, 350);
     fitGhost(); paint();
@@ -330,6 +330,8 @@ function showSlide(n){
   if(!slides.length) return;
   cur = Math.max(0, Math.min(n, slides.length-1));
   slides.forEach((s,k)=>s.classList.toggle('visible', k===cur));
+  // reviewers see the finished slide: force-reveal click-through fragments
+  slides[cur].querySelectorAll('.frag').forEach(f=>f.classList.add('on'));
   // keep the deck's own HUD honest
   const doc = frame.contentDocument;
   const c = doc.getElementById('counter');
