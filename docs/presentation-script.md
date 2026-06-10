@@ -6,7 +6,9 @@
 
 # Frollie POS — talk deck content
 
-~10-minute talk, 9 slides, speaker-led, low density. By Lucas Zhu (ex-McKinsey, non-technical founder). **Audience: peer CEOs / founders.** The frame: how a non-technical CEO built a real, money-taking product with AI, and the lessons a CEO can take away.
+~10-minute talk, 8 slides + 2 appendix pages, speaker-led, low density. By Lucas Zhu (ex-McKinsey, non-technical founder). **Audience: peer CEOs / founders.** The frame: how a non-technical CEO built a real, money-taking product with AI, and the lessons a CEO can take away.
+
+> **Rewrite note (2026-06-10):** restructured from the author's pinned-comment review (11 comments, `review-comments--frolliepos-talk--2026-06-10.json`). Headline is now 15 days; "what holds it together" moved to appendix A and slide 2 became a 7-layer value-chain diagram; the decisions table moved to appendix B and its slot became a click-through "five mistakes" slide; the cost slide is now an off-site-approval case study; footers carry Ikigai AI Ventures.
 
 Voice: verbs first, short sentences, numbers over adjectives, sentence case, first person. No jargon, no engineering vocabulary on the slides — every mechanism is named by the business risk it kills. No banned words (leverage, synergy, unlock, journey, holistic, game-changer, 10x, transform your business). No emoji.
 
@@ -14,91 +16,81 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 1 — I built a real product from scratch, alone, in 12 days
+## Slide 1 — I built a working product from scratch in 15 days
 
 **Dek:** ex-McKinsey. no engineering team. a non-technical founder, and a swarm of AI agents.
 
-**On the slide:** the title hero + a real device shot. Chips: idea → live in 12 days · 500+ automated tests · taking real money, day 9 · no engineers hired.
+**On the slide:** the title hero + a real device shot. Chips: idea → live in 12 days · 500+ automated tests · taking real money, day 9 · no engineers hired. Footer carries **Ikigai AI Ventures** (every slide does).
 
-**Speaker notes:** I'm Lucas — seven years at McKinsey, no engineering background. Twelve days ago this was a planning doc. Today it takes real money at our cookie booth in Jakarta, and I hired no engineers to get there. I'll show you what I built, how I ran a swarm of AI agents like a team, and the lessons that carry over to any CEO.
-
----
-
-## Slide 2 — what is it?
-
-**Dek:** a real cash register for our cookie booth in Block M, South Jakarta. real money, real payments, on one phone.
-
-**On the slide (what it does):**
-- **sell** — ring up a cart and take payment in the app, a QR code or a bank transfer. price and product name lock onto the receipt the second the sale happens.
-- **confirm** — the payment provider tells us the instant money lands. we stopped guessing — though one wrong setting makes it fail silently, so a manager's PIN is the only manual override.
-- **prove** — every paid sale makes a receipt with its own private link, and prints to a pocket thermal printer in one tap.
-- **govern** — a refund is a new record, never an edit. nothing is ever deleted. every action sits on a permanent log.
-- **reach** — when a manager is off-site, the system messages them an approve button. the link lets them see; their PIN lets them act.
-
-**Speaker notes:** It looks like a normal cash register — ring up, take payment, print a receipt. The interesting part is underneath: a few rules that make sure the money is always right, whoever is running the booth.
+**Speaker notes:** I'm Lucas — seven years at McKinsey, no engineering background. Fifteen days ago this was a planning doc. Today it takes real money at our cookie booth in Jakarta, and I hired no engineers to get there. I'll show you what I built, how I ran AI agents like a team, and the lessons that carry over to any CEO.
 
 ---
 
-## Slide 3 — what holds it together?
+## Slide 2 — what is it? (the value chain)
 
-**Dek:** a few rules every sale obeys, no matter who runs it or where. the on-site path and the off-site path cannot drift apart.
+**Dek:** a real cash register for our cookie booth in Block M — every layer a sale flows through, on one phone.
 
-**On the slide (what happens when money moves):** lock the sale → request payment → provider confirms → mark paid → stock + log. Three rules: **one rulebook** (every path runs the same logic; the system can't contradict itself), **frozen receipts** (an old receipt never changes, even if I change the menu tomorrow), **press twice, charge once** (a double-tap or a dropped signal can never double-charge a customer).
+**On the slide (a 7-layer value-flow diagram, top to bottom, features in mono under each layer):**
+1. **shift management** — staff PINs · registered devices · lockouts · sessions
+2. **inventory** — stock-in by SKU · recounts · low-stock alerts · spoilage
+3. **transactions** — cart → sale · prices frozen on the receipt · refunds are new rows
+4. **payments** (highlighted) — QR + bank transfer · provider confirms the instant money lands
+5. **receipts & invoices** — private receipt links · one-tap pocket thermal print
+6. **governance** — append-only audit log · manager-PIN gates · nothing deleted, ever
+7. **communications** — Telegram approvals · daily founders summary · alerts that find you
 
-**Speaker notes:** Every sale obeys the same short rulebook, so the on-site path and the off-site approval path can never disagree. Prices freeze at the moment of sale. A customer can never be double-charged. The CEO lesson is small and boring on purpose: a handful of rules you never break is what prevents the expensive mistakes.
+Two device shots on the right: the cart, a live payment.
+
+**Speaker notes:** It looks like a normal cash register. What it actually is: one value chain, top to bottom — from opening a shift to the message that wakes a manager at home. Walk the layers: staff sign in, stock comes in, a sale freezes its own prices, the payment provider confirms the moment money lands, the receipt prints, everything lands on a permanent log, and anything unusual finds a manager on Telegram. (The money-path rules behind layer 4 live in appendix A if anyone asks.)
 
 ---
 
-## Slide 4 — I never let my own work ship on one pass
+## Slide 3 — I never let my own work ship on one pass
 
-**Dek:** the cheapest mistake to fix is the one still in the plan. so I have the plan reviewed before anyone builds a thing.
+**Dek:** the cheapest mistake to fix is thinking QA is the agents' job. I build my own evaluation workflows — qualitative and deterministic.
 
-**On the slide:** idea + spec → review the spec → plan → review the plan → build → hand it to 3 reviewers (does it follow our rules? · is it well-made? · will it hold as we grow?) → agree + tidy up → ship. Closer: *the solo founder didn't get faster. they got staffed.*
+**On the slide:** idea + spec → review the spec → plan → review the plan → build → hand it to 3 reviewers (does it follow our rules? · is it well-made? · will it hold as we grow?) → agree + tidy up → ship. Closer: *you can't outsource taste and quality. you build evaluation systems you trust — and that takes time and millions of tokens of iteration.*
 
-**Speaker notes:** The cheapest mistake to fix is the one still in the plan, so I get the plan reviewed before anyone builds. Then I hand the finished work to three reviewers with three different jobs, and I never let them compare notes — independence is the point. The solo founder didn't get faster. They got staffed.
+**Speaker notes:** The cheapest mistake to fix is believing QA happens by itself because the agents are smart. It doesn't. I built my own evaluation workflows — some qualitative, judging taste and consistency; some deterministic, checks that pass or fail. The plan gets reviewed before anything is built, and finished work goes to three reviewers with three different jobs who never compare notes. You can't outsource taste. You build evaluation systems you trust, and that took me time and millions of tokens of iteration.
 
 ---
 
-## Slide 5 — one person. a whole org chart.
-
-> _(Merged from the former slides 5 + 6 — the six-pattern taxonomy was cut; the three core moves now live in the dek, and the slide lands on the management lesson rather than a tooling tour.)_
+## Slide 4 — one person. a whole org chart.
 
 **Dek:** I ran a swarm of AI agents like a company — split the work, make them check each other, loop until it's right. the team I didn't hire saved the coordination, not just the salary.
 
-**On the slide:** the org chart, run by one person — L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Caption: 11 manager screens, one person built them.
+**On the slide:** the org chart, run by one person — L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Right column: a browser shot of **the Build Log** (the CEO progress report) captioned "the progress tracker my non-engineer brain reads every morning", and a **QR code → github.com/lucasyhzhu-debug/shipshape** — "the QA checklist I run daily — a primary driver of quality on this build".
 
-**The three moves (folded into the dek):** *split + combine* (hand one job to several agents, then merge — never let them compare notes early); *make them argue* (they check each other's work against my written rules — agreement is earned); *loop until it's done* (review, fix, review again, then check it really works, not "looks done").
-
-**Speaker notes:** I didn't write much code — I ran a swarm of AI agents like a company. I split the work across several, made them check each other against my written rules, and looped until it was right. One person covering a whole org chart of functions: the tools I built, my playbooks, the AI and its helpers, the product's plumbing, the everyday machinery. The team I didn't hire saved me the coordination, not just the salary.
+**Speaker notes:** I didn't write much code — I ran AI agents like a company, split the work, made them check each other against my written rules, and looped until right. Two of the tools on screen are real and public: the Build Log — the progress report I actually read every morning, written for a non-engineer — and shipshape, the QA checklist I run daily. Scan the code; it's on my GitHub. The team I didn't hire saved me the coordination, not just the salary.
 
 ---
 
-## Slide 6 — the rules rewrote themselves
+## Slide 5 — five mistakes I learnt from (click-through)
 
-**Dek:** five decisions I wrote down, then tore up mid-build. writing them down is what let me catch them.
+**Dek:** beliefs I held on day one. each broke somewhere on the way to day fifteen.
 
-**On the slide (planned → became):**
-- share one database with our other product → give each its own system, talk through a clean handoff. "integrate by sharing the database" is the decision you regret first.
-- keep checking the provider for payment status → the provider tells us the instant it's paid; we stopped checking.
-- approve things over WhatsApp → approvals run on a channel where the link carries its own permission; nothing to store, nothing to leak.
-- the provider will notify us when cash settles → no such notification exists; we pull the list and match it ourselves.
-- the payment QR is ready instantly → it wasn't; one wrong sentence in a spec meant zero payments could complete. caught and fixed.
+**On the slide (each line appears on a click — talk to each one before revealing the next):**
+1. "agentic development is easy"
+2. "building alone is hard"
+3. "consuming is the same as building"
+4. "a better model fixes the quality gaps"
+5. "build something you can sell"
 
-**Speaker notes:** Half my confident assumptions were wrong, and I'd written some of them down twelve days earlier. The fix wasn't being smarter up front — it was writing decisions down so they were cheap to reverse, in a place where someone else could catch them. That written record is the reason one person can move this fast.
+**Speaker notes (one beat per click):** Each of these felt true on day one. *(click)* Agentic development is easy — until the demo works and production doesn't. *(click)* Building alone is hard — wrong kind of hard; the loneliness is in the deciding, not the typing. *(click)* Consuming AI is the same as building with it — using ChatGPT daily taught me almost nothing about running agents on a real codebase. *(click)* A better model will fix the quality gaps — it won't; my evaluation workflows did. *(click)* Build something you can sell — I built something I could *run*, and the booth taught me more than a pitch deck ever would.
 
 ---
 
-## Slide 7 — the build was the cheap part
+## Slide 6 — the build was the cheap part
 
 **Dek:** features took an afternoon. the boring wiring that keeps them from breaking took the days.
 
-**On the slide:** SHORT (a whole feature in a sitting) vs LONG (the unglamorous wiring). The costliest tiny bug: one missing line in a payment setting — money moved, the QR worked, but the sale never confirmed, and there was no error to see. The safety net grew 288 → 733 tests. The dashboards that lied: green tests hiding a real-world payment bug, an "all clear" check that checked nothing, a firewall silently blocking the phone.
+**On the slide:** CASE STUDY · the off-site approval system, in three boxes — **THE BUILD** (pillar by pillar: approvals in one pillar, transactions in another; each clean alone, but they talked past each other in time — async seams no demo ever showed) → **THE LEAK** (transactions falling through without proper logging; no error, no alert; found only while building the refund flow on top) → **THE SAVE** (two fixes, not one: end-to-end testing instructions the testing agents follow on every change, and deeper modules behind simpler interfaces so the seams get tested without touching internals). Right: the chart — tests 288 → 733 (bars) with a second line: public surfaces (domain APIs) 9 → 12, plateauing. Plus the dashboards that lied.
 
-**Speaker notes:** Building features is cheap now — an afternoon each. Making them not break in production took the days; about two-thirds of my effort went there. And watch your dashboards: a fully green test run was hiding a bug that would have broken every payment in the real world. Green does not mean safe.
+**Speaker notes:** Here's the one that taught me the most. I built the off-site approval system pillar by pillar — each pillar clean on its own, but they talked past each other in time, and some transactions fell through without proper logging. No error. I only found it while building refunds on top. The save was two-fold: better end-to-end testing instructions for my testing agents, and deeper modules behind simpler interfaces — John Ousterhout's "deep modules" idea from *A Philosophy of Software Design* (I first heard it via Matt Pocock) — so the seams are testable without knowing the internals. You can see that in the chart: the tests more than doubled, but the number of public surfaces flatlined at twelve — depth grew, the interfaces didn't.
 
 ---
 
-## Slide 8 — this deck built itself
+## Slide 7 — this deck built itself
 
 > _(Shrunk from a full workflow-diagram slide to a fast aside — the elaborate 5-agent diagram was a victory lap; the wow-metrics stay.)_
 
@@ -112,7 +104,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 
 ---
 
-## Slide 9 — force is free now; direction is the whole job
+## Slide 8 — force is free now; direction is the whole job
 
 **Dek (the takeaway):**
 - AI gives you almost free force. it will also be confidently wrong, fast, if you let it. the discipline of pausing is the new senior job.
@@ -123,6 +115,16 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 > a wrong vector at full speed just gets you to the wrong answer faster, with better typography.
 
 **Speaker notes:** If you take one thing: AI gives you almost free force, and the moat is direction. It will be confidently wrong, at full speed, if you let it. My whole job now is pointing it at the right thing, and pausing before the confident-wrong answer ships. Thanks.
+
+---
+
+## Appendix A (in-deck) — what holds it together?
+
+The former slide 3, kept verbatim after the close for Q&A: the money path (lock the sale → request payment → provider confirms → mark paid → stock + log) plus the three rules (one rulebook · frozen receipts · press twice, charge once). Pull it up if a peer asks "but how do you know the money is right?"
+
+## Appendix B (in-deck) — the rules rewrote themselves
+
+The former slide 6, kept verbatim after appendix A: the five planned → became decision reversals (own system vs shared database · webhook vs polling · Telegram vs WhatsApp · settlement has no notification · the QR that wasn't). Pull it up if asked "what did you get wrong on architecture?"
 
 ---
 
