@@ -39,7 +39,7 @@ Voice: verbs first, short sentences, numbers over adjectives, sentence case, fir
 6. **governance** — append-only audit log · manager-PIN gates · nothing deleted, ever
 7. **communications** — Telegram approvals · daily founders summary · alerts that find you
 
-Two device shots on the right: the cart, a live payment.
+Three device shots on the right: the cart, a live payment, the manager's Telegram (approvals group).
 
 **Speaker notes:** It looks like a normal cash register. What it actually is: one value chain, top to bottom — from opening a shift to the message that wakes a manager at home. Walk the layers: staff sign in, stock comes in, a sale freezes its own prices, the payment provider confirms the moment money lands, the receipt prints, everything lands on a permanent log, and anything unusual finds a manager on Telegram. (The money-path rules behind layer 4 live in appendix A if anyone asks.)
 
@@ -49,7 +49,7 @@ Two device shots on the right: the cart, a live payment.
 
 **Dek:** the cheapest mistake to fix is thinking QA is the agents' job. I build my own evaluation workflows — qualitative and deterministic.
 
-**On the slide:** idea + spec → review the spec → plan → review the plan → build → hand it to 3 reviewers (does it follow our rules? · is it well-made? · will it hold as we grow?) → agree + tidy up → ship. Closer: *you can't outsource taste and quality. you build evaluation systems you trust — and that takes time and millions of tokens of iteration.*
+**On the slide:** idea + spec → **shipshape review** (multi-agent · the spec, with a dashed *findings loop back into the spec*) → plan → **shipshape review** (multi-agent · the plan) → build → hand it to 3 reviewers (does it follow our rules? · is it well-made? · will it hold as we grow?) → **synthesise + refresh** (what 2 of 3 flag wins · then /simplify xhigh) → ship. Closer: *you can't outsource taste and quality. you build evaluation systems you trust — and that takes time and millions of tokens of iteration.* The review gates are the shipshape skill — a multi-agent review construct with a synthesis mechanism that loops findings back into the spec.
 
 **Speaker notes:** The cheapest mistake to fix is believing QA happens by itself because the agents are smart. It doesn't. I built my own evaluation workflows — some qualitative, judging taste and consistency; some deterministic, checks that pass or fail. The plan gets reviewed before anything is built, and finished work goes to three reviewers with three different jobs who never compare notes. You can't outsource taste. You build evaluation systems you trust, and that took me time and millions of tokens of iteration.
 
@@ -59,7 +59,7 @@ Two device shots on the right: the cart, a live payment.
 
 **Dek:** I ran a swarm of AI agents like a company — split the work, make them check each other, loop until it's right. the team I didn't hire saved the coordination, not just the salary.
 
-**On the slide:** the org chart, run by one person — L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Right column: a browser shot of **the Build Log** (the CEO progress report) captioned "the progress tracker my non-engineer brain reads every morning", and a **QR code → github.com/lucasyhzhu-debug/shipshape** — "the QA checklist I run daily — a primary driver of quality on this build".
+**On the slide:** the org chart, run by one person — L1 tools I built for this job · L2 my reusable playbooks · L3 the brain + the helpers · L4 the product's plumbing · L5 the workshop floor. Right column: a browser shot of **the Build Log** (the CEO progress report) captioned "the progress tracker my non-engineer brain reads every morning", and a **QR code → github.com/lucasyhzhu-debug/shipshape** — "the QA skill I built — continuously getting smarter, specs → code reviews. my most-used skill."
 
 **Speaker notes:** I didn't write much code — I ran AI agents like a company, split the work, made them check each other against my written rules, and looped until right. Two of the tools on screen are real and public: the Build Log — the progress report I actually read every morning, written for a non-engineer — and shipshape, the QA checklist I run daily. Scan the code; it's on my GitHub. The team I didn't hire saved me the coordination, not just the salary.
 
@@ -84,7 +84,7 @@ Two device shots on the right: the cart, a live payment.
 
 **Dek:** features took an afternoon. the boring wiring that keeps them from breaking took the days.
 
-**On the slide:** CASE STUDY · the off-site approval system, in three boxes — **THE BUILD** (pillar by pillar: approvals in one pillar, transactions in another; each clean alone, but they talked past each other in time — async seams no demo ever showed) → **THE LEAK** (transactions falling through without proper logging; no error, no alert; found only while building the refund flow on top) → **THE SAVE** (two fixes, not one: end-to-end testing instructions the testing agents follow on every change, and deeper modules behind simpler interfaces so the seams get tested without touching internals). Right: the chart — tests 288 → 733 (bars) with a second line: public surfaces (domain APIs) 9 → 12, plateauing. Plus the dashboards that lied.
+**On the slide:** one CASE STUDY box (· the off-site approval system) containing three cards — **THE BUILD** (pillar by pillar: approvals in one pillar, transactions in another; each clean alone, but they talked past each other in time — async seams no demo ever showed) → **THE LEAK** (transactions falling through without proper logging; no error, no alert; found only while building the refund flow on top) → **THE SAVE** (two fixes, not one: end-to-end testing instructions the testing agents follow on every change, and deeper modules behind simpler interfaces so the seams get tested without touching internals). Right: the chart — tests 288 → 733 (bars) with a second line low on the axis: public surfaces (domain APIs) 9 → 12, plateauing at about ⅓ of the chart height; sourced "git history — counted at each version's commit (diff analysis)". Plus the dashboards that lied.
 
 **Speaker notes:** Here's the one that taught me the most. I built the off-site approval system pillar by pillar — each pillar clean on its own, but they talked past each other in time, and some transactions fell through without proper logging. No error. I only found it while building refunds on top. The save was two-fold: better end-to-end testing instructions for my testing agents, and deeper modules behind simpler interfaces — John Ousterhout's "deep modules" idea from *A Philosophy of Software Design* (I first heard it via Matt Pocock) — so the seams are testable without knowing the internals. You can see that in the chart: the tests more than doubled, but the number of public surfaces flatlined at twelve — depth grew, the interfaces didn't.
 
@@ -106,13 +106,12 @@ Two device shots on the right: the cart, a live payment.
 
 ## Slide 8 — force is free now; direction is the whole job
 
-**Dek (the takeaway):**
-- AI gives you almost free force. it will also be confidently wrong, fast, if you let it. the discipline of pausing is the new senior job.
-- the written record is the moat — it's why nothing ever has to be decided twice. the last person who left me notes to follow was me, last Tuesday.
-- reviews are not a gate at the end. they are where the quality gets made.
+> _(Round 2: content swapped for the Force × Direction deck's close — the three takeaway bullets were cut; one marked line + one question carry the slide.)_
+
+**On the slide:** head in clay/citrus — *force is free now. / direction is the whole job.* Then the marked line: *a wrong vector at full force just gets you to the wrong answer faster — and now with better typography.* Then: *before you fire up the AI, ask the only question it can't ask for you: am I sure I'm pointing at the right destination?* QR (196px) → lucas-portfolio-pi.vercel.app, byline "Lucas Zhu · Ikigai AI Ventures · thank you", phone shot stays.
 
 **Closer (say it):**
-> a wrong vector at full speed just gets you to the wrong answer faster, with better typography.
+> a wrong vector at full force just gets you to the wrong answer faster — and now with better typography.
 
 **Speaker notes:** If you take one thing: AI gives you almost free force, and the moat is direction. It will be confidently wrong, at full speed, if you let it. My whole job now is pointing it at the right thing, and pausing before the confident-wrong answer ships. Thanks.
 

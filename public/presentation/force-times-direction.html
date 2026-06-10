@@ -331,25 +331,30 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       </g>
       <!-- start node -->
       <circle cx="100" cy="370" r="11" fill="#F1E9D8"/>
-      <!-- iterating vector: each push aims closer, gets LONGER and THICKER (confidence) -->
-      <!-- 1: very short, almost vertical — confident, wrong -->
-      <line x1="104" y1="358" x2="138" y2="262" stroke="#F9A84A" stroke-width="3"  stroke-linecap="round" opacity="0.8" marker-end="url(#ah6)"/>
-      <!-- 2: adjust toward the answer — a little longer, a little thicker -->
-      <line x1="138" y1="262" x2="450" y2="228" stroke="#F9A84A" stroke-width="6"  stroke-linecap="round" opacity="0.9" marker-end="url(#ah6)"/>
-      <!-- 3: closer still — longer, thicker -->
-      <line x1="450" y1="228" x2="930" y2="180" stroke="#F9A84A" stroke-width="10" stroke-linecap="round" marker-end="url(#ah6)"/>
-      <!-- 4: the final push lands on the answer — longest, thickest -->
-      <line x1="930" y1="180" x2="1492" y2="118" stroke="#8CA6FF" stroke-width="15" stroke-linecap="round" marker-end="url(#ah6b)"/>
+      <!-- iterating vector: MANY small corrections — each push aims a little closer,
+           gets longer + thicker (confidence), overshoots the answer, then settles onto it -->
+      <line x1="105" y1="359" x2="170" y2="266" stroke="#F9A84A" stroke-width="3"   stroke-linecap="round" opacity="0.8" marker-end="url(#ah6)"/>
+      <line x1="170" y1="266" x2="375" y2="208" stroke="#F9A84A" stroke-width="5"   stroke-linecap="round" opacity="0.88" marker-end="url(#ah6)"/>
+      <line x1="375" y1="208" x2="650" y2="124" stroke="#F9A84A" stroke-width="7.5" stroke-linecap="round" opacity="0.95" marker-end="url(#ah6)"/>
+      <!-- overshoot: climbs above the answer... -->
+      <line x1="650" y1="124" x2="940" y2="78"  stroke="#F9A84A" stroke-width="10"  stroke-linecap="round" marker-end="url(#ah6)"/>
+      <!-- ...and comes back down -->
+      <line x1="940" y1="78"  x2="1215" y2="130" stroke="#F9A84A" stroke-width="12" stroke-linecap="round" marker-end="url(#ah6)"/>
+      <!-- final settle, straight onto the answer -->
+      <line x1="1215" y1="130" x2="1492" y2="118" stroke="#8CA6FF" stroke-width="15" stroke-linecap="round" marker-end="url(#ah6b)"/>
       <!-- elbow dots: each turn is a correction -->
-      <circle cx="138" cy="262" r="6" fill="#F9A84A" opacity="0.85"/>
-      <circle cx="450" cy="228" r="7" fill="#F9A84A"/>
-      <circle cx="930" cy="180" r="8" fill="#F9A84A"/>
-      <!-- iteration labels, BELOW each segment, horizontal, no collision -->
+      <circle cx="170" cy="266" r="5" fill="#F9A84A" opacity="0.85"/>
+      <circle cx="375" cy="208" r="6" fill="#F9A84A" opacity="0.9"/>
+      <circle cx="650" cy="124" r="7" fill="#F9A84A"/>
+      <circle cx="940" cy="78"  r="7" fill="#F9A84A"/>
+      <circle cx="1215" cy="130" r="8" fill="#F9A84A"/>
+      <!-- iteration labels, BELOW the path, horizontal, no collision -->
       <g font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">
-        <text x="160" y="320">day one — "just go to the US" · short, near-vertical, skinny</text>
-        <text x="380" y="272">manager: too fragmented → India, UK · aim again, push harder</text>
-        <text x="640" y="248">partner: reframe the question</text>
-        <text x="1110" y="232" fill="#8CA6FF" font-weight="700">client board: "walk me through it" — it holds</text>
+        <text x="140" y="330">day one — "just go to the US" · skinny</text>
+        <text x="330" y="262">manager: too fragmented → India, UK</text>
+        <text x="560" y="196">partner: reframe the question</text>
+        <text x="870" y="150">overshot — pulled back</text>
+        <text x="1130" y="195" fill="#8CA6FF" font-weight="700">client board: "walk me through it" — it holds</text>
       </g>
       <!-- baseline -->
       <line x1="100" y1="402" x2="1610" y2="402" stroke="rgba(241,233,216,0.12)"/>
@@ -380,27 +385,25 @@ h3.head{font-family:var(--serif);font-weight:700;font-size:66px;line-height:1.05
       </g>
       <!-- descriptor sits ABOVE the fan, top-left, clear of every arrow -->
       <text x="96" y="40" font-family="JetBrains Mono,monospace" font-size="18" fill="#DB8461" font-weight="700">thick, convincing — every direction at once</text>
-      <!-- start node -->
-      <circle cx="100" cy="320" r="11" fill="#F1E9D8"/>
-      <text x="178" y="368" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">day one</text>
-      <!-- spray: many thick confident vectors, all pointing wrong, none near the star -->
-      <line x1="110" y1="314" x2="560" y2="92"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
-      <line x1="110" y1="316" x2="590" y2="170" stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
-      <line x1="110" y1="320" x2="600" y2="250" stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
-      <line x1="110" y1="324" x2="560" y2="330" stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
-      <line x1="110" y1="326" x2="510" y2="380" stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.70" marker-end="url(#ah7)"/>
-      <!-- and BACKWARDS too — equally thick, equally confident, pointing away from the answer -->
-      <line x1="92" y1="312" x2="36" y2="150"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.88" marker-end="url(#ah7)"/>
-      <line x1="88" y1="318" x2="20" y2="284"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
-      <line x1="90" y1="326" x2="34" y2="404"  stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.75" marker-end="url(#ah7)"/>
+      <!-- start node — dead centre, so the spray radiates EVERY direction, dramatically -->
+      <circle cx="720" cy="240" r="11" fill="#F1E9D8"/>
+      <text x="760" y="152" font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">day one</text>
+      <!-- spray: thick confident vectors in every direction — long, polished, none near the star -->
+      <line x1="716" y1="228" x2="668" y2="44"   stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
+      <line x1="728" y1="230" x2="1010" y2="68"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.92" marker-end="url(#ah7)"/>
+      <line x1="734" y1="244" x2="1180" y2="282" stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.85" marker-end="url(#ah7)"/>
+      <line x1="728" y1="252" x2="1010" y2="398" stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
+      <line x1="714" y1="256" x2="668" y2="412"  stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.78" marker-end="url(#ah7)"/>
+      <line x1="708" y1="250" x2="370" y2="386"  stroke="#DB8461" stroke-width="10" stroke-linecap="round" opacity="0.80" marker-end="url(#ah7)"/>
+      <line x1="704" y1="238" x2="290" y2="222"  stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.85" marker-end="url(#ah7)"/>
+      <line x1="710" y1="230" x2="400" y2="74"   stroke="#DB8461" stroke-width="11" stroke-linecap="round" opacity="0.90" marker-end="url(#ah7)"/>
       <!-- course-correct: thin, wandering, never reaches the star -->
-      <line x1="600" y1="170" x2="940" y2="232" stroke="#8E8878" stroke-width="3"   stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
-      <line x1="940" y1="232" x2="1250" y2="195" stroke="#8E8878" stroke-width="3"   stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
-      <line x1="1250" y1="195" x2="1470" y2="168" stroke="#8E8878" stroke-width="2.5" stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
+      <line x1="1180" y1="282" x2="1330" y2="225" stroke="#8E8878" stroke-width="3"   stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
+      <line x1="1330" y1="225" x2="1470" y2="180" stroke="#8E8878" stroke-width="2.5" stroke-dasharray="6 7" stroke-linecap="round" marker-end="url(#ah7t)"/>
       <!-- correction labels sit BELOW the gentle dashed path, in open space -->
       <g font-family="JetBrains Mono,monospace" font-size="17" fill="#8E8878">
-        <text x="700" y="285">"show me the model." — what model?</text>
-        <text x="1080" y="262">correct from nowhere → thinner</text>
+        <text x="1090" y="330">"show me the model." — what model?</text>
+        <text x="1262" y="300">correct from nowhere → thinner</text>
       </g>
       <line x1="100" y1="402" x2="1610" y2="402" stroke="rgba(241,233,216,0.12)"/>
       <text x="100" y="428" font-family="JetBrains Mono,monospace" font-size="17" fill="#5E594E">no direction underneath → corrections start from nowhere, and the line only thins</text>
