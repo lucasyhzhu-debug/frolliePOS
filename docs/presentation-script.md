@@ -65,9 +65,9 @@ Three device shots on the right: the cart, a live payment, the manager's Telegra
 
 ---
 
-## Slide 5 — five mistakes I learnt from (click-through)
+## Slide 5 — five common beliefs I now challenge as an agentic practitioner (click-through)
 
-**Dek:** beliefs I held on day one. each broke somewhere on the way to day fifteen.
+**Dek:** I held every one of them on day one. each broke somewhere on the way to day fifteen.
 
 **On the slide (each line appears on a click — talk to each one before revealing the next):**
 1. "agentic development is easy"
