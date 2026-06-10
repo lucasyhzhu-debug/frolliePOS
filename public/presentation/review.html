@@ -274,7 +274,7 @@ const DECKS = [
   { file:'force-times-direction.html',  label:'Force × Direction', title:'Force × Direction — strategy talk' },
 ];
 const STAGE_W = 1920, STAGE_H = 1080;
-const storeKey = f => `proofing-room:${f}`;
+const storeKey = f => `proofing-room:v2:${f}`; // v2 — round-1 pins archived under the un-versioned key (2026-06-10)
 
 const $ = id => document.getElementById(id);
 const frame = $('deckFrame'), overlay = $('overlay'), ghost = $('stageGhost');
