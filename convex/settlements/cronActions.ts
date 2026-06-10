@@ -42,14 +42,9 @@ import {
   resilientRetryDelayMs,
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
-import { wibDateLabel } from "../lib/time";
+import { isoDaysAgo } from "../lib/time";
 
 const LOOKBACK_DAYS = 7;
-
-/** Returns a WIB YYYY-MM-DD string for `n` days before `now` (shared helper). */
-function wibDateNDaysAgo(now: number, n: number): string {
-  return wibDateLabel(now - n * 86_400_000);
-}
 
 // ─── syncSettlements ─────────────────────────────────────────────────────────
 
@@ -73,7 +68,10 @@ export const syncSettlements = internalAction({
   handler: async (
     ctx,
   ): Promise<{ ok: true; days: number } | { skipped: "no_settlements" }> => {
-    const settledAfterIso = wibDateNDaysAgo(Date.now(), LOOKBACK_DAYS);
+    // Xendit's GET /transactions `updated[gte]` requires an RFC3339 date-time;
+    // a bare YYYY-MM-DD 400s (`must match format "date-time"`, issue #66). The
+    // bound is a UTC instant; per-row WIB day bucketing happens downstream.
+    const settledAfterIso = isoDaysAgo(Date.now(), LOOKBACK_DAYS);
     const body = await listTransactions({ settledAfterIso });
     const rows = parseListTransactions(body);
     const days = aggregateSettledByDate(rows);

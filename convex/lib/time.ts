@@ -28,9 +28,9 @@ export function wibYear(timestamp: number = Date.now()): number {
 
 /**
  * Convert a UTC epoch ms to its WIB calendar date label "YYYY-MM-DD" (UTC+7,
- * no DST). The single owner of the "epoch → WIB date string" idiom that the
- * settlement poll (cronActions lookback) and aggregator (lib) both need —
- * lib/time.ts owns the WIB helpers, so neither re-inlines the arithmetic.
+ * no DST). lib/time.ts owns the "epoch → string" idioms so callers never
+ * re-inline the arithmetic; this one derives the WIB *settlement day* from
+ * Xendit's estimated_settlement_time in settlements/lib.ts (wibCalendarDate).
  * Runtime-neutral: no Convex API.
  */
 export function wibDateLabel(epochMs: number): string {
@@ -39,6 +39,19 @@ export function wibDateLabel(epochMs: number): string {
   const m = wib.getUTCMonth();
   const d = wib.getUTCDate();
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * RFC3339 UTC date-time exactly `days` before `now` — a plain instant, not a
+ * calendar date. Use for an inclusive lower bound on a time-range API query
+ * where the endpoint demands a date-time: Xendit's GET /transactions
+ * `updated[gte]` rejects a bare "YYYY-MM-DD" with 400 `must match format
+ * "date-time"` (issue #66). The ~7h WIB-vs-UTC offset is immaterial for a `gte`
+ * window; any WIB-calendar bucketing of the *results* is done separately via
+ * wibDateLabel. Runtime-neutral: no Convex API.
+ */
+export function isoDaysAgo(now: number, days: number): string {
+  return new Date(now - days * 86_400_000).toISOString();
 }
 
 /**

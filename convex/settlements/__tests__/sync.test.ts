@@ -17,8 +17,21 @@ const DATA = { data: [
 describe("settlements.syncSettlements", () => {
   it("upserts one poll row per settled day", async () => {
     const t = convexTest(schema);
-    vi.spyOn(xendit, "listTransactions").mockResolvedValue(DATA);
+    const spy = vi.spyOn(xendit, "listTransactions").mockResolvedValue(DATA);
     await t.action(internal.settlements.cronActions.syncSettlements, {});
+
+    // Regression guard (issue #66): the poll must pass an RFC3339 date-time lower
+    // bound, not a bare YYYY-MM-DD — Xendit's GET /transactions 400s on date-only
+    // (`updated/gte must match format "date-time"`). This mocked test bypasses the
+    // real fetch, so without this assertion the format bug stays invisible to CI.
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settledAfterIso: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ),
+      }),
+    );
+
     const rows = await t.run((ctx) => ctx.db.query("pos_settlements").collect());
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.source === "xendit_poll")).toBe(true);
