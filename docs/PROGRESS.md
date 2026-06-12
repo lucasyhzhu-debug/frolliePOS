@@ -1824,10 +1824,10 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v1.0 — launch polish 🗂️ BACKLOG
+## v1.0 — launch polish 📋 PLANNED
 **Outcome:** The POS replaces the manual paper system at the booth, in production, with an operational runbook.
-**Target:** TBD
-Plan not yet written.
+**Target:** 2026-06-12 (launch day)
+[Spec](./superpowers/specs/2026-06-12-v1.0-launch-polish-design.md) · [Plan](./superpowers/plans/2026-06-12-v1.0-launch-polish.md) · staffreviews: [spec](./reviews/staffreview-v1.0-launch-polish-spec-2026-06-12.md), [plan](./reviews/staffreview-v1.0-launch-polish-plan-2026-06-12.md)
 
 **You'll be able to:**
 - Run the POS in production on `savory-zebra-800` Convex (separate from dev)
@@ -1845,18 +1845,112 @@ Plan not yet written.
 - Cross-deployment integration with Frollie Pro `product_master` — decision pending; v1.1+
 
 ### Backend (`convex/`)
-- 🗂️ Negative-stock reconciliation manager tools
+- _(no backend tasks — the polish slice is frontend-only; deploy is cross-cutting. Negative-stock recon shipped as v0.6 drift triage; settlement polish moved to v1.0.1.)_
+
+### Frontend (`src/`)
+- 📋 **[v10-fe-use-is-online]** `hooks/useIsOnline.ts` — extract ConnDot connection-state logic into a shared hook
+  - **agent:** `frontend-integrator`
+  - **deps:** none
+  - **docs:** [Plan Task 2](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
+  - **subtasks:**
+    - [ ] Failing hook test (connected / flip-on-change / no-state-API fallback)
+    - [ ] Implement `useIsOnline` (Convex connectionState + onStateChange, 5s-poll fallback)
+    - [ ] Refactor ConnDot to consume the hook
+    - [ ] Full frontend suite green
+  - **notes:** _(empty)_
+- 📋 **[v10-fe-charge-offline-block]** `routes/sale/charge.tsx` — offline banner + payment-action guard (ADR-025)
+  - **agent:** `frontend-integrator`
+  - **deps:** `v10-fe-use-is-online`
+  - **docs:** [Plan Task 3](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [ADR-025](./ADR/025-service-worker-cache.md)
+  - **subtasks:**
+    - [ ] Failing test in charge.test.tsx (mock useIsOnline, renderAt fixture)
+    - [ ] role=alert banner in awaiting-payment view
+    - [ ] Disable retry / manager-override / TabsTrigger method switch / cancel while offline
+    - [ ] Tests pass
+  - **notes:** _(empty)_
+- 📋 **[v10-fe-stock-empty-state]** `routes/stock/index.tsx` — empty state for the SKU list (launch-morning state)
+  - **agent:** `frontend-integrator`
+  - **deps:** none
+  - **docs:** [Plan Task 4](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
+  - **subtasks:**
+    - [ ] Failing test (partial convex/react mock + ConvexProvider wrapper)
+    - [ ] Three-way branch: loading / empty copy / rows (rows branch byte-identical — spoilage e2e reads it)
+    - [ ] Tests pass
+  - **notes:** _(empty)_
+- 📋 **[v10-fe-home-tiles-cleanup]** `routes/home.tsx` + `router.tsx` — remove `/stock/in` stub tile+route; strip dev version tags from hints
+  - **agent:** `frontend-integrator`
+  - **deps:** none
+  - **docs:** [Plan Task 5](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [ADR-041](./ADR/041-recount-staff-allowed.md)
+  - **subtasks:**
+    - [ ] TILES array rewrite (drop stock-in tile, clean hints)
+    - [ ] Remove route + lazy import; delete `src/routes/stock/in.tsx`
+    - [ ] Full suite green (fix any tile-referencing tests)
+  - **notes:** _(empty)_
+
+### Cross-cutting
+- 📋 **[v10-xc-audit-findings]** Audit findings doc — staff-critical loop (static table + e2e confirmation)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Plan Task 1](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
+  - **subtasks:**
+    - [ ] `docs/reviews/v1.0-launch-audit-2026-06-12.md` with screen × state × verdict table
+    - [ ] Fix-list section mapping ❌ rows to plan tasks
+  - **notes:** _(empty)_
+- 📋 **[v10-xc-runbook-booth-ops]** `docs/RUNBOOK.md` §7 — booth operations (prod): payment-stuck, device-dead (/activatepos), Telegram/Xendit outage, seeding order
+  - **agent:** `claude`
+  - **deps:** `v10-fe-home-tiles-cleanup`
+  - **docs:** [Plan Task 6](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [RUNBOOK-telegram](./RUNBOOK-telegram.md)
+  - **subtasks:**
+    - [ ] §7.1–7.7 appended (recount-as-restock documented)
+  - **notes:** _(empty)_
+- 📋 **[v10-xc-gate-changelog]** CHANGELOG + full gate + QA close-out + squash-merge PR
+  - **agent:** `claude`
+  - **deps:** `v10-fe-use-is-online`, `v10-fe-charge-offline-block`, `v10-fe-stock-empty-state`, `v10-fe-home-tiles-cleanup`, `v10-xc-audit-findings`, `v10-xc-runbook-booth-ops`
+  - **docs:** [Plan Tasks 7–8](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
+  - **subtasks:**
+    - [ ] CHANGELOG entry
+    - [ ] typecheck + lint + vitest + Playwright e2e green
+    - [ ] /triple-review findings addressed
+    - [ ] /simplify xhigh applied + gate re-run
+    - [ ] Squash-merge PR; local main re-synced
+  - **notes:** _(empty)_
+- 📋 **[v10-xc-launch-ops]** Launch ops (human-in-loop): deploy prod, Telegram verify, seed data, Rp 1.000 smoke test, tag v1.0.0
+  - **agent:** `claude`
+  - **deps:** `v10-xc-gate-changelog`
+  - **docs:** [Plan Task 9](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [Spec §Part 2](./superpowers/specs/2026-06-12-v1.0-launch-polish-design.md)
+  - **subtasks:**
+    - [ ] `npx convex deploy` + Vercel prod + cron/webhook verification
+    - [ ] Telegram three-role check (/activatepos, founders summary, inventory binding)
+    - [ ] 🧑 Prod data seeded per RUNBOOK §7.7
+    - [ ] 🧑 Smoke test: QRIS Rp 1.000 → paid → receipt → refund + settle → archive
+    - [ ] Tag v1.0.0; PROGRESS reconciled; **paper system retired**
+  - **notes:** _(empty)_
+
+---
+
+## v1.0.1 — post-launch hardening 🗂️ BACKLOG
+**Outcome:** The launch-day deferrals: full-route polish, real-device e2e, settlement live-verification.
+**Target:** TBD
+Plan not yet written. Tasks get IDs at planning time.
+
+**You'll be able to:**
+- See proper empty/error states on every remaining route (`mgr/*`, settlements, account, approve)
+- Trust a full e2e pass on the real booth Android
+- See settlement auto-poll live-verified once Xendit KYB clears ([#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66))
+
+### Backend (`convex/`)
 - 🗂️ Settlement reconciliation polish (variance detection, alerts; per-transaction match-back N1; auto-poll **live-verification** once Xendit KYB clears — [#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66))
 
 ### Frontend (`src/`)
+- 🗂️ Full-route empty/error pass (`mgr/*`, settlements, account, approve)
 - 🗂️ PWA install prompt polish (Android Chrome A2HS UX)
-- 🗂️ Final empty/error states across all screens
-- 🗂️ Universal route-error framing — a shared `<RouteError>` component + standard prop interface (`title`, `detail`, `actions[]`, `severity`) wired as `errorElement` on every React Router route. Replaces React Router's default developer fallback ("Unexpected Application Error! / 💿 Hey developer 👋") with a Frollie-branded recovery surface (retry / go home / contact manager). Surfaced 2026-05-30 by the v0.4 `/mgr/telegram-chats` shake-out (a `process is not defined` from a server-only module import bubbled up as the raw dev fallback)
+- 🗂️ Unreachable-stub cleanup (`/receipt`, `/wait`)
+- ~~Universal route-error framing~~ — **shipped v0.5.5** as `RouteErrorBoundary` (`src/components/layout/RouteErrorBoundary.tsx`, wired in `router.tsx`)
 
 ### Cross-cutting
 - 🗂️ Full e2e pass on real Android device
-- 🗂️ Production deployment to `savory-zebra-800`
-- 🗂️ Operational runbook (oncall, dashboards, alert thresholds)
+- 🗂️ Spare-device protocol (single-device SPOF — risk register)
+- 🗂️ Operational runbook expansion (oncall rotation, dashboards, alert thresholds — booth basics shipped in v1.0 RUNBOOK §7)
 
 ---
 
