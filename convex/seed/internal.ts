@@ -317,6 +317,147 @@ export const _bootstrapCommit_internal = internalMutation({
 });
 
 /**
+ * Launch-day catalog seed (2026-06-12). One-shot, prod-runnable.
+ *
+ * Inserts the Frollie booth catalog — 2 inventory SKUs (dubai, water) + 4
+ * products (Dubai Chewy Cookie Single/Triple/Eight + Mineral Water) — on a
+ * fresh deployment where no pos_products rows exist yet. Opening stock is set
+ * to 0 here; real opening stock is set via an opening recount after arrival at
+ * the booth (ADR-041). The product tagline ("Chewy marshmallow filled with
+ * Pistachio Kunafa") has no schema home — pos_products has no description field
+ * — and is a receipt-branding/marketing concern, not catalog data.
+ *
+ * Run command (prod):
+ *   npx convex run --prod seed/internal:_seedLaunchCatalog_internal
+ *
+ * Guard: throws "catalog_already_populated" if any pos_products row already
+ * exists (mirrors _bootstrapCommit_internal's "already_bootstrapped" pattern).
+ * Safe to re-attempt on a truly empty deployment.
+ */
+export const _seedLaunchCatalog_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ skus: number; products: number }> => {
+    // One-shot guard — mirrors _bootstrapCommit_internal
+    const existing = await ctx.db.query("pos_products").take(1);
+    if (existing.length > 0) {
+      throw new Error("catalog_already_populated");
+    }
+
+    const now = Date.now();
+
+    // ── 1. Inventory SKUs + zero-stock levels ───────────────────────────────
+    const skuDefs: Array<{
+      sku: string;
+      code: string;
+      name: string;
+      low_threshold: number;
+      initials: string;
+      hue: number;
+    }> = [
+      { sku: "dubai", code: "DUBAI", name: "Dubai cookie",    low_threshold: 4, initials: "Du", hue: 30  },
+      { sku: "water", code: "WATER", name: "Mineral water",   low_threshold: 6, initials: "Mw", hue: 205 },
+    ];
+
+    const skuIds: Record<string, any> = {};
+    for (const def of skuDefs) {
+      const id = await ctx.db.insert("pos_inventory_skus", {
+        sku: def.sku,
+        code: def.code,
+        name: def.name,
+        unit: "piece",
+        low_threshold: def.low_threshold,
+        initials: def.initials,
+        hue: def.hue,
+        active: true,
+        created_at: now,
+      });
+      // Opening stock = 0; real opening recount happens on launch day (ADR-041)
+      await ctx.db.insert("pos_stock_levels", {
+        inventory_sku_id: id,
+        on_hand: 0,
+        updated_at: now,
+      });
+      skuIds[def.sku] = id;
+    }
+
+    // ── 2. Products + components ────────────────────────────────────────────
+    type ProductDef = {
+      name: string;
+      pack_label: string;
+      code: string;
+      price_idr: number;
+      sku_family: string;
+      sort_order: number;
+      initials: string;
+      hue: number;
+      components: Array<{ sku: string; qty: number }>;
+    };
+
+    const productDefs: ProductDef[] = [
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Single", code: "DUBAI_1PC",
+        price_idr: 45000,  sku_family: "dubai", sort_order: 1,
+        initials: "D1", hue: 30,
+        components: [{ sku: "dubai", qty: 1 }],
+      },
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Triple", code: "DUBAI_3PC",
+        price_idr: 125000, sku_family: "dubai", sort_order: 2,
+        initials: "D3", hue: 30,
+        components: [{ sku: "dubai", qty: 3 }],
+      },
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Eight",  code: "DUBAI_8PC",
+        price_idr: 320000, sku_family: "dubai", sort_order: 3,
+        initials: "D8", hue: 30,
+        components: [{ sku: "dubai", qty: 8 }],
+      },
+      {
+        name: "Mineral Water",      pack_label: "1 btl",  code: "WATER_1BTL",
+        price_idr: 5000,   sku_family: "water", sort_order: 4,
+        initials: "MW", hue: 205,
+        components: [{ sku: "water", qty: 1 }],
+      },
+    ];
+
+    for (const def of productDefs) {
+      const productId = await ctx.db.insert("pos_products", {
+        sku_family: def.sku_family,
+        code: def.code,
+        name: def.name,
+        pack_label: def.pack_label,
+        price_idr: def.price_idr,
+        initials: def.initials,
+        hue: def.hue,
+        active: true,
+        sort_order: def.sort_order,
+        tax_rate: 0,
+        created_at: now,
+        updated_at: now,
+      });
+      for (const comp of def.components) {
+        await ctx.db.insert("pos_product_components", {
+          product_id: productId,
+          inventory_sku_id: skuIds[comp.sku],
+          qty: comp.qty,
+        });
+      }
+    }
+
+    // ── 3. Audit ────────────────────────────────────────────────────────────
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "seed.launch_catalog",
+      entity_type: "system",
+      source: "system",
+      metadata: { skus: 2, products: 4 },
+    });
+
+    return { skus: 2, products: 4 };
+  },
+});
+
+/**
  * DEV-ONLY: mint a one-shot device setup code without a manager session.
  * Solves the first-device chicken-and-egg on a fresh deployment after
  * bootstrap/reset (no devices registered yet, so no way to start a session,
