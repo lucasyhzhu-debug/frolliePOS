@@ -97,6 +97,19 @@ describe("seed/_seedLaunchCatalog_internal", () => {
     ).rejects.toThrow(/catalog_already_populated/);
   });
 
+  it("throws catalog_already_populated when SKUs exist even with no products (partial-seed guard)", async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_inventory_skus", {
+        sku: "dubai", code: "DUBAI", name: "Dubai cookie", unit: "piece",
+        low_threshold: 4, active: true, created_at: Date.now(),
+      });
+    });
+    await expect(
+      t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {}),
+    ).rejects.toThrow(/catalog_already_populated/);
+  });
+
   it("writes an audit_log row with action seed.launch_catalog", async () => {
     const t = convexTest(schema);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});

@@ -330,16 +330,23 @@ export const _bootstrapCommit_internal = internalMutation({
  * Run command (prod):
  *   npx convex run --prod seed/internal:_seedLaunchCatalog_internal
  *
- * Guard: throws "catalog_already_populated" if any pos_products row already
- * exists (mirrors _bootstrapCommit_internal's "already_bootstrapped" pattern).
+ * Guard: throws "catalog_already_populated" if any pos_products OR
+ * pos_inventory_skus row already exists (mirrors _bootstrapCommit_internal's
+ * "already_bootstrapped" pattern; checking both tables prevents duplicate SKU
+ * rows after a partial seed or manual SKU entry — by_sku assumes uniqueness).
  * Safe to re-attempt on a truly empty deployment.
  */
 export const _seedLaunchCatalog_internal = internalMutation({
   args: {},
   handler: async (ctx): Promise<{ skus: number; products: number }> => {
-    // One-shot guard — mirrors _bootstrapCommit_internal
-    const existing = await ctx.db.query("pos_products").take(1);
-    if (existing.length > 0) {
+    // One-shot guard — mirrors _bootstrapCommit_internal. Any catalog data
+    // (products or SKUs) aborts: a products-only check would duplicate SKU
+    // rows on a partially-seeded deployment.
+    const [existingProduct, existingSku] = await Promise.all([
+      ctx.db.query("pos_products").take(1),
+      ctx.db.query("pos_inventory_skus").take(1),
+    ]);
+    if (existingProduct.length > 0 || existingSku.length > 0) {
       throw new Error("catalog_already_populated");
     }
 
