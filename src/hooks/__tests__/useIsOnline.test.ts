@@ -72,7 +72,7 @@ describe("useIsOnline", () => {
   });
 
   it("clears the polling interval on unmount", () => {
-    let connected = false;
+    const connected = false;
     mockConvex.connectionState = () => ({ isWebSocketConnected: connected });
     // onStateChange intentionally absent — polling path
     vi.useFakeTimers();

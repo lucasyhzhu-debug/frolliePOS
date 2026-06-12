@@ -89,6 +89,10 @@ export default [
       "packages/**",
       // Reference implementation docs — not production code, not linted here.
       "docs/**",
+      // Vendored Claude Code skills (browser-runtime JS with window/document
+      // globals) and the npm-install canvas stub (CJS) — not POS app code.
+      ".claude/**",
+      "tools/stub-canvas/**",
     ],
   },
 
