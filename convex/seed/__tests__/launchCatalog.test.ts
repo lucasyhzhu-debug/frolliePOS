@@ -4,7 +4,7 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 
 describe("seed/_seedLaunchCatalog_internal", () => {
-  it("seeds 2 SKUs (dubai, water) each with a 0-on_hand stock level", async () => {
+  it("seeds 2 SKUs (dubai, water) with no stock-level rows (lazy-init)", async () => {
     const t = convexTest(schema);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
 
@@ -18,19 +18,21 @@ describe("seed/_seedLaunchCatalog_internal", () => {
     expect(dubai).toBeDefined();
     expect(water).toBeDefined();
 
-    // Both use the only allowed unit literal
+    // Both use the only allowed unit literal; thresholds per launch defs
     expect(dubai!.unit).toBe("piece");
     expect(water!.unit).toBe("piece");
+    expect(dubai!.low_threshold).toBe(4);
+    expect(water!.low_threshold).toBe(6);
+    expect(dubai!.code).toBe("DUBAI");
+    expect(water!.code).toBe("WATER");
 
-    // Stock levels seeded at 0 (opening stock set via recount, ADR-041)
+    // No stock-level rows: upsertStockLevel lazy-inits on first movement and
+    // reads default absent rows to 0 — opening recount writes the real stock
+    // as a logged movement (ADR-041, rule #8).
     const levels = await t.run((ctx) =>
       ctx.db.query("pos_stock_levels").collect(),
     );
-    expect(levels).toHaveLength(2);
-    const dubaiLevel = levels.find((l) => l.inventory_sku_id === dubai!._id);
-    const waterLevel = levels.find((l) => l.inventory_sku_id === water!._id);
-    expect(dubaiLevel!.on_hand).toBe(0);
-    expect(waterLevel!.on_hand).toBe(0);
+    expect(levels).toHaveLength(0);
   });
 
   it("seeds 4 products with correct prices and pack labels", async () => {

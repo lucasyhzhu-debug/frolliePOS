@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { issueDeviceSetupCode } from "../staff/internal";
+import { insertInventorySku } from "../catalog/internal";
 
 /**
  * POS prod deployment slug per CLAUDE.md §"Convex deployment". Update this
@@ -184,10 +185,12 @@ export const _reset_internal = internalMutation({
 
     // Products + components
     // name, pack_label, price_idr, components[[sku, qty]], sort_order
+    // Dubai prices mirror the launch catalog (_seedLaunchCatalog_internal below)
+    // — the overlapping productCodes (DUBAI_*PC) must not drift between the two.
     const products: Array<[string, string, number, Array<[string, number]>, number]> = [
       ["Dubai",     "1 pc",  45000, [["dubai", 1]],                                          1],
       ["Dubai",     "3 pcs", 125000, [["dubai", 3]],                                          2],
-      ["Dubai",     "8 pcs", 340000, [["dubai", 8]],                                          3],
+      ["Dubai",     "8 pcs", 320000, [["dubai", 8]],                                          3],
       ["Choco",     "1 pc",  25000, [["choco", 1]],                                          4],
       ["Matcha",    "1 pc",  25000, [["matcha", 1]],                                         5],
       ["Lotus",     "1 pc",  28000, [["lotus", 1]],                                          6],
@@ -321,9 +324,11 @@ export const _bootstrapCommit_internal = internalMutation({
  *
  * Inserts the Frollie booth catalog — 2 inventory SKUs (dubai, water) + 4
  * products (Dubai Chewy Cookie Single/Triple/Eight + Mineral Water) — on a
- * fresh deployment where no pos_products rows exist yet. Opening stock is set
- * to 0 here; real opening stock is set via an opening recount after arrival at
- * the booth (ADR-041). The product tagline ("Chewy marshmallow filled with
+ * fresh deployment where no pos_products rows exist yet. No pos_stock_levels
+ * rows are written: `upsertStockLevel` lazy-inits on first movement and all
+ * reads default absent rows to 0; the opening recount on launch day writes the
+ * real stock as a logged movement (ADR-041, business rule #8). The product
+ * tagline ("Chewy marshmallow filled with
  * Pistachio Kunafa") has no schema home — pos_products has no description field
  * — and is a receipt-branding/marketing concern, not catalog data.
  *
@@ -352,7 +357,7 @@ export const _seedLaunchCatalog_internal = internalMutation({
 
     const now = Date.now();
 
-    // ── 1. Inventory SKUs + zero-stock levels ───────────────────────────────
+    // ── 1. Inventory SKUs (no stock-level rows — lazy-init, see doc above) ──
     const skuDefs: Array<{
       sku: string;
       code: string;
@@ -365,29 +370,17 @@ export const _seedLaunchCatalog_internal = internalMutation({
       { sku: "water", code: "WATER", name: "Mineral water",   low_threshold: 6, initials: "Mw", hue: 205 },
     ];
 
-    const skuIds: Record<string, any> = {};
+    const skuIds: Record<string, Id<"pos_inventory_skus">> = {};
     for (const def of skuDefs) {
-      const id = await ctx.db.insert("pos_inventory_skus", {
-        sku: def.sku,
-        code: def.code,
-        name: def.name,
-        unit: "piece",
-        low_threshold: def.low_threshold,
-        initials: def.initials,
-        hue: def.hue,
-        active: true,
-        created_at: now,
-      });
-      // Opening stock = 0; real opening recount happens on launch day (ADR-041)
-      await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: id,
-        on_hand: 0,
-        updated_at: now,
-      });
-      skuIds[def.sku] = id;
+      // Canonical insert (catalog/internal.ts) — same single-writer shape as
+      // the manager-PIN createInventorySku/createProduct paths (v0.5.5 lesson).
+      skuIds[def.sku] = await insertInventorySku(ctx, { ...def, now });
     }
 
     // ── 2. Products + components ────────────────────────────────────────────
+    // NOTE: the dev fixture in _reset_internal defines overlapping productCodes
+    // (e.g. DUBAI_8PC) — keep prices in sync with this block, which is the
+    // launch-catalog source of truth (45000/125000/320000/5000).
     type ProductDef = {
       name: string;
       pack_label: string;

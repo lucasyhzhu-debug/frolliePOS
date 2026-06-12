@@ -11,6 +11,11 @@ type ConvexWithStateApi = {
  * Extracted from ConnDot (which keeps its own label/color rendering).
  * Falls back to 5s polling when the 1.31+ state API is absent — same
  * trade-off as ConnDot (battery over latency for a UI affordance).
+ *
+ * Fail-open by design: the state API is undocumented (shape pinned against
+ * Convex 1.31.7 by the hook tests). If a future client drops it, the hook
+ * reports "online" and the offline guard degrades to server-error toasts —
+ * preferable to bricking the charge screen on a healthy connection.
  */
 export function useIsOnline(): boolean {
   const convex = useConvex();
@@ -25,7 +30,11 @@ export function useIsOnline(): boolean {
     };
     if (typeof c.onStateChange === "function") {
       read();
-      return c.onStateChange(read);
+      // Defensive: the cast types onStateChange as returning an unsubscribe
+      // fn, but the API is undocumented — if it ever returns void, handing
+      // that to React would throw `undefined is not a function` on unmount.
+      const unsub = c.onStateChange(read);
+      return typeof unsub === "function" ? unsub : undefined;
     }
     const id = setInterval(read, 5000);
     read();
