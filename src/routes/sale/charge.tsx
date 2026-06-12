@@ -654,6 +654,7 @@ export default function SaleCharge() {
                 {!approvalReasonOpen ? (
                   <Button
                     variant="outline"
+                    disabled={!isOnline}
                     onClick={() => {
                       setApprovalReason("");
                       setApprovalReasonError(undefined);
@@ -683,7 +684,7 @@ export default function SaleCharge() {
                       <Button
                         className="flex-1"
                         onClick={handleRequestApproval}
-                        disabled={approvalSubmitting || !approvalReason.trim()}
+                        disabled={approvalSubmitting || !approvalReason.trim() || !isOnline}
                       >
                         {approvalSubmitting ? "Sending…" : "Send request"}
                       </Button>

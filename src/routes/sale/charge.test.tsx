@@ -904,12 +904,16 @@ describe("SaleCharge route — offline guard", () => {
     const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
     expect(cancelBtn).toBeDisabled();
 
+    // Request manager approval button is disabled (server action — writes pos_approval_requests + Telegram).
+    const requestApprovalBtn = screen.getByText("Request manager approval").closest("button")!;
+    expect(requestApprovalBtn).toBeDisabled();
+
     // Method-switch tabs are disabled offline.
     expect(screen.getByRole("tab", { name: "QRIS" })).toBeDisabled();
     expect(screen.getByRole("tab", { name: "BCA VA" })).toBeDisabled();
   });
 
-  it("online: no offline banner, all action buttons are enabled", async () => {
+  it("online: no offline banner, online-gated buttons are enabled (override stays disabled by role)", async () => {
     // isOnline = true (default from beforeEach)
     setupCeilingState();
     renderAt("txn-test-123");
@@ -922,6 +926,14 @@ describe("SaleCharge route — offline guard", () => {
     // Retry is enabled.
     const retryBtn = screen.getByText(/Retry/).closest("button")!;
     expect(retryBtn).not.toBeDisabled();
+
+    // Manager override stays disabled — fixture session role is "staff", not "manager".
+    const overrideBtn = screen.getByText("Manager override").closest("button")!;
+    expect(overrideBtn).toBeDisabled();
+
+    // Request manager approval is enabled online.
+    const requestApprovalBtn = screen.getByText("Request manager approval").closest("button")!;
+    expect(requestApprovalBtn).not.toBeDisabled();
 
     // Cancel sale is enabled.
     const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
