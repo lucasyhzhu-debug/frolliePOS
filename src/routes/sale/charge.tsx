@@ -57,6 +57,7 @@ export default function SaleCharge() {
   const location = useLocation();
   const session = useSession();
   const isOnline = useIsOnline();
+  const offlineLocked = !isOnline;
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
 
@@ -476,7 +477,7 @@ export default function SaleCharge() {
           // phase.kind === "showing"
           <div className="flex w-full max-w-sm flex-1 flex-col items-center gap-4">
             {/* Offline banner — payments require connectivity (ADR-025) */}
-            {!isOnline && (
+            {offlineLocked && (
               <div
                 role="alert"
                 className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
@@ -505,8 +506,8 @@ export default function SaleCharge() {
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="QRIS" disabled={!isOnline}>QRIS</TabsTrigger>
-                <TabsTrigger value="BCA_VA" disabled={!isOnline}>BCA VA</TabsTrigger>
+                <TabsTrigger value="QRIS" disabled={offlineLocked}>QRIS</TabsTrigger>
+                <TabsTrigger value="BCA_VA" disabled={offlineLocked}>BCA VA</TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -630,12 +631,12 @@ export default function SaleCharge() {
                 <p className="text-center text-sm text-muted-foreground">
                   Still waiting. Choose how to proceed:
                 </p>
-                <Button onClick={handleRetry} disabled={retrying || !isOnline}>
+                <Button onClick={handleRetry} disabled={retrying || offlineLocked}>
                   {retrying ? "Generating…" : "Retry (fresh QR)"}
                 </Button>
                 <Button
                   variant="secondary"
-                  disabled={session.staff.role !== "manager" || !isOnline}
+                  disabled={session.staff.role !== "manager" || offlineLocked}
                   title={
                     session.staff.role !== "manager"
                       ? "Sign in as a manager to use this, or use 'Request manager approval' below"
@@ -654,7 +655,7 @@ export default function SaleCharge() {
                 {!approvalReasonOpen ? (
                   <Button
                     variant="outline"
-                    disabled={!isOnline}
+                    disabled={offlineLocked}
                     onClick={() => {
                       setApprovalReason("");
                       setApprovalReasonError(undefined);
@@ -684,7 +685,7 @@ export default function SaleCharge() {
                       <Button
                         className="flex-1"
                         onClick={handleRequestApproval}
-                        disabled={approvalSubmitting || !approvalReason.trim() || !isOnline}
+                        disabled={approvalSubmitting || !approvalReason.trim() || offlineLocked}
                       >
                         {approvalSubmitting ? "Sending…" : "Send request"}
                       </Button>
@@ -701,11 +702,14 @@ export default function SaleCharge() {
                     </div>
                   </div>
                 )}
+                {/* Offline-disabled like the other server actions (ADR-025). A txn stuck
+                    awaiting_payment offline is recovered by the awaiting-payment banner
+                    (useAwaitingPaymentRecovery) once connectivity returns. */}
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
                   onClick={handleCancel}
-                  disabled={cancelling || !isOnline}
+                  disabled={cancelling || offlineLocked}
                 >
                   {cancelling ? "Cancelling…" : "Cancel sale"}
                 </Button>

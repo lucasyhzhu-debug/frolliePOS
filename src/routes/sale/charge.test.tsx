@@ -100,6 +100,24 @@ import * as useSessionModule from "@/hooks/useSession";
 import * as useXenditPaymentModule from "@/hooks/useXenditPayment";
 import { useIsOnline } from "@/hooks/useIsOnline";
 
+// ─── shared reset ───────────────────────────────────────────────────────────
+
+/**
+ * Shared beforeEach body for Tier 2-4 describes. Resets all module-level mock
+ * state to a clean, online baseline before each test.
+ */
+function resetChargeTestState() {
+  localStorage.setItem(SESSION_KEY, "session-1");
+  __resetForTests();
+  vi.clearAllMocks();
+  chargeBlockerState = "unblocked";
+  chargeBlockerReset.mockReset();
+  chargeBlockerProceed.mockReset();
+  mockApprovalPending.mockReset();
+  mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+  vi.mocked(useIsOnline).mockReturnValue(true);
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /** Active session stub. */
@@ -263,15 +281,7 @@ describe("SaleCharge route — smoke", () => {
 
 describe("SaleCharge route — off-booth approval affordance", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
-    vi.mocked(useIsOnline).mockReturnValue(true);
+    resetChargeTestState();
   });
 
   it("shows 'Request manager approval' button at ceiling alongside existing CTAs", async () => {
@@ -534,15 +544,7 @@ describe("SaleCharge route — off-booth approval affordance", () => {
 
 describe("SaleCharge route — countdown panel", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
-    vi.mocked(useIsOnline).mockReturnValue(true);
+    resetChargeTestState();
   });
 
   it("countdown panel is shown when invoice is active (invoiceMatches)", async () => {
@@ -605,15 +607,7 @@ const MOCK_MANAGERS = [
 
 describe("SaleCharge route — manager picker", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
-    vi.mocked(useIsOnline).mockReturnValue(true);
+    resetChargeTestState();
   });
 
   /**
@@ -810,15 +804,7 @@ describe("SaleCharge route — manager picker", () => {
 
 describe("SaleCharge route — useBlocker payment guard", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
-    vi.mocked(useIsOnline).mockReturnValue(true);
+    resetChargeTestState();
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
     vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue(
       SHOWING_PHASE as ReturnType<typeof useXenditPaymentModule.useXenditPayment>,
@@ -867,15 +853,7 @@ describe("SaleCharge route — useBlocker payment guard", () => {
 
 describe("SaleCharge route — offline guard", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
-    vi.mocked(useIsOnline).mockReturnValue(true);
+    resetChargeTestState();
   });
 
   it("shows an offline banner and disables payment actions while disconnected", async () => {
