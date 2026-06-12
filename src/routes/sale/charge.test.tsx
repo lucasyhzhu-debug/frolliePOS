@@ -903,6 +903,10 @@ describe("SaleCharge route — offline guard", () => {
     // Cancel sale button is disabled.
     const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
     expect(cancelBtn).toBeDisabled();
+
+    // Method-switch tabs are disabled offline.
+    expect(screen.getByRole("tab", { name: "QRIS" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "BCA VA" })).toBeDisabled();
   });
 
   it("online: no offline banner, all action buttons are enabled", async () => {
@@ -922,5 +926,9 @@ describe("SaleCharge route — offline guard", () => {
     // Cancel sale is enabled.
     const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
     expect(cancelBtn).not.toBeDisabled();
+
+    // Method-switch tabs are enabled online.
+    expect(screen.getByRole("tab", { name: "QRIS" })).not.toBeDisabled();
+    expect(screen.getByRole("tab", { name: "BCA VA" })).not.toBeDisabled();
   });
 });
