@@ -41,6 +41,7 @@ vi.mock("convex/react", () => ({
   useQuery: () => undefined,
   useConvex: () => ({
     connectionState: () => ({ isWebSocketConnected: true, hasInflightRequests: false }),
+    onStateChange: (cb: () => void) => { cb(); return () => {}; },
   }),
 }));
 
