@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useIsOnline } from "@/hooks/useIsOnline";
 import { usePathChangeBlocker } from "@/hooks/usePathChangeBlocker";
 import { useXenditPayment, PAYMENT_CEILING_MS } from "@/hooks/useXenditPayment";
 import { useIdempotency } from "@/hooks/useIdempotency";
@@ -55,6 +56,8 @@ export default function SaleCharge() {
   const navigate = useNavigate();
   const location = useLocation();
   const session = useSession();
+  const isOnline = useIsOnline();
+  const offlineLocked = !isOnline;
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
 
@@ -473,6 +476,17 @@ export default function SaleCharge() {
         ) : (
           // phase.kind === "showing"
           <div className="flex w-full max-w-sm flex-1 flex-col items-center gap-4">
+            {/* Offline banner — payments require connectivity (ADR-025) */}
+            {offlineLocked && (
+              <div
+                role="alert"
+                className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+              >
+                Offline — konfirmasi pembayaran menunggu koneksi. QR yang sudah discan
+                pelanggan tetap diproses otomatis begitu koneksi kembali.
+              </div>
+            )}
+
             {/* Amount due */}
             {txn != null && (
               <div className="flex flex-col items-center">
@@ -492,8 +506,8 @@ export default function SaleCharge() {
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="QRIS">QRIS</TabsTrigger>
-                <TabsTrigger value="BCA_VA">BCA VA</TabsTrigger>
+                <TabsTrigger value="QRIS" disabled={offlineLocked}>QRIS</TabsTrigger>
+                <TabsTrigger value="BCA_VA" disabled={offlineLocked}>BCA VA</TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -617,12 +631,12 @@ export default function SaleCharge() {
                 <p className="text-center text-sm text-muted-foreground">
                   Still waiting. Choose how to proceed:
                 </p>
-                <Button onClick={handleRetry} disabled={retrying}>
+                <Button onClick={handleRetry} disabled={retrying || offlineLocked}>
                   {retrying ? "Generating…" : "Retry (fresh QR)"}
                 </Button>
                 <Button
                   variant="secondary"
-                  disabled={session.staff.role !== "manager"}
+                  disabled={session.staff.role !== "manager" || offlineLocked}
                   title={
                     session.staff.role !== "manager"
                       ? "Sign in as a manager to use this, or use 'Request manager approval' below"
@@ -641,6 +655,7 @@ export default function SaleCharge() {
                 {!approvalReasonOpen ? (
                   <Button
                     variant="outline"
+                    disabled={offlineLocked}
                     onClick={() => {
                       setApprovalReason("");
                       setApprovalReasonError(undefined);
@@ -670,7 +685,7 @@ export default function SaleCharge() {
                       <Button
                         className="flex-1"
                         onClick={handleRequestApproval}
-                        disabled={approvalSubmitting || !approvalReason.trim()}
+                        disabled={approvalSubmitting || !approvalReason.trim() || offlineLocked}
                       >
                         {approvalSubmitting ? "Sending…" : "Send request"}
                       </Button>
@@ -687,11 +702,14 @@ export default function SaleCharge() {
                     </div>
                   </div>
                 )}
+                {/* Offline-disabled like the other server actions (ADR-025). A txn stuck
+                    awaiting_payment offline is recovered by the awaiting-payment banner
+                    (useAwaitingPaymentRecovery) once connectivity returns. */}
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
                   onClick={handleCancel}
-                  disabled={cancelling}
+                  disabled={cancelling || offlineLocked}
                 >
                   {cancelling ? "Cancelling…" : "Cancel sale"}
                 </Button>

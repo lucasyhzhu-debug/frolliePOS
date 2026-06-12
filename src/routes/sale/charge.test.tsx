@@ -82,6 +82,10 @@ vi.mock("@/components/layout/ConnDot", () => ({
   ConnDot: () => null,
 }));
 
+vi.mock("@/hooks/useIsOnline", () => ({
+  useIsOnline: vi.fn(() => true),
+}));
+
 const mockApprovalPending = vi.fn(() => (
   <div data-testid="approval-pending" />
 ));
@@ -94,6 +98,25 @@ vi.mock("@/components/pos/ApprovalPending", () => ({
 import * as convexReact from "convex/react";
 import * as useSessionModule from "@/hooks/useSession";
 import * as useXenditPaymentModule from "@/hooks/useXenditPayment";
+import { useIsOnline } from "@/hooks/useIsOnline";
+
+// ─── shared reset ───────────────────────────────────────────────────────────
+
+/**
+ * Shared beforeEach body for Tier 2-4 describes. Resets all module-level mock
+ * state to a clean, online baseline before each test.
+ */
+function resetChargeTestState() {
+  localStorage.setItem(SESSION_KEY, "session-1");
+  __resetForTests();
+  vi.clearAllMocks();
+  chargeBlockerState = "unblocked";
+  chargeBlockerReset.mockReset();
+  chargeBlockerProceed.mockReset();
+  mockApprovalPending.mockReset();
+  mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+  vi.mocked(useIsOnline).mockReturnValue(true);
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -217,6 +240,7 @@ describe("SaleCharge route — smoke", () => {
     chargeBlockerProceed.mockReset();
     mockApprovalPending.mockReset();
     mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    vi.mocked(useIsOnline).mockReturnValue(true);
     // Reset mocks to their passive defaults for smoke tests.
     vi.mocked(useSessionModule.useSession).mockReturnValue({
       status: "none",
@@ -257,14 +281,7 @@ describe("SaleCharge route — smoke", () => {
 
 describe("SaleCharge route — off-booth approval affordance", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    resetChargeTestState();
   });
 
   it("shows 'Request manager approval' button at ceiling alongside existing CTAs", async () => {
@@ -527,14 +544,7 @@ describe("SaleCharge route — off-booth approval affordance", () => {
 
 describe("SaleCharge route — countdown panel", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    resetChargeTestState();
   });
 
   it("countdown panel is shown when invoice is active (invoiceMatches)", async () => {
@@ -597,14 +607,7 @@ const MOCK_MANAGERS = [
 
 describe("SaleCharge route — manager picker", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    resetChargeTestState();
   });
 
   /**
@@ -801,14 +804,7 @@ describe("SaleCharge route — manager picker", () => {
 
 describe("SaleCharge route — useBlocker payment guard", () => {
   beforeEach(() => {
-    localStorage.setItem(SESSION_KEY, "session-1");
-    __resetForTests();
-    vi.clearAllMocks();
-    chargeBlockerState = "unblocked";
-    chargeBlockerReset.mockReset();
-    chargeBlockerProceed.mockReset();
-    mockApprovalPending.mockReset();
-    mockApprovalPending.mockImplementation(() => <div data-testid="approval-pending" />);
+    resetChargeTestState();
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
     vi.mocked(useXenditPaymentModule.useXenditPayment).mockReturnValue(
       SHOWING_PHASE as ReturnType<typeof useXenditPaymentModule.useXenditPayment>,
@@ -850,5 +846,79 @@ describe("SaleCharge route — useBlocker payment guard", () => {
     await waitFor(() => {
       expect(screen.queryByText("Cancel this payment?")).toBeNull();
     });
+  });
+});
+
+// ─── Tier 4: offline guard (ADR-025) ─────────────────────────────────────────
+
+describe("SaleCharge route — offline guard", () => {
+  beforeEach(() => {
+    resetChargeTestState();
+  });
+
+  it("shows an offline banner and disables payment actions while disconnected", async () => {
+    vi.mocked(useIsOnline).mockReturnValue(false);
+    setupCeilingState();
+    renderAt("txn-test-123");
+
+    // Banner appears with "offline" text.
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+    expect(screen.getByRole("alert").textContent?.toLowerCase()).toMatch(/offline/);
+
+    // Wait for ceiling UI to be present.
+    await waitFor(() => expect(screen.getByText(/Retry/)).toBeTruthy());
+
+    // Retry button is disabled.
+    const retryBtn = screen.getByText(/Retry/).closest("button")!;
+    expect(retryBtn).toBeDisabled();
+
+    // Manager override button is disabled (staff role in ACTIVE_SESSION).
+    const overrideBtn = screen.getByText("Manager override").closest("button")!;
+    expect(overrideBtn).toBeDisabled();
+
+    // Cancel sale button is disabled.
+    const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
+    expect(cancelBtn).toBeDisabled();
+
+    // Request manager approval button is disabled (server action — writes pos_approval_requests + Telegram).
+    const requestApprovalBtn = screen.getByText("Request manager approval").closest("button")!;
+    expect(requestApprovalBtn).toBeDisabled();
+
+    // Method-switch tabs are disabled offline.
+    expect(screen.getByRole("tab", { name: "QRIS" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "BCA VA" })).toBeDisabled();
+  });
+
+  it("online: no offline banner, online-gated buttons are enabled (override stays disabled by role)", async () => {
+    // isOnline = true (default from beforeEach)
+    setupCeilingState();
+    renderAt("txn-test-123");
+
+    await waitFor(() => expect(screen.getByText(/Retry/)).toBeTruthy());
+
+    // No alert banner.
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Retry is enabled.
+    const retryBtn = screen.getByText(/Retry/).closest("button")!;
+    expect(retryBtn).not.toBeDisabled();
+
+    // Manager override stays disabled — fixture session role is "staff", not "manager".
+    const overrideBtn = screen.getByText("Manager override").closest("button")!;
+    expect(overrideBtn).toBeDisabled();
+
+    // Request manager approval is enabled online.
+    const requestApprovalBtn = screen.getByText("Request manager approval").closest("button")!;
+    expect(requestApprovalBtn).not.toBeDisabled();
+
+    // Cancel sale is enabled.
+    const cancelBtn = screen.getByText(/Cancel sale/).closest("button")!;
+    expect(cancelBtn).not.toBeDisabled();
+
+    // Method-switch tabs are enabled online.
+    expect(screen.getByRole("tab", { name: "QRIS" })).not.toBeDisabled();
+    expect(screen.getByRole("tab", { name: "BCA VA" })).not.toBeDisabled();
   });
 });

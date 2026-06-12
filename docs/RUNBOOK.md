@@ -165,3 +165,45 @@ When deploying to prod:
 5. Register Xendit + Telegram webhooks against the `.convex.site` prod URLs.
 
 The `seed:reset` prod-guard will block accidental data wipes on `savory-zebra-800`.
+
+---
+
+## 8. Booth operations (prod) — v1.0 launch
+
+Prod deployment: `savory-zebra-800` · App: https://frollie-pos.vercel.app · Logs: Convex dashboard → prod → Logs.
+
+### 8.1 Daily flow
+- Buka PWA dari home screen (bukan browser tab). Cek titik koneksi di header: hijau = live.
+- Pagi / setiap terima kiriman dari dapur: hitung stok fisik → **Stock check → Hitung ulang stok** (recount, ADR-041). Recount adalah satu-satunya jalur restock v1 — TIDAK ada layar "stock in" (kembali di v0.5.2b). Manajer otomatis dapat notifikasi recount via Telegram.
+- Tutup shift: **Lock + handoff**.
+
+### 8.2 Pembayaran tidak terkonfirmasi (QR sudah discan, layar tidak berubah)
+1. Tunggu ±30 detik — konfirmasi datang dari webhook Xendit, bukan dari device.
+2. Cek titik koneksi. Kalau offline: pembayaran yang sudah discan TETAP diproses; layar update begitu koneksi kembali.
+3. Masih stuck dan pelanggan menunggu: panggil manajer → **manual override** (PIN di booth, atau link `/approve` di grup Telegram Manajer untuk manajer di luar booth).
+4. JANGAN minta pelanggan scan ulang sebelum manajer memeriksa — risiko bayar dobel.
+
+### 8.3 Device mati / hilang
+1. Manajer kirim `/activatepos` di grup Telegram **Frollie · Managers** → dapat kode 6 digit + link aktivasi (berlaku 1 jam).
+2. Buka link di HP pengganti → masukkan kode → login PIN → lanjut jualan.
+3. Kalau tidak ada HP pengganti: catat penjualan di buku (fallback minggu pertama), lalu recount stok setelah device kembali. Pembayaran TIDAK bisa diterima tanpa device (QRIS per-transaksi).
+
+### 8.4 Telegram down
+- Approval jatuh ke jalur PIN manajer di booth (manual override tetap jalan).
+- Ringkasan founders & alert stok skip otomatis (ter-audit, tidak ada retry storm). Tidak ada tindakan.
+
+### 8.5 Xendit / pembayaran down total
+- Tidak ada pembayaran digital = tidak ada penjualan via POS (by design, ADR-006: no cash).
+- Eskalasi ke Lucas. Opsi darurat ditentukan manajer (mis. catat IOU di buku).
+
+### 8.6 Eskalasi
+- Kontak: Lucas (S-0001).
+- Logs: Convex dashboard prod → Logs (cari `qr.payment` untuk webhook pembayaran).
+- Bot/Telegram ops: lihat `docs/RUNBOOK-telegram.md`.
+
+### 8.7 Prod data setup (re-seeding order — manager only)
+1. Katalog (SKU + produk): `npx convex run --prod seed/internal:_seedLaunchCatalog_internal` — one-shot, mengisi SKU `dubai` + `water` dan 4 produk (Dubai Chewy Cookie Single/Triple/Eight + Mineral Water, harga 45rb/125rb/320rb/5rb). Menolak jalan kalau katalog sudah ada (`catalog_already_populated`).
+2. Perubahan katalog selanjutnya: `/mgr/products` (PIN — `createInventorySku` / `createProduct`).
+3. Stok awal: `/stock/recount` (hitung fisik; recount movement men-set on_hand).
+4. Staf: `/mgr/staff` (PIN — manajer SET PIN awal saat create; staf WAJIB ganti PIN via "Change PIN" saat login pertama).
+5. Voucher (opsional): `/mgr/vouchers` (PIN).

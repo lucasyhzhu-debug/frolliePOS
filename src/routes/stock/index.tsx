@@ -13,6 +13,10 @@ export default function StockScreen() {
     <SpokeLayout title="Stok">
       {rows === undefined ? (
         <p className="p-4 text-muted-foreground">Memuat…</p>
+      ) : rows.length === 0 ? (
+        <div className="m-4 rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          Belum ada SKU. Manajer menambahkan SKU lewat halaman Kelola Produk.
+        </div>
       ) : (
         <ul className="divide-y">
           {rows.map((r) => (

@@ -28,15 +28,14 @@ interface Tile {
 
 const TILES: Tile[] = [
   { id: "sale", group: "sell", label: "New sale", hint: "start a cart", to: "/sale", primary: true, glyph: "◉" },
-  { id: "saved", group: "sell", label: "Saved carts", hint: "drafts (v0.3)", to: "/sale/drafts", glyph: "◇" },
-  { id: "hist", group: "sell", label: "History", hint: "today (v0.5)", to: "/history", glyph: "≡" },
+  { id: "saved", group: "sell", label: "Saved carts", hint: "resume a saved cart", to: "/sale/drafts", glyph: "◇" },
+  { id: "hist", group: "sell", label: "History", hint: "today's sales", to: "/history", glyph: "≡" },
   { id: "refund", group: "sell", label: "Refund", hint: "today's refundable", to: "/refund", glyph: "↩" },
-  { id: "stock-in", group: "stock", label: "Stock in", hint: "log new tray (v0.5)", to: "/stock/in", glyph: "▲" },
-  { id: "stock-check", group: "stock", label: "Stock check", hint: "inventory (v0.5)", to: "/stock", glyph: "◐" },
+  { id: "stock-check", group: "stock", label: "Stock check", hint: "inventory + recount", to: "/stock", glyph: "◐" },
   { id: "sett", group: "you", label: "Settlements", hint: "payouts ke BCA", to: "/settlements", glyph: "$" },
-  { id: "lock", group: "you", label: "Lock + handoff", hint: "end your shift (v0.5)", to: "/lock", glyph: "◎" },
+  { id: "lock", group: "you", label: "Lock + handoff", hint: "end your shift", to: "/lock", glyph: "◎" },
   { id: "account", group: "you", label: "Change PIN", hint: "ubah PIN Anda", to: "/account", glyph: "⚷" },
-  { id: "mgr", group: "mgr", label: "Manager home", hint: "live + approvals (v0.4)", to: "/mgr", mgrOnly: true, glyph: "★" },
+  { id: "mgr", group: "mgr", label: "Manager home", hint: "live + approvals", to: "/mgr", mgrOnly: true, glyph: "★" },
   { id: "telegram-chats", group: "mgr", label: "Telegram chats", hint: "bot registry + roles", to: "/mgr/telegram-chats", mgrOnly: true, glyph: "✈" },
 ];
 

@@ -624,6 +624,7 @@ staff.shift_summary_shared
 staff.created
 device.deactivated          # device.activated + device.setup_code_issued documented in the v0.5.7 block below
 seed.reset
+seed.launch_catalog         # one-shot prod catalog seed (v1.0 launch — _seedLaunchCatalog_internal)
 transaction.created
 transaction.line_added
 transaction.line_removed

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { issueDeviceSetupCode } from "../staff/internal";
+import { insertInventorySku } from "../catalog/internal";
 
 /**
  * POS prod deployment slug per CLAUDE.md §"Convex deployment". Update this
@@ -184,10 +185,12 @@ export const _reset_internal = internalMutation({
 
     // Products + components
     // name, pack_label, price_idr, components[[sku, qty]], sort_order
+    // Dubai prices mirror the launch catalog (_seedLaunchCatalog_internal below)
+    // — the overlapping productCodes (DUBAI_*PC) must not drift between the two.
     const products: Array<[string, string, number, Array<[string, number]>, number]> = [
       ["Dubai",     "1 pc",  45000, [["dubai", 1]],                                          1],
       ["Dubai",     "3 pcs", 125000, [["dubai", 3]],                                          2],
-      ["Dubai",     "8 pcs", 340000, [["dubai", 8]],                                          3],
+      ["Dubai",     "8 pcs", 320000, [["dubai", 8]],                                          3],
       ["Choco",     "1 pc",  25000, [["choco", 1]],                                          4],
       ["Matcha",    "1 pc",  25000, [["matcha", 1]],                                         5],
       ["Lotus",     "1 pc",  28000, [["lotus", 1]],                                          6],
@@ -313,6 +316,144 @@ export const _bootstrapCommit_internal = internalMutation({
     });
 
     return { staffId, staffCode };
+  },
+});
+
+/**
+ * Launch-day catalog seed (2026-06-12). One-shot, prod-runnable.
+ *
+ * Inserts the Frollie booth catalog — 2 inventory SKUs (dubai, water) + 4
+ * products (Dubai Chewy Cookie Single/Triple/Eight + Mineral Water) — on a
+ * fresh deployment where no pos_products rows exist yet. No pos_stock_levels
+ * rows are written: `upsertStockLevel` lazy-inits on first movement and all
+ * reads default absent rows to 0; the opening recount on launch day writes the
+ * real stock as a logged movement (ADR-041, business rule #8). The product
+ * tagline ("Chewy marshmallow filled with
+ * Pistachio Kunafa") has no schema home — pos_products has no description field
+ * — and is a receipt-branding/marketing concern, not catalog data.
+ *
+ * Run command (prod):
+ *   npx convex run --prod seed/internal:_seedLaunchCatalog_internal
+ *
+ * Guard: throws "catalog_already_populated" if any pos_products OR
+ * pos_inventory_skus row already exists (mirrors _bootstrapCommit_internal's
+ * "already_bootstrapped" pattern; checking both tables prevents duplicate SKU
+ * rows after a partial seed or manual SKU entry — by_sku assumes uniqueness).
+ * Safe to re-attempt on a truly empty deployment.
+ */
+export const _seedLaunchCatalog_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ skus: number; products: number }> => {
+    // One-shot guard — mirrors _bootstrapCommit_internal. Any catalog data
+    // (products or SKUs) aborts: a products-only check would duplicate SKU
+    // rows on a partially-seeded deployment.
+    const [existingProduct, existingSku] = await Promise.all([
+      ctx.db.query("pos_products").take(1),
+      ctx.db.query("pos_inventory_skus").take(1),
+    ]);
+    if (existingProduct.length > 0 || existingSku.length > 0) {
+      throw new Error("catalog_already_populated");
+    }
+
+    const now = Date.now();
+
+    // ── 1. Inventory SKUs (no stock-level rows — lazy-init, see doc above) ──
+    const skuDefs: Array<{
+      sku: string;
+      code: string;
+      name: string;
+      low_threshold: number;
+      initials: string;
+      hue: number;
+    }> = [
+      { sku: "dubai", code: "DUBAI", name: "Dubai cookie",    low_threshold: 4, initials: "Du", hue: 30  },
+      { sku: "water", code: "WATER", name: "Mineral water",   low_threshold: 6, initials: "Mw", hue: 205 },
+    ];
+
+    const skuIds: Record<string, Id<"pos_inventory_skus">> = {};
+    for (const def of skuDefs) {
+      // Canonical insert (catalog/internal.ts) — same single-writer shape as
+      // the manager-PIN createInventorySku/createProduct paths (v0.5.5 lesson).
+      skuIds[def.sku] = await insertInventorySku(ctx, { ...def, now });
+    }
+
+    // ── 2. Products + components ────────────────────────────────────────────
+    // NOTE: the dev fixture in _reset_internal defines overlapping productCodes
+    // (e.g. DUBAI_8PC) — keep prices in sync with this block, which is the
+    // launch-catalog source of truth (45000/125000/320000/5000).
+    type ProductDef = {
+      name: string;
+      pack_label: string;
+      code: string;
+      price_idr: number;
+      sku_family: string;
+      sort_order: number;
+      initials: string;
+      hue: number;
+      components: Array<{ sku: string; qty: number }>;
+    };
+
+    const productDefs: ProductDef[] = [
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Single", code: "DUBAI_1PC",
+        price_idr: 45000,  sku_family: "dubai", sort_order: 1,
+        initials: "D1", hue: 30,
+        components: [{ sku: "dubai", qty: 1 }],
+      },
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Triple", code: "DUBAI_3PC",
+        price_idr: 125000, sku_family: "dubai", sort_order: 2,
+        initials: "D3", hue: 30,
+        components: [{ sku: "dubai", qty: 3 }],
+      },
+      {
+        name: "Dubai Chewy Cookie", pack_label: "Eight",  code: "DUBAI_8PC",
+        price_idr: 320000, sku_family: "dubai", sort_order: 3,
+        initials: "D8", hue: 30,
+        components: [{ sku: "dubai", qty: 8 }],
+      },
+      {
+        name: "Mineral Water",      pack_label: "1 btl",  code: "WATER_1BTL",
+        price_idr: 5000,   sku_family: "water", sort_order: 4,
+        initials: "MW", hue: 205,
+        components: [{ sku: "water", qty: 1 }],
+      },
+    ];
+
+    for (const def of productDefs) {
+      const productId = await ctx.db.insert("pos_products", {
+        sku_family: def.sku_family,
+        code: def.code,
+        name: def.name,
+        pack_label: def.pack_label,
+        price_idr: def.price_idr,
+        initials: def.initials,
+        hue: def.hue,
+        active: true,
+        sort_order: def.sort_order,
+        tax_rate: 0,
+        created_at: now,
+        updated_at: now,
+      });
+      for (const comp of def.components) {
+        await ctx.db.insert("pos_product_components", {
+          product_id: productId,
+          inventory_sku_id: skuIds[comp.sku],
+          qty: comp.qty,
+        });
+      }
+    }
+
+    // ── 3. Audit ────────────────────────────────────────────────────────────
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "seed.launch_catalog",
+      entity_type: "system",
+      source: "system",
+      metadata: { skus: 2, products: 4 },
+    });
+
+    return { skus: 2, products: 4 };
   },
 });
 

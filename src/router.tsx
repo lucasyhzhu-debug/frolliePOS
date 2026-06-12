@@ -14,7 +14,6 @@ import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
  *   /sale/charge/:txnId          — QR display (ChargeA)
  *   /sale/charge/:txnId/success  — paid screen
  *   /stock                       — stock check (inventory)
- *   /stock/in                    — stock-in
  *   /lock                        — end-of-shift lock + handoff
  *   /refund/:txnId               — refund flow (mgr-PIN gated via WA)
  *   /history                     — transaction history (staff sees own + today)
@@ -45,7 +44,6 @@ const SaleVoucher = lazy(() => import("@/routes/sale/voucher"));
 const SaleCharge = lazy(() => import("@/routes/sale/charge"));
 const SaleChargeSuccess = lazy(() => import("@/routes/sale/charge-success"));
 const Stock = lazy(() => import("@/routes/stock"));
-const StockIn = lazy(() => import("@/routes/stock/in"));
 const StockRecount = lazy(() => import("@/routes/stock/recount"));
 const StockDetail = lazy(() => import("@/routes/stock/$skuId"));
 const Lock = lazy(() => import("@/routes/lock"));
@@ -102,7 +100,6 @@ const routes: RouteObject[] = [
       { path: "sale/charge/:txnId", element: <SaleCharge /> },
       { path: "sale/charge/:txnId/success", element: <SaleChargeSuccess /> },
       { path: "stock", element: <Stock /> },
-      { path: "stock/in", element: <StockIn /> },
       { path: "stock/recount", element: <StockRecount /> },
       { path: "stock/:skuId", element: <StockDetail /> },
       { path: "lock", element: <Lock /> },

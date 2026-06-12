@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-12 — v1.0.0 launch
+
+- Polish slice across the staff-critical loop: offline banner + action guard on the charge screen (ADR-025; covers retry, manual override, method switch, cancel, and the off-booth approval-request buttons), `/stock` empty state, `useIsOnline` hook extracted from ConnDot, stock-in stub tile/route removed (restock = recount until v0.5.2b), dev version tags stripped from home tiles
+- One-shot prod launch-catalog seed (`seed/internal:_seedLaunchCatalog_internal`): `dubai` + `water` SKUs and 4 products — Dubai Chewy Cookie Single/Triple/Eight (Rp 45.000 / 125.000 / 320.000) + Mineral Water (Rp 5.000); guarded against any pre-existing catalog rows
+- Booth operations runbook (prod) in `docs/RUNBOOK.md` §8
+- Production go-live: backend + frontend deployed, Telegram roles verified, live Rp 1.000 smoke test (sale → webhook → receipt → refund → settle), paper system retired
+
 ## 2026-06-08 — v0.7 Xendit settlement reconciliation
 - `/settlements` now shows per-day payout figures (net to BCA, gross, MDR, txn count) to staff + managers (ADR-012).
 - Managers can record a settlement day manually (PIN-gated) — the verified launch path while Xendit KYB is pending.

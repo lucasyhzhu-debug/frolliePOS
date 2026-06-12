@@ -162,15 +162,17 @@ export const _setLowThreshold_internal = internalMutation({
 const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
 
 /**
- * Canonical insert for a new pos_inventory_skus row. Both SKU-create paths —
- * standalone (`_createInventorySkuCommit_internal`) and the bundled branch of
- * `_createProductCommit_internal` — write through here so the row shape
+ * Canonical insert for a new pos_inventory_skus row. All SKU-create paths —
+ * standalone (`_createInventorySkuCommit_internal`), the bundled branch of
+ * `_createProductCommit_internal`, and the v1.0 launch seed
+ * (`seed/internal.ts::_seedLaunchCatalog_internal`, imported plain-function
+ * style like `logAudit`) — write through here so the row shape
  * (`unit`/`active`/`created_at` defaults + column set) lives in one place and
  * can't drift when the table gains a column. Validation stays in the callers:
- * the two paths legitimately differ (standalone enforces name length + code
+ * the paths legitimately differ (standalone enforces name length + code
  * uniqueness; bundled derives a slug-bounded name and carries no code).
  */
-async function insertInventorySku(
+export async function insertInventorySku(
   ctx: MutationCtx,
   fields: {
     sku: string;
