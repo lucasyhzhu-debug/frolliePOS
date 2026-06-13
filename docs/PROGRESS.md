@@ -1824,9 +1824,9 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v1.0 — launch polish 📋 PLANNED
+## v1.0 — launch polish ✅ DONE
 **Outcome:** The POS replaces the manual paper system at the booth, in production, with an operational runbook.
-**Target:** 2026-06-12 (launch day)
+**Target:** 2026-06-12 (launch day) · **Shipped:** 2026-06-12 (tag `v1.0.0` @ 749d186 — live Rp 1.000 QRIS smoke test passed; paper system retired)
 [Spec](./superpowers/specs/2026-06-12-v1.0-launch-polish-design.md) · [Plan](./superpowers/plans/2026-06-12-v1.0-launch-polish.md) · staffreviews: [spec](./reviews/staffreview-v1.0-launch-polish-spec-2026-06-12.md), [plan](./reviews/staffreview-v1.0-launch-polish-plan-2026-06-12.md)
 
 **You'll be able to:**
@@ -1845,86 +1845,99 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 - Cross-deployment integration with Frollie Pro `product_master` — decision pending; v1.1+
 
 ### Backend (`convex/`)
-- _(no backend tasks — the polish slice is frontend-only; deploy is cross-cutting. Negative-stock recon shipped as v0.6 drift triage; settlement polish moved to v1.0.1.)_
+- ✅ **[v10-be-launch-catalog-seed]** `seed/internal.ts` — one-shot prod launch-catalog seed (Dubai Chewy Cookie Single/Triple/Eight + Mineral Water, dubai + water SKUs) (f87f54d / 3dca212)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** user request 2026-06-12 (launch-day catalog); [ADR-016](./ADR/016-product-inventory-separation.md)
+  - **subtasks:**
+    - [x] `_seedLaunchCatalog_internal` (one-shot guard, SKUs + 0-stock levels + products + components, audit row)
+    - [x] convex-test coverage (shape + one-shot guard)
+  - **notes:**
+    - 2026-06-12: added mid-phase — replaces the manual product-entry half of RUNBOOK §7.7 steps 1–2; recount + staff stay manual
+- _(deploy is cross-cutting. Negative-stock recon shipped as v0.6 drift triage; settlement polish moved to v1.0.1.)_
 
 ### Frontend (`src/`)
-- 📋 **[v10-fe-use-is-online]** `hooks/useIsOnline.ts` — extract ConnDot connection-state logic into a shared hook
+- ✅ **[v10-fe-use-is-online]** `hooks/useIsOnline.ts` — extract ConnDot connection-state logic into a shared hook (667c841 / b3c7361)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan Task 2](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
   - **subtasks:**
-    - [ ] Failing hook test (connected / flip-on-change / no-state-API fallback)
-    - [ ] Implement `useIsOnline` (Convex connectionState + onStateChange, 5s-poll fallback)
-    - [ ] Refactor ConnDot to consume the hook
-    - [ ] Full frontend suite green
+    - [x] Failing hook test (connected / flip-on-change / no-state-API fallback)
+    - [x] Implement `useIsOnline` (Convex connectionState + onStateChange, 5s-poll fallback)
+    - [x] Refactor ConnDot to consume the hook
+    - [x] Full frontend suite green
   - **notes:** _(empty)_
-- 📋 **[v10-fe-charge-offline-block]** `routes/sale/charge.tsx` — offline banner + payment-action guard (ADR-025)
+- ✅ **[v10-fe-charge-offline-block]** `routes/sale/charge.tsx` — offline banner + payment-action guard (ADR-025) (08bd712 / 45ed0c1)
   - **agent:** `frontend-integrator`
   - **deps:** `v10-fe-use-is-online`
   - **docs:** [Plan Task 3](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [ADR-025](./ADR/025-service-worker-cache.md)
   - **subtasks:**
-    - [ ] Failing test in charge.test.tsx (mock useIsOnline, renderAt fixture)
-    - [ ] role=alert banner in awaiting-payment view
-    - [ ] Disable retry / manager-override / TabsTrigger method switch / cancel while offline
-    - [ ] Tests pass
-  - **notes:** _(empty)_
-- 📋 **[v10-fe-stock-empty-state]** `routes/stock/index.tsx` — empty state for the SKU list (launch-morning state)
+    - [x] Failing test in charge.test.tsx (mock useIsOnline, renderAt fixture)
+    - [x] role=alert banner in awaiting-payment view
+    - [x] Disable retry / manager-override / TabsTrigger method switch / cancel while offline
+    - [x] Tests pass
+  - **notes:**
+    - 2026-06-12: review extended the guard to the off-booth approval-request buttons (Request manager approval / Send request) — same ADR-025 rationale
+- ✅ **[v10-fe-stock-empty-state]** `routes/stock/index.tsx` — empty state for the SKU list (launch-morning state) (ac39e7c)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan Task 4](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
   - **subtasks:**
-    - [ ] Failing test (partial convex/react mock + ConvexProvider wrapper)
-    - [ ] Three-way branch: loading / empty copy / rows (rows branch byte-identical — spoilage e2e reads it)
-    - [ ] Tests pass
+    - [x] Failing test (partial convex/react mock + ConvexProvider wrapper)
+    - [x] Three-way branch: loading / empty copy / rows (rows branch byte-identical — spoilage e2e reads it)
+    - [x] Tests pass
   - **notes:** _(empty)_
-- 📋 **[v10-fe-home-tiles-cleanup]** `routes/home.tsx` + `router.tsx` — remove `/stock/in` stub tile+route; strip dev version tags from hints
+- ✅ **[v10-fe-home-tiles-cleanup]** `routes/home.tsx` + `router.tsx` — remove `/stock/in` stub tile+route; strip dev version tags from hints (b584db6)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan Task 5](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [ADR-041](./ADR/041-recount-staff-allowed.md)
   - **subtasks:**
-    - [ ] TILES array rewrite (drop stock-in tile, clean hints)
-    - [ ] Remove route + lazy import; delete `src/routes/stock/in.tsx`
-    - [ ] Full suite green (fix any tile-referencing tests)
+    - [x] TILES array rewrite (drop stock-in tile, clean hints)
+    - [x] Remove route + lazy import; delete `src/routes/stock/in.tsx`
+    - [x] Full suite green (fix any tile-referencing tests)
   - **notes:** _(empty)_
 
 ### Cross-cutting
-- 📋 **[v10-xc-audit-findings]** Audit findings doc — staff-critical loop (static table + e2e confirmation)
+- ✅ **[v10-xc-audit-findings]** Audit findings doc — staff-critical loop (static table + e2e confirmation) (61f4d55)
   - **agent:** `claude`
   - **deps:** none
   - **docs:** [Plan Task 1](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
   - **subtasks:**
-    - [ ] `docs/reviews/v1.0-launch-audit-2026-06-12.md` with screen × state × verdict table
-    - [ ] Fix-list section mapping ❌ rows to plan tasks
+    - [x] `docs/reviews/v1.0-launch-audit-2026-06-12.md` with screen × state × verdict table
+    - [x] Fix-list section mapping ❌ rows to plan tasks
   - **notes:** _(empty)_
-- 📋 **[v10-xc-runbook-booth-ops]** `docs/RUNBOOK.md` §7 — booth operations (prod): payment-stuck, device-dead (/activatepos), Telegram/Xendit outage, seeding order
+- ✅ **[v10-xc-runbook-booth-ops]** `docs/RUNBOOK.md` §8 — booth operations (prod): payment-stuck, device-dead (/activatepos), Telegram/Xendit outage, seeding order (fdb980f)
   - **agent:** `claude`
   - **deps:** `v10-fe-home-tiles-cleanup`
   - **docs:** [Plan Task 6](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [RUNBOOK-telegram](./RUNBOOK-telegram.md)
   - **subtasks:**
-    - [ ] §7.1–7.7 appended (recount-as-restock documented)
-  - **notes:** _(empty)_
-- 📋 **[v10-xc-gate-changelog]** CHANGELOG + full gate + QA close-out + squash-merge PR
+    - [x] §7.1–7.7 appended (recount-as-restock documented)
+  - **notes:**
+    - 2026-06-12: renumbered to §8 — RUNBOOK.md already had a §7 (Prod cutover); §8.7 catalog step now uses the one-shot `_seedLaunchCatalog_internal` instead of manual UI entry
+- ✅ **[v10-xc-gate-changelog]** CHANGELOG + full gate + QA close-out + squash-merge PR (749d186)
   - **agent:** `claude`
   - **deps:** `v10-fe-use-is-online`, `v10-fe-charge-offline-block`, `v10-fe-stock-empty-state`, `v10-fe-home-tiles-cleanup`, `v10-xc-audit-findings`, `v10-xc-runbook-booth-ops`
   - **docs:** [Plan Tasks 7–8](./superpowers/plans/2026-06-12-v1.0-launch-polish.md)
   - **subtasks:**
-    - [ ] CHANGELOG entry
-    - [ ] typecheck + lint + vitest + Playwright e2e green
-    - [ ] /triple-review findings addressed
-    - [ ] /simplify xhigh applied + gate re-run
-    - [ ] Squash-merge PR; local main re-synced
-  - **notes:** _(empty)_
-- 📋 **[v10-xc-launch-ops]** Launch ops (human-in-loop): deploy prod, Telegram verify, seed data, Rp 1.000 smoke test, tag v1.0.0
+    - [x] CHANGELOG entry
+    - [x] typecheck + lint + vitest + Playwright e2e green
+    - [x] /triple-review findings addressed
+    - [x] /simplify xhigh applied + gate re-run
+    - [x] Squash-merge PR; local main re-synced
+  - **notes:**
+    - 2026-06-12: e2e payment specs need `XENDIT_SECRET_KEY` exported (npx convex env get) — 4 specs fail at simulate without it; documented in the audit doc gate note
+- ✅ **[v10-xc-launch-ops]** Launch ops (human-in-loop): deploy prod, Telegram verify, seed data, Rp 1.000 smoke test, tag v1.0.0 (v1.0.0 @ 749d186)
   - **agent:** `claude`
   - **deps:** `v10-xc-gate-changelog`
   - **docs:** [Plan Task 9](./superpowers/plans/2026-06-12-v1.0-launch-polish.md), [Spec §Part 2](./superpowers/specs/2026-06-12-v1.0-launch-polish-design.md)
   - **subtasks:**
-    - [ ] `npx convex deploy` + Vercel prod + cron/webhook verification
-    - [ ] Telegram three-role check (/activatepos, founders summary, inventory binding)
-    - [ ] 🧑 Prod data seeded per RUNBOOK §7.7
-    - [ ] 🧑 Smoke test: QRIS Rp 1.000 → paid → receipt → refund + settle → archive
-    - [ ] Tag v1.0.0; PROGRESS reconciled; **paper system retired**
-  - **notes:** _(empty)_
+    - [x] `npx convex deploy` + Vercel prod + cron/webhook verification
+    - [x] Telegram three-role check (/activatepos, founders summary, inventory binding)
+    - [x] 🧑 Prod data seeded per RUNBOOK §7.7
+    - [x] 🧑 Smoke test: QRIS Rp 1.000 → paid → receipt → refund + settle → archive
+    - [x] Tag v1.0.0; PROGRESS reconciled; **paper system retired**
+  - **notes:**
+    - 2026-06-12: catalog created via canonical `_createInventorySkuCommit_internal`/`_createProductCommit_internal` CLI runs (audited as S-0001) — seed's one-shot guard correctly refused (leftover Testproduct from 06-03 cutover; kept + to be archived per Lucas, not deleted). Founders summary round-trip ok; webhook probe 401 ok.
 
 ---
 
