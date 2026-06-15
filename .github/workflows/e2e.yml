@@ -30,7 +30,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # `npm install` (not `npm ci`): the lockfile is maintained on Windows and
+      # omits Linux-only platform-gated optional deps (canvas stub override +
+      # @emnapi/*), which makes strict `npm ci` fail on ubuntu before tests run.
+      # `npm install` reconciles per-platform. Trade-off: loses ci's strict
+      # lock-reproducibility — acceptable for an e2e runner whose value is the
+      # browser tests, not dependency pinning.
+      - run: npm install --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
       - run: npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL
       # Source the Xendit secret from the just-deployed deployment so the simulate
