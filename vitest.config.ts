@@ -1,8 +1,19 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+
+// Mirror vite.config.ts's __APP_VERSION__ define so components reading it
+// (e.g. the home header) render under test instead of throwing on the
+// undefined global. package.json stays the single source of truth.
+const pkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+) as { version: string };
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [react()],
   resolve: {
     alias: {

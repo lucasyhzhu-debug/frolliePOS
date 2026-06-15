@@ -73,6 +73,9 @@ export default function HomeRoute() {
     <main className="flex flex-1 flex-col gap-4 p-4">
       <header className="flex items-baseline justify-between">
         <div>
+          <span className="block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            v{__APP_VERSION__}
+          </span>
           <h1 className="text-lg font-semibold leading-tight">
             Frollie <span className="text-sm font-normal text-muted-foreground">· {session.staff.name}</span>
           </h1>
