@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
  *
  * 1. **Chunk-load failures** (stale deploy): reload the page exactly once,
  *    guarded by a `sessionStorage` timestamp. Second failure within 30s
- *    falls through to the friendly fallback instead of looping.
+ *    falls through to the friendly fallback instead of looping. Skipped
+ *    entirely when offline: a chunk import fails offline too (an unvisited
+ *    lazy route on a connection drop), and reloading then can't fetch the
+ *    chunk — it just replaces the friendly fallback with a browser error
+ *    page. Offline → show the fallback; the staffer reloads on reconnect.
  * 2. **Anything else**: render a minimal branded fallback. No stack trace,
  *    even in dev — staff are at the booth, not the IDE.
  *
@@ -31,7 +35,10 @@ export function RouteErrorBoundary() {
     // A missing/NaN stamp reads as 0, so the window check below is already
     // false for it — no separate stamp > 0 guard needed.
     const recentlyTried = Date.now() - stamp < RELOAD_WINDOW_MS;
-    if (!recentlyTried) {
+    // Reloading only helps online: a fresh GET can fetch the new chunk hash.
+    // Offline, the chunk is unreachable and a reload yields a browser error
+    // page (chrome-error://) instead of our fallback — so skip it.
+    if (!recentlyTried && navigator.onLine) {
       sessionStorage.setItem(RELOAD_STAMP_KEY, String(Date.now()));
       window.location.reload();
       return null;
