@@ -81,13 +81,14 @@ pos_error_reports: defineTable({
 **`convex/ops/internal.ts`** — `_recordError_internal` (internalMutation):
 - Computes `signature` = a stable hash (V8-safe; small FNV-1a or djb2 in `convex/ops/lib.ts` — **no `crypto.subtle` async** inside a mutation; a pure synchronous string hash is fine for a dedup key).
 - **Dedup:** query `by_signature_created` for any row with the same signature within `DEDUP_WINDOW_MS` (5 min). If found → write the new row with `alerted: false`, skip the alert.
-- **Storm cap:** query `by_created` desc for the most recent `alerted: true` row; if its `created_at` is within `GLOBAL_ALERT_COOLDOWN_MS` (10 s) → write row with `alerted: false`, skip alert.
-- Otherwise write row with `alerted: true` and `ctx.scheduler.runAfter(0, internal.ops.actions.sendErrorAlert, { ... })`.
+- **Storm cap:** find the most recent alerted row via `db.query("pos_error_reports").withIndex("by_created").order("desc").filter(q => q.eq(q.field("alerted"), true)).first()`; if its `created_at` is within `GLOBAL_ALERT_COOLDOWN_MS` (10 s) → write row with `alerted: false`, skip alert. (Fine at booth volume — the filter scans recent rows after the index. Scale follow-up: add a dedicated `by_alerted_created` index if the table grows large; noted so the scan isn't mistaken for O(1).)
+- Otherwise insert the row with `alerted: true`, capture the inserted `reportId`, and `ctx.scheduler.runAfter(0, internal.ops.actions.sendErrorAlert, { reportId })`.
 - Always returns void; never throws back to the httpAction (catch + best-effort).
 
-**`convex/ops/actions.ts`** — `sendErrorAlert` (internalAction, no `"use node"`):
-- Resolves the `ops` chat id via `internal.telegram.chatRegistry.internal.getChatIdByRole` with the **same narrow-catch pattern** as `foundersSummary.ts`: missing-binding message → audit-skip + return `{ skipped: "role_unbound" }`; other errors rethrow.
-- Calls `api.telegram.send.sendTemplate` with `kind: "system_error"`, `role: "ops"`, `chatIdOverride`, and `idempotencyKey: "ops_error:" + signature + ":" + bucketedTimestamp` (so the same signature can re-alert after the dedup window, but a single record can't double-send).
+**`convex/ops/actions.ts`** — `sendErrorAlert({ reportId })` (internalAction, no `"use node"`):
+- Reads the `pos_error_reports` row by `reportId` (via an internal query) to build the payload.
+- Resolves the `ops` chat id via `internal.telegram.chatRegistry.internal.getChatIdByRole` with the **same narrow-catch pattern** as `foundersSummary.ts`: missing-binding message → return `{ skipped: "role_unbound" }`; other errors rethrow.
+- Calls `api.telegram.send.sendTemplate` with `kind: "system_error"`, `role: "ops"`, `chatIdOverride`, and `idempotencyKey: "ops_error:" + reportId`. Using the **row `_id`** (guaranteed unique per alert) keeps the key collision-proof and naturally re-alerts across windows — each window produces a new `alerted: true` row — with **no `Date.now()` bucketing math** in the action.
 - Fire-and-forget semantics: wrapped so a send failure is audited (reuse `_auditSendFailed_internal` path inside `sendTemplate`) and does not propagate. No resilient-retry wrapper (an error alert is not worth a retry storm).
 
 **`convex/ops/http.ts`** — `opsErrorRoute` (httpAction):
@@ -114,7 +115,7 @@ pos_error_reports: defineTable({
 - Dedup-on-client guard: a tiny in-memory `Set`/timestamp map to avoid hammering the endpoint when the same error fires in a tight loop (belt-and-suspenders to the server storm-cap).
 
 **Wiring (4 sites):**
-1. **Global** — `window.addEventListener("error", ...)` + `window.addEventListener("unhandledrejection", ...)`, installed once at app bootstrap (`src/pwa/` or `main.tsx`). Reports `kind: "unhandled"`.
+1. **Global** — `window.addEventListener("error", ...)` + `window.addEventListener("unhandledrejection", ...)`, installed once at app bootstrap (`src/pwa/` or `main.tsx`). Reports `kind: "unhandled"`. **Apply the same `isChunkLoadError` guard here as in the boundary** — global handlers also catch chunk-load failures (stale deploy/offline), and those are expected noise, not crashes.
 2. **`RouteErrorBoundary`** — call `reportOps({ kind: "crash", ... })` **but skip `isChunkLoadError(error)`** (stale-deploy/offline chunk failures are expected and already handled by reload; reporting them is noise). Report only the genuine fallback path.
 3. **Payment path** — the QR/VA creation failure catch (in `useXenditPayment` / the sale payment flow) reports `kind: "payment"`.
 4. **Sale-flow mutation wrapper** — a thin helper so a thrown Convex mutation in the commit/confirm flow reports once (`kind: "mutation"`) before the existing toast. Keep it scoped to the sale flow; do not blanket-wrap every mutation.
@@ -123,7 +124,8 @@ pos_error_reports: defineTable({
 
 ### 6. Backend error reporting
 
-- **Payment charge action** (`convex/payments/actions.ts` — Xendit QR/VA creation) and **Xendit webhook** (`convex/payments/webhook.ts`): on a caught failure, `ctx.runMutation(internal.ops.internal._recordError_internal, { kind: "payment" | "backend", ... })` best-effort (wrapped so reporting never masks/replaces the original error handling). The webhook still returns its existing status codes.
+- **Payment charge action** (`convex/payments/actions.ts` — `requestPayment` / `retryWithFreshInvoice`, Xendit QR/VA creation): on a caught failure, `ctx.runMutation(internal.ops.internal._recordError_internal, { kind: "payment", ... })` best-effort, then rethrow (reporting never masks/replaces the original error handling).
+- **Xendit webhook** (`convex/payments/webhook.ts`): report **only genuine processing failures** on an *authenticated* callback (a parse/confirm exception). **Never report the `401`/bad-signature path** — that is internet bot-scanner noise and would flood the Ops channel. Reporting is wrapped so it cannot alter the returned status code (200 success, 401 bad token both preserved).
 
 ### 7. Live sales ticker
 
@@ -139,11 +141,11 @@ await ctx.scheduler.runAfter(0, internal.telegram.txnTicker.sendTxnTicker, {
 **Why `scheduler.runAfter(0)` not inline:** the sale's atomicity must not depend on Telegram being up. A scheduled action runs in its own transaction; a Telegram failure cannot roll back a paid sale. Same rationale as `sendFoundersSummaryResilient` and CLAUDE.md #5.
 
 **`convex/telegram/txnTicker.ts`** — `sendTxnTicker` (internalAction, no `"use node"`):
-1. Read `_getSettings_internal`; if `txn_ticker_enabled === false` → audit-skip + return `{ skipped: "disabled" }`.
-2. Resolve `managers` chat id (narrow-catch role_unbound pattern from `foundersSummary.ts`).
-3. Read the txn (via a `_getTxnForTicker_internal` query) + its lines (`by_transaction` index) + staff name (`_listStaffNames_internal`) + instrument (derive: `confirmed_via === "manual"` → "Manual"; else `instrumentFromInvoice` of the active `pos_xendit_invoices` row → "QRIS"/"BCA VA"/"—").
+1. Read `_getSettings_internal`; if `txn_ticker_enabled === false` → **return `{ skipped: "disabled" }` silently (NO audit row)**. ⚠️ **Do NOT reuse the founders audit-skip pattern.** Founders runs once daily; the ticker runs once per sale (dozens–hundreds/day), so auditing every `disabled`/`role_unbound` skip would flood `audit_log`. Skip silently; audit **only** genuine send failures (already handled by `sendTemplate`'s `_auditSendFailed_internal`).
+2. Resolve `managers` chat id (narrow-catch role_unbound pattern from `foundersSummary.ts`); on unbound → return `{ skipped: "role_unbound" }` silently (no audit, same reasoning).
+3. Read the txn header via a small new `_getTxnForTicker_internal` query (receipt_number/total/staff_id) + its lines (`by_transaction` index) + staff name (`_listStaffNames_internal`). Instrument: **reuse the existing `_getPaidInvoiceForTxn_internal` query + pure `instrumentFromInvoice` helper** (`convex/payments/internal.ts`) — do NOT mint a new invoice-lookup query (memory `v053a-reporting`: this query was de-duped once already). Derive label: `confirmed_via === "manual"` → "Manual"; else `instrumentFromInvoice(inv)` → "QRIS"/"BCA VA"; `"unknown"` → "—".
 4. Call `sendTemplate` with `kind: "txn_ticker"`, `role: "managers"`, `chatIdOverride`, `idempotencyKey: "ticker:" + txnId` (one ticker per txn, dedup-safe even if scheduled twice).
-5. Send failure → audited, swallowed (no retry storm).
+5. Send failure → audited by `sendTemplate` (`_auditSendFailed_internal`), swallowed by the caller (no retry storm).
 
 **`txn_ticker` template** (add kind+payload to `sendTemplate`, `renderTxnTicker` in `telegramHtml.ts`, informational, no button):
 ```
@@ -152,7 +154,9 @@ await ctx.scheduler.runAfter(0, internal.telegram.txnTicker.sendTxnTicker, {
 1× Mineral Water
 Bayu · QRIS · 14:32
 ```
-Payload: `{ receipt_number, total, lines: [{ name, qty }], staff_name, instrument, paid_at }`. Money via `Intl.NumberFormat("id-ID")` (ADR-015); time via WIB helper (`lib/time.ts`).
+Payload: `{ receipt_number, total, lines: [{ name, qty }], staff_name, instrument, paid_at }`. Money via `Intl.NumberFormat("id-ID")` (ADR-015); time via WIB helper (`lib/time.ts`). `renderTxnTicker` truncates to the first `TICKER_MAX_LINES` (e.g. 6) items + `"…+N more"` so a large wholesale order doesn't post a wall of text.
+
+**Notification noise:** ticker sends pass `disable_notification: true` so Managers get a **silent** running feed (not 100 buzzes/day); `system_error` alerts stay **loud** (default notification). This needs a small addition to `sendTemplate` — a per-kind or optional `silent` flag threaded into the Telegram `sendMessage` body. Keep it minimal: an optional `disableNotification?: boolean` arg on `sendTemplate`, set true only by the ticker caller.
 
 **Channel choice:** Managers group, as requested. Tomorrow Lucas is on-site, so off-booth `/approve` flows (the only other thing in that channel) won't fire — the ticker won't bury approvals. Caveat noted for post-launch: a permanent ticker there would eventually drown a real approval button.
 
@@ -190,7 +194,11 @@ The one part that can hurt: dedup + storm-cap logic. Tests:
 - `opsEndpoint()` suffix-swap (`.cloud` → `.site`).
 - `sendTxnTicker` — toggle off → skip; role_unbound → skip (narrow catch); instrument derivation; idempotency key shape.
 - Ticker fires exactly once: `_confirmPaid_internal` re-fire (status already `paid`) does NOT schedule a second ticker.
-- `renderSystemError` / `renderTxnTicker` HTML-escaping + no inline keyboard.
+- `renderSystemError` / `renderTxnTicker` HTML-escaping + no inline keyboard; `renderTxnTicker` line truncation past `TICKER_MAX_LINES`.
+- **Ticker no-audit (guards Improvement 1):** `disabled` / `role_unbound` skip writes **zero** `audit_log` rows.
+- **Webhook regression (guards Improvement 4):** adding BE reporting does NOT change returned status codes; the `401`/bad-token path does NOT call `_recordError_internal`.
+- **Global chunk-load guard (guards Improvement 6):** `isChunkLoadError` suppresses report in `window.onerror`/`unhandledrejection`, not just the boundary.
+- **Manual-confirm instrument:** `confirmed_via === "manual"` with no invoice → "Manual" label (no null crash).
 
 Payment/stock/money paths require tests (CLAUDE.md "How to add a feature" #7); the ticker touches the payment funnel, so its hook is covered.
 
