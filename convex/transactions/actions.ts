@@ -54,8 +54,9 @@ export const cancelTransaction = action({
     });
     if (!session) throw new Error("SESSION_INVALID");
 
-    // 3. Load txn + state guard
-    const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
+    // 3. Load txn + state guard (internal full-row read — public getById is now
+    // session-gated + projected per SEC-05)
+    const txn = await ctx.runQuery(internal.transactions.internal._getTxnById_internal, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
     if (txn.status !== "awaiting_payment") throw new Error("INVALID_STATE_FOR_CANCEL");
 

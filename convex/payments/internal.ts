@@ -413,3 +413,21 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
     );
   },
 });
+
+/**
+ * SEC-06: current (non-cancelled) invoice read for SYSTEM callers. The public
+ * `getCurrentInvoice` is now session-gated; the retry-supersede path
+ * (payments/actions.ts) needs the raw row without a session, so it routes here.
+ * Same selection logic as the public query (latest non-cancelled invoice).
+ */
+export const _getCurrentInvoice_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (ctx, args): Promise<Doc<"pos_xendit_invoices"> | null> => {
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .order("desc")
+      .collect();
+    return invoices.find((inv) => !inv.cancelled_at) ?? null;
+  },
+});

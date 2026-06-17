@@ -28,13 +28,15 @@ export default function SaleChargeSuccess() {
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
 
-  const result = useQuery(
-    api.transactions.public.getById,
-    txnId ? { txnId } : "skip",
-  );
-
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : undefined;
+
+  // SEC-05: getById is now session-gated — skip until the session resolves.
+  const result = useQuery(
+    api.transactions.public.getById,
+    sessionId && txnId ? { txnId, sessionId } : "skip",
+  );
+
   const { status: printerStatus, connect, print } = usePrinter();
 
   const printData = useQuery(

@@ -28,9 +28,14 @@ export function computePhase(
   return { kind: "showing" };
 }
 
-export function useXenditPayment(txnId: Id<"pos_transactions">) {
-  const txn = useQuery(api.transactions.public.getById, { txnId });
-  const invoice = useQuery(api.payments.public.getCurrentInvoice, { txnId });
+export function useXenditPayment(
+  txnId: Id<"pos_transactions">,
+  sessionId: Id<"staff_sessions">,
+) {
+  // SEC-05/06: both reads are now session-gated. The charge route only renders
+  // with a live session, so sessionId is always available here.
+  const txn = useQuery(api.transactions.public.getById, { txnId, sessionId });
+  const invoice = useQuery(api.payments.public.getCurrentInvoice, { txnId, sessionId });
   const phase: Phase = computePhase(txn ?? undefined, invoice ?? undefined);
   return { phase, invoice, txn };
 }

@@ -78,6 +78,9 @@ export default function SaleCharge() {
   // below (txnId === undefined never produces a real subscription).
   const { phase, invoice, txn } = useXenditPayment(
     (txnId ?? "") as Id<"pos_transactions">,
+    // SEC-05/06: session-gated reads. Placeholder when the session isn't active
+    // yet — the gated queries return null and the route renders its guard below.
+    (session.status === "active" ? session.sessionId : "") as Id<"staff_sessions">,
   );
 
   // Idempotency key for the INITIAL invoice of the selected method. Stable per

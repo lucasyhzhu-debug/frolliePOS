@@ -39,7 +39,7 @@ export const requestPayment = action({
     if (!session) throw new Error("SESSION_INVALID");
 
     // 2. Resolve txn for amount + description
-    const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
+    const txn = await ctx.runQuery(internal.transactions.internal._getTxnById_internal, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
     if (txn.status !== "awaiting_payment") throw new Error("INVALID_STATE");
 
@@ -94,10 +94,10 @@ export const retryWithFreshInvoice = action({
     const session = await ctx.runQuery(api.auth.public.getSession, { sessionId: args.sessionId });
     if (!session) throw new Error("SESSION_INVALID");
 
-    const prev = await ctx.runQuery(api.payments.public.getCurrentInvoice, { txnId: args.txnId });
+    const prev = await ctx.runQuery(internal.payments.internal._getCurrentInvoice_internal, { txnId: args.txnId });
     if (!prev) throw new Error("PREV_INVOICE_MISSING");
 
-    const txn = await ctx.runQuery(api.transactions.public.getById, { txnId: args.txnId });
+    const txn = await ctx.runQuery(internal.transactions.internal._getTxnById_internal, { txnId: args.txnId });
     if (!txn) throw new Error("TXN_NOT_FOUND");
     // Same guard as requestPayment: never mint a fresh invoice for a txn that has
     // already left awaiting_payment (a webhook may have won mid-retry). Without it

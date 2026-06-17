@@ -44,19 +44,52 @@ async function resolveSessionStaff(
   return resolved;
 }
 
+/**
+ * SEC-05: session-gated, day-scoped, PROJECTED txn read for the FE charge /
+ * success screens. Was previously ungated and spread the raw Doc — leaking
+ * receipt_token (the ADR-021 capability for /r/<token>) to any caller.
+ *
+ * Scope mirrors getTransactionDetail:
+ *   - manager: any txn
+ *   - staff:   only server-today (WIB) txns; null otherwise
+ *   - null on invalid session OR missing txn (graceful FE degrade)
+ *
+ * System callers that need the raw Doc use _getTxnById_internal instead.
+ */
 export const getById = query({
-  args: { txnId: v.id("pos_transactions") },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<(Doc<"pos_transactions"> & { lines: Doc<"pos_transaction_lines">[] }) | null> => {
+  args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return null;
     const txn = await ctx.db.get(args.txnId);
     if (!txn) return null;
+    if (who.role !== "manager") {
+      const today = wibDayWindow(Date.now());
+      if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) return null;
+    }
     const lines = await ctx.db
       .query("pos_transaction_lines")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
       .collect();
-    return { ...txn, lines };
+    // SEC-05: explicit projection — never spread the raw Doc (would leak
+    // receipt_token + xendit_invoice_id_current). Enumerate only FE-consumed
+    // fields (charge.tsx, charge-success.tsx, useXenditPayment).
+    return {
+      _id: txn._id,
+      status: txn.status,
+      total: txn.total,
+      subtotal: txn.subtotal,
+      voucher_code_snapshot: txn.voucher_code_snapshot,
+      voucher_discount: txn.voucher_discount,
+      flags: txn.flags,
+      created_at: txn.created_at,
+      staff_id: txn.staff_id,
+      receipt_number: txn.receipt_number, // success screen
+      confirmed_via: txn.confirmed_via,   // success screen method label
+      lines,
+    };
   },
 });
 
