@@ -282,26 +282,43 @@ it("audits payment.confirmed with source=telegram_approval (NOT booth_inline) on
   expect(confirmRows[0].source).toBe("telegram_approval");
 });
 
-it("wrong PIN throws INVALID_PIN and records a failed attempt against the manager", async () => {
+it("SEC-07: wrong off-booth PIN is audited but never pollutes the booth lockout (booth login still works)", async () => {
   const t = convexTest(schema);
   const { rawToken, mgrId } = await seedApprovable(t);
 
-  await expect(
-    t.action(api.approvals.actions.approveManualPayment, {
-      token: rawToken,
-      managerStaffCode: MGR_CODE,
-      managerPin: "0000", // wrong
-      idempotencyKey: "appr-wrong",
-    }),
-  ).rejects.toThrow("INVALID_PIN");
+  // Three off-booth misses (distinct idempotency keys, under the 5-attempt cap).
+  for (let i = 0; i < 3; i++) {
+    await expect(
+      t.action(api.approvals.actions.approveManualPayment, {
+        token: rawToken,
+        managerStaffCode: MGR_CODE,
+        managerPin: "0000", // wrong
+        idempotencyKey: `appr-wrong-${i}`,
+      }),
+    ).rejects.toThrow(/INVALID_PIN|REQUEST_REVOKED/);
+  }
 
+  // SEC-07: no booth lockout row — a leaked approval token must not DoS-lock the manager.
   const attempt = await t.run((ctx) =>
     ctx.db
       .query("pos_auth_attempts")
       .withIndex("by_staff", (q) => q.eq("staff_id", mgrId))
       .first(),
   );
-  expect(attempt?.fail_count).toBe(1);
+  expect(attempt ?? null).toBeNull();
+
+  // Every off-booth miss is still audited with source=telegram_approval (rule #10).
+  const failAudits = await t.run((ctx) =>
+    ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "staff.failed_pin")).collect(),
+  );
+  expect(failAudits.length).toBeGreaterThanOrEqual(3);
+  expect(failAudits.every((a) => a.source === "telegram_approval")).toBe(true);
+
+  // Booth login with the CORRECT PIN still succeeds — the off-booth misses did not lock it.
+  const res = await t.action(api.auth.actions.loginWithPin, {
+    staffId: mgrId, pin: MGR_PIN, deviceId: "booth-1", idempotencyKey: "booth-login-ok",
+  });
+  expect(res.sessionId).toBeDefined();
 });
 
 it("idempotency replay: same key returns cached result without firing twice", async () => {
@@ -364,7 +381,7 @@ it("denies: request goes to denied, txn stays awaiting_payment", async () => {
   expect(req?.status).toBe("denied");
 });
 
-it("denyRequest wrong PIN throws INVALID_PIN and records a failed attempt against the manager", async () => {
+it("denyRequest wrong PIN throws INVALID_PIN; off-booth miss writes no booth lockout row (SEC-07)", async () => {
   const t = convexTest(schema);
   const { rawToken, mgrId } = await seedApprovable(t);
 
@@ -378,13 +395,14 @@ it("denyRequest wrong PIN throws INVALID_PIN and records a failed attempt agains
     }),
   ).rejects.toThrow("INVALID_PIN");
 
+  // SEC-07: off-booth miss is audited but never touches the booth lockout counter.
   const attempt = await t.run((ctx) =>
     ctx.db
       .query("pos_auth_attempts")
       .withIndex("by_staff", (q) => q.eq("staff_id", mgrId))
       .first(),
   );
-  expect(attempt?.fail_count).toBe(1);
+  expect(attempt ?? null).toBeNull();
 });
 
 it("denyRequest idempotency replay: same key returns same {denied:true} without re-executing", async () => {

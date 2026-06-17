@@ -45,10 +45,14 @@ export async function verifyPinOrThrow(
 
   const ok = await argon2Verify({ password: params.pin, hash: params.pinHash });
   if (!ok) {
+    // SEC-01: booth misses always count toward lockout (keyed on staff_id, not
+    // a client idempotencyKey). params.idempotencyKey is no longer consumed by
+    // the failed-attempt path; it is retained on the signature to avoid a wide
+    // caller sweep this phase — follow-up: remove it.
     const result = await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-      idempotencyKey: `${params.idempotencyKey}:failed`,
       staffId: params.staffId,
       deviceId: params.deviceId,
+      countTowardLockout: true,
     });
     if (opts.lockOnFail && result.newly_locked) {
       throw new Error(`LOCKED_OUT:${result.seconds_remaining}`);

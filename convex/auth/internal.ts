@@ -151,8 +151,18 @@ export const _getLockState_internal = internalQuery({
  * Fix 7: if lockout has expired (locked_until != null && <= now), reset the
  * fail_count to 1 (fresh cycle) instead of incrementing from the stale value.
  *
- * Fix 10: wrapped in withIdempotency using a derived key (${key}:failed) so
- * action retries after a crash don't double-increment.
+ * SEC-01: this counter is NO LONGER withIdempotency-wrapped. The old "Fix 10"
+ * derived-key wrap (${idempotencyKey}:failed) let an attacker reuse one client
+ * key to freeze fail_count at 1, defeating lockout entirely. The counter is now
+ * keyed solely on staff_id; over-counting on a genuine crash-retry is fail-SAFE
+ * (a legit user briefly waits out a 60s lockout — far better than an unbounded
+ * brute-force window).
+ *
+ * SEC-07: `countTowardLockout` gates whether a miss touches the booth lockout
+ * counter. Off-booth Telegram approve misses pass `false` — they are AUDITED
+ * (rule #10 trail) but must NOT lock the booth login, else a leaked approval
+ * token lets an attacker DoS-lock a manager. Brute force on that path is bounded
+ * by the per-token cap (_recordTokenPinFailure_internal, 5).
  *
  * `source` (optional, default "booth_inline") sets the audit row's source — off-booth
  * PIN attempts (a wrong manager PIN on the /approve/:token landing) thread
@@ -168,66 +178,66 @@ const failedAttemptSourceValidator = v.union(
 
 export const _recordFailedAttempt_internal = internalMutation({
   args: {
-    idempotencyKey: v.string(),
     staffId: v.id("staff"),
     deviceId: v.string(),
+    // SEC-01: replaces the old idempotencyKey-derived withIdempotency wrap.
+    countTowardLockout: v.boolean(),
     source: v.optional(failedAttemptSourceValidator),
   },
-  handler: withIdempotency<
-    {
-      idempotencyKey: string;
-      staffId: Id<"staff">;
-      deviceId: string;
-      source?: "booth_inline" | "telegram_approval";
-    },
-    { newly_locked: boolean; seconds_remaining: number }
-  >(
-    "auth._recordFailedAttempt",
-    async (ctx, args) => {
-      const now = Date.now();
-      const source = args.source ?? "booth_inline";
-      // Fix 3: use mutation-path helper that dedupes concurrent duplicate rows
-      const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
+  handler: async (ctx, args): Promise<{ newly_locked: boolean; seconds_remaining: number }> => {
+    const now = Date.now();
+    const source = args.source ?? "booth_inline";
 
-      // Fix 7: if the lockout period has already expired, start a fresh cycle
-      const lockExpired =
-        attempt?.locked_until != null && attempt.locked_until <= now;
-      const next = lockExpired ? 1 : (attempt?.fail_count ?? 0) + 1;
-
-      const lock = next >= MAX_FAILS ? now + LOCKOUT_MS : null;
-      if (attempt) {
-        await ctx.db.patch(attempt._id, { fail_count: next, locked_until: lock, last_attempt_at: now });
-      } else {
-        await ctx.db.insert("pos_auth_attempts", {
-          staff_id: args.staffId, fail_count: next, locked_until: lock, last_attempt_at: now,
-        });
-      }
+    // SEC-07: off-booth approve misses are AUDITED but never touch the booth
+    // lockout counter (a leaked token would otherwise DoS-lock a manager).
+    if (!args.countTowardLockout) {
       await logAudit(ctx, {
         actor_id: args.staffId, action: "staff.failed_pin",
+        entity_type: "staff", entity_id: args.staffId, source, device_id: args.deviceId,
+      });
+      return { newly_locked: false, seconds_remaining: 0 };
+    }
+
+    // Fix 3: use mutation-path helper that dedupes concurrent duplicate rows
+    const attempt = await cleanupAndGetAttempt(ctx, args.staffId);
+
+    // Fix 7: if the lockout period has already expired, start a fresh cycle
+    const lockExpired = attempt?.locked_until != null && attempt.locked_until <= now;
+    const next = lockExpired ? 1 : (attempt?.fail_count ?? 0) + 1;
+
+    const lock = next >= MAX_FAILS ? now + LOCKOUT_MS : null;
+    if (attempt) {
+      await ctx.db.patch(attempt._id, { fail_count: next, locked_until: lock, last_attempt_at: now });
+    } else {
+      await ctx.db.insert("pos_auth_attempts", {
+        staff_id: args.staffId, fail_count: next, locked_until: lock, last_attempt_at: now,
+      });
+    }
+    await logAudit(ctx, {
+      actor_id: args.staffId, action: "staff.failed_pin",
+      entity_type: "staff", entity_id: args.staffId,
+      source, device_id: args.deviceId,
+    });
+    if (lock) {
+      await logAudit(ctx, {
+        actor_id: args.staffId, action: "staff.locked_out",
         entity_type: "staff", entity_id: args.staffId,
         source, device_id: args.deviceId,
+        reason: `${MAX_FAILS} consecutive failures`,
       });
-      if (lock) {
-        await logAudit(ctx, {
-          actor_id: args.staffId, action: "staff.locked_out",
-          entity_type: "staff", entity_id: args.staffId,
-          source, device_id: args.deviceId,
-          reason: `${MAX_FAILS} consecutive failures`,
-        });
-        // Task 18: on the newly-locked transition only (lock != null this call),
-        // fire the off-booth PIN-reset notification. `next` is computed fresh each
-        // call (Fix 7 resets on expired lockout), so this branch is reached exactly
-        // when the account first locks in the current cycle — not on every probe.
-        await ctx.scheduler.runAfter(0, internal.approvals.actions.notifyStaffLockout, {
-          staffId: args.staffId,
-        });
-      }
-      return {
-        newly_locked: lock != null,
-        seconds_remaining: lock ? Math.ceil((lock - now) / 1000) : 0,
-      };
-    },
-  ),
+      // Task 18: on the newly-locked transition only (lock != null this call),
+      // fire the off-booth PIN-reset notification. `next` is computed fresh each
+      // call (Fix 7 resets on expired lockout), so this branch is reached exactly
+      // when the account first locks in the current cycle — not on every probe.
+      await ctx.scheduler.runAfter(0, internal.approvals.actions.notifyStaffLockout, {
+        staffId: args.staffId,
+      });
+    }
+    return {
+      newly_locked: lock != null,
+      seconds_remaining: lock ? Math.ceil((lock - now) / 1000) : 0,
+    };
+  },
 });
 
 /**

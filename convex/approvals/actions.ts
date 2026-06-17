@@ -177,10 +177,13 @@ export const approveStaffPinReset = action({
     // subject's. Lockout state intentionally NOT consulted (see header comment).
     const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
     if (!ok) {
+      // SEC-07: audit the off-booth miss but DON'T touch the booth lockout
+      // counter (a leaked token must not DoS-lock the manager's booth login).
+      // The per-token cap below bounds brute force on this path.
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        countTowardLockout: false,
         source: "telegram_approval",
       });
       const capResult = await ctx.runMutation(
@@ -426,10 +429,13 @@ export const approveManualPayment = action({
     // Step 5: argon2-verify manager PIN; record failed attempt on miss
     const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
     if (!ok) {
+      // SEC-07: audit the off-booth miss but DON'T touch the booth lockout
+      // counter (a leaked token must not DoS-lock the manager's booth login).
+      // The per-token cap below bounds brute force on this path.
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        countTowardLockout: false,
         source: "telegram_approval",
       });
       const capResult = await ctx.runMutation(
@@ -574,10 +580,13 @@ export const approveRefund = action({
     // Step 5: argon2-verify manager PIN; record failed attempt on miss
     const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
     if (!ok) {
+      // SEC-07: audit the off-booth miss but DON'T touch the booth lockout
+      // counter (a leaked token must not DoS-lock the manager's booth login).
+      // The per-token cap below bounds brute force on this path.
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        countTowardLockout: false,
         source: "telegram_approval",
       });
       const capResult = await ctx.runMutation(
@@ -703,10 +712,13 @@ export const denyRequest = action({
     // a locked-out manager can still deny via the /approve/:token link.
     const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
     if (!ok) {
+      // SEC-07: audit the off-booth miss but DON'T touch the booth lockout
+      // counter (a leaked token must not DoS-lock the manager's booth login).
+      // The per-token cap below bounds brute force on this path.
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        countTowardLockout: false,
         source: "telegram_approval",
       });
       const capResult = await ctx.runMutation(
@@ -989,10 +1001,13 @@ export const approveSpoilage = action({
     // Step 7: argon2-verify manager PIN; record failed attempt + per-token cap on miss
     const ok = await argon2Verify({ password: args.managerPin, hash: manager.pin_hash });
     if (!ok) {
+      // SEC-07: audit the off-booth miss but DON'T touch the booth lockout
+      // counter (a leaked token must not DoS-lock the manager's booth login).
+      // The per-token cap below bounds brute force on this path.
       await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-        idempotencyKey: `${args.idempotencyKey}:failed`,
         staffId: manager._id,
         deviceId: OFF_BOOTH_DEVICE_ID,
+        countTowardLockout: false,
         source: "telegram_approval",
       });
       const capResult = await ctx.runMutation(
