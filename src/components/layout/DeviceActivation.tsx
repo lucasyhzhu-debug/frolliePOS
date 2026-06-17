@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useMutation } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
@@ -16,7 +16,7 @@ export function DeviceActivation() {
   // Use a stable fallback string while deviceId is still resolving so the
   // useIdempotency hook doesn't receive a changing key mid-render.
   const idempotencyKey = useIdempotency(`activate:${deviceId ?? "pending"}`);
-  const activate = useMutation(api.staff.public.activateDevice);
+  const activate = useAction(api.staff.public.activateDevice);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);

@@ -17,7 +17,7 @@ async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: stri
 }
 
 describe("device registration", () => {
-  it("generateDeviceSetupCode returns 6-digit code with 1h TTL (manager-only)", async () => {
+  it("generateDeviceSetupCode returns 6-digit code with 15min TTL (manager-only)", async () => {
     const t = convexTest(schema);
     const mgrId = await seedManager(t);
     const session = await loginAs(t, mgrId, "9999");
@@ -26,7 +26,9 @@ describe("device registration", () => {
       sessionId: session, idempotencyKey: "gen-1",
     });
     expect(code).toMatch(/^\d{6}$/);
-    expect(expiresAt).toBeGreaterThan(Date.now() + 59 * 60 * 1000);
+    // SEC-04: TTL shortened 1h → 15min.
+    expect(expiresAt).toBeGreaterThan(Date.now() + 14 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
 
     const pending = await t.run(async (ctx) =>
       ctx.db.query("pending_device_setups")
@@ -44,7 +46,7 @@ describe("device registration", () => {
       sessionId: session, idempotencyKey: "gen-2",
     });
 
-    const device = await t.mutation(api.staff.public.activateDevice, {
+    const device = await t.action(api.staff.public.activateDevice, {
       code, deviceLabel: "Booth Phone 1", deviceId: "dev-new", idempotencyKey: "act-1",
     });
     expect(device.active).toBe(true);
@@ -66,12 +68,12 @@ describe("device registration", () => {
       sessionId: session, idempotencyKey: "gen-3",
     });
 
-    await t.mutation(api.staff.public.activateDevice, {
+    await t.action(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-x", idempotencyKey: "act-2",
     });
 
     await expect(
-      t.mutation(api.staff.public.activateDevice, {
+      t.action(api.staff.public.activateDevice, {
         code, deviceLabel: "Y", deviceId: "dev-y", idempotencyKey: "act-3",
       })
     ).rejects.toThrow(/invalid|expired|used|consumed/i);
@@ -84,14 +86,14 @@ describe("device registration", () => {
     const { code: code1 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-4",
     });
-    await t.mutation(api.staff.public.activateDevice, {
+    await t.action(api.staff.public.activateDevice, {
       code: code1, deviceLabel: "A", deviceId: "dev-dupe", idempotencyKey: "act-4",
     });
     const { code: code2 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-5",
     });
     await expect(
-      t.mutation(api.staff.public.activateDevice, {
+      t.action(api.staff.public.activateDevice, {
         code: code2, deviceLabel: "B", deviceId: "dev-dupe", idempotencyKey: "act-5",
       })
     ).rejects.toThrow(/already registered/i);
@@ -112,7 +114,7 @@ describe("isDeviceRegistered", () => {
     const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-iso-1",
     });
-    await t.mutation(api.staff.public.activateDevice, {
+    await t.action(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-iso", idempotencyKey: "act-iso-1",
     });
     expect(await t.query(api.staff.public.isDeviceRegistered, { deviceId: "dev-iso" })).toBe(true);
@@ -125,7 +127,7 @@ describe("isDeviceRegistered", () => {
     const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "gen-iso-2",
     });
-    await t.mutation(api.staff.public.activateDevice, {
+    await t.action(api.staff.public.activateDevice, {
       code, deviceLabel: "X", deviceId: "dev-deact", idempotencyKey: "act-iso-2",
     });
     await t.run(async (ctx) => {
@@ -148,7 +150,7 @@ describe("activateDevice — Fix 2", () => {
     const { code: code1 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-gen-1",
     });
-    const first = await t.mutation(api.staff.public.activateDevice, {
+    const first = await t.action(api.staff.public.activateDevice, {
       code: code1, deviceLabel: "Booth Phone", deviceId: "dev-reactivate",
       idempotencyKey: "fix2-act-1",
     });
@@ -162,7 +164,7 @@ describe("activateDevice — Fix 2", () => {
     const { code: code2 } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
       sessionId: session, idempotencyKey: "fix2-gen-2",
     });
-    const second = await t.mutation(api.staff.public.activateDevice, {
+    const second = await t.action(api.staff.public.activateDevice, {
       code: code2, deviceLabel: "Booth Phone v2", deviceId: "dev-reactivate",
       idempotencyKey: "fix2-act-2",
     });
@@ -192,7 +194,7 @@ describe("activateDevice — Fix 2", () => {
     });
 
     await expect(
-      t.mutation(api.staff.public.activateDevice, {
+      t.action(api.staff.public.activateDevice, {
         code, deviceLabel: "   ", deviceId: "dev-empty-label",
         idempotencyKey: "fix2-empty-act",
       })
@@ -208,7 +210,7 @@ describe("activateDevice — Fix 2", () => {
     });
 
     await expect(
-      t.mutation(api.staff.public.activateDevice, {
+      t.action(api.staff.public.activateDevice, {
         code, deviceLabel: "X".repeat(100), deviceId: "dev-long-label",
         idempotencyKey: "fix2-long-act",
       })
@@ -246,7 +248,7 @@ describe("activateDevice with a Telegram-issued code", () => {
       { chatTitle: "Frollie · Managers", fromId: 99 },
     );
 
-    const res = await t.mutation(api.staff.public.activateDevice, {
+    const res = await t.action(api.staff.public.activateDevice, {
       idempotencyKey: "act-tg-1",
       code,
       deviceLabel: "New Phone",
@@ -284,7 +286,9 @@ describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
       { chatTitle: "Frollie · Managers", fromId: 4242 },
     );
     expect(code).toMatch(/^\d{6}$/);
-    expect(expiresAt).toBeGreaterThan(Date.now() + 59 * 60 * 1000);
+    // SEC-04: TTL shortened 1h → 15min.
+    expect(expiresAt).toBeGreaterThan(Date.now() + 14 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
 
     const row = await t.run(async (ctx) =>
       ctx.db
@@ -328,5 +332,77 @@ describe("issueDeviceSetupCode shared helper (via Telegram wrapper)", () => {
     );
     expect(row?.issued_by_telegram?.from_id).toBeUndefined();
     expect(row?.issued_by_telegram?.chat_title).toBe("Frollie · Managers");
+  });
+});
+
+describe("SEC-04: activateDevice throttle + TTL", () => {
+  it("locks a device after 5 wrong codes", async () => {
+    const t = convexTest(schema);
+    for (let i = 0; i < 5; i++) {
+      await t.action(api.staff.public.activateDevice, {
+        idempotencyKey: `bad-${i}`, code: "000000", deviceLabel: "x", deviceId: "dev-A",
+      }).catch(() => {});
+    }
+    await expect(
+      t.action(api.staff.public.activateDevice, {
+        idempotencyKey: "bad-6", code: "000000", deviceLabel: "x", deviceId: "dev-A",
+      }),
+    ).rejects.toThrow("ACTIVATION_LOCKED");
+  });
+
+  it("global window locks ALL devices after 50 failures (per-device rotation bypass)", async () => {
+    const t = convexTest(schema);
+    // Rotate device_id each call so the per-device counter never trips (each
+    // device fails once); only the global rolling-window counter accumulates.
+    for (let i = 0; i < 50; i++) {
+      await t.action(api.staff.public.activateDevice, {
+        idempotencyKey: `g-${i}`, code: "000000", deviceLabel: "x", deviceId: `dev-${i}`,
+      }).catch(() => {});
+    }
+    // A brand-new device (per-device counter clean) is still blocked by the
+    // global window lock.
+    await expect(
+      t.action(api.staff.public.activateDevice, {
+        idempotencyKey: "g-after", code: "000000", deviceLabel: "x", deviceId: "dev-fresh",
+      }),
+    ).rejects.toThrow("ACTIVATION_LOCKED");
+    // Global breach is audited; pending_device_setups is NOT wiped.
+    const audit = await t.run((ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "device.activation_throttled")).first());
+    expect(audit).not.toBeNull();
+  });
+
+  it("rejects an expired (>15min) code with INVALID_CODE", async () => {
+    const t = convexTest(schema);
+    await t.run((ctx) => ctx.db.insert("pending_device_setups", {
+      setup_code: "123456", issued_via: "booth_inline",
+      expires_at: Date.now() - 1, consumed_at: null,
+    }));
+    await expect(
+      t.action(api.staff.public.activateDevice, {
+        idempotencyKey: "exp-1", code: "123456", deviceLabel: "x", deviceId: "dev-exp",
+      }),
+    ).rejects.toThrow("INVALID_CODE");
+  });
+
+  it("a successful activation clears the device's failed-attempt counter", async () => {
+    const t = convexTest(schema);
+    const mgrId = await seedManager(t);
+    const session = await loginAs(t, mgrId, "9999");
+    // Two misses on dev-clear (under the 5-cap).
+    for (let i = 0; i < 2; i++) {
+      await t.action(api.staff.public.activateDevice, {
+        idempotencyKey: `pre-${i}`, code: "000000", deviceLabel: "x", deviceId: "dev-clear",
+      }).catch(() => {});
+    }
+    const { code } = await t.mutation(api.staff.public.generateDeviceSetupCode, {
+      sessionId: session, idempotencyKey: "gen-clear",
+    });
+    await t.action(api.staff.public.activateDevice, {
+      code, deviceLabel: "Booth", deviceId: "dev-clear", idempotencyKey: "act-clear",
+    });
+    const rows = await t.run((ctx) =>
+      ctx.db.query("pos_device_activation_attempts").withIndex("by_key", (q) => q.eq("key", "dev-clear")).collect());
+    expect(rows.length).toBe(0);
   });
 });

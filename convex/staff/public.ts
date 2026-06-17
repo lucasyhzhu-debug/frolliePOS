@@ -1,11 +1,14 @@
-import { mutation, query } from "../_generated/server";
+import { mutation, query, action, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { internal } from "../_generated/api";
-import { issueDeviceSetupCode } from "./internal";
+import {
+  issueDeviceSetupCode,
+  clearActivationAttempts,
+} from "./internal";
 
 export const isDeviceRegistered = query({
   args: { deviceId: v.string() },
@@ -125,7 +128,64 @@ export const generateDeviceSetupCode = mutation({
   ),
 });
 
-export const activateDevice = mutation({
+/**
+ * SEC-04: device-activation entry point is now an ACTION (was a mutation). A
+ * throwing mutation rolls back its own writes, so the throttle counter could
+ * never persist across an INVALID_CODE rejection. The action mirrors the
+ * loginWithPin pattern: lock pre-check → commit attempt → on INVALID_CODE,
+ * record the failed attempt in a SEPARATE committed mutation, then re-throw.
+ *
+ * API path is preserved (api.staff.public.activateDevice) so the FE/tests need
+ * only switch useMutation→useAction / t.mutation→t.action.
+ */
+export const activateDevice = action({
+  args: {
+    idempotencyKey: v.string(),
+    code: v.string(),
+    deviceLabel: v.string(),
+    deviceId: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ _id: Id<"registered_devices">; device_id: string; label: string; active: boolean }> => {
+    // Cheap arg validation first (no DB) — format misses aren't brute-force
+    // guesses, so they don't count toward the throttle.
+    if (!/^\d{6}$/.test(args.code)) throw new Error("INVALID_CODE_FORMAT");
+    const trimmedLabel = args.deviceLabel.trim();
+    if (trimmedLabel.length === 0) throw new Error("INVALID_LABEL: deviceLabel must not be empty");
+    if (args.deviceLabel.length > 64) throw new Error("INVALID_LABEL: deviceLabel must be 64 characters or fewer");
+
+    // SEC-04: reject if this device or the global window is throttle-locked.
+    const lock = await ctx.runQuery(internal.staff.internal._getActivationLockState_internal, {
+      deviceId: args.deviceId,
+    });
+    if (lock.locked) throw new Error(`ACTIVATION_LOCKED:${lock.seconds_remaining}`);
+
+    try {
+      return await ctx.runMutation(internal.staff.public._activateDeviceCommit_internal, args);
+    } catch (err) {
+      // SEC-04: a wrong/expired code counts toward the throttle. Recorded in its
+      // OWN mutation so the increment survives this rejection. Other errors
+      // (already-registered, bad label) are not code guesses — don't count them.
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("INVALID_CODE")) {
+        await ctx.runMutation(internal.staff.internal._recordActivationFailure_internal, {
+          deviceId: args.deviceId,
+        });
+      }
+      throw err;
+    }
+  },
+});
+
+/**
+ * SEC-04: the device-registration transaction (was the body of activateDevice).
+ * Internal — only the activateDevice action calls it. withIdempotency dedupes a
+ * successful registration on retry. Throws INVALID_CODE for a missing/expired/
+ * consumed code (the action records the throttle failure separately).
+ */
+export const _activateDeviceCommit_internal = internalMutation({
   args: {
     idempotencyKey: v.string(),
     code: v.string(),
@@ -138,13 +198,6 @@ export const activateDevice = mutation({
   >(
     "staff.activateDevice",
     async (ctx, args) => {
-      if (!/^\d{6}$/.test(args.code)) throw new Error("INVALID_CODE");
-
-      // Server-side label validation (defense-in-depth — client form also validates)
-      const trimmedLabel = args.deviceLabel.trim();
-      if (trimmedLabel.length === 0) throw new Error("INVALID_LABEL: deviceLabel must not be empty");
-      if (args.deviceLabel.length > 64) throw new Error("INVALID_LABEL: deviceLabel must be 64 characters or fewer");
-
       const now = Date.now();
 
       // Use .collect() to defensively handle multiple rows (past-bug recovery)
@@ -167,10 +220,15 @@ export const activateDevice = mutation({
         pending.consumed_at != null ||
         pending.expires_at < now
       ) {
+        // SEC-04: a throwing mutation rolls back its writes, so the throttle
+        // counter is incremented by the activateDevice ACTION (in its own
+        // committed mutation) when this INVALID_CODE surfaces — never here.
         throw new Error("INVALID_CODE");
       }
 
       await ctx.db.patch(pending._id, { consumed_at: now });
+      // SEC-04: successful activation clears this device's failed-attempt counter.
+      await clearActivationAttempts(ctx, args.deviceId);
 
       // v0.6: codes minted via Telegram have no staff issuer — fall back to the
       // "system" audit actor and carry the issuance channel into metadata.

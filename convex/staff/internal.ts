@@ -1,4 +1,4 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
@@ -6,8 +6,143 @@ import { logAudit } from "../audit/internal";
 import { requireManagerSession } from "../auth/sessions";
 import type { MutationCtx } from "../_generated/server";
 
-const SETUP_CODE_TTL_MS = 60 * 60 * 1000; // 1h per strategic-foundations §6
+const SETUP_CODE_TTL_MS = 15 * 60 * 1000; // SEC-04: 15min (was 1h) — shrinks the brute-force window
 const MAX_CODE_COLLISION_RETRIES = 5;
+
+// SEC-04: activateDevice throttle constants.
+// Per-device lock mirrors the PIN lockout (5 misses → 60s). The global ceiling
+// (50 failures / 15-min rolling window) is the load-bearing control: an attacker
+// can rotate device_id freely, so per-device alone is bypassable.
+const ACTIVATION_MAX_FAILS = 5;
+const ACTIVATION_LOCKOUT_MS = 60_000;
+const ACTIVATION_GLOBAL_KEY = "__global__";
+const ACTIVATION_GLOBAL_CAP = 50;
+const ACTIVATION_GLOBAL_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Collect-and-dedupe the activation-attempt row for a key (device_id or the
+ * global sentinel), keeping the most recent and deleting older duplicates in
+ * the same tx. Mirrors auth/internal.ts::cleanupAndGetAttempt.
+ */
+async function getActivationAttempt(ctx: MutationCtx, key: string) {
+  const rows = await ctx.db
+    .query("pos_device_activation_attempts")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .collect();
+  if (rows.length === 0) return null;
+  const sorted = rows.slice().sort((a, b) => b.last_attempt_at - a.last_attempt_at);
+  for (let i = 1; i < sorted.length; i++) await ctx.db.delete(sorted[i]._id);
+  return sorted[0];
+}
+
+/**
+ * SEC-04: record one failed activation. Increments the per-device counter (locks
+ * that device for 60s past 5 misses) and the global rolling-window counter. On a
+ * global breach (>50 fails / 15min) the global singleton is locked for the window
+ * so ALL activateDevice calls reject — but pending_device_setups is NOT wiped:
+ * nuking live codes would let an attacker repeatedly DoS a manager's freshly
+ * issued code (re-issue DoS). The window-block + 15-min TTL is sufficient (~50
+ * guesses/window against a ~900k space).
+ */
+export async function recordActivationFailure(
+  ctx: MutationCtx,
+  deviceId: string,
+): Promise<void> {
+  const now = Date.now();
+
+  // Per-device counter.
+  const dev = await getActivationAttempt(ctx, deviceId);
+  const devExpired = dev?.locked_until != null && dev.locked_until <= now;
+  const devNext = devExpired ? 1 : (dev?.fail_count ?? 0) + 1;
+  const devLock = devNext >= ACTIVATION_MAX_FAILS ? now + ACTIVATION_LOCKOUT_MS : null;
+  if (dev) {
+    await ctx.db.patch(dev._id, { fail_count: devNext, locked_until: devLock, last_attempt_at: now });
+  } else {
+    await ctx.db.insert("pos_device_activation_attempts", {
+      key: deviceId, fail_count: devNext, window_start_at: now, locked_until: devLock, last_attempt_at: now,
+    });
+  }
+
+  // Global rolling-window counter.
+  const glob = await getActivationAttempt(ctx, ACTIVATION_GLOBAL_KEY);
+  const windowExpired = glob == null || now - glob.window_start_at >= ACTIVATION_GLOBAL_WINDOW_MS;
+  const globNext = windowExpired ? 1 : glob.fail_count + 1;
+  const windowStart = windowExpired ? now : glob.window_start_at;
+  const globBreached = globNext >= ACTIVATION_GLOBAL_CAP;
+  const globLock = globBreached ? now + ACTIVATION_LOCKOUT_MS : null;
+  if (glob) {
+    await ctx.db.patch(glob._id, {
+      fail_count: globNext, window_start_at: windowStart, locked_until: globLock, last_attempt_at: now,
+    });
+  } else {
+    await ctx.db.insert("pos_device_activation_attempts", {
+      key: ACTIVATION_GLOBAL_KEY, fail_count: globNext, window_start_at: windowStart,
+      locked_until: globLock, last_attempt_at: now,
+    });
+  }
+  if (globBreached) {
+    await logAudit(ctx, {
+      actor_id: "system",
+      action: "device.activation_throttled",
+      entity_type: "device",
+      source: "system",
+      device_id: deviceId,
+      reason: `${ACTIVATION_GLOBAL_CAP} failed activations in ${ACTIVATION_GLOBAL_WINDOW_MS / 60000}min`,
+    });
+  }
+}
+
+/**
+ * SEC-04: clear a device's attempt row after a successful activation (the global
+ * window self-expires; only the per-device counter needs an explicit reset).
+ */
+export async function clearActivationAttempts(ctx: MutationCtx, deviceId: string): Promise<void> {
+  const rows = await ctx.db
+    .query("pos_device_activation_attempts")
+    .withIndex("by_key", (q) => q.eq("key", deviceId))
+    .collect();
+  for (const r of rows) await ctx.db.delete(r._id);
+}
+
+/**
+ * SEC-04: read-only lock pre-check for the activateDevice ACTION. Returns the
+ * locked state across the per-device row AND the global window (worst-case secs).
+ * Read-only (no dedupe deletes) so it is safe to call from the action's query
+ * stage before the commit mutation runs.
+ */
+export const _getActivationLockState_internal = internalQuery({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args): Promise<{ locked: boolean; seconds_remaining: number }> => {
+    const now = Date.now();
+    let maxLockedUntil = 0;
+    for (const key of [args.deviceId, ACTIVATION_GLOBAL_KEY]) {
+      const rows = await ctx.db
+        .query("pos_device_activation_attempts")
+        .withIndex("by_key", (q) => q.eq("key", key))
+        .collect();
+      for (const r of rows) {
+        if (r.locked_until != null && r.locked_until > maxLockedUntil) maxLockedUntil = r.locked_until;
+      }
+    }
+    return maxLockedUntil > now
+      ? { locked: true, seconds_remaining: Math.ceil((maxLockedUntil - now) / 1000) }
+      : { locked: false, seconds_remaining: 0 };
+  },
+});
+
+/**
+ * SEC-04: record one failed activation as its OWN committed transaction. Invoked
+ * from the activateDevice ACTION (NOT inside the commit mutation) so the counter
+ * survives even though the activation rejects with INVALID_CODE — mirrors the
+ * loginWithPin → _recordFailedAttempt_internal pattern (a throwing mutation would
+ * roll back the increment). Never idempotency-cached: every wrong guess counts.
+ */
+export const _recordActivationFailure_internal = internalMutation({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    await recordActivationFailure(ctx, args.deviceId);
+  },
+});
 
 function generateSecureSetupCode(): string {
   const buf = new Uint32Array(1);

@@ -164,7 +164,7 @@ In `convex/crons.ts`. **`founders-shift-summary`** at 22:00 WIB / 15:00 UTC → 
 Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts + **v0.6** `stock_drift_alert`). Set env vars on **both** dev and prod.
 
 **Commands (v0.5.7):**
-- `/activatepos` — managers-role chat only; replies with a 6-digit device setup code (1h TTL) + a `<POS_BASE_URL>/activate` link so an off-booth manager can activate a new phone/browser. Group privacy mode swallows the bare command — see [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md).
+- `/activatepos` — managers-role chat only; replies with a 6-digit device setup code (15min TTL — SEC-04) + a `<POS_BASE_URL>/activate` link so an off-booth manager can activate a new phone/browser. Group privacy mode swallows the bare command — see [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md).
 
 **Template kinds (v0.6 additions):**
 - `spoilage` — approval template, URL button → `/approve/:token` (ADR-035); routes to `managers` role.
