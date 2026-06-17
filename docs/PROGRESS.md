@@ -1941,7 +1941,82 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 
 ---
 
-## v1.0.1 — post-launch hardening 🗂️ BACKLOG
+## v1.0.1 — launch-day ops observability 🚧 PLANNED
+**Outcome:** During a production run you can watch every sale land in real time and get pushed an alert the moment anything breaks — then hot-fix it on a sanctioned fast lane.
+**Target:** 2026-06-18 (next production runs)
+[Spec](./superpowers/specs/2026-06-17-launch-ops-observability-design.md) · [Plan](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md) · staffreviews: [spec](./reviews/staffreview-v1.0.1-launch-ops-observability-2026-06-17.md), [plan](./reviews/staffreview-v1.0.1-launch-ops-observability-plan-2026-06-17.md)
+
+**You'll be able to:**
+- See every paid sale stream into the Managers Telegram group as a live ticker (receipt #, total, items, staff, instrument)
+- Get a push alert in a new Frollie · Ops Telegram channel the moment a crash, payment failure, or backend error happens — instead of waiting for a staffer to phone you
+- Flip the ticker off after launch via a settings toggle (`pos_settings.txn_ticker_enabled`)
+- Follow a written hot-fix protocol (smoke checklist → fast-lane deploy → rollback) when something breaks mid-run
+
+**Still not yet (deliberately out of scope):**
+- A custom `/mgr/ops` live dashboard — Telegram push + Convex Logs cover one booth-day (v-next)
+- Retry/persistence of failed Telegram alerts — fire-and-forget, audited-and-dropped (no retry storm)
+- Refund ticker — paid sales only this slice
+
+### Backend (`convex/`)
+- 📋 **[v101-be-ops-ingest]** `convex/ops/` — error-ingest pipe: `pos_error_reports` table + pure signature/dedup lib + `_recordError_internal` (dedup + storm-cap) + `POST /ops/error` httpAction + `ops` Telegram role
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [Plan Tasks 1–4, 7](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
+  - **subtasks:**
+    - [ ] `pos_error_reports` schema + root compose + `txn_ticker_enabled` field
+    - [ ] `ops/lib.ts` pure `errorSignature`/`normalizeMessage`/`truncate` (+ tests)
+    - [ ] `_recordError_internal` dedup (5min) + storm-cap (10s) (+ tests)
+    - [ ] `ops` role in `KNOWN_TELEGRAM_ROLES`
+    - [ ] `/ops/error` httpAction — constant-time token, always 2xx (+ tests)
+  - **notes:** _(empty)_
+- 📋 **[v101-be-error-alerts]** `system_error` template + `sendErrorAlert` action + backend reporting on payment action & webhook (auth-path only)
+  - **agent:** `convex-expert`
+  - **deps:** `v101-be-ops-ingest`
+  - **docs:** [Plan Tasks 5, 6, 11](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
+  - **subtasks:**
+    - [ ] `renderSystemError` + `system_error` kind/payload in `sendTemplate` (+ escape test)
+    - [ ] `sendErrorAlert({reportId})` action — narrow-catch role resolve, idempotency = reportId
+    - [ ] `requestPayment`/`retryWithFreshInvoice` best-effort report (rethrow preserved)
+    - [ ] webhook auth-path-only report; 401 path NOT reported (regression test)
+  - **notes:** _(empty)_
+- 📋 **[v101-be-sales-ticker]** `txn_ticker` template + `txn_ticker_enabled` read-default + `sendTxnTicker` action + once-per-sale hook in `_confirmPaid_internal`
+  - **agent:** `convex-expert`
+  - **deps:** `v101-be-error-alerts`
+  - **docs:** [Plan Tasks 5, 8, 9, 10](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
+  - **subtasks:**
+    - [ ] `renderTxnTicker` (line truncation) + `txn_ticker` kind/payload + optional `disableNotification`
+    - [ ] `_getSettings_internal` default `txn_ticker_enabled: true`
+    - [ ] `_getTxnForTicker_internal` + `sendTxnTicker` (SILENT skip, NO skip-audit; reuse `_getPaidInvoiceForTxn_internal`/`_listStaffNames_internal`)
+    - [ ] schedule ticker at `_confirmPaid_internal` tail (exactly-once re-fire test)
+  - **notes:** _(empty)_
+
+### Frontend (`src/`)
+- 📋 **[v101-fe-error-reporter]** `src/lib/reportOps.ts` (`opsEndpoint` .cloud→.site + resilient `fetch` keepalive) wired at 4 sites: global handlers, `RouteErrorBoundary`, payment path, sale-flow mutation
+  - **agent:** `frontend-integrator`
+  - **deps:** `v101-be-ops-ingest`
+  - **docs:** [Plan Tasks 12–13](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
+  - **subtasks:**
+    - [ ] `opsEndpoint` suffix-swap (+ test) + `reportOps` (never-throws, client dedup, `keepalive`)
+    - [ ] `window.onerror`/`unhandledrejection` global handlers (skip `isChunkLoadError`)
+    - [ ] `RouteErrorBoundary` reports genuine crash only (chunk-load skipped)
+    - [ ] payment-path + sale-commit catch wiring (scoped, not blanket)
+  - **notes:** _(empty)_
+
+### Cross-cutting
+- 📋 **[v101-xc-runbook-docs]** RUNBOOK §9 (smoke checklist + sanctioned hot-fix protocol + rollback) + §5 env vars + SCHEMA + CLAUDE role table + CHANGELOG
+  - **agent:** `claude`
+  - **deps:** `v101-be-sales-ticker`, `v101-fe-error-reporter`
+  - **docs:** [Plan Task 14](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
+  - **subtasks:**
+    - [ ] RUNBOOK §9 live-run ops + hot-fix + rollback
+    - [ ] RUNBOOK §5 `OPS_INGEST_TOKEN`/`VITE_OPS_INGEST_TOKEN` (dev+prod, before FE deploy)
+    - [ ] SCHEMA `pos_error_reports` + `txn_ticker_enabled`; RUNBOOK-telegram + CLAUDE role table `ops`
+    - [ ] CHANGELOG v1.0.1 entry
+  - **notes:** _(empty)_
+
+---
+
+## v1.0.2 — post-launch hardening 🗂️ BACKLOG
 **Outcome:** The launch-day deferrals: full-route polish, real-device e2e, settlement live-verification.
 **Target:** TBD
 Plan not yet written. Tasks get IDs at planning time.
