@@ -62,7 +62,9 @@ export const reset = internalAction({
 
 /**
  * Bootstrap a fresh deployment with the initial manager account.
- * Creates Lucas (S-0001, manager, PIN 1111) when the staff table is empty.
+ * Creates Lucas (S-0001, manager) when the staff table is empty, using the PIN
+ * supplied via the BOOTSTRAP_MANAGER_PIN env var (SEC-03: no hardcoded PIN).
+ * The seeded manager carries must_change_pin=true (forced rotation on first login).
  * Idempotent guard: aborts with "already_bootstrapped" if staff already exist.
  *
  * Safe on prod — it refuses to write if any staff row exists, so running it
@@ -74,8 +76,11 @@ export const reset = internalAction({
 export const bootstrap = internalAction({
   args: {},
   handler: async (ctx): Promise<{ staffId: string; staffCode: string }> => {
+    // SEC-03: require an operator-supplied 4-digit PIN; never hardcode "1111".
+    const pin = process.env.BOOTSTRAP_MANAGER_PIN;
+    if (!pin || !/^\d{4}$/.test(pin)) throw new Error("BOOTSTRAP_PIN_REQUIRED");
     const pinHash: string = await ctx.runAction(internal.auth.actions._hashPin_internal, {
-      pin: "1111",
+      pin,
     });
     const result = await ctx.runMutation(internal.seed.internal._bootstrapCommit_internal, {
       pinHash,

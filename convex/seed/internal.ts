@@ -280,9 +280,10 @@ export const _reset_internal = internalMutation({
 });
 
 /**
- * Commit the bootstrap seed: insert Lucas as S-0001 (manager, PIN 1111 hashed
- * by the caller action). Aborts if the staff table is already non-empty — this
- * is a one-shot operation for fresh deployments only.
+ * Commit the bootstrap seed: insert Lucas as S-0001 (manager, PIN hashed by the
+ * caller action from BOOTSTRAP_MANAGER_PIN — SEC-03) with must_change_pin=true.
+ * Aborts if the staff table is already non-empty — this is a one-shot operation
+ * for fresh deployments only.
  *
  * seed module is allowlisted in eslint.config.js ALLOWLIST so writing the
  * auth-owned `staff` table from here is permitted per ADR-034.
@@ -304,6 +305,7 @@ export const _bootstrapCommit_internal = internalMutation({
       role: "manager",
       active: true,
       created_at: now,
+      must_change_pin: true, // SEC-03: force rotation off the bootstrap default
     });
 
     await logAudit(ctx, {

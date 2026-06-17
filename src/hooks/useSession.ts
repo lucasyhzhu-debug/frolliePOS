@@ -18,7 +18,12 @@ export type SessionState =
   | {
       status: "active";
       sessionId: Id<"staff_sessions">;
-      staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" };
+      staff: {
+        _id: Id<"staff">;
+        name: string;
+        role: "staff" | "manager";
+        must_change_pin: boolean; // SEC-03: forced-rotation prompt flag
+      };
     };
 
 export function useSession(): SessionState {

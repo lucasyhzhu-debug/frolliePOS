@@ -7,10 +7,18 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
 
+// SEC-03: session IDs already shown the forced-rotation prompt this app session.
+// Soft enforcement — we surface the "Change your PIN" step ONCE after login, then
+// stop redirecting so the manager can still operate the booth (no hard-block per
+// spec). The flag clears server-side on a successful change, so it won't recur.
+const rotationPrompted = new Set<string>();
+
 /**
  * App shell. Gates everything under "/" behind:
  *  1. Device registration → redirect to /activate if not registered.
  *  2. Active session → redirect to /login if no active session.
+ *  3. SEC-03 forced PIN rotation → one-time redirect to /account when
+ *     must_change_pin (soft; does not re-trap).
  *
  * /login is exempt from gate 2 only.
  * /activate, /approve/*, /r/* live OUTSIDE this layout (see router.tsx) so
@@ -47,6 +55,19 @@ export function RootLayout() {
 
   if (!isLogin && session.status === "none") {
     return <Navigate to="/login" replace />;
+  }
+
+  // SEC-03: one-time forced-rotation prompt after login. Only redirect if we
+  // haven't already prompted this session and we're not already on /account
+  // (avoids a Batal → redirect re-trap loop — soft enforcement, not hard-block).
+  if (
+    session.status === "active" &&
+    session.staff.must_change_pin &&
+    location.pathname !== "/account" &&
+    !rotationPrompted.has(session.sessionId)
+  ) {
+    rotationPrompted.add(session.sessionId);
+    return <Navigate to="/account" replace />;
   }
 
   return (

@@ -13,6 +13,7 @@ export const authTables = {
     })),
     created_at: v.number(),
     last_login_at: v.optional(v.number()),
+    must_change_pin: v.optional(v.boolean()), // SEC-03: forced rotation after bootstrap default
   })
     .index("by_active", ["active"])
     .index("by_role", ["role"])

@@ -29,7 +29,13 @@ export const getSession = query({
     if (!staff || !staff.active) return null;
     return {
       sessionId: s._id,
-      staff: { _id: staff._id, name: staff.name, role: staff.role },
+      // SEC-03: surface must_change_pin so the FE can force a rotation prompt.
+      staff: {
+        _id: staff._id,
+        name: staff.name,
+        role: staff.role,
+        must_change_pin: staff.must_change_pin ?? false,
+      },
       deviceId: s.device_id,
       startedAt: s.started_at,
     };

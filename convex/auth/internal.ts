@@ -398,7 +398,9 @@ export const _changePinCommit_internal = internalMutation({
     source: v.optional(changePinSourceValidator),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.staffId, { pin_hash: args.newPinHash });
+    // SEC-03: any successful PIN change clears the forced-rotation flag (the
+    // single commit funnel for self / manager_reset / approval paths — rule #18).
+    await ctx.db.patch(args.staffId, { pin_hash: args.newPinHash, must_change_pin: false });
 
     if (args.actor.kind === "manager_reset") {
       const attempts = await ctx.db

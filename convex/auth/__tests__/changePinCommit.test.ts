@@ -33,6 +33,19 @@ describe("_changePinCommit_internal", () => {
     expect(audit[0].actor_id).toBe(s.staff);
   });
 
+  it("SEC-03: clears must_change_pin after a successful change", async () => {
+    const t = convexTest(schema);
+    const staff = await t.run((ctx) => ctx.db.insert("staff", {
+      name: "Lucy", pin_hash: "old-hash", role: "manager", active: true,
+      created_at: Date.now(), must_change_pin: true,
+    }));
+    await t.mutation(internal.auth.internal._changePinCommit_internal, {
+      staffId: staff, newPinHash: "new-hash", actor: { kind: "self" },
+    });
+    const after = await t.run((ctx) => ctx.db.get(staff));
+    expect(after?.must_change_pin).toBe(false);
+  });
+
   it("actor=manager_reset: patches pin_hash, clears pos_auth_attempts, logs staff.pin_reset with mgr_approver_id", async () => {
     const t = convexTest(schema);
     const s = await seedStaff(t);
