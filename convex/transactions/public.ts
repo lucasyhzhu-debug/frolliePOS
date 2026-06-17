@@ -180,6 +180,14 @@ export const commitCart = mutation({
       // so a malformed/replayed request can't create a junk zero-total txn.
       if (args.lines.length === 0) throw new Error("EMPTY_CART");
 
+      // SEC-02: reject non-positive / non-integer quantities at the trust boundary.
+      // v.number() admits negatives/zero/floats; a negative line inverts to a positive
+      // stock movement on confirm (inventory/internal.ts inserts qty: -line.qty),
+      // fabricating inventory. Mirrors _recordSpoilage_internal's QTY_INVALID guard.
+      for (const { qty } of args.lines) {
+        if (!Number.isInteger(qty) || qty <= 0) throw new Error("QTY_INVALID");
+      }
+
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
 
       // Snapshot prices + names — fetch product details via catalog internal

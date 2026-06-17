@@ -226,3 +226,46 @@ describe("transactions/public.commitCart", () => {
     expect(lines[0].qty).toBe(1); // first call wins
   });
 });
+
+describe("SEC-02: commitCart quantity guard", () => {
+  it.each([-1, 0, 1.5])("rejects qty %s before any write", async (badQty) => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    await expect(
+      t.mutation(api.transactions.public.commitCart, {
+        idempotencyKey: `qtytest-${badQty}`,
+        sessionId: s.session,
+        // intent is a REQUIRED arg (v.union("draft","charge")) — omitting it
+        // makes Convex reject on validation BEFORE the QTY_INVALID guard.
+        intent: "charge",
+        lines: [{ productId: s.p8, qty: badQty }],
+      }),
+    ).rejects.toThrow("QTY_INVALID");
+    const txns = await t.run((ctx) => ctx.db.query("pos_transactions").collect());
+    expect(txns.length).toBe(0); // nothing written
+  });
+
+  it("rejects a mixed positive/negative cart (stock-credit vector)", async () => {
+    const t = convexTest(schema);
+    const s = await seedCatalog(t);
+    // Seed a second product so the cart has two distinct lines.
+    const p1pc = await t.run((ctx) => ctx.db.insert("pos_products", {
+      sku_family: "dubai", name: "Dubai 1pc", pack_label: "1pc",
+      price_idr: 100_000, active: true, sort_order: 2, tax_rate: 0,
+      created_at: Date.now(), updated_at: Date.now(),
+    }));
+    await t.run((ctx) => ctx.db.insert("pos_product_components", {
+      product_id: p1pc, inventory_sku_id: s.dubai, qty: 1,
+    }));
+    await expect(
+      t.mutation(api.transactions.public.commitCart, {
+        idempotencyKey: "qtytest-mixed",
+        sessionId: s.session,
+        intent: "charge",
+        lines: [{ productId: s.p8, qty: 100 }, { productId: p1pc, qty: -90 }],
+      }),
+    ).rejects.toThrow("QTY_INVALID");
+    const moves = await t.run((ctx) => ctx.db.query("pos_stock_movements").collect());
+    expect(moves.length).toBe(0);
+  });
+});
