@@ -31,22 +31,46 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
     return new Response("unauthorized", { status: 401 });
   }
 
-  const raw = await request.text();
-  const { paid, matchKey, amount, receiptId, paymentSource } = parseXenditWebhook(raw);
+  // Post-auth processing wrapped in try/catch for v1.0.1 backend error reporting.
+  // The auth check above stays FIRST and UNCHANGED — 401 on mismatch, NO report
+  // (bot-scanner noise). Catch here is post-auth only; swallow reporting errors
+  // so a report failure can never break the return-200 Xendit contract.
+  try {
+    const raw = await request.text();
+    const { paid, matchKey, amount, receiptId, paymentSource } = parseXenditWebhook(raw);
 
-  if (paid && matchKey) {
-    try {
-      await ctx.runMutation(internal.payments.internal._onPaidWebhook_internal, {
-        xendit_invoice_id: matchKey,
-        paid_amount: amount,
-        receipt_id: receiptId,
-        payment_source: paymentSource,
-      });
-    } catch (err) {
-      // A mutation throw must never become a 500 (retry-storm guard). Logged at
-      // error level: a paid webhook that couldn't commit is an alertable event.
-      console.error("[xendit] webhook mutation error:", err);
+    if (paid && matchKey) {
+      try {
+        await ctx.runMutation(internal.payments.internal._onPaidWebhook_internal, {
+          xendit_invoice_id: matchKey,
+          paid_amount: amount,
+          receipt_id: receiptId,
+          payment_source: paymentSource,
+        });
+      } catch (err) {
+        // A mutation throw must never become a 500 (retry-storm guard). Logged at
+        // error level: a paid webhook that couldn't commit is an alertable event.
+        console.error("[xendit] webhook mutation error:", err);
+        // v1.0.1: best-effort ops report — kind: "backend", never mask original behavior
+        try {
+          await ctx.runMutation(internal.ops.internal._recordError_internal, {
+            kind: "backend",
+            message: err instanceof Error ? err.message : String(err),
+            route: "convex/payments/webhook",
+          });
+        } catch { /* swallow — reporting must not affect Xendit retry behavior */ }
+      }
     }
+  } catch (err) {
+    // Parsing or other post-auth error — report and swallow
+    console.error("[xendit] webhook processing error:", err);
+    try {
+      await ctx.runMutation(internal.ops.internal._recordError_internal, {
+        kind: "backend",
+        message: err instanceof Error ? err.message : String(err),
+        route: "convex/payments/webhook",
+      });
+    } catch { /* swallow */ }
   }
 
   return new Response("ok", { status: 200 });

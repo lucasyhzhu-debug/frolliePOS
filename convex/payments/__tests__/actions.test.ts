@@ -8,6 +8,11 @@ import {
   _xenditMockNextResponse,
   _xenditMockCalls,
 } from "./_xenditMock";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// v1.0.1: manuallyConfirmPayment completes paid transition → schedules sendTxnTicker.
+// Stub Telegram + drain to avoid "Write outside of transaction" errors.
+setupTelegramStub();
 
 beforeEach(() => {
   _xenditMockReset();
@@ -154,6 +159,8 @@ describe("payments/actions.requestPayment", () => {
     ).rejects.toThrow(/XENDIT_VA_FAILED/);
     const invoices = await t.run((ctx) => ctx.db.query("pos_xendit_invoices").collect());
     expect(invoices.length).toBe(0);
+    // v1.0.1: failure triggers _recordError_internal which schedules sendErrorAlert
+    await drainScheduled(t);
   });
 
   it("QRIS: a Xendit 4xx surfaces as XENDIT_QR_FAILED and persists nothing", async () => {
@@ -168,6 +175,8 @@ describe("payments/actions.requestPayment", () => {
     ).rejects.toThrow(/XENDIT_QR_FAILED/);
     const invoices = await t.run((ctx) => ctx.db.query("pos_xendit_invoices").collect());
     expect(invoices.length).toBe(0);
+    // v1.0.1: failure triggers _recordError_internal which schedules sendErrorAlert
+    await drainScheduled(t);
   });
 
   it("throws SESSION_INVALID when the session has ended (C3 — no invoice for a terminated session)", async () => {
@@ -270,6 +279,7 @@ describe("payments/actions.manuallyConfirmPayment", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(managerId);
+    await drainScheduled(t);
   });
 
   it("(Task 12) accepts any active manager's code — session staff need not be a manager", async () => {
@@ -301,6 +311,7 @@ describe("payments/actions.manuallyConfirmPayment", () => {
     expect(txn?.status).toBe("paid");
     // Approver is the explicitly-picked manager, not the session staff.
     expect(txn?.confirmed_mgr_approver_id).toBe(managerId);
+    await drainScheduled(t);
   });
 
   it("(Task 12) wrong managerPin counts toward THAT manager's lockout, not the session staff's", async () => {

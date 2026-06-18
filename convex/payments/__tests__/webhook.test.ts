@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { PAYMENT_AMOUNT_MISMATCH } from "../../transactions/flags";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// v1.0.1: webhook now triggers _confirmPaid which schedules sendTxnTicker.
+// Stub Telegram + drain to avoid "Write outside of transaction" errors.
+setupTelegramStub();
 
 beforeEach(() => {
   process.env.XENDIT_CALLBACK_TOKEN = "tok-test-1234567890";
@@ -105,6 +110,7 @@ describe("payments/webhook", () => {
     expect(after.txn?.confirmed_via).toBe("webhook");
     expect(after.inv?.receipt_id).toBe("RRN-9");
     expect(after.inv?.payment_source).toBe("OVO");
+    await drainScheduled(t);
   });
 
   it("mismatched webhook amount threads through → PAYMENT_AMOUNT_MISMATCH flag set", async () => {
@@ -122,6 +128,7 @@ describe("payments/webhook", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("paid");
     expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(PAYMENT_AMOUNT_MISMATCH);
+    await drainScheduled(t);
   });
 
   it("bad JSON → 200 no-op (avoids Xendit retry loop)", async () => {
@@ -173,6 +180,7 @@ describe("payments/webhook", () => {
     expect(after.txn?.status).toBe("paid");
     expect(after.txn?.confirmed_via).toBe("webhook");
     expect(after.inv?.receipt_id).toBe("pay_77");
+    await drainScheduled(t);
   });
 
   it("webhook for a cancelled txn does NOT flip it + logs payment.confirmed_on_terminal", async () => {
@@ -202,6 +210,20 @@ describe("payments/webhook", () => {
     expect(alerts.length).toBe(1);
   });
 
+  // v1.0.1 Task 11: bad-token → 401 AND zero pos_error_reports rows (no bot-scanner noise)
+  it("bad-token webhook returns 401 and writes NO error report", async () => {
+    const t = convexTest(schema);
+    const res = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "x-callback-token": "wrong", "content-type": "application/json" },
+      body: JSON.stringify({ event: "qr.payment", data: { qr_id: "x" } }),
+    });
+    expect(res.status).toBe(401);
+    const rows = await t.run(async (ctx) => ctx.db.query("pos_error_reports").collect());
+    // auth-path must NOT emit reports — noise from bot scanners
+    expect(rows).toHaveLength(0);
+  });
+
   it("duplicate webhook delivery through the HTTP handler is an idempotent no-op", async () => {
     // Xendit retries on non-2xx; a second identical delivery must not double-confirm.
     const t = convexTest(schema);
@@ -224,5 +246,6 @@ describe("payments/webhook", () => {
     expect(txn?.status).toBe("paid");
     // One sale movement only — the second delivery hit the status guard and no-op'd.
     expect(movements.length).toBe(1);
+    await drainScheduled(t);
   });
 });

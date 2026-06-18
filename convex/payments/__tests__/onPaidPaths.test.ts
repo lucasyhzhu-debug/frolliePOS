@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// v1.0.1: _confirmPaid now schedules sendTxnTicker; stub Telegram + drain.
+setupTelegramStub();
 
 async function seedAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -82,6 +86,7 @@ describe("payments/internal", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("paid");
     expect(txn?.confirmed_via).toBe("webhook");
+    await drainScheduled(t);
   });
 
   it("_onPaidManual_internal records mgr_approver_id + reason and source=manual", async () => {
@@ -97,6 +102,7 @@ describe("payments/internal", () => {
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(s.staff);
     expect(txn?.confirmed_manual_reason).toBe("BCA cleared manually");
+    await drainScheduled(t);
   });
 
   it("getCurrentInvoice returns the most recently created invoice for the txn", async () => {
@@ -205,5 +211,6 @@ describe("payments/internal", () => {
     }));
     expect(after.txn?.receipt_number).toBe(before?.receipt_number);
     expect(after.movements.length).toBe(1);
+    await drainScheduled(t);
   });
 });
