@@ -57,7 +57,7 @@ describe("getActiveStaff", () => {
     await seedStaff(t, "Bayu", "5678");
     await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "Old", pin_hash: "x", role: "staff", active: false, created_at: 0,
+        name: "Old", code: "S-0099", pin_hash: "x", role: "staff", active: false, created_at: 0,
       })
     );
 

@@ -82,7 +82,7 @@ async function seedSession(
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: opts.name ?? "Mgr",
-      code: opts.code,
+      code: opts.code ?? "S-0001",
       role: opts.role ?? "manager",
       active: true,
       pin_hash: "x",

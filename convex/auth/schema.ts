@@ -4,7 +4,7 @@ import { v } from "convex/values";
 export const authTables = {
   staff: defineTable({
     name: v.string(),
-    code: v.optional(v.string()), // NEW v0.2.1 — populated in Task F3, required in Task F6 (DEFERRED)
+    code: v.string(),  // stable staffCode S-NNNN; required since v1.1 (ADR-034, sync prereq)
     pin_hash: v.string(),
     role: v.union(v.literal("staff"), v.literal("manager")),
     active: v.boolean(),

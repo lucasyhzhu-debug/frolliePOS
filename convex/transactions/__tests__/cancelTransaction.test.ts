@@ -16,7 +16,7 @@ beforeEach(() => {
 async function seedAwaitingWithSession(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "d", started_at: Date.now(),

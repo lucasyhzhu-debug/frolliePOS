@@ -12,7 +12,7 @@ describe("catalog", () => {
         low_threshold: 5, active: true, created_at: Date.now(),
       });
       const dubai3 = await ctx.db.insert("pos_products", {
-        sku_family: "dubai", name: "Dubai", pack_label: "3 pcs", price_idr: 125000,
+        sku_family: "dubai", code: "DUBAI_3PC", name: "Dubai", pack_label: "3 pcs", price_idr: 125000,
         active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });
@@ -66,12 +66,12 @@ describe("catalog", () => {
         low_threshold: 0, active: true, created_at: Date.now(),
       });
       const activeProduct = await ctx.db.insert("pos_products", {
-        sku_family: "choc", name: "Active Product", pack_label: "1 pc", price_idr: 50000,
+        sku_family: "choc", code: "CHOC_1PC", name: "Active Product", pack_label: "1 pc", price_idr: 50000,
         active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });
       const inactiveProduct = await ctx.db.insert("pos_products", {
-        sku_family: "choc", name: "Inactive Product", pack_label: "3 pcs", price_idr: 120000,
+        sku_family: "choc", code: "CHOC_3PC", name: "Inactive Product", pack_label: "3 pcs", price_idr: 120000,
         active: false, sort_order: 2, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });

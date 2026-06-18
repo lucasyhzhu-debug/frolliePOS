@@ -24,7 +24,7 @@ describe("seed/actions.bootstrap", () => {
   it("refuses to run when staff table is non-empty", async () => {
     const t = convexTest(schema);
     await t.run((ctx) => ctx.db.insert("staff", {
-      name: "X", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      name: "X", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
     }));
     await expect(t.action(internal.seed.actions.bootstrap, {})).rejects.toThrow(/already_bootstrapped/);
   });

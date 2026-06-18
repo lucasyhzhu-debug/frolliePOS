@@ -5,6 +5,8 @@ import { buildActivatePosCommand } from "./telegram/activatePos";
 import { xenditWebhook } from "./payments/webhook";
 import { handleReceiptRoute } from "./receipts/http";
 import { opsErrorRoute } from "./ops/http";
+import { handleTransactionsRoute } from "./api/v1/transactions";
+import { handleRefundsRoute } from "./api/v1/refunds";
 
 const http = httpRouter();
 
@@ -41,5 +43,14 @@ http.route({
 
 // Error ingest — token-gated, always returns 2xx (204=bad/missing token, 200=ok).
 http.route({ path: "/ops/error", method: "POST", handler: opsErrorRoute });
+
+// External API — Frollie Pro consumer.
+http.route({
+  path: "/api/v1/transactions",
+  method: "GET",
+  handler: handleTransactionsRoute,
+});
+
+http.route({ path: "/api/v1/refunds", method: "GET", handler: handleRefundsRoute });
 
 export default http;

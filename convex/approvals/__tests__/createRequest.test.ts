@@ -11,6 +11,7 @@ async function seedStaff(t: ReturnType<typeof convexTest>): Promise<{
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: "Lucy",
+      code: "S-0001",
       pin_hash: "old-hash",
       role: "staff",
       active: true,
@@ -18,6 +19,7 @@ async function seedStaff(t: ReturnType<typeof convexTest>): Promise<{
     });
     const mgrId = await ctx.db.insert("staff", {
       name: "Lucas",
+      code: "S-0002",
       pin_hash: "mgr-hash",
       role: "manager",
       active: true,

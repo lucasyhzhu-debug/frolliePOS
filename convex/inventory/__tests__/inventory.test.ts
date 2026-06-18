@@ -14,6 +14,7 @@ setupTelegramStub();
 async function seedStaffId(ctx: any) {
   return ctx.db.insert("staff", {
     name: "Test Staff",
+    code: "S-0001",
     pin_hash: "$argon2id$dummy",
     role: "staff",
     active: true,
@@ -25,7 +26,7 @@ async function seedStaffId(ctx: any) {
 async function seedProductId(ctx: any) {
   const now = Date.now();
   return ctx.db.insert("pos_products", {
-    sku_family: "_seed", name: "Seed Product", pack_label: "1pc",
+    sku_family: "_seed", code: "SEED_1PC", name: "Seed Product", pack_label: "1pc",
     price_idr: 0, tax_rate: 0, active: true, sort_order: 0,
     created_at: now, updated_at: now,
   });
@@ -35,7 +36,7 @@ async function seedProductId(ctx: any) {
 async function seedStaffSession(t: any, role: "staff" | "manager" = "staff") {
   return t.run(async (ctx: any) => {
     const staffId = await ctx.db.insert("staff", {
-      name: "S", pin_hash: "$argon2id$x", role, active: true, created_at: Date.now(),
+      name: "S", code: "S-0002", pin_hash: "$argon2id$x", role, active: true, created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "dev-1", started_at: Date.now(), ended_at: null, end_reason: null,

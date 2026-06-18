@@ -9,6 +9,7 @@ it("aggregates paid txns inside the WIB day window", async () => {
   await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: "L",
+      code: "S-0001",
       pin_hash: "x",
       role: "staff",
       active: true,
@@ -96,7 +97,7 @@ it("includes cross-midnight late-paid sales (created day N, paid day N+1)", asyn
 
   await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
-      name: "L", pin_hash: "x", role: "staff", active: true, created_at: created,
+      name: "L", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: created,
     });
     await ctx.db.insert("pos_transactions", {
       subtotal: 80_000, voucher_discount: 0, total: 80_000,

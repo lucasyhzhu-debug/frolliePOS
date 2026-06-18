@@ -7,7 +7,7 @@ import { Id } from "../../_generated/dataModel";
 async function seedStaff(t: ReturnType<typeof convexTest>, role: "staff" | "manager") {
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
-      name: "Ali", pin_hash: "x", role, active: true, created_at: Date.now(),
+      name: "Ali", code: "S-0001", pin_hash: "x", role, active: true, created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "dev-1",
@@ -23,7 +23,7 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff"
     // row is required (the prior "px" cast fails reference validation, not the
     // query under test).
     const productId = await ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 8pcs", pack_label: "8pcs", price_idr: 25_000,
+      sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pcs", pack_label: "8pcs", price_idr: 25_000,
       active: true, sort_order: 0, tax_rate: 0, created_at: createdAt, updated_at: createdAt,
     });
     const txnId = await ctx.db.insert("pos_transactions", {

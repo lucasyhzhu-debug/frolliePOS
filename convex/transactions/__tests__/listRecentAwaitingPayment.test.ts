@@ -6,7 +6,7 @@ import { api } from "../../_generated/api";
 async function seedBase(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "dev-1", started_at: Date.now(),
@@ -79,7 +79,7 @@ describe("transactions/public.listRecentAwaitingPayment", () => {
     // ended session — _resolveSession_internal returns null for ended sessions.
     const fakeSession = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
-        name: "Ghost", pin_hash: "x", role: "staff", active: false, created_at: Date.now(),
+        name: "Ghost", code: "S-0002", pin_hash: "x", role: "staff", active: false, created_at: Date.now(),
       });
       return ctx.db.insert("staff_sessions", {
         staff_id: staffId,

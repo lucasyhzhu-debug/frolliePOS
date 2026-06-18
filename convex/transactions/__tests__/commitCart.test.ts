@@ -2,11 +2,48 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
+import { Id } from "../../_generated/dataModel";
+
+/**
+ * Helper: seeds a single product with a known `code` + a staff session,
+ * returning the IDs needed by the snapshot test (Step 1 — Task 2).
+ */
+async function seedProductAndSession(
+  t: ReturnType<typeof convexTest>,
+  opts: { code: string; sku_family: string; price_idr: number },
+): Promise<{ sessionId: Id<"staff_sessions">; productId: Id<"pos_products"> }> {
+  return t.run(async (ctx) => {
+    const staff = await ctx.db.insert("staff", {
+      name: "T", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+    });
+    const sessionId = await ctx.db.insert("staff_sessions", {
+      staff_id: staff, device_id: "d1", started_at: Date.now(),
+      ended_at: null, end_reason: null,
+    });
+    const skuId = await ctx.db.insert("pos_inventory_skus", {
+      sku: opts.sku_family, name: opts.sku_family, unit: "piece",
+      low_threshold: 0, active: true, created_at: Date.now(),
+    });
+    const productId = await ctx.db.insert("pos_products", {
+      sku_family: opts.sku_family, code: opts.code, name: opts.code,
+      pack_label: "1pc", price_idr: opts.price_idr,
+      active: true, sort_order: 1, tax_rate: 0,
+      created_at: Date.now(), updated_at: Date.now(),
+    });
+    await ctx.db.insert("pos_product_components", {
+      product_id: productId, inventory_sku_id: skuId, qty: 1,
+    });
+    await ctx.db.insert("pos_stock_levels", {
+      inventory_sku_id: skuId, on_hand: 100, updated_at: Date.now(),
+    });
+    return { sessionId, productId };
+  });
+}
 
 async function seedCatalog(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0002", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "dev-1", started_at: Date.now(),
@@ -17,7 +54,7 @@ async function seedCatalog(t: ReturnType<typeof convexTest>) {
       active: true, created_at: Date.now(),
     });
     const p8 = await ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 8pc", pack_label: "8pc",
+      sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pc", pack_label: "8pc",
       price_idr: 200_000, active: true, sort_order: 1, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     });
@@ -79,7 +116,7 @@ describe("transactions/public.commitCart", () => {
       active: true, created_at: Date.now(),
     }));
     const p1pc = await t.run((ctx) => ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 1pc", pack_label: "1pc",
+      sku_family: "dubai", code: "DUBAI_1PC", name: "Dubai 1pc", pack_label: "1pc",
       price_idr: 100_000, active: true, sort_order: 2, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     }));
@@ -204,6 +241,22 @@ describe("transactions/public.commitCart", () => {
     expect(r.totals.discount).toBe(500);
   });
 
+  it("snapshots product.code (never sku_family) onto the line", async () => {
+    const t = convexTest(schema);
+    const { sessionId, productId } = await seedProductAndSession(t, {
+      code: "DUBAI_8PC", sku_family: "dubai", price_idr: 320000,
+    });
+    const { transactionId } = await t.mutation(api.transactions.public.commitCart, {
+      idempotencyKey: "k1", sessionId, intent: "draft",
+      lines: [{ productId, qty: 1 }],
+    });
+    const line = await t.run((ctx) =>
+      ctx.db.query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", transactionId))
+        .first());
+    expect(line!.product_code_snapshot).toBe("DUBAI_8PC");
+  });
+
   it("idempotency: same key returns same txn (no duplicate)", async () => {
     const t = convexTest(schema);
     const s = await seedCatalog(t);
@@ -250,7 +303,7 @@ describe("SEC-02: commitCart quantity guard", () => {
     const s = await seedCatalog(t);
     // Seed a second product so the cart has two distinct lines.
     const p1pc = await t.run((ctx) => ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 1pc", pack_label: "1pc",
+      sku_family: "dubai", code: "DUBAI_1PC", name: "Dubai 1pc", pack_label: "1pc",
       price_idr: 100_000, active: true, sort_order: 2, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     }));

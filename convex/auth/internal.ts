@@ -446,12 +446,21 @@ export const _seedStaffCommit_internal = internalMutation({
     role: v.union(v.literal("staff"), v.literal("manager")),
   },
   handler: async (ctx, args): Promise<Id<"staff">> => {
+    // Allocate next S-NNNN using the same OCC-safe collect-and-reduce pattern
+    // as _createStaffCommit_internal (seed path must also assign a stable code).
+    const all = await ctx.db.query("staff").collect();
+    const maxN = all.reduce((m, s) => {
+      const n = s.code?.match(/^S-(\d{4})$/)?.[1];
+      return n ? Math.max(m, parseInt(n, 10)) : m;
+    }, 0);
+    const code = `S-${String(maxN + 1).padStart(4, "0")}`;
     return await ctx.db.insert("staff", {
       name: args.name,
       pin_hash: args.pin_hash,
       role: args.role,
       active: true,
       created_at: Date.now(),
+      code,
     });
   },
 });
@@ -483,6 +492,23 @@ export const _listStaffNames_internal = internalQuery({
   handler: async (ctx): Promise<Array<{ _id: Id<"staff">; name: string }>> => {
     const rows = await ctx.db.query("staff").collect();
     return rows.map((s) => ({ _id: s._id, name: s.name }));
+  },
+});
+
+/**
+ * Return all staff (active + inactive) projected to { _id, code } for the
+ * Public API transactions feed. `_listStaffNames_internal` returns { _id, name }
+ * with NO `code` — a separate internal is needed per ADR-034 (transactions reads
+ * staff via an auth internal, never direct ctx.db).
+ *
+ * `code` is required post-Task 3 (staff.code: v.string()), so no ?? fallback
+ * is needed. Includes inactive staff so historical txns still resolve.
+ */
+export const _listStaffCodes_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Array<{ _id: Id<"staff">; code: string }>> => {
+    const rows = await ctx.db.query("staff").collect();
+    return rows.map((s) => ({ _id: s._id, code: s.code }));
   },
 });
 

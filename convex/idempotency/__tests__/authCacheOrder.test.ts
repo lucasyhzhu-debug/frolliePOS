@@ -30,7 +30,7 @@ describe("withIdempotency authCheck ordering", () => {
     // throws "SESSION_INVALID".
     const { revokedSessionId } = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
-        name: "Attacker", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Attacker", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const revokedSessionId = await ctx.db.insert("staff_sessions", {
         staff_id: staffId,

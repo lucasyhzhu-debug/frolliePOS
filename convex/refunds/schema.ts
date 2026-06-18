@@ -33,5 +33,7 @@ export const refundsTables = {
     // For receipt rendering: "get all refunds for this txn"
     .index("by_transaction", ["transaction_id"])
     // For /mgr/refunds-pending: list pending refunds oldest-first
-    .index("by_settlement_status", ["settlement_status", "created_at"]),
+    .index("by_settlement_status", ["settlement_status", "created_at"])
+    // For Public API v1 ascending feed — scanned by _listRefundsForApi_internal
+    .index("by_created_at", ["created_at"]),
 };

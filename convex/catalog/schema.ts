@@ -20,7 +20,7 @@ export const catalogTables = {
 
   pos_products: defineTable({
     sku_family: v.string(),
-    code: v.optional(v.string()), // NEW v0.2.1 — populated in Task F3, required in Task F6 (DEFERRED)
+    code: v.string(),  // stable productCode, UPPERCASE_SNAKE(+_<N>PC); required since v1.1 (ADR-034, sync prereq)
     name: v.string(),
     pack_label: v.string(),
     price_idr: v.number(),

@@ -21,7 +21,7 @@ describe("sendTxnTicker", () => {
     // Seed a minimal paid txn
     const txnId = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
-        name: "Bayu", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Bayu", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const txn = await ctx.db.insert("pos_transactions", {
         status: "paid",
@@ -45,7 +45,7 @@ describe("sendTxnTicker", () => {
     // Enable ticker (default) but don't bind managers role
     const txnId = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
-        name: "Bayu", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Bayu", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       return await ctx.db.insert("pos_transactions", {
         status: "paid",

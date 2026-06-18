@@ -10,6 +10,7 @@ import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } f
 import type { DayTxn } from "./lib";
 import { instrumentFromInvoice } from "../payments/internal";
 import { refundStatus } from "../refunds/lib";
+import { encodeCursor } from "../lib/apiCursor";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -777,5 +778,190 @@ export const _getTxnForTicker_internal = internalQuery({
       confirmed_via: txn.confirmed_via ?? null,
       lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Public API v1 — refunds batch join resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve transaction receipt_number + line product codes for a batch of
+ * refunds in ONE cross-module call. Callers (refunds._listRefundsForApi_internal)
+ * pass every refund on the page at once; we loop here rather than exposing an
+ * N-call surface.
+ *
+ * A single unresolvable refund (txn missing/not-paid, or a line missing) returns
+ * `ok: false` and is skipped by the caller — it must NEVER 500 the whole page.
+ * refundKey is the caller's per-refund key (typically `r._id`) so it can map
+ * results back without positional coupling.
+ */
+export const _resolveRefundLinesForApiBatch_internal = internalQuery({
+  args: {
+    items: v.array(v.object({
+      refundKey: v.string(),
+      transactionId: v.id("pos_transactions"),
+      lines: v.array(v.object({
+        line_id: v.id("pos_transaction_lines"),
+        qty: v.number(),
+        refund_amount: v.number(),
+      })),
+    })),
+  },
+  handler: async (ctx, args): Promise<Array<{
+    refundKey: string; ok: boolean;
+    receiptNumber?: string; lines?: Array<{ productCode: string; qty: number; refundAmount: number }>;
+  }>> => {
+    const out = [];
+    for (const item of args.items) {
+      const txn = await ctx.db.get(item.transactionId);
+      if (!txn?.receipt_number) { out.push({ refundKey: item.refundKey, ok: false }); continue; }
+      const lines = [];
+      let bad = false;
+      for (const l of item.lines) {
+        const tl = await ctx.db.get(l.line_id);
+        if (!tl) { bad = true; break; }
+        lines.push({ productCode: tl.product_code_snapshot, qty: l.qty, refundAmount: l.refund_amount });
+      }
+      if (bad) { out.push({ refundKey: item.refundKey, ok: false }); continue; }
+      out.push({ refundKey: item.refundKey, ok: true, receiptNumber: txn.receipt_number, lines });
+    }
+    return out;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Public API v1 — transactions feed
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a single row emitted by the Public API transactions feed.
+ * All money is integer rupiah (ADR-015). Fields are camelCase to match the
+ * JSON contract. Snapshots are served directly — never re-join lines → products.
+ */
+export type ApiTxnRow = {
+  receiptNumber: string;
+  paidAt: number;
+  subtotal: number;
+  voucherCode: string | null;
+  voucherDiscount: number;
+  total: number;
+  staffCode: string;
+  lines: Array<{
+    productCode: string;
+    productName: string;
+    qty: number;
+    unitPrice: number;
+    lineSubtotal: number;
+    taxRate: number;
+  }>;
+};
+
+/**
+ * Paginated feed of paid transactions for the Public API (GET /api/v1/transactions).
+ *
+ * Cursor semantics: (afterPaidAtMs, afterCreationTime) represent the last row
+ * of the previous page. Rows with (paid_at, _creationTime) strictly greater
+ * than the cursor are returned, ascending by paid_at.
+ *
+ * Tiebreak correctness: paid_at is a server timestamp — multiple transactions
+ * can share the exact same ms. We over-fetch (limit*2+1) from gte(paid_at)
+ * then filter `strictlyAfter` by (paid_at, _creationTime) > cursor so we never
+ * re-emit a row from the previous page, even when several transactions share
+ * the same paid_at ms.
+ *
+ * N+1 avoidance: staffCodes resolved once via _listStaffCodes_internal → Map.
+ * Lines are fetched per-txn (small page — max 500) via the by_transaction index.
+ *
+ * Cross-module reads (ADR-034):
+ *   staff codes → auth._listStaffCodes_internal (never direct ctx.db on staff)
+ */
+export const _listPaidTxnsForApi_internal = internalQuery({
+  args: {
+    afterPaidAtMs: v.optional(v.number()),
+    afterCreationTime: v.optional(v.number()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ rows: ApiTxnRow[]; nextCursor: string | null }> => {
+    const limit = Math.min(Math.max(args.limit, 1), 500);
+    const after = args.afterPaidAtMs;
+
+    // Ascending scan of paid rows from the watermark. Over-fetch by limit*2+1
+    // to provide headroom for same-ms tiebreak filtering without losing rows.
+    // _creationTime is the implicit tiebreak; rows at the exact watermark ms
+    // are filtered by (paidAt, _creationTime) > cursor in strictlyAfter below.
+    const candidates = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        after === undefined
+          ? q.eq("status", "paid")
+          : q.eq("status", "paid").gte("paid_at", after),
+      )
+      .order("asc")
+      // 2x+1 over-fetch: worst case up to `limit` same-ms stragglers at the cursor watermark get filtered out by strictlyAfter, so fetch headroom to still fill a full page + detect a next one.
+      .take(limit * 2 + 1);
+
+    // Filter to rows strictly after the cursor. When no cursor is given (first
+    // page), all candidates pass. When a cursor is given, rows at the exact
+    // watermark ms are disambiguated by _creationTime.
+    const strictlyAfter = candidates.filter((t) => {
+      if (after === undefined) return true;
+      if (t.paid_at! > after) return true;
+      // equal ms → compare _creationTime
+      return t._creationTime > (args.afterCreationTime ?? -Infinity);
+    });
+
+    const page = strictlyAfter.slice(0, limit);
+
+    // I2: skip the staff table scan when this page is empty — there are no
+    // staff codes to resolve and no rows to emit, so nextCursor is trivially null.
+    if (page.length === 0) return { rows: [], nextCursor: null };
+
+    // Resolve staffCode once (small set) → Map to avoid N+1 per txn.
+    // ADR-034: transactions reads staff via an auth internal, never direct ctx.db.
+    const staffCodes = await ctx.runQuery(
+      internal.auth.internal._listStaffCodes_internal,
+      {},
+    );
+    const codeByStaffId = new Map(staffCodes.map((s) => [String(s._id), s.code]));
+
+    const rows: ApiTxnRow[] = [];
+    for (const t of page) {
+      const lines = await ctx.db
+        .query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+        .collect();
+
+      const staffCode = codeByStaffId.get(String(t.staff_id));
+      // status === "paid" + staff are soft-deleted (never hard-deleted), so a
+      // missing code means corruption — fail loud rather than silently omit.
+      if (!staffCode) throw new Error(`STAFF_CODE_MISSING_FOR_TXN ${t._id}`);
+
+      rows.push({
+        // receipt_number is set by _confirmPaid (invariant for status="paid")
+        receiptNumber: t.receipt_number!,
+        paidAt: t.paid_at!,
+        subtotal: t.subtotal,
+        voucherCode: t.voucher_code_snapshot ?? null,
+        voucherDiscount: t.voucher_discount,
+        total: t.total,
+        staffCode,
+        lines: lines.map((l) => ({
+          productCode: l.product_code_snapshot,
+          productName: l.product_name_snapshot,
+          qty: l.qty,
+          unitPrice: l.unit_price_snapshot,
+          lineSubtotal: l.line_subtotal,
+          taxRate: l.tax_rate_snapshot,
+        })),
+      });
+    }
+
+    const last = page[page.length - 1];
+    const more = strictlyAfter.length > limit;
+    const nextCursor =
+      more && last ? encodeCursor(last.paid_at!, last._creationTime) : null;
+
+    return { rows, nextCursor };
   },
 });

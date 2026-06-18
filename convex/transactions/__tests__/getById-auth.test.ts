@@ -8,10 +8,10 @@ import { wibDayWindow } from "../../lib/time";
 async function seed(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "Lucy", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      name: "Lucy", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
     });
     const manager = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0002", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const staffSession = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,

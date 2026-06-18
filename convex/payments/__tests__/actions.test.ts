@@ -24,7 +24,7 @@ beforeEach(() => {
 async function seedAwaiting(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "d", started_at: Date.now(),
@@ -35,7 +35,7 @@ async function seedAwaiting(t: ReturnType<typeof convexTest>) {
       active: true, created_at: Date.now(),
     });
     const product = await ctx.db.insert("pos_products", {
-      sku_family: "x", name: "X", pack_label: "1pc", price_idr: 25_000,
+      sku_family: "x", code: "X_1PC", name: "X", pack_label: "1pc", price_idr: 25_000,
       active: true, sort_order: 1, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     });

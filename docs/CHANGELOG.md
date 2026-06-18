@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-18 — Public API v1 (Frollie Pro sales sync, producer)
+- GET /api/v1/transactions + /api/v1/refunds — bearer-authed, cursor-paginated, product-level. See docs/PUBLIC_API.md.
+- api_tokens / api_rate_buckets / api_request_log tables; append-only access log; daily api-housekeeping cron.
+- pos_products.code / staff.code now REQUIRED; sku_family snapshot fallback removed.
+
 ## 2026-06-18 — v1.2 Phase 1: Phthalo-dark design system (#2, folds in #4 + #5)
 - feat(ui): the POS now ships the Frollie/Lucas **phthalo-dark** canvas as its default theme — paper `#102821`, lifted cards `#163630`, warm ink `#F1E9D8`, teal `#14B8A6` primary, **citrus `#F9A84A`** accent. Mounted via a permanent `class="dark"` on `<html>`; `:root` retained as an enriched-light glare-gate fallback (flip one attribute). `@custom-variant dark` re-keys `dark:` utilities to the class. ADR-047. **Tokens drive everything, so untouched routes inherit the dark canvas automatically.**
 - feat(ui): primitives enriched — Card elevation (`shadow-md`), Button tactile press (`active:scale-[0.97]` + primary gradient), Badge dark-tuned to translucent fills (`bg-x/15 text-x border-x/30`). Motion via `tw-animate-css` (Radix primitives) + Framer Motion micro-interactions, every one a full no-op under `prefers-reduced-motion`.

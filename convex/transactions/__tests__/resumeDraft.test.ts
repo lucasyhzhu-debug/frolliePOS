@@ -8,7 +8,7 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
-        name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+        name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
       });
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
@@ -39,14 +39,14 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
-        name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+        name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
       });
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
       });
       const product = await ctx.db.insert("pos_products", {
-        sku_family: "x", name: "P", pack_label: "1pc", price_idr: 10_000,
+        sku_family: "x", code: "X_1PC", name: "P", pack_label: "1pc", price_idr: 10_000,
         active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });
@@ -77,7 +77,7 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
-        name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+        name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
       });
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
@@ -117,7 +117,7 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
-        name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+        name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
       });
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
@@ -140,10 +140,10 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const owner = await ctx.db.insert("staff", {
-        name: "Owner", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Owner", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const intruder = await ctx.db.insert("staff", {
-        name: "Intruder", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Intruder", code: "S-0002", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const intruderSession = await ctx.db.insert("staff_sessions", {
         staff_id: intruder, device_id: "d", started_at: Date.now(),
@@ -171,10 +171,10 @@ describe("transactions/public — drafts", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const owner = await ctx.db.insert("staff", {
-        name: "Owner", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Owner", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const intruder = await ctx.db.insert("staff", {
-        name: "Intruder", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+        name: "Intruder", code: "S-0002", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
       const intruderSession = await ctx.db.insert("staff_sessions", {
         staff_id: intruder, device_id: "d", started_at: Date.now(),

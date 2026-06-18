@@ -12,12 +12,12 @@ describe("_projectedNegStockFlag_internal", () => {
         active: true, created_at: Date.now(),
       });
       const p1pc = await ctx.db.insert("pos_products", {
-        sku_family: "dubai", name: "Dubai 1pc", pack_label: "1pc",
+        sku_family: "dubai", code: "DUBAI_1PC", name: "Dubai 1pc", pack_label: "1pc",
         price_idr: 25_000, active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });
       const p8pc = await ctx.db.insert("pos_products", {
-        sku_family: "dubai", name: "Dubai 8pc", pack_label: "8pc",
+        sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pc", pack_label: "8pc",
         price_idr: 200_000, active: true, sort_order: 2, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });
