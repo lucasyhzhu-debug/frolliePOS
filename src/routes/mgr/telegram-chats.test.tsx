@@ -9,16 +9,18 @@
  *   - useSession: vi.fn() → mockSessionFn.
  *   - useNavigate: mocked via react-router.
  *
- * The component renders two useQuery calls per tree:
+ * The component renders three useQuery calls per tree:
  *   Call 0 = settings (FoundersSummaryToggle)
- *   Call 1 = chats (MgrTelegramChatsInner)
+ *   Call 1 = settings (TxnTickerToggle — same args shape, same stub)
+ *   Call 2 = chats (MgrTelegramChatsInner)
  *
  * For useMutation, the call order per tree render (depth-first):
- *   Component order: FoundersSummaryToggle → MgrTelegramChatsInner → ChatCard*
+ *   Component order: FoundersSummaryToggle → TxnTickerToggle → MgrTelegramChatsInner → ChatCard*
  *   Mutation call 0 = setFoundersSummaryEnabled (FoundersSummaryToggle)
- *   Mutation call 1 = assignRole (ChatCard, first call)
- *   Mutation call 2 = archiveChat (ChatCard, second call)
- *   Mutation call 3 = restoreChat (ChatCard, third call)
+ *   Mutation call 1 = setTxnTickerEnabled       (TxnTickerToggle)
+ *   Mutation call 2 = assignRole  (ChatCard)
+ *   Mutation call 3 = archiveChat (ChatCard)
+ *   Mutation call 4 = restoreChat (ChatCard)
  *
  * We track call index with a module-level counter and reset it before each
  * test by calling resetCounters(). The mock captures the slot at call time
@@ -83,6 +85,7 @@ let stubAssignRole: ReturnType<typeof vi.fn>;
 let stubArchiveChat: ReturnType<typeof vi.fn>;
 let stubRestoreChat: ReturnType<typeof vi.fn>;
 let stubSetFounders: ReturnType<typeof vi.fn>;
+let stubSetTicker: ReturnType<typeof vi.fn>;
 let stubSendTest: ReturnType<typeof vi.fn>;
 
 // ---------- helpers ----------------------------------------------------------
@@ -126,14 +129,15 @@ function setupQueryMock(settings: unknown, chats: unknown) {
 /**
  * Set up useMutation to return named stubs by call order.
  * The mutation call order per render tree (depth-first):
- *   0 = setFoundersSummaryEnabled   (FoundersSummaryToggle)
- *   1 = assignRole  (ChatCard)
- *   2 = archiveChat (ChatCard)
- *   3 = restoreChat (ChatCard)
+ *   0 = setFoundersSummaryEnabled (FoundersSummaryToggle)
+ *   1 = setTxnTickerEnabled       (TxnTickerToggle)
+ *   2 = assignRole  (ChatCard)
+ *   3 = archiveChat (ChatCard)
+ *   4 = restoreChat (ChatCard)
  */
 function setupMutationMock() {
   let mutIdx = 0;
-  const order = [stubSetFounders, stubAssignRole, stubArchiveChat, stubRestoreChat];
+  const order = [stubSetFounders, stubSetTicker, stubAssignRole, stubArchiveChat, stubRestoreChat];
   mockUseMutation.mockImplementation(() => {
     const slot = mutIdx % order.length;
     mutIdx++;
@@ -165,10 +169,11 @@ describe("MgrTelegramChats — session guard", () => {
     stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
     stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
     stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
     stubSendTest = vi.fn().mockResolvedValue(undefined);
 
     mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
-    setupQueryMock({ founders_summary_enabled: true }, []);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     setupMutationMock();
   });
 
@@ -212,11 +217,12 @@ describe("MgrTelegramChats — chat list", () => {
     stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
     stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
     stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
     stubSendTest = vi.fn().mockResolvedValue(undefined);
 
     mockUseSession.mockReturnValue(activeManagerSession);
     mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
-    setupQueryMock({ founders_summary_enabled: true }, undefined); // override per test
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, undefined); // override per test
     setupMutationMock();
   });
 
@@ -295,11 +301,12 @@ describe("MgrTelegramChats — role assignment", () => {
     stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
     stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
     stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
     stubSendTest = vi.fn().mockResolvedValue(undefined);
 
     mockUseSession.mockReturnValue(activeManagerSession);
     mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
-    setupQueryMock({ founders_summary_enabled: true }, [baseChat]);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [baseChat]);
     setupMutationMock();
   });
 
@@ -349,12 +356,13 @@ describe("MgrTelegramChats — founders summary toggle", () => {
     stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
     stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
     stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
     stubSendTest = vi.fn().mockResolvedValue(undefined);
 
     mockUseSession.mockReturnValue(activeManagerSession);
     mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
     // No chats for founders toggle tests — isolates the toggle
-    setupQueryMock({ founders_summary_enabled: true }, []);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     setupMutationMock();
   });
 
@@ -391,7 +399,7 @@ describe("MgrTelegramChats — founders summary toggle", () => {
   });
 
   it("calls setFoundersSummaryEnabled(true) when toggled on (was false)", async () => {
-    setupQueryMock({ founders_summary_enabled: false }, []);
+    setupQueryMock({ founders_summary_enabled: false, txn_ticker_enabled: true }, []);
     setupMutationMock();
     renderPage();
 
@@ -401,5 +409,59 @@ describe("MgrTelegramChats — founders summary toggle", () => {
     await waitFor(() => expect(stubSetFounders).toHaveBeenCalledTimes(1));
     const args = stubSetFounders.mock.calls[0][0] as Record<string, unknown>;
     expect(args.enabled).toBe(true);
+  });
+});
+
+// ---------- sales ticker toggle ----------------------------------------------
+
+describe("MgrTelegramChats — sales ticker toggle", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockNavigate.mockReset();
+    stubAssignRole = vi.fn().mockResolvedValue({ ok: true });
+    stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
+    stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
+    stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
+    stubSendTest = vi.fn().mockResolvedValue(undefined);
+    mockUseSession.mockReturnValue(activeManagerSession);
+    mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
+    setupMutationMock();
+  });
+
+  it("renders the ticker switch checked when txn_ticker_enabled is true", () => {
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
+    renderPage();
+    const toggle = screen.getByRole("switch", { name: /sales ticker toggle/i });
+    expect(toggle).toBeChecked();
+  });
+
+  it("renders the ticker switch unchecked when txn_ticker_enabled is false", () => {
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: false }, []);
+    renderPage();
+    const toggle = screen.getByRole("switch", { name: /sales ticker toggle/i });
+    expect(toggle).not.toBeChecked();
+  });
+
+  it("calls setTxnTickerEnabled(false) when toggled off (was true)", async () => {
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
+    renderPage();
+    fireEvent.click(screen.getByRole("switch", { name: /sales ticker toggle/i }));
+    await waitFor(() =>
+      expect(stubSetTicker).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: false }),
+      ),
+    );
+  });
+
+  it("calls setTxnTickerEnabled(true) when toggled on (was false)", async () => {
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: false }, []);
+    renderPage();
+    fireEvent.click(screen.getByRole("switch", { name: /sales ticker toggle/i }));
+    await waitFor(() =>
+      expect(stubSetTicker).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true }),
+      ),
+    );
   });
 });
