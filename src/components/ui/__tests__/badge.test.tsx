@@ -11,7 +11,13 @@ describe("badgeVariants", () => {
     expect(badgeVariants({ variant: "default" })).toContain("bg-primary");
   });
   it("type no longer accepts removed channel variants", () => {
-    // @ts-expect-error gofood removed from the variant union (typecheck guards this)
+    // Type-level guard: `gofood` was removed from the variant union, so this
+    // line only compiles because of the @ts-expect-error. NOTE: test files are
+    // excluded from `npm run typecheck` (tsconfig.app.json), so this assertion
+    // is enforced by the editor TS server / a direct `tsc` over this file, not
+    // the CI typecheck. The real CI guard for the prune is that any *consumer*
+    // writing `variant="gofood"` fails `tsc -b` (consumers are type-checked).
+    // @ts-expect-error gofood removed from the variant union
     void badgeVariants({ variant: "gofood" });
   });
 });
