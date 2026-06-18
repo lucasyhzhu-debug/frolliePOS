@@ -1,5 +1,7 @@
+import { useRef } from "react";
 import { useRouteError, useLocation } from "react-router";
 import { isChunkLoadError } from "@/lib/chunkLoadError";
+import { reportOps } from "@/lib/reportOps";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -29,6 +31,10 @@ const RELOAD_STAMP_KEY = "chunk-reload-at";
 export function RouteErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
+  // Guard against double-reporting on React re-renders. The ref tracks the
+  // exact error object we last reported so identical re-renders don't double-send.
+  // Server-side dedup + client dedup in reportOps are belt-and-suspenders.
+  const reportedError = useRef<unknown>(undefined);
 
   if (isChunkLoadError(error)) {
     const stamp = Number(sessionStorage.getItem(RELOAD_STAMP_KEY) ?? "0");
@@ -44,6 +50,12 @@ export function RouteErrorBoundary() {
       return null;
     }
     // Fall through to the fallback below.
+  }
+
+  // Report genuine crashes (chunk-load handled above, never reported).
+  if (!isChunkLoadError(error) && reportedError.current !== error) {
+    reportedError.current = error;
+    reportOps({ kind: "crash", error, route: location.pathname });
   }
 
   const isCustomerReceipt = location.pathname.startsWith("/r/");
