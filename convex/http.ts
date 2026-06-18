@@ -6,6 +6,7 @@ import { xenditWebhook } from "./payments/webhook";
 import { handleReceiptRoute } from "./receipts/http";
 import { opsErrorRoute } from "./ops/http";
 import { handleTransactionsRoute } from "./api/v1/transactions";
+import { handleRefundsRoute } from "./api/v1/refunds";
 
 const http = httpRouter();
 
@@ -49,5 +50,7 @@ http.route({
   method: "GET",
   handler: handleTransactionsRoute,
 });
+
+http.route({ path: "/api/v1/refunds", method: "GET", handler: handleRefundsRoute });
 
 export default http;

@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { computeRefundAmount, lineRefundable } from "./lib";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+import { encodeCursor } from "../lib/apiCursor";
 
 /**
  * Cross-module read surface: receipts module calls this to list refunds for a
@@ -333,4 +334,94 @@ export const _commitRefund_internal = internalMutation({
       return { refundId, total_refund };
     },
   ),
+});
+
+// ---------------------------------------------------------------------------
+// Public API v1 — refunds feed
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a single row emitted by the Public API refunds feed.
+ * All money is integer rupiah (ADR-015). refundAmount and totalRefund are
+ * POSITIVE magnitudes (the refund is a credit, not a negative charge).
+ */
+export type ApiRefundRow = {
+  receiptNumber: string;
+  createdAt: number;
+  totalRefund: number;
+  reason: string;
+  lines: Array<{ productCode: string; qty: number; refundAmount: number }>;
+};
+
+/**
+ * Paginated feed of refunds for the Public API (GET /api/v1/refunds).
+ *
+ * Cursor semantics: (afterCreatedAtMs, afterCreationTime) — same strictlyAfter
+ * tiebreak pattern as _listPaidTxnsForApi_internal (Task 7). Scans the new
+ * `by_created_at` index ascending from the watermark, over-fetches limit*2+1,
+ * then filters strictly after the cursor.
+ *
+ * Cross-module join: all refunds on the page are resolved in ONE call to
+ * transactions._resolveRefundLinesForApiBatch_internal. A refund whose txn or
+ * any line can't be resolved is skipped with console.error — it must NEVER
+ * 500 the whole page.
+ */
+export const _listRefundsForApi_internal = internalQuery({
+  args: {
+    afterCreatedAtMs: v.optional(v.number()),
+    afterCreationTime: v.optional(v.number()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ rows: ApiRefundRow[]; nextCursor: string | null }> => {
+    const limit = Math.min(Math.max(args.limit, 1), 500);
+    const after = args.afterCreatedAtMs;
+
+    const candidates = await ctx.db
+      .query("pos_refunds")
+      .withIndex("by_created_at", (q) => after === undefined ? q : q.gte("created_at", after))
+      .order("asc")
+      .take(limit * 2 + 1);
+
+    const strictlyAfter = candidates.filter((r) =>
+      after === undefined ? true :
+      r.created_at > after ? true : r._creationTime > (args.afterCreationTime ?? -Infinity));
+
+    const page = strictlyAfter.slice(0, limit);
+
+    if (page.length === 0) return { rows: [], nextCursor: null };
+
+    // ONE batch cross-module call (not N). refundKey = _id string maps results back.
+    const resolved = await ctx.runQuery(
+      internal.transactions.internal._resolveRefundLinesForApiBatch_internal,
+      {
+        items: page.map((r) => ({
+          refundKey: String(r._id),
+          transactionId: r.transaction_id,
+          lines: r.lines,
+        })),
+      },
+    );
+
+    const byKey = new Map(resolved.map((x) => [x.refundKey, x]));
+    const rows: ApiRefundRow[] = [];
+    for (const r of page) {
+      const res = byKey.get(String(r._id));
+      if (!res?.ok) {
+        console.error(`[api/refunds] skipping unresolvable refund ${r._id}`);
+        continue;
+      }
+      rows.push({
+        receiptNumber: res.receiptNumber!,
+        createdAt: r.created_at,
+        totalRefund: r.total_refund,
+        reason: r.reason,
+        lines: res.lines!,
+      });
+    }
+
+    const last = page[page.length - 1];
+    const more = strictlyAfter.length > limit;
+    const nextCursor = more && last ? encodeCursor(last.created_at, last._creationTime) : null;
+    return { rows, nextCursor };
+  },
 });

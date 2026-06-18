@@ -782,6 +782,55 @@ export const _getTxnForTicker_internal = internalQuery({
 });
 
 // ---------------------------------------------------------------------------
+// Public API v1 — refunds batch join resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve transaction receipt_number + line product codes for a batch of
+ * refunds in ONE cross-module call. Callers (refunds._listRefundsForApi_internal)
+ * pass every refund on the page at once; we loop here rather than exposing an
+ * N-call surface.
+ *
+ * A single unresolvable refund (txn missing/not-paid, or a line missing) returns
+ * `ok: false` and is skipped by the caller — it must NEVER 500 the whole page.
+ * refundKey is the caller's per-refund key (typically `r._id`) so it can map
+ * results back without positional coupling.
+ */
+export const _resolveRefundLinesForApiBatch_internal = internalQuery({
+  args: {
+    items: v.array(v.object({
+      refundKey: v.string(),
+      transactionId: v.id("pos_transactions"),
+      lines: v.array(v.object({
+        line_id: v.id("pos_transaction_lines"),
+        qty: v.number(),
+        refund_amount: v.number(),
+      })),
+    })),
+  },
+  handler: async (ctx, args): Promise<Array<{
+    refundKey: string; ok: boolean;
+    receiptNumber?: string; lines?: Array<{ productCode: string; qty: number; refundAmount: number }>;
+  }>> => {
+    const out = [];
+    for (const item of args.items) {
+      const txn = await ctx.db.get(item.transactionId);
+      if (!txn?.receipt_number) { out.push({ refundKey: item.refundKey, ok: false }); continue; }
+      const lines = [];
+      let bad = false;
+      for (const l of item.lines) {
+        const tl = await ctx.db.get(l.line_id);
+        if (!tl) { bad = true; break; }
+        lines.push({ productCode: tl.product_code_snapshot, qty: l.qty, refundAmount: l.refund_amount });
+      }
+      if (bad) { out.push({ refundKey: item.refundKey, ok: false }); continue; }
+      out.push({ refundKey: item.refundKey, ok: true, receiptNumber: txn.receipt_number, lines });
+    }
+    return out;
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Public API v1 — transactions feed
 // ---------------------------------------------------------------------------
 
