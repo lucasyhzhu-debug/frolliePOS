@@ -1,9 +1,6 @@
 // Resilient client-side error reporter. Uses raw fetch (NOT the Convex client,
 // which a crash may have taken down) + keepalive (survives navigation/reload).
 
-const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string | undefined;
-const OPS_TOKEN = import.meta.env.VITE_OPS_INGEST_TOKEN as string | undefined;
-
 export function opsEndpoint(convexUrl: string): string {
   return convexUrl.replace(".convex.cloud", ".convex.site").replace(/\/$/, "") + "/ops/error";
 }
@@ -21,6 +18,10 @@ export function reportOps(input: {
   deviceId?: string;
 }): void {
   try {
+    // Read at call-time (Vite still statically replaces import.meta.env.VITE_* at
+    // build) so tests can stub env, and so a missing token degrades to a no-op.
+    const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string | undefined;
+    const OPS_TOKEN = import.meta.env.VITE_OPS_INGEST_TOKEN as string | undefined;
     if (!CONVEX_URL || !OPS_TOKEN) return;
     const err = input.error;
     const message = err instanceof Error ? err.message : String(err);
