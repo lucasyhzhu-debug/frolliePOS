@@ -5,20 +5,7 @@ import { Id } from "../_generated/dataModel";
 import { requireManagerSession } from "../auth/sessions";
 import { withIdempotency } from "../idempotency/internal";
 import { effectiveStatus, type EffectiveStatus } from "./lib";
-
-/**
- * Derive a SHA-256 hex digest from a string using Web Crypto (V8-compatible).
- * Used to look up pos_approval_requests by_token_hash index.
- * Raw tokens are high-entropy (32 bytes), so salt-less SHA-256 is fine here —
- * argon2id is for low-entropy passwords (ADR-004); tokens use SHA-256 (ADR-029).
- */
-async function sha256Hex(s: string): Promise<string> {
-  const data = new TextEncoder().encode(s);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+import { sha256Hex } from "../lib/sha256";
 
 // ---------------------------------------------------------------------------
 // Discriminated return type for getByToken
