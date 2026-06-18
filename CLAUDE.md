@@ -163,7 +163,7 @@ In `convex/crons.ts`. **`founders-shift-summary`** at 22:00 WIB / 15:00 UTC → 
 
 ## Telegram
 
-Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts + **v0.6** `stock_drift_alert`). Set env vars on **both** dev and prod.
+Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md). Roles (`KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`): `managers` (approvals — bind first), `founders` (shift summary), `inventory` (recount + low-stock alerts + **v0.6** `stock_drift_alert`), **v1.0.1** `ops` (POS error/crash alerts via `system_error`). Set env vars on **both** dev and prod.
 
 **Commands (v0.5.7):**
 - `/activatepos` — managers-role chat only; replies with a 6-digit device setup code (15min TTL — SEC-04) + a `<POS_BASE_URL>/activate` link so an off-booth manager can activate a new phone/browser. Group privacy mode swallows the bare command — see [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md).
@@ -171,6 +171,10 @@ Env vars, role table, and ops troubleshooting: [`docs/RUNBOOK-telegram.md`](./do
 **Template kinds (v0.6 additions):**
 - `spoilage` — approval template, URL button → `/approve/:token` (ADR-035); routes to `managers` role.
 - `stock_drift_alert` — informational template (no URL button); routes to `inventory` role.
+
+**Template kinds (v1.0.1 additions):**
+- `system_error` — informational template (no URL button); routes to `ops` role. Fired by the launch-day error pipe when a `pos_error_reports` row clears the dedup/storm-cap gate.
+- `txn_ticker` — informational template (no URL button); routes to `managers` role. One message per paid sale, sent **silent** (`disableNotification`); toggle via `pos_settings.txn_ticker_enabled` (default true).
 
 ## How to add a feature
 

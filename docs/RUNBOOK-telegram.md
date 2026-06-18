@@ -351,3 +351,13 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 | `managers` | Off-booth approval requests (PIN resets, manual payment overrides, refunds). Bind first. |
 | `founders` | Daily shift-summary cron at 22:00 WIB (ADR-033). Opt-out via `pos_settings.founders_summary_enabled`. |
 | `inventory` *(v0.5.2)* | Operations chat that receives recount notices + low-stock alerts. Bind via `/mgr/telegram-chats`. |
+| `ops` *(v1.0.1)* | POS error/crash alerts — deduped/storm-capped backend, payment, mutation and crash failures from the launch-day error pipe (`system_error` template). Bind a dedicated "Frollie · Ops" chat via `/mgr/telegram-chats`. |
+
+## Template kinds
+
+`sendTemplate` (`convex/telegram/send.ts`) renders by template kind. Approval kinds carry a `/approve/:token` URL button; informational kinds carry none.
+
+| Kind | Routes to | Button | Notes |
+|---|---|---|---|
+| `system_error` *(v1.0.1)* | `ops` | none (informational) | Fired by the error pipe when a `pos_error_reports` row crosses the dedup/storm-cap gate. |
+| `txn_ticker` *(v1.0.1)* | `managers` | none (informational) | Live sales ticker — one message per paid sale. Sent **silent** (`disableNotification`) so the running feed never buzzes. Toggle via `pos_settings.txn_ticker_enabled` (default on). |

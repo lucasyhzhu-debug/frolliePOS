@@ -87,6 +87,9 @@ These are available to Convex actions/mutations at runtime via `process.env`.
 | `TELEGRAM_CHAT_ID` | Target Telegram chat/group ID for bot messages | Yes (Telegram POC) |
 | `TELEGRAM_WEBHOOK_SECRET` | Validates inbound Telegram webhook `X-Telegram-Bot-Api-Secret-Token` | Yes (Telegram webhook) |
 | `POS_BASE_URL` | Full origin of the POS frontend (e.g. `https://frollie-pos.vercel.app`) — used to build approval deep-links | Yes (approval links) |
+| `OPS_INGEST_TOKEN` | Validates the `x-ops-token` header on `POST /ops/error` (the launch-day error pipe) | Yes (ops pipe) |
+
+> **Set both ops tokens on dev AND prod _before_ the FE deploy.** `OPS_INGEST_TOKEN` (here) must equal `VITE_OPS_INGEST_TOKEN` (§5b). The frontend bakes `VITE_OPS_INGEST_TOKEN` into the bundle and sends it as `x-ops-token`; if the Convex-side `OPS_INGEST_TOKEN` is unset or mismatched, `/ops/error` silently returns `204` and **drops every error report** — no crash/payment/backend alert ever reaches the Telegram `ops` channel.
 
 **Quick set (dev):**
 ```bash
@@ -96,6 +99,7 @@ npx convex env set TELEGRAM_BOT_TOKEN -- 1234567890:YOUR_BOT_TOKEN
 npx convex env set TELEGRAM_CHAT_ID -- -1001234567890
 npx convex env set TELEGRAM_WEBHOOK_SECRET -- your_webhook_secret
 npx convex env set POS_BASE_URL -- http://localhost:5173
+npx convex env set OPS_INGEST_TOKEN -- your_ops_ingest_token_here
 ```
 
 For **prod** (`savory-zebra-800`), add `--prod` flag:
@@ -112,10 +116,14 @@ Set in `.env.local` for local dev; inject as Vercel environment variables for pr
 | Variable | Value (dev) | Value (prod) |
 |---|---|---|
 | `VITE_CONVEX_URL` | `https://helpful-grasshopper-46.convex.cloud` | `https://savory-zebra-800.convex.cloud` |
+| `VITE_OPS_INGEST_TOKEN` | (match `OPS_INGEST_TOKEN` on dev — §5a) | (match `OPS_INGEST_TOKEN` on prod — §5a) |
+
+Baked into the bundle and sent as the `x-ops-token` header on `POST /ops/error` — a low-assurance spam guard, not a secret. **Must equal the Convex-side `OPS_INGEST_TOKEN` (§5a) for the matching deployment, set before the FE deploy**, else `/ops/error` silently `204`s and no error reports land.
 
 `.env.local` (dev):
 ```
 VITE_CONVEX_URL=https://helpful-grasshopper-46.convex.cloud
+VITE_OPS_INGEST_TOKEN=your_ops_ingest_token_here
 ```
 
 ---
@@ -207,3 +215,34 @@ Prod deployment: `savory-zebra-800` · App: https://frollie-pos.vercel.app · Lo
 3. Stok awal: `/stock/recount` (hitung fisik; recount movement men-set on_hand).
 4. Staf: `/mgr/staff` (PIN — manajer SET PIN awal saat create; staf WAJIB ganti PIN via "Change PIN" saat login pertama).
 5. Voucher (opsional): `/mgr/vouchers` (PIN).
+
+---
+
+## 9. Live-run ops & hot-fix (v1.0.1)
+
+Launch-day observability: a client+backend error pipe (`POST /ops/error` → deduped/storm-capped `pos_error_reports` → `system_error` alert to the Telegram **ops** role) and a silent live sales ticker to the **Managers** group on every paid sale. Set both ops tokens (§5a/§5b) before the FE deploy.
+
+### 9.1 Pre-run smoke (tonight + tomorrow AM)
+1. Bind the Telegram **ops** role → a new "Frollie · Ops" group (self-registration; see [`RUNBOOK-telegram.md`](./RUNBOOK-telegram.md)).
+2. Login on the booth device; run ONE real QRIS sale end-to-end → confirm the ticker lands in the **Managers** group.
+3. Recount one SKU.
+4. Trigger a deliberate test error (e.g. a throwaway route that throws) → confirm it lands in the **Ops** group.
+
+### 9.2 What to watch
+- **Ops** Telegram channel (push — crashes / payment / backend failures).
+- **Managers** channel (live sales ticker; silent notifications).
+- Convex prod Logs → filter `qr.payment` (payment webhook) + function errors.
+
+### 9.3 Hot-fix protocol (sanctioned fast lane — an EXPLICIT deviation, not a skipped step)
+1. Branch off `main`.
+2. `npm run typecheck` + the single most-relevant test.
+3. Deploy: `vercel` (FE) / `npx convex deploy` (BE).
+4. Verify on the booth device.
+5. Open a follow-up issue to backfill the normal triple-review for the hot-fix.
+
+### 9.4 Rollback
+- FE: Vercel instant-rollback to the prior deployment.
+- BE: `npx convex deploy` of the prior commit.
+
+### 9.5 Turn the ticker off (post-launch)
+- `/mgr/...` settings or a manager-session write flipping `pos_settings.txn_ticker_enabled` to `false` (default `true`).

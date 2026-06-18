@@ -21,6 +21,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `settings/` *(v0.4)* | `pos_settings` |
 | `receipts/` *(v0.5.1 PR A)* | `pos_receipt_html_cache` |
 | `refunds/` *(v0.5.1 PR B)* | `pos_refunds` |
+| `ops/` *(v1.0.1)* | `pos_error_reports` (append-only launch-ops telemetry — NOT `audit_log`) |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -558,6 +559,7 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `receipt_instagram_handle` | `string?` | *(v0.5.3b)* IG handle for the receipt footer (e.g. `"@frollie"`) |
 | `receipt_footer_text` | `string?` | *(v0.5.3b)* Free-text footer line on the receipt (e.g. "Terima kasih") |
 | `receipt_logo_storage_id` | `Id<"_storage">?` | *(v0.5.3b)* Optional uploaded logo (Convex storage). Rendered as `<img>` above the header text when present. Set via `generateLogoUploadUrl` → `updateReceiptConfig` |
+| `txn_ticker_enabled` | `boolean?` | *(v1.0.1)* Controls the live sales ticker — a silent `txn_ticker` message to the Managers group on every paid sale. Read-time default `true` when absent; opt-out via a manager-session settings write |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
@@ -605,6 +607,27 @@ Per-token cache of rendered receipt HTML. 24h TTL with lazy regenerate on miss (
 | `expires_at` | `number` | `now + 24h`, server-set |
 
 Indexes: `by_token` on `token`.
+
+### `pos_error_reports` *(v1.0.1 — owned by `ops/`)*
+
+Launch-day error/crash telemetry from the `POST /ops/error` pipe (client crashes, unhandled errors, payment/mutation failures, and backend action/webhook failures). **Append-only telemetry — this is NOT `audit_log`** ([ADR-007](./ADR/007-audit-log-append-only.md)): it is operational crash/error capture with dedup + storm-cap, not a business audit trail, and lives in its own `ops/` module table. One row per ingested report; rows that clear the dedup/storm-cap gate fire a `system_error` Telegram alert to the `ops` role and set `alerted = true`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_error_reports">` | |
+| `kind` | `"crash" \| "unhandled" \| "payment" \| "mutation" \| "backend"` | Source class: `crash` = RouteErrorBoundary trip; `unhandled` = `window.onerror` / `unhandledrejection`; `payment` = payment-path failure (FE or BE); `mutation` = sale-flow mutation failure (FE); `backend` = BE action/webhook processing failure |
+| `message` | `string` | Truncated server-side to `MESSAGE_MAX` |
+| `stack` | `string?` | Truncated server-side to `STACK_MAX` |
+| `route` | `string?` | Route where the error fired |
+| `staff_code` | `string?` | Logged-in staff code, if any |
+| `device_id` | `string?` | Reporting device |
+| `online` | `boolean?` | `navigator.onLine` at report time |
+| `app_version` | `string?` | Bundle version (`__APP_VERSION__`) |
+| `signature` | `string` | Pure `hash(kind + route + normalized message)` — dedup key |
+| `alerted` | `boolean` | Did this row trigger a Telegram `system_error` send? |
+| `created_at` | `number` | Server time ([ADR-031](./ADR/031-convex-server-time-wins.md)) |
+
+Indexes: `by_signature_created` on `[signature, created_at]` (dedup + storm-cap window lookup), `by_created` on `created_at`.
 
 ### `audit_log`
 Append-only log of every state-changing action ([ADR-007](./ADR/007-audit-log-append-only.md)).
