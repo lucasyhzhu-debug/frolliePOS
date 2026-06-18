@@ -849,6 +849,7 @@ export const _listPaidTxnsForApi_internal = internalQuery({
           : q.eq("status", "paid").gte("paid_at", after),
       )
       .order("asc")
+      // 2x+1 over-fetch: worst case up to `limit` same-ms stragglers at the cursor watermark get filtered out by strictlyAfter, so fetch headroom to still fill a full page + detect a next one.
       .take(limit * 2 + 1);
 
     // Filter to rows strictly after the cursor. When no cursor is given (first
@@ -862,6 +863,10 @@ export const _listPaidTxnsForApi_internal = internalQuery({
     });
 
     const page = strictlyAfter.slice(0, limit);
+
+    // I2: skip the staff table scan when this page is empty — there are no
+    // staff codes to resolve and no rows to emit, so nextCursor is trivially null.
+    if (page.length === 0) return { rows: [], nextCursor: null };
 
     // Resolve staffCode once (small set) → Map to avoid N+1 per txn.
     // ADR-034: transactions reads staff via an auth internal, never direct ctx.db.
