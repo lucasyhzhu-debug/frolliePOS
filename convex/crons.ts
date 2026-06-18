@@ -55,4 +55,14 @@ crons.daily(
   { attempt: 0 },
 );
 
+// 02:00 WIB API housekeeping = 19:00 UTC. Deletes stale api_rate_buckets
+// (>2 min) and old api_request_log rows (>90 days). Correctness doesn't depend
+// on it — rate windows self-expire logically — but it bounds storage growth.
+crons.daily(
+  "api-housekeeping",
+  { hourUTC: 19, minuteUTC: 0 },
+  internal.api.v1.internal._purgeApiHousekeeping_internal,
+  {},
+);
+
 export default crons;

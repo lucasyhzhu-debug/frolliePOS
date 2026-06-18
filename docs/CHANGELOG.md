@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-18 — Public API v1 (Frollie Pro sales sync, producer)
+- GET /api/v1/transactions + /api/v1/refunds — bearer-authed, cursor-paginated, product-level. See docs/PUBLIC_API.md.
+- api_tokens / api_rate_buckets / api_request_log tables; append-only access log; daily api-housekeeping cron.
+- pos_products.code / staff.code now REQUIRED; sku_family snapshot fallback removed.
+
 ## 2026-06-18 — v1.0.1 Launch-day ops observability
 - Error pipe: client + backend failures `POST /ops/error` → deduped/storm-capped `pos_error_reports` (append-only telemetry, NOT `audit_log`) → `system_error` alert to the new Telegram `ops` role. New env vars `OPS_INGEST_TOKEN` (Convex) + `VITE_OPS_INGEST_TOKEN` (Vercel/`.env.local`) — set on both dev and prod before the FE deploy or `/ops/error` silently 204s (RUNBOOK §5).
 - Live sales ticker: every paid sale posts a silent `txn_ticker` message to the Managers group, hooked into `_confirmPaid_internal`; toggle `pos_settings.txn_ticker_enabled` (default on).

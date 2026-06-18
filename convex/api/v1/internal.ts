@@ -78,3 +78,19 @@ export const _authAndCount_internal = internalMutation({
     return { error: false, tokenId: tok._id };
   },
 });
+
+// Daily housekeeping: delete stale rate-limit buckets (>2 min old) and old
+// request-log rows (>90 days). Correctness doesn't depend on this — rate
+// windows self-expire logically — but it bounds table growth.
+export const _purgeApiHousekeeping_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const now = Date.now();
+    const RATE_TTL = 2 * 60_000;            // rate buckets: 2 min
+    const LOG_TTL = 90 * 86_400_000;        // request log: 90 days
+    for (const b of await ctx.db.query("api_rate_buckets").withIndex("by_token_window").collect())
+      if (b.window_start < now - RATE_TTL) await ctx.db.delete(b._id);
+    for (const r of await ctx.db.query("api_request_log").withIndex("by_at", (q) => q.lt("at", now - LOG_TTL)).collect())
+      await ctx.db.delete(r._id);
+  },
+});
