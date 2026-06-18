@@ -131,7 +131,7 @@ npx convex deploy         # backend → convex prod (own project)
 POS has its **own Convex project**, separate from `product_master`. Two deployments:
 
 - **dev:** `helpful-grasshopper-46` — `.convex.cloud` (client/WS), `.convex.site` (httpAction webhooks). Set in `.env.local` as `VITE_CONVEX_URL`; `npx convex dev` targets this.
-- **prod:** `savory-zebra-800` — same `.cloud`/`.site` split. Populated via `npx convex deploy`. The Vercel build must inject the **prod** URL as `VITE_CONVEX_URL`.
+- **prod:** `savory-zebra-800` — same `.cloud`/`.site` split. **Deployed automatically by the Vercel build** (`vercel.json` buildCommand = `npx convex deploy --cmd 'npm run build' --cmd-url-env-var-name VITE_CONVEX_URL`): on every push to `main`, Vercel runs the Convex prod deploy FIRST, then builds the frontend with the prod `VITE_CONVEX_URL` injected — so backend + frontend ship together and the FE can never go live against a stale backend. Requires `CONVEX_DEPLOY_KEY` (a **prod** deploy key) in the Vercel project env. A manual `npx convex deploy` (with the prod key) is the break-glass fallback. **Function-type changes (mutation↔action) at the same name are deploy-skew-fatal** — both old-FE+new-backend and new-FE+old-backend throw — so they MUST ship atomically via this single build (don't hand-deploy one side).
 
 Add tables in `convex/schema.ts` here — POS tables are POS-owned. Pattern after `product_master` where mirroring a concept, but the tables stay independent.
 
