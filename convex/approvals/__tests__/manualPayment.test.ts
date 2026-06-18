@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
 import { Id } from "../../_generated/dataModel";
+import { drainScheduled } from "../../__tests__/_helpers";
 
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s).digest("hex");
@@ -259,6 +260,8 @@ it("approves: manager PIN confirms payment + resolves request", async () => {
 
   const req = await t.run((ctx) => ctx.db.get(requestId));
   expect(req?.status).toBe("resolved");
+  // v1.0.1: _confirmPaid schedules sendTxnTicker; drain to avoid post-test write errors
+  await drainScheduled(t);
 });
 
 it("audits payment.confirmed with source=telegram_approval (NOT booth_inline) on off-booth approve", async () => {
@@ -280,6 +283,7 @@ it("audits payment.confirmed with source=telegram_approval (NOT booth_inline) on
   );
   expect(confirmRows.length).toBe(1);
   expect(confirmRows[0].source).toBe("telegram_approval");
+  await drainScheduled(t);
 });
 
 it("SEC-07: wrong off-booth PIN is audited but never pollutes the booth lockout (booth login still works)", async () => {
@@ -353,6 +357,7 @@ it("idempotency replay: same key returns cached result without firing twice", as
   expect(txn?.status).toBe("paid");
   const req = await t.run((ctx) => ctx.db.get(requestId));
   expect(req?.status).toBe("resolved");
+  await drainScheduled(t);
 });
 
 // ─── denyRequest (Task 22) ───────────────────────────────────────────────────
