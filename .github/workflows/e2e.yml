@@ -37,7 +37,37 @@ jobs:
       # lock-reproducibility — acceptable for an e2e runner whose value is the
       # browser tests, not dependency pinning.
       - run: npm install --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      # Resolve the installed Playwright version so the browser cache key tracks
+      # it — a version bump invalidates the cache and forces a fresh download.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -e "console.log(require('@playwright/test/package.json').version)")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      # OS deps (apt) always; browser download only on a cache miss, with retries.
+      # Playwright's own 5 internal retries did NOT survive a transient
+      # cdn.playwright.dev ECONNRESET (PR #76 e2e flake), so wrap the install in an
+      # outer retry loop — a cache hit skips the download entirely.
+      - name: Install Playwright browser (cached + retried)
+        run: |
+          npx playwright install-deps chromium
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
+            n=0
+            until [ "$n" -ge 3 ]; do
+              npx playwright install chromium && break
+              n=$((n + 1))
+              echo "playwright browser download failed (attempt $n/3); retrying in 15s..."
+              sleep 15
+            done
+            if [ "$n" -ge 3 ]; then
+              echo "::error::Playwright browser download failed after 3 attempts (cdn.playwright.dev)"
+              exit 1
+            fi
+          fi
       - run: npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL
       # Source the Xendit secret from the just-deployed deployment so the simulate
       # helper and the charge-creating Convex action use the SAME Xendit account
