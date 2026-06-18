@@ -21,9 +21,13 @@ httpActions serve from `.convex.site` (NOT `.convex.cloud`). `GET` only, HTTPS o
 
 Every request needs a bearer token:
 ```
-Authorization: Bearer frpos_live_xxxxxxxx…    (prod)
-Authorization: Bearer frpos_test_xxxxxxxx…    (dev)
+Authorization: Bearer frpos_live_xxxxxxxx…    (all deployments — dev and prod alike)
 ```
+- All v1 tokens carry the `frpos_live_<base64url>` prefix on **every** deployment
+  (dev and prod alike). A `frpos_test_` variant is **reserved** for a future
+  test/live split but is **not issued in v1**.
+- **Treat the token as an opaque secret.** Do NOT validate or branch on the
+  prefix — the server identifies the token by hash lookup, not by prefix.
 - Tokens are issued by POS ops (see "Getting a token" below) and shown **once**.
 - The token identifies you; store it as a secret (we keep it in
   `platformCredentials(platformId:"pos").currentToken`).
@@ -73,7 +77,7 @@ async function drain(base: string, token: string, path: string, startCursor?: st
     if (!res.ok) throw new Error(`POS ${path} ${res.status}: ${(await res.json()).error?.code}`);
     const { data, nextCursor } = await res.json();
     rows.push(...data);
-    if (nextCursor === null) return { rows, cursor };  // caught up — persist `cursor` (last full page)
+    if (nextCursor === null) return { rows, cursor };  // caught up — persist `cursor` (the last position sent; null/absent stored cursor means "start from beginning of time"; re-polling from this cursor is safe)
     cursor = nextCursor;                                // advance + keep going
   }
 }
