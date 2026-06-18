@@ -40,7 +40,7 @@ their WCAG-AA contrast against the paper surface:
 | Warm ink (`--foreground`) | `#F1E9D8` | body copy — 12.9:1 on paper |
 | Muted ink (`--muted-foreground`) | `#A9A290` | secondary copy — 6.1:1 on paper, 5.2:1 on card (both AA) |
 | Teal primary (`--primary`) | `#14B8A6` | CTA, active states |
-| Citrus accent (`--accent`) | `#F9A84A` | new addition; the spark |
+| Citrus accent (`--citrus`) | `#F9A84A` | new addition; the spark |
 
 The POS is deployed on a **single Android tablet at an indoor mall booth**.
 Real-world readability under bright mall lighting is not capturable in a
@@ -57,9 +57,12 @@ verified offline.
 - `:root` is **retained** as an enriched-light-with-phthalo-accents fallback
   — tuned toward warm paper + teal accents so it is coherent with the dark
   default, not the stock shadcn near-white.
-- Citrus `#F9A84A` is added as a usable accent token (`--accent` /
-  `--accent-foreground` / `--accent-soft`) so the spark is available to
-  primitives and surfaces without reaching for a raw palette colour.
+- Citrus `#F9A84A` is added as a **dedicated** accent token (`--citrus` /
+  `--citrus-foreground`, exposed to Tailwind via `@theme inline` as
+  `--color-citrus`) so the spark is available to primitives and surfaces
+  without reaching for a raw palette colour. (Note: the shadcn `--accent`
+  slot stays mapped to the elevated surface `#1E4740` — citrus is its own
+  token, not a remap of `--accent`.)
 
 ## Mechanism
 
@@ -108,7 +111,7 @@ implementation:
 | Group | Tokens removed | Count |
 |---|---|---|
 | Station | `--color-station-production-{bg,border,text,icon}`, `--color-station-boxing-*`, `--color-station-stickering-*`, `--color-station-packing-*` | 16 |
-| Channel | `--color-gofood-{bg,border}`, `--color-grabfood-{bg,border}`, `--color-k3mart-{bg,border}` | 8 (approx) |
+| Channel | `--color-gofood-{bg,border}`, `--color-grabfood-{bg,border}`, `--color-k3mart-{bg,border}` | 8 |
 | Kitchen | `--color-kitchen-{bg,border,counter}` | 3 |
 
 **Paired removal:** the `gofood`, `grabfood`, and `k3mart` variants in
