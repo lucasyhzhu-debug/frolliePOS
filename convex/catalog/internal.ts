@@ -18,6 +18,12 @@ export const _auditMissingCodes_internal = internalQuery({
   args: {},
   handler: async (ctx): Promise<{ productsMissing: string[]; staffMissing: string[] }> => {
     const products = await ctx.db.query("pos_products").collect();
+    // Intentional ADR-034 exception: this throwaway pre-migration gate (Task 0) must
+    // read BOTH catalog- and auth-owned tables in one diagnostic pass to prove no
+    // code-less row exists before the schema flip. A query cannot delegate to an auth
+    // internal (queries can't runQuery), so the direct read is unavoidable here. Scoped
+    // to this one diagnostic; delete with the gate post-migration.
+    // eslint-disable-next-line frollie-internal/no-cross-module-db-access
     const staff = await ctx.db.query("staff").collect();
     return {
       productsMissing: products.filter((p) => !p.code).map((p) => String(p._id)),
