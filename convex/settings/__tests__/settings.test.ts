@@ -79,6 +79,81 @@ describe("txn_ticker_enabled", () => {
   });
 });
 
+it("getSettings surfaces txn_ticker_enabled (default true when row absent)", async () => {
+  const t = convexTest(schema);
+  const s = await t.query(api.settings.public.getSettings, {});
+  expect(s.txn_ticker_enabled).toBe(true);
+});
+
+describe("setTxnTickerEnabled", () => {
+  async function seedSessions(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) => ({
+      mgr: await ctx.db.insert("staff_sessions", {
+        staff_id: await ctx.db.insert("staff", {
+          name: "M", code: "S-1", role: "manager", active: true,
+          pin_hash: "x", created_at: Date.now(),
+        }),
+        device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,
+      }),
+      staff: await ctx.db.insert("staff_sessions", {
+        staff_id: await ctx.db.insert("staff", {
+          name: "S", code: "S-2", role: "staff", active: true,
+          pin_hash: "x", created_at: Date.now(),
+        }),
+        device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,
+      }),
+    }));
+  }
+
+  it("manager flips the flag; staff is rejected", async () => {
+    const t = convexTest(schema);
+    const { mgr, staff } = await seedSessions(t);
+    await t.mutation(api.settings.public.setTxnTickerEnabled, {
+      idempotencyKey: "tk-1", sessionId: mgr, enabled: false,
+    });
+    expect((await t.query(api.settings.public.getSettings, {})).txn_ticker_enabled).toBe(false);
+    await t.mutation(api.settings.public.setTxnTickerEnabled, {
+      idempotencyKey: "tk-2", sessionId: mgr, enabled: true,
+    });
+    expect((await t.query(api.settings.public.getSettings, {})).txn_ticker_enabled).toBe(true);
+    await expect(
+      t.mutation(api.settings.public.setTxnTickerEnabled, {
+        idempotencyKey: "tk-3", sessionId: staff, enabled: false,
+      }),
+    ).rejects.toThrow(/MANAGER_ONLY/);
+  });
+
+  it("insert branch defaults founders_summary_enabled to true (not clobbered)", async () => {
+    const t = convexTest(schema);
+    const { mgr } = await seedSessions(t);
+    await t.mutation(api.settings.public.setTxnTickerEnabled, {
+      idempotencyKey: "tk-ins", sessionId: mgr, enabled: false,
+    });
+    const s = await t.query(api.settings.public.getSettings, {});
+    expect(s.txn_ticker_enabled).toBe(false);
+    expect(s.founders_summary_enabled).toBe(true);
+  });
+
+  it("replays cached result for the same idempotencyKey without re-auditing", async () => {
+    const t = convexTest(schema);
+    const { mgr } = await seedSessions(t);
+    const r1 = await t.mutation(api.settings.public.setTxnTickerEnabled, {
+      idempotencyKey: "tk-replay", sessionId: mgr, enabled: false,
+    });
+    const r2 = await t.mutation(api.settings.public.setTxnTickerEnabled, {
+      idempotencyKey: "tk-replay", sessionId: mgr, enabled: false,
+    });
+    expect(r2).toEqual(r1);
+    const audits = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "settings.txn_ticker_toggled"))
+        .collect(),
+    );
+    expect(audits.length).toBe(1);
+    expect(JSON.parse(audits[0].metadata as string)).toEqual({ enabled: false });
+  });
+});
+
 it("setFoundersSummaryEnabled replays the cached result for the same idempotencyKey without re-auditing", async () => {
   const t = convexTest(schema);
   const mgr = await t.run(async (ctx) => {
