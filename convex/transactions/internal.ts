@@ -732,3 +732,37 @@ export const _getTxnById_internal = internalQuery({
     return { ...txn, lines };
   },
 });
+
+/**
+ * v1.0.1: Minimal txn read for the sales ticker. Returns only the fields
+ * sendTxnTicker needs — avoids pulling the entire txn+lines object through
+ * the action boundary. Returns null if txn is absent or not yet paid (the
+ * ticker fires on a 0-ms delay; the status guard is a safety net).
+ */
+export const _getTxnForTicker_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    receipt_number: string;
+    total: number;
+    staff_id: Id<"staff">;
+    confirmed_via: string | null;
+    lines: Array<{ name: string; qty: number }>;
+  } | null> => {
+    const txn = await ctx.db.get(args.txnId);
+    if (!txn || txn.status !== "paid") return null;
+    const lineRows = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .collect();
+    return {
+      receipt_number: txn.receipt_number ?? "—",
+      total: txn.total,
+      staff_id: txn.staff_id,
+      confirmed_via: txn.confirmed_via ?? null,
+      lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
+    };
+  },
+});
