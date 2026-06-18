@@ -297,6 +297,15 @@ export const _confirmPaid_internal = internalMutation({
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });
+
+    // v1.0.1: live sales ticker → Managers. Scheduled (not inline) so a
+    // Telegram failure runs in its own transaction and can never roll back the
+    // paid sale. The status === "paid" guard above guarantees this branch runs
+    // once per txn → exactly one ticker fires. Toggle/role checks live in
+    // sendTxnTicker itself.
+    await ctx.scheduler.runAfter(0, internal.telegram.txnTicker.sendTxnTicker, {
+      txnId: args.txnId,
+    });
   },
 });
 

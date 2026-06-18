@@ -5,6 +5,9 @@ import { internal } from "../../_generated/api";
 import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
 
+// v1.0.1: task 10 — ticker hook test uses drainScheduled to flush ticker
+// after asserting the scheduled count, so setupTelegramStub is also needed here.
+
 // _checkLowStock_internal schedules a Telegram dispatch via runAfter(0) when
 // on_hand crosses below low_threshold. setupTelegramStub() stubs fetch + env so
 // the scheduled action is offline + deterministic. drainScheduled() flushes any
@@ -122,6 +125,8 @@ describe("_confirmPaid_internal funnel", () => {
     expect(after.txn?.paid_at).toBeGreaterThan(0);
     expect(after.movements.length).toBe(1);
     expect(after.movements[0].qty).toBe(-8);
+    // v1.0.1: drain the scheduled sendTxnTicker to avoid post-test write errors
+    await drainScheduled(t);
   });
 
   it("source=manual: records mgr_approver_id + manual_reason", async () => {
@@ -135,6 +140,7 @@ describe("_confirmPaid_internal funnel", () => {
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(s.staff);
     expect(txn?.confirmed_manual_reason).toBe("BCA transferred but webhook lost");
+    await drainScheduled(t);
   });
 
   it("idempotent re-fire: second _confirmPaid call is a no-op (status guard)", async () => {
@@ -150,6 +156,7 @@ describe("_confirmPaid_internal funnel", () => {
     expect(r2.txn?.confirmed_via).toBe("webhook");
     expect(r2.txn?.receipt_number).toBe(r1?.receipt_number);
     expect(r2.movements.length).toBe(1);
+    await drainScheduled(t);
   });
 
   it("re-checks NEG_STOCK at confirm: between commit and confirm, stock drained → flag fires", async () => {
@@ -190,6 +197,7 @@ describe("_confirmPaid_internal funnel", () => {
     expect(after.redemption?.discount_amount).toBe(20_000);
     expect(after.voucher?.used_count).toBe(1);
     expect(after.txn!.flags & VOUCHER_OVER_REDEEMED).toBe(0);
+    await drainScheduled(t);
   });
 
   it("paid_amount mismatch: honors payment but sets PAYMENT_AMOUNT_MISMATCH flag", async () => {
@@ -201,6 +209,7 @@ describe("_confirmPaid_internal funnel", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("paid");
     expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(PAYMENT_AMOUNT_MISMATCH);
+    await drainScheduled(t);
   });
 
   it("paid_amount matching total: no mismatch flag", async () => {
@@ -212,6 +221,7 @@ describe("_confirmPaid_internal funnel", () => {
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("paid");
     expect(txn!.flags & PAYMENT_AMOUNT_MISMATCH).toBe(0);
+    await drainScheduled(t);
   });
 
   it("over-redeemed voucher through funnel: VOUCHER_OVER_REDEEMED flag set, no redemption row", async () => {
@@ -233,5 +243,35 @@ describe("_confirmPaid_internal funnel", () => {
     expect(after.txn?.status).toBe("paid");
     expect(after.txn!.flags & VOUCHER_OVER_REDEEMED).toBe(VOUCHER_OVER_REDEEMED);
     expect(after.redemption).toBeNull();
+    await drainScheduled(t);
+  });
+
+  // v1.0.1 Task 10: ticker hook — exactly one scheduled sendTxnTicker per paid
+  // transition; re-fire (status guard) does NOT schedule a second one.
+  it("schedules exactly one ticker on paid transition, none on re-fire", async () => {
+    const t = convexTest(schema);
+    const s = await seedTxnAwaiting(t);
+
+    // First confirm → paid transition
+    await t.mutation(internal.transactions.internal._confirmPaid_internal, {
+      txnId: s.txn, source: "webhook",
+    });
+
+    // Re-fire — status guard makes this a no-op (no new ticker scheduled)
+    await t.mutation(internal.transactions.internal._confirmPaid_internal, {
+      txnId: s.txn, source: "webhook",
+    });
+
+    // Assert exactly one sendTxnTicker scheduled via the _scheduled_functions system table
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const tickers = scheduled.filter((s) =>
+      (s.name as string).includes("sendTxnTicker"),
+    );
+    expect(tickers).toHaveLength(1);
+
+    // Drain to avoid unhandled-rejection after teardown
+    await drainScheduled(t);
   });
 });
