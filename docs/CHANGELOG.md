@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — v1.0.2 In-app sales-ticker toggle
+- Managers can now enable/disable the live sales ticker from /mgr/telegram-chats
+  (next to the founders-summary toggle) — no Convex-dashboard edit needed.
+- Backend: `settings.setTxnTickerEnabled` (manager-session, idempotent, audited
+  `settings.txn_ticker_toggled`); `settings.getSettings` now returns
+  `txn_ticker_enabled`. No schema change (field shipped in v1.0.1).
+
 ## 2026-06-18 — Public API v1 (Frollie Pro sales sync, producer)
 - GET /api/v1/transactions + /api/v1/refunds — bearer-authed, cursor-paginated, product-level. See docs/PUBLIC_API.md.
 - api_tokens / api_rate_buckets / api_request_log tables; append-only access log; daily api-housekeeping cron.
