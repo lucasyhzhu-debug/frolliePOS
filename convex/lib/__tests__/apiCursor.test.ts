@@ -13,4 +13,14 @@ describe("cursor codec", () => {
   it("throws BAD_CURSOR on garbage", () => {
     expect(() => decodeCursor("@@@not-base64@@@")).toThrow("BAD_CURSOR");
   });
+  it("throws BAD_CURSOR on valid-base64 empty object (missing p/c)", () => {
+    // btoa("{}") → "e30=" → base64url strip padding
+    const encoded = btoa("{}").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    expect(() => decodeCursor(encoded)).toThrow("BAD_CURSOR");
+  });
+  it("throws BAD_CURSOR on valid-base64 wrong-typed shape (p is string)", () => {
+    const json = JSON.stringify({ p: "1718600000000", c: 2 });
+    const encoded = btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    expect(() => decodeCursor(encoded)).toThrow("BAD_CURSOR");
+  });
 });
