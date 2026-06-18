@@ -6,11 +6,17 @@ import { requireManagerSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 
+// Intentionally unauthenticated — returns only two non-sensitive notification
+// booleans (not PII/financial). The toggle components need this before the
+// manager session resolves (Switch stays disabled until loaded).
 export const getSettings = query({
   args: {},
   handler: async (ctx) => {
     const row = await ctx.db.query("pos_settings").first();
-    return { founders_summary_enabled: row?.founders_summary_enabled ?? true };
+    return {
+      founders_summary_enabled: row?.founders_summary_enabled ?? true,
+      txn_ticker_enabled: row?.txn_ticker_enabled ?? true,
+    };
   },
 });
 
@@ -46,8 +52,11 @@ export const setFoundersSummaryEnabled = mutation({
           updated_by: staffId,
         });
       } else {
+        // txn_ticker_enabled defaults to true on a fresh row, symmetric with
+        // setTxnTickerEnabled defaulting founders_summary_enabled to true.
         await ctx.db.insert("pos_settings", {
           founders_summary_enabled: args.enabled,
+          txn_ticker_enabled: true,
           updated_at: Date.now(),
           updated_by: staffId,
         });
@@ -66,6 +75,56 @@ export const setFoundersSummaryEnabled = mutation({
       // session can't read back the cached {ok:true} without authn (the
       // cache lookup runs BEFORE the handler). Precedent: staff/public.ts
       // issueDeviceSetupCode.
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
+export const setTxnTickerEnabled = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    enabled: v.boolean(),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; sessionId: Id<"staff_sessions">; enabled: boolean },
+    ToggleResult
+  >(
+    "settings.setTxnTickerEnabled",
+    async (ctx, args) => {
+      const { staffId } = await requireManagerSession(ctx, args.sessionId);
+      const row = await ctx.db.query("pos_settings").first();
+      if (row) {
+        await ctx.db.patch(row._id, {
+          txn_ticker_enabled: args.enabled,
+          updated_at: Date.now(),
+          updated_by: staffId,
+        });
+      } else {
+        // Schema requires founders_summary_enabled (non-optional) + updated_at on
+        // insert. Default founders to true so creating the row via THIS toggle does
+        // not silently disable the founders summary (mirrors updateReceiptConfig).
+        await ctx.db.insert("pos_settings", {
+          founders_summary_enabled: true,
+          txn_ticker_enabled: args.enabled,
+          updated_at: Date.now(),
+          updated_by: staffId,
+        });
+      }
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "settings.txn_ticker_toggled",
+        entity_type: "pos_settings",
+        source: "booth_inline",
+        metadata: { enabled: args.enabled },
+      });
+      return { ok: true as const };
+    },
+    {
+      // ADR-013: a same-key replay from a non-manager session must not read
+      // back the cached {ok:true} — authCheck runs before the cache lookup.
       authCheck: async (ctx, args) => {
         await requireManagerSession(ctx, args.sessionId);
       },

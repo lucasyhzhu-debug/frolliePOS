@@ -360,4 +360,4 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 | Kind | Routes to | Button | Notes |
 |---|---|---|---|
 | `system_error` *(v1.0.1)* | `ops` | none (informational) | Fired by the error pipe when a `pos_error_reports` row crosses the dedup/storm-cap gate. |
-| `txn_ticker` *(v1.0.1)* | `managers` | none (informational) | Live sales ticker — one message per paid sale. Sent **silent** (`disableNotification`) so the running feed never buzzes. Toggle via `pos_settings.txn_ticker_enabled` (default on). |
+| `txn_ticker` *(v1.0.1)* | `managers` | none (informational) | Live sales ticker — one message per paid sale. Sent **silent** (`disableNotification`) so the running feed never buzzes. Toggle via `pos_settings.txn_ticker_enabled` (default on). **Launch path (v1.0.2):** open `/mgr/telegram-chats` as a manager → toggle **"Post each paid sale to the Managers channel"** off. Takes effect on the next paid sale; no deploy. **Break-glass:** the Convex-dashboard `pos_settings.txn_ticker_enabled = false` edit still works if the FE is unavailable. |

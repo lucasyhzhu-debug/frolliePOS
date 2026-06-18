@@ -110,6 +110,48 @@ function FoundersSummaryToggle({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ─── Sales ticker toggle ──────────────────────────────────────────────────────
+
+function TxnTickerToggle({ sessionId }: { sessionId: string }) {
+  const settings = useQuery(api.settings.public.getSettings, {});
+  const setEnabled = useMutation(api.settings.public.setTxnTickerEnabled);
+  const [busy, setBusy] = useState(false);
+
+  const enabled = settings?.txn_ticker_enabled ?? true;
+
+  async function handleToggle(next: boolean) {
+    setBusy(true);
+    try {
+      await setEnabled({
+        idempotencyKey: crypto.randomUUID(),
+        sessionId: sessionId as Doc<"staff_sessions">["_id"],
+        enabled: next,
+      });
+      toast.success(next ? "Sales ticker enabled" : "Sales ticker disabled");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-md border p-3">
+      <Switch
+        id="txn-ticker-toggle"
+        checked={enabled}
+        onCheckedChange={handleToggle}
+        disabled={busy || settings === undefined}
+        aria-label="sales ticker toggle"
+      />
+      <Label htmlFor="txn-ticker-toggle" className="cursor-pointer text-sm">
+        Post each paid sale to the Managers channel
+        <span className="ml-1 text-xs text-muted-foreground">(silent)</span>
+      </Label>
+    </div>
+  );
+}
+
 // ─── Per-chat card ─────────────────────────────────────────────────────────────
 
 function ChatCard({
@@ -378,6 +420,7 @@ function MgrTelegramChatsInner({
       <div className="flex flex-1 flex-col gap-4 p-4">
       {/* founders summary toggle */}
       <FoundersSummaryToggle sessionId={sessionId} />
+      <TxnTickerToggle sessionId={sessionId} />
 
       <Separator />
 
