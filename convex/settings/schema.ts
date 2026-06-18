@@ -17,6 +17,10 @@ export const settingsTables = {
     receipt_instagram_handle: v.optional(v.string()),
     receipt_footer_text: v.optional(v.string()),
     receipt_logo_storage_id: v.optional(v.id("_storage")),
+    // v1.0.1 — live sales ticker opt-out. Optional + read-time default true
+    // (settings/internal._getSettings_internal) so the existing prod row needs
+    // no migration. Same pattern as the receipt_* fields.
+    txn_ticker_enabled: v.optional(v.boolean()),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
   }),
