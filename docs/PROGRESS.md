@@ -2058,69 +2058,69 @@ Plan not yet written. Tasks get IDs at planning time.
 - The 5 Low + 2 Info findings (SEC-08..SEC-14) — independent, lower-risk; tracked in the audit doc
 
 ### Backend (`convex/`)
-- 📋 **[v11-be-cart-qty-guard]** `transactions/public.ts` — reject non-positive/fractional cart quantities at the commitCart boundary (SEC-02)
+- ✅ **[v11-be-cart-qty-guard]** `transactions/public.ts` — reject non-positive/fractional cart quantities at the commitCart boundary (SEC-02) (34572e5)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Task 1](./superpowers/plans/2026-06-17-v1.1-security-hardening.md), [audit SEC-02](./reviews/security-audit-2026-06-17.md)
   - **subtasks:**
-    - [ ] Failing test: qty -1/0/1.5 + mixed positive/negative cart → `QTY_INVALID`, no `pos_transactions`/`pos_stock_movements` rows
-    - [ ] `Number.isInteger(qty) && qty > 0` guard after `EMPTY_CART` (mirrors `_recordSpoilage_internal`)
-    - [ ] Tests pass
+    - [x] Failing test: qty -1/0/1.5 + mixed positive/negative cart → `QTY_INVALID`, no `pos_transactions`/`pos_stock_movements` rows
+    - [x] `Number.isInteger(qty) && qty > 0` guard after `EMPTY_CART` (mirrors `_recordSpoilage_internal`)
+    - [x] Tests pass
   - **notes:** _(empty)_
-- 📋 **[v11-be-bootstrap-pin]** `seed/actions.ts` + `auth/schema.ts` — env `BOOTSTRAP_MANAGER_PIN` (no default 1111) + soft `must_change_pin` (SEC-03)
+- ✅ **[v11-be-bootstrap-pin]** `seed/actions.ts` + `auth/schema.ts` — env `BOOTSTRAP_MANAGER_PIN` (no default 1111) + soft `must_change_pin` (SEC-03) (34572e5)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Task 2](./superpowers/plans/2026-06-17-v1.1-security-hardening.md), [audit SEC-03](./reviews/security-audit-2026-06-17.md)
   - **subtasks:**
-    - [ ] `must_change_pin` schema field (optional, backward-safe)
-    - [ ] `bootstrap` throws `BOOTSTRAP_PIN_REQUIRED` when env unset; seeds with env PIN + flag
-    - [ ] `_changePinCommit_internal` clears the flag; `getSession` exposes it; FE forced-rotation prompt
-    - [ ] Tests pass
+    - [x] `must_change_pin` schema field (optional, backward-safe)
+    - [x] `bootstrap` throws `BOOTSTRAP_PIN_REQUIRED` when env unset; seeds with env PIN + flag
+    - [x] `_changePinCommit_internal` clears the flag; `getSession` exposes it; FE forced-rotation prompt
+    - [x] Tests pass
   - **notes:**
     - Does NOT retroactively protect live prod (bootstrap is one-time) — live S-0001 hardened only by the operational rotation in the handoff pre-flight
-- 📋 **[v11-be-auth-counter-decouple]** `auth/internal.ts` + `verifyPin.ts` + `approvals/actions.ts` — decouple PIN-lockout counter from client idempotencyKey; off-booth approve no longer pollutes booth lockout (SEC-01 + SEC-07, atomic)
+- ✅ **[v11-be-auth-counter-decouple]** `auth/internal.ts` + `verifyPin.ts` + `approvals/actions.ts` — decouple PIN-lockout counter from client idempotencyKey; off-booth approve no longer pollutes booth lockout (SEC-01 + SEC-07, atomic) (34572e5)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Task 3](./superpowers/plans/2026-06-17-v1.1-security-hardening.md), [audit SEC-01/SEC-07](./reviews/security-audit-2026-06-17.md)
   - **subtasks:**
-    - [ ] Migrate `auth.test.ts:261` "Fix 10" test to the new increment-always contract
-    - [ ] Drop `withIdempotency` wrap + `idempotencyKey` arg; add `countTowardLockout`; key on `staff_id`
-    - [ ] Sweep all 6 callers (verifyPin.ts + 5 approvals sites)
-    - [ ] SEC-01 + SEC-07 regression tests (booth locks; Telegram path doesn't lock booth)
+    - [x] Migrate `auth.test.ts:261` "Fix 10" test to the new increment-always contract
+    - [x] Drop `withIdempotency` wrap + `idempotencyKey` arg; add `countTowardLockout`; key on `staff_id`
+    - [x] Sweep all 6 callers (verifyPin.ts + 5 approvals sites)
+    - [x] SEC-01 + SEC-07 regression tests (booth locks; Telegram path doesn't lock booth)
   - **notes:** _(empty)_
-- 📋 **[v11-be-activation-throttle]** `staff/public.ts` + `auth/schema.ts` + `staff/internal.ts` — throttle `activateDevice` (per-device + global-window block) + setup-code TTL 1h→15min (SEC-04)
+- ✅ **[v11-be-activation-throttle]** `staff/public.ts` + `auth/schema.ts` + `staff/internal.ts` — throttle `activateDevice` (per-device + global-window block) + setup-code TTL 1h→15min (SEC-04) (34572e5)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Task 5](./superpowers/plans/2026-06-17-v1.1-security-hardening.md), [audit SEC-04](./reviews/security-audit-2026-06-17.md)
   - **subtasks:**
-    - [ ] `pos_device_activation_attempts` table (per-device + `__global__` singleton)
-    - [ ] Device-lock pre-check + increment; global breach blocks the window (does NOT wipe pending — I1)
-    - [ ] Shorten `SETUP_CODE_TTL_MS` to 15min; sync docs
-    - [ ] Tests pass
+    - [x] `pos_device_activation_attempts` table (per-device + `__global__` singleton)
+    - [x] Device-lock pre-check + increment; global breach blocks the window (does NOT wipe pending — I1)
+    - [x] Shorten `SETUP_CODE_TTL_MS` to 15min; sync docs
+    - [x] Tests pass
   - **notes:** _(empty)_
 
 ### Frontend (`src/`)
 - _(FE work is folded into the cross-cutting read-seam task — `useXenditPayment` session threading + the `must_change_pin` prompt under `v11-be-bootstrap-pin`.)_
 
 ### Cross-cutting
-- 📋 **[v11-xc-readseam-idor]** `transactions/public.ts` + `payments/public.ts` + `useXenditPayment.ts` — session-gate `getById`/`getCurrentInvoice` (+ internal variants for system callers) and strip `receipt_token` from the public seam (SEC-05 + SEC-06, atomic)
+- ✅ **[v11-xc-readseam-idor]** `transactions/public.ts` + `payments/public.ts` + `useXenditPayment.ts` — session-gate `getById`/`getCurrentInvoice` (+ internal variants for system callers) and strip `receipt_token` from the public seam (SEC-05 + SEC-06, atomic) (34572e5)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Task 4](./superpowers/plans/2026-06-17-v1.1-security-hardening.md), [audit SEC-05/SEC-06](./reviews/security-audit-2026-06-17.md)
   - **subtasks:**
-    - [ ] `_getTxnById_internal` + `_getCurrentInvoice_internal`; repoint the 4 system callers
-    - [ ] Gate + project `getById`/`getCurrentInvoice` (resolve→day-scope→drop `receipt_token`/instruments)
-    - [ ] Thread `sessionId` through `useXenditPayment` + charge routes
-    - [ ] Auth/IDOR + system-caller-unaffected tests pass
+    - [x] `_getTxnById_internal` + `_getCurrentInvoice_internal`; repoint the 4 system callers
+    - [x] Gate + project `getById`/`getCurrentInvoice` (resolve→day-scope→drop `receipt_token`/instruments)
+    - [x] Thread `sessionId` through `useXenditPayment` + charge routes
+    - [x] Auth/IDOR + system-caller-unaffected tests pass
   - **notes:** _(empty)_
-- 📋 **[v11-xc-docs]** `docs/SCHEMA.md` + `docs/CHANGELOG.md` + `CLAUDE.md` — document new schema, audit verbs, `BOOTSTRAP_MANAGER_PIN`, activation throttle
+- ✅ **[v11-xc-docs]** `docs/SCHEMA.md` + `docs/CHANGELOG.md` + `CLAUDE.md` — document new schema, audit verbs, `BOOTSTRAP_MANAGER_PIN`, activation throttle (34572e5)
   - **agent:** `claude`
   - **deps:** v11-be-cart-qty-guard, v11-be-bootstrap-pin, v11-be-auth-counter-decouple, v11-be-activation-throttle, v11-xc-readseam-idor
   - **docs:** [Plan Task 6](./superpowers/plans/2026-06-17-v1.1-security-hardening.md)
   - **subtasks:**
-    - [ ] SCHEMA.md (must_change_pin, pos_device_activation_attempts, countTowardLockout, new verbs)
-    - [ ] CHANGELOG.md v1.1 entry
-    - [ ] CLAUDE.md (env var + throttle notes)
+    - [x] SCHEMA.md (must_change_pin, pos_device_activation_attempts, countTowardLockout, new verbs)
+    - [x] CHANGELOG.md v1.1 entry
+    - [x] CLAUDE.md (env var + throttle notes)
   - **notes:** _(empty)_
 
 ---
