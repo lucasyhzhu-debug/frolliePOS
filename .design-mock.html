@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frollie POS — phthalo-dark mock (v1.2 #2)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    --paper:   #102821;   /* phthalo paper — base canvas */
+    --card:    #163630;   /* lifted panel */
+    --elev:    #1E4740;   /* pressed / elevated */
+    --ink:     #F1E9D8;   /* warm off-white — primary type */
+    --ink-2:   #D4CBB9;   /* body ink */
+    --muted:   #A9A290;   /* muted / caption ink (AA-checked) */
+    --teal:    #14B8A6;   /* primary, lifted for dark */
+    --teal-ink:#06241F;   /* deep ink on teal */
+    --citrus:  #F9A84A;   /* the spark */
+    --citrus-ink:#1B1B1F;
+    --warn:    #F9A84A;
+    --line:    rgba(241, 233, 216, 0.10);
+    --line-2:  rgba(241, 233, 216, 0.16);
+    --shadow-md: 0 4px 8px -2px rgba(0,0,0,0.5), 0 2px 4px -2px rgba(0,0,0,0.4);
+    --radius: 0.75rem;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--paper); }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .surface-label {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--muted); padding: 14px 20px 0; font-weight: 600;
+  }
+
+  .surface {
+    max-width: 820px; margin: 0 auto; padding: 12px 16px 40px;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* ---------- shared primitives ---------- */
+  button, .tile, .keypad button {
+    cursor: pointer; transition: transform 120ms cubic-bezier(.4,0,.2,1),
+      background-color 200ms, border-color 200ms;
+  }
+  button:active, .tile:active, .keypad button:active { transform: scale(0.97); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-md);
+  }
+
+  /* ---------- app bar ---------- */
+  .appbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 4px 16px;
+  }
+  .iconbtn {
+    width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
+    background: transparent; color: var(--ink); font-size: 20px;
+    display: grid; place-items: center;
+  }
+  .iconbtn:hover { background: var(--elev); }
+  .brand { flex: 1; }
+  .brand .name { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .name .who { font-weight: 400; color: var(--muted); }
+  .brand .sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .appbar .right { display: flex; gap: 8px; align-items: center; }
+  .livechip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--muted); padding: 6px 12px;
+    border: 1px solid var(--line); border-radius: 999px;
+  }
+  .livechip .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--teal); box-shadow: 0 0 0 3px rgba(20,184,166,0.18); }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative; overflow: hidden;
+    min-height: 42vh; border-radius: 18px;
+    background: linear-gradient(160deg, #14B8A6 0%, #0E8C7E 100%);
+    color: var(--teal-ink); padding: 24px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    box-shadow: 0 12px 30px -10px rgba(20,184,166,0.45);
+    margin-bottom: 18px;
+  }
+  .hero .glyph {
+    position: absolute; right: -18px; bottom: -28px; font-size: 200px;
+    line-height: 1; color: rgba(255,255,255,0.14);
+  }
+  .hero .citrus-spark {
+    align-self: flex-start;
+    background: var(--citrus); color: var(--citrus-ink);
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .hero h2 { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+  .hero p { font-size: 15px; opacity: 0.8; margin-top: 4px; font-weight: 500; }
+
+  /* ---------- tile groups ---------- */
+  .group { margin-bottom: 18px; }
+  .group h3 {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 8px;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-md);
+    padding: 14px; display: flex; gap: 12px; align-items: flex-start;
+    text-decoration: none; color: var(--ink);
+    animation: fadeUp 0.4s cubic-bezier(.2,.9,.2,1.05) both;
+  }
+  .tile:hover { background: var(--elev); }
+  .photo {
+    width: 40px; height: 40px; border-radius: 999px; flex-shrink: 0;
+    background: var(--elev); display: grid; place-items: center;
+    font-size: 18px; color: var(--muted);
+  }
+  .tile .label { font-size: 14px; font-weight: 600; }
+  .tile .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- banner ---------- */
+  .banner {
+    border-radius: 10px; padding: 12px; text-align: center; font-size: 13px;
+    background: rgba(249,168,74,0.15); color: var(--citrus);
+    border: 1px solid rgba(249,168,74,0.30); margin-bottom: 14px;
+  }
+
+  /* ---------- sale ---------- */
+  .sale-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; flex: 1; }
+  .prodgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; }
+  .prod {
+    position: relative; background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 14px;
+    min-height: 110px; display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .prod .pname { font-size: 14px; font-weight: 600; }
+  .prod .pprice { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .qtybadge {
+    position: absolute; top: 8px; right: 8px; min-width: 24px; height: 24px;
+    border-radius: 999px; background: var(--citrus); color: var(--citrus-ink);
+    font-size: 13px; font-weight: 700; display: grid; place-items: center; padding: 0 7px;
+  }
+  .cart {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-md); padding: 16px; display: flex; flex-direction: column;
+  }
+  .cart h3 { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  .cline { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .cline .nm { color: var(--ink-2); }
+  .cline .amt { font-variant-numeric: tabular-nums; }
+  .stepper { display: inline-flex; align-items: center; gap: 8px; margin-right: 10px; }
+  .stepper button { width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--elev); color: var(--ink); font-size: 16px; }
+  .subtotal { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0; }
+  .subtotal .lbl { color: var(--muted); font-size: 13px; }
+  .subtotal .val { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+  .btn { border: none; border-radius: 10px; padding: 14px; font-size: 15px; font-weight: 600; }
+  .btn-primary { background: linear-gradient(180deg, var(--teal), #0FA293); color: var(--teal-ink); }
+  .btn-ghost { background: transparent; border: 1px solid var(--line-2); color: var(--ink); }
+
+  /* ---------- login ---------- */
+  .login { align-items: center; justify-content: center; text-align: center; gap: 0; }
+  .logo {
+    width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 18px;
+    background: linear-gradient(160deg, var(--teal), #0E8C7E); color: var(--teal-ink);
+    display: grid; place-items: center; font-size: 30px; font-weight: 800;
+    box-shadow: 0 10px 26px -10px rgba(20,184,166,0.5);
+  }
+  .login .title { font-size: 22px; font-weight: 700; }
+  .login .who { font-size: 14px; color: var(--muted); margin-top: 4px; margin-bottom: 28px; }
+  .dots { display: flex; gap: 14px; justify-content: center; margin-bottom: 32px; }
+  .dot {
+    width: 16px; height: 16px; border-radius: 999px; border: 2px solid var(--line-2);
+  }
+  .dot.filled { background: var(--teal); border-color: var(--teal); box-shadow: 0 0 0 4px rgba(20,184,166,0.16); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 280px; }
+  .keypad button {
+    height: 64px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--elev); color: var(--ink); font-size: 24px; font-weight: 600;
+  }
+  .keypad button:hover { background: #265850; }
+  .keypad button.blank { background: transparent; border: none; cursor: default; }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<div class="surface-label">Surface 1 · Home (staff view)</div>
+<section class="surface" id="home">
+  <div class="appbar">
+    <button class="iconbtn" aria-label="Lock and hand off">🔒</button>
+    <div class="brand">
+      <div class="name">Frollie <span class="who">· Andi</span></div>
+      <div class="sub">12 products · 3 SKUs</div>
+    </div>
+    <div class="right">
+      <button class="iconbtn" aria-label="Printer">🖨</button>
+      <span class="livechip"><span class="dot"></span>live</span>
+    </div>
+  </div>
+
+  <a class="hero" href="#" style="text-decoration:none">
+    <span class="citrus-spark">◉ start a cart</span>
+    <div>
+      <h2>New sale</h2>
+      <p>Tap to open the counter</p>
+    </div>
+    <span class="glyph">◉</span>
+  </a>
+
+  <div class="banner">2 pembayaran belum selesai — ketuk untuk lanjutkan</div>
+
+  <div class="group">
+    <h3>Sell</h3>
+    <div class="grid">
+      <a class="tile" href="#" style="animation-delay:.02s"><div class="photo">◇</div><div><div class="label">Saved carts</div><div class="hint">resume a saved cart</div></div></a>
+      <a class="tile" href="#" style="animation-delay:.05s"><div class="photo">≡</div><div><div class="label">History</div><div class="hint">today's sales</div></div></a>
+      <a class="tile" href="#" style="animation-delay:.08s"><div class="photo">↩</div><div><div class="label">Refund</div><div class="hint">today's refundable</div></div></a>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>Stock</h3>
+    <div class="grid">
+      <a class="tile" href="#" style="animation-delay:.10s"><div class="photo">◐</div><div><div class="label">Stock check</div><div class="hint">inventory + recount</div></div></a>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>You</h3>
+    <div class="grid">
+      <a class="tile" href="#" style="animation-delay:.12s"><div class="photo">⚷</div><div><div class="label">Change PIN</div><div class="hint">ubah PIN Anda</div></div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SALE ============ -->
+<div class="surface-label">Surface 2 · Sale</div>
+<section class="surface" id="sale">
+  <div class="appbar">
+    <button class="iconbtn" aria-label="Back">‹</button>
+    <div class="brand"><div class="name">New sale</div><div class="sub">tap a product to add</div></div>
+  </div>
+  <div class="sale-layout">
+    <div class="prodgrid">
+      <div class="prod"><span class="qtybadge">2</span><div class="pname">Dubai 1pc</div><div class="pprice">Rp 25.000</div></div>
+      <div class="prod"><div class="pname">Dubai 3pcs</div><div class="pprice">Rp 70.000</div></div>
+      <div class="prod"><span class="qtybadge">1</span><div class="pname">Dubai 8pcs</div><div class="pprice">Rp 180.000</div></div>
+      <div class="prod"><div class="pname">Mixed Box 4pcs</div><div class="pprice">Rp 95.000</div></div>
+      <div class="prod"><div class="pname">Dubai 1pc — dark</div><div class="pprice">Rp 27.000</div></div>
+      <div class="prod"><div class="pname">Gift wrap</div><div class="pprice">Rp 10.000</div></div>
+    </div>
+    <div class="cart">
+      <h3>Cart</h3>
+      <div class="cline"><span class="nm"><span class="stepper"><button>−</button>2<button>+</button></span>Dubai 1pc</span><span class="amt">50.000</span></div>
+      <div class="cline"><span class="nm"><span class="stepper"><button>−</button>1<button>+</button></span>Dubai 8pcs</span><span class="amt">180.000</span></div>
+      <div class="subtotal"><span class="lbl">Subtotal</span><span class="val">Rp 230.000</span></div>
+      <div class="actions">
+        <button class="btn btn-primary">Charge</button>
+        <button class="btn btn-ghost">Save draft</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOGIN ============ -->
+<div class="surface-label">Surface 3 · Login</div>
+<section class="surface login" id="login">
+  <div class="logo">F</div>
+  <div class="title">Frollie POS</div>
+  <div class="who">Masuk sebagai Andi</div>
+  <div class="dots">
+    <span class="dot filled"></span><span class="dot filled"></span><span class="dot"></span><span class="dot"></span>
+  </div>
+  <div class="keypad">
+    <button>1</button><button>2</button><button>3</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>7</button><button>8</button><button>9</button>
+    <button class="blank"></button><button>0</button><button>⌫</button>
+  </div>
+</section>
+
+</body>
+</html>
