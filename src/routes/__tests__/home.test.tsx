@@ -3,12 +3,13 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 let mockRecovery: { count: number; latest: { _id: string; created_at: number } | null };
+let mockRole: "manager" | "staff" = "staff";
 
 vi.mock("@/hooks/useSession", () => ({
   useSession: () => ({
     status: "active",
     sessionId: "s1",
-    staff: { _id: "x", name: "Andi", role: "staff" },
+    staff: { _id: "x", name: "Andi", role: mockRole },
   }),
   clearSession: vi.fn(),
 }));
@@ -44,6 +45,7 @@ function renderHome() {
 describe("HomeRoute awaiting-payment recovery banner", () => {
   beforeEach(() => {
     mockRecovery = { count: 0, latest: null };
+    mockRole = "staff";
   });
 
   it("hides the banner when there is no awaiting txn", () => {
@@ -57,5 +59,33 @@ describe("HomeRoute awaiting-payment recovery banner", () => {
     const banner = screen.getByTestId("awaiting-recovery-banner");
     expect(banner).toBeInTheDocument();
     expect(banner.getAttribute("href")).toBe("/sale/charge/txnX");
+  });
+});
+
+describe("HomeRoute role-based tile rendering", () => {
+  beforeEach(() => {
+    mockRecovery = { count: 0, latest: null };
+    mockRole = "staff";
+  });
+
+  it("manager sees the Manager tiles and the Settlements tile", () => {
+    mockRole = "manager";
+    renderHome();
+    expect(screen.getByText("Manager home")).toBeInTheDocument();
+    expect(screen.getByText("Settlements")).toBeInTheDocument();
+  });
+
+  it("staff sees no Manager group, no Manager/Settlements tiles", () => {
+    mockRole = "staff";
+    renderHome();
+    expect(screen.queryByText("MANAGER")).toBeNull();
+    expect(screen.queryByText("Manager home")).toBeNull();
+    expect(screen.queryByText("Settlements")).toBeNull();
+  });
+
+  it("renders a Lock control in the app-bar and no bottom Lock button", () => {
+    mockRole = "staff";
+    renderHome();
+    expect(screen.getByLabelText(/lock/i)).toBeInTheDocument();
   });
 });

@@ -73,7 +73,7 @@ export function ApprovalPending({
   if (status === "resolved") {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-        <CheckCircle2 className="h-6 w-6 text-teal-600" />
+        <CheckCircle2 className="h-6 w-6 text-primary" />
         <p className="text-sm font-medium">{successMessage ?? "Approved"}</p>
       </div>
     );

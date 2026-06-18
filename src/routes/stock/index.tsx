@@ -23,7 +23,7 @@ export default function StockScreen() {
             <li key={r.skuId}>
               <Link to={`/stock/${r.skuId}`} className="flex items-center justify-between p-4">
                 <span className="font-medium">{r.name}</span>
-                <span className={r.status === "negative" ? "text-red-600 font-semibold" : r.status === "low" ? "text-amber-600 font-semibold" : ""}>
+                <span className={r.status === "negative" ? "text-error font-semibold" : r.status === "low" ? "text-warning font-semibold" : ""}>
                   {r.on_hand} pcs
                 </span>
               </Link>

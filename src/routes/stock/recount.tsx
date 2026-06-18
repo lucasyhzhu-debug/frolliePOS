@@ -69,7 +69,7 @@ export default function RecountScreen() {
                   }
                 />
                 {delta != null && delta !== 0 && (
-                  <span className={delta < 0 ? "text-red-600 text-sm" : "text-emerald-600 text-sm"}>
+                  <span className={delta < 0 ? "text-error text-sm" : "text-success text-sm"}>
                     {delta > 0 ? "+" : ""}
                     {delta}
                   </span>

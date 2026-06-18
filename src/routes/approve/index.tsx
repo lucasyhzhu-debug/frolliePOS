@@ -226,7 +226,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
   if (outcome === "approved") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
           ✓ PIN reset — {request.subject_staff_name} can now log in with the new PIN.
         </p>
@@ -600,7 +600,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
   if (outcome === "approved") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
           ✓ Approved — payment of {rp(request.display.amount_idr)} confirmed.
         </p>
@@ -955,7 +955,7 @@ function RefundVariant({ token, request }: RefundProps) {
   if (outcome === "approved") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
           ✓ Approved — refund of {rp(request.display.total_refund)} committed.
         </p>
@@ -1323,7 +1323,7 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
   if (outcome === "approved") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
           ✓ Approved — {request.display.total_qty} units logged as spoilage.
         </p>
@@ -1653,7 +1653,7 @@ export default function Approve() {
     if (!copy) return null;
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
-        <CheckCircle2 className="h-8 w-8 text-teal-600" />
+        <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">{copy.resolvedMsg(request)}</p>
       </main>
     );
