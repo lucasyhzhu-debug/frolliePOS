@@ -156,15 +156,20 @@ describe("approvals/actions.approveStaffPinReset", () => {
       }),
     ).rejects.toThrow("INVALID_PIN");
 
-    // The wrong manager PIN must be RECORDED against the manager (lockout policy),
-    // not silently swallowed.
+    // SEC-07: the wrong manager PIN is AUDITED (source=telegram_approval) but must
+    // NOT write a booth lockout row — a leaked off-booth token can't DoS-lock the
+    // manager's booth login. Brute force here is bounded by the per-token cap.
     const attempt = await t.run((ctx) =>
       ctx.db
         .query("pos_auth_attempts")
         .withIndex("by_staff", (q) => q.eq("staff_id", mgrId))
         .first(),
     );
-    expect(attempt?.fail_count).toBe(1);
+    expect(attempt ?? null).toBeNull();
+    const failAudit = await t.run((ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "staff.failed_pin")).first(),
+    );
+    expect(failAudit?.source).toBe("telegram_approval");
 
     // And the request must remain pending — a wrong PIN never resolves it.
     const reqRow = await t.run((ctx) =>

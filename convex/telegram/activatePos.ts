@@ -82,7 +82,7 @@ export const handleActivatePos = internalAction({
 
     // Code is minted and persisted. A send failure here is a DELIVERY problem,
     // not a generation problem — say so accurately (a second attempt would mint a
-    // redundant code; both expire harmlessly in 1h). Let Convex log the failure.
+    // redundant code; both expire harmlessly in 15min). Let Convex log the failure.
     const baseUrl = process.env.POS_BASE_URL;
     const until = escapeHtml(formatWibDateTime(expiresAt));
     const where = baseUrl
@@ -90,7 +90,7 @@ export const handleActivatePos = internalAction({
       : `On the new phone/browser, open the POS /activate page and enter the code.`;
     const html = [
       `🔓 Device setup code: <b>${code}</b>`,
-      `Valid until ${until} (1 hour).`,
+      `Valid until ${until} (15 minutes).`,
       where,
     ].join("\n");
     await sendTelegramHtml(token, args.chatId, html);

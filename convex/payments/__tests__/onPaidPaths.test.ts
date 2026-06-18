@@ -33,7 +33,11 @@ async function seedAwaiting(t: ReturnType<typeof convexTest>) {
       unit_price_snapshot: 25_000, tax_rate_snapshot: 0,
       qty: 1, line_subtotal: 25_000,
     });
-    return { staff, txn };
+    // Active manager session — SEC-06: getCurrentInvoice is now session-gated.
+    const session = await ctx.db.insert("staff_sessions", {
+      staff_id: staff, device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,
+    });
+    return { staff, txn, session };
   });
 }
 
@@ -111,8 +115,47 @@ describe("payments/internal", () => {
       xendit_idempotency_key: "k-b", method: "BCA_VA", va_number: "1234567890",
       status_at_create: "PENDING",
     });
-    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn });
+    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn, sessionId: s.session });
     expect(inv?.xendit_invoice_id).toBe("xnd-b");
+  });
+
+  it("SEC-06: getCurrentInvoice returns null for an invalid (ended) session", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-gated", txnId: s.txn, xendit_invoice_id: "xnd-gated",
+      reference_id: `pos-${s.txn}`,
+      xendit_idempotency_key: "k-gated", method: "QRIS", qr_string: "qr-gated",
+      status_at_create: "PENDING",
+    });
+    const endedSession = await t.run((ctx) =>
+      ctx.db.insert("staff_sessions", {
+        staff_id: s.staff, device_id: "d", started_at: Date.now(),
+        ended_at: Date.now(), end_reason: "manual_lock",
+      }),
+    );
+    const inv = await t.query(api.payments.public.getCurrentInvoice, {
+      txnId: s.txn, sessionId: endedSession,
+    });
+    expect(inv).toBeNull();
+  });
+
+  it("SEC-06: getCurrentInvoice never returns the raw invoice Doc (projected fields only)", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-proj", txnId: s.txn, xendit_invoice_id: "xnd-proj",
+      reference_id: `pos-${s.txn}`,
+      xendit_idempotency_key: "k-proj-secret", method: "QRIS", qr_string: "qr-proj",
+      status_at_create: "PENDING",
+    });
+    const inv = await t.query(api.payments.public.getCurrentInvoice, {
+      txnId: s.txn, sessionId: s.session,
+    });
+    // qr_string IS returned (FE renders it) but internal-only fields are not.
+    expect(inv?.qr_string).toBe("qr-proj");
+    expect(inv as Record<string, unknown>).not.toHaveProperty("xendit_idempotency_key");
+    expect(inv as Record<string, unknown>).not.toHaveProperty("status_at_create");
   });
 
   it("getCurrentInvoice skips a superseded (cancelled) invoice even when it is newest", async () => {
@@ -135,7 +178,7 @@ describe("payments/internal", () => {
         status_at_create: "ACTIVE", created_at: Date.now(), cancelled_at: Date.now(),
       }),
     );
-    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn });
+    const inv = await t.query(api.payments.public.getCurrentInvoice, { txnId: s.txn, sessionId: s.session });
     expect(inv?.xendit_invoice_id).toBe("xnd-active");
   });
 

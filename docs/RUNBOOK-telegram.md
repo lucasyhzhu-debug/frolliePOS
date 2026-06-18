@@ -248,7 +248,7 @@ A manager who is away from the booth can mint a device setup code without physic
 /activatepos
 ```
 
-The bot replies with a 6-digit setup code (1h TTL) and a `<POS_BASE_URL>/activate` link. The new phone/browser opens that link and enters the code to register itself.
+The bot replies with a 6-digit setup code (15min TTL — SEC-04) and a `<POS_BASE_URL>/activate` link. The new phone/browser opens that link and enters the code to register itself.
 
 - **Chat-role gated:** only the chat bound to the `managers` role can mint codes; the command is ignored in any other chat. Bind a chat to `managers` first (see [Self-registration operator flow](#self-registration-operator-flow-v04)).
 - **`POS_BASE_URL` must be set** on the deployment — the activation link is built from it.

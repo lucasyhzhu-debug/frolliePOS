@@ -53,6 +53,7 @@ Booth employees and managers.
 | `preferences` | `object?` | `{ founders_share_on: boolean }` (defaults true per [ADR-033](./ADR/033-founders-shift-summary-share.md)) |
 | `created_at` | `number` | ms epoch |
 | `last_login_at` | `number?` | |
+| `must_change_pin` | `boolean?` | SEC-03 (v1.1). `true` on the bootstrap-seeded manager → FE forces a one-time rotation prompt after login. Cleared (`false`) by `_changePinCommit_internal` on any successful PIN change. Absent on existing rows = falsy. |
 
 Indexes: `by_active` on `active`, `by_role` on `role`.
 
@@ -84,6 +85,24 @@ PIN-failure counter for lockout policy ([ADR-002](./ADR/002-lockout-policy.md)).
 | `last_attempt_at` | `number` | For visibility on dashboard |
 
 Indexes: `by_staff` on `staff_id` (unique).
+
+**SEC-01/07 (v1.1):** `_recordFailedAttempt_internal` is no longer `withIdempotency`-wrapped — the old client-key dedupe let a reused key freeze `fail_count` at 1 and defeat lockout. It now takes a `countTowardLockout: boolean`: booth misses pass `true` (counter increments, keyed on `staff_id`); off-booth Telegram-approve misses pass `false` (audited via `staff.failed_pin` but never written here — a leaked approval token must not DoS-lock a booth login; that path is bounded by the per-token cap instead).
+
+### `pos_device_activation_attempts` *(v1.1 — SEC-04, owned by `staff/` via `auth/schema.ts`)*
+Brute-force throttle for `/activate` device-setup-code entry.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_device_activation_attempts">` | |
+| `key` | `string` | `device_id` for per-device rows, OR the sentinel `"__global__"` for the rolling-window ceiling (an attacker picks `device_id`, so per-device alone is bypassable — the global cap is load-bearing) |
+| `fail_count` | `number` | Wrong-code count for this key |
+| `window_start_at` | `number` | Global: rolling-window anchor (15-min window) |
+| `locked_until` | `number?` | ms epoch; non-null while locked (per-device: 60s past 5 misses; global: 60s past 50 fails/window) |
+| `last_attempt_at` | `number` | |
+
+Indexes: `by_key` on `key`.
+
+Written from the `activateDevice` ACTION's `_recordActivationFailure_internal` (a separate committed mutation — a throwing mutation would roll back the increment). Cleared per-device on successful activation. A global breach blocks the window but does NOT wipe `pending_device_setups` (avoids a re-issue DoS).
 
 ### `registered_devices`
 Devices authorised to run the POS. Activated via one-time setup code from a manager ([strategic foundations §6](./ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)).
@@ -623,6 +642,7 @@ staff.pin_reset
 staff.shift_summary_shared
 staff.created
 device.deactivated          # device.activated + device.setup_code_issued documented in the v0.5.7 block below
+device.activation_throttled # v1.1 SEC-04 — global activation rate-limit breach (source: system)
 seed.reset
 seed.launch_catalog         # one-shot prod catalog seed (v1.0 launch — _seedLaunchCatalog_internal)
 transaction.created

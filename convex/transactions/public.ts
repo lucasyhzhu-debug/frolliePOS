@@ -1,4 +1,4 @@
-import { mutation, query, MutationCtx } from "../_generated/server";
+import { mutation, query, MutationCtx, QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
@@ -44,19 +44,70 @@ async function resolveSessionStaff(
   return resolved;
 }
 
+/**
+ * SEC-05/06: single-writer for the txn read-authorization invariant. Resolves the
+ * session and returns the txn IFF the caller may read it under the day-scope rule
+ * (manager = any day; staff = server-today WIB only). Returns null on invalid
+ * session, missing txn, or out-of-scope. Shared by getById + getTransactionDetail
+ * so a future scope-rule change lands in ONE place (getCurrentInvoice in
+ * payments/ mirrors this inline — cross-module, can't import a local fn). The two
+ * independent reads run in parallel.
+ */
+async function resolveScopedTxn(
+  ctx: QueryCtx,
+  sessionId: Id<"staff_sessions">,
+  txnId: Id<"pos_transactions">,
+): Promise<Doc<"pos_transactions"> | null> {
+  const [who, txn] = await Promise.all([
+    ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, { sessionId }),
+    ctx.db.get(txnId),
+  ]);
+  if (!who || !txn) return null;
+  if (who.role !== "manager") {
+    const today = wibDayWindow(Date.now());
+    if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) return null;
+  }
+  return txn;
+}
+
+/**
+ * SEC-05: session-gated, day-scoped, PROJECTED txn read for the FE charge /
+ * success screens. Was previously ungated and spread the raw Doc — leaking
+ * receipt_token (the ADR-021 capability for /r/<token>) to any caller.
+ *
+ * Scope mirrors getTransactionDetail:
+ *   - manager: any txn
+ *   - staff:   only server-today (WIB) txns; null otherwise
+ *   - null on invalid session OR missing txn (graceful FE degrade)
+ *
+ * System callers that need the raw Doc use _getTxnById_internal instead.
+ */
 export const getById = query({
-  args: { txnId: v.id("pos_transactions") },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<(Doc<"pos_transactions"> & { lines: Doc<"pos_transaction_lines">[] }) | null> => {
-    const txn = await ctx.db.get(args.txnId);
+  args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
+  handler: async (ctx, args) => {
+    const txn = await resolveScopedTxn(ctx, args.sessionId, args.txnId);
     if (!txn) return null;
     const lines = await ctx.db
       .query("pos_transaction_lines")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
       .collect();
-    return { ...txn, lines };
+    // SEC-05: explicit projection — never spread the raw Doc (would leak
+    // receipt_token + xendit_invoice_id_current). Enumerate only FE-consumed
+    // fields (charge.tsx, charge-success.tsx, useXenditPayment).
+    return {
+      _id: txn._id,
+      status: txn.status,
+      total: txn.total,
+      subtotal: txn.subtotal,
+      voucher_code_snapshot: txn.voucher_code_snapshot,
+      voucher_discount: txn.voucher_discount,
+      flags: txn.flags,
+      created_at: txn.created_at,
+      staff_id: txn.staff_id,
+      receipt_number: txn.receipt_number, // success screen
+      confirmed_via: txn.confirmed_via,   // success screen method label
+      lines,
+    };
   },
 });
 
@@ -179,6 +230,14 @@ export const commitCart = mutation({
       // Boundary guard (public mutation): reject empty carts before any work,
       // so a malformed/replayed request can't create a junk zero-total txn.
       if (args.lines.length === 0) throw new Error("EMPTY_CART");
+
+      // SEC-02: reject non-positive / non-integer quantities at the trust boundary.
+      // v.number() admits negatives/zero/floats; a negative line inverts to a positive
+      // stock movement on confirm (inventory/internal.ts inserts qty: -line.qty),
+      // fabricating inventory. Mirrors _recordSpoilage_internal's QTY_INVALID guard.
+      for (const { qty } of args.lines) {
+        if (!Number.isInteger(qty) || qty <= 0) throw new Error("QTY_INVALID");
+      }
 
       const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
 
@@ -498,22 +557,11 @@ type TxnDetail = {
 export const getTransactionDetail = query({
   args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
   handler: async (ctx, args): Promise<TxnDetail | null> => {
-    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
-      sessionId: args.sessionId,
-    });
-    if (!who) return null;
-    const txn = await ctx.db.get(args.txnId);
+    // Out-of-scope (staff, other day) / invalid session / missing txn all return
+    // null — keeps the FE on the graceful "not found" path (no ErrorBoundary in
+    // the spoke tree). Day-scope rule lives in resolveScopedTxn (single-writer).
+    const txn = await resolveScopedTxn(ctx, args.sessionId, args.txnId);
     if (!txn) return null;
-    if (who.role !== "manager") {
-      const today = wibDayWindow(Date.now());
-      // Out-of-scope: staff may only read txns from server-today (WIB). Returning
-      // null (not throwing) keeps the FE on the graceful "not found" path — the
-      // staff member tapping an old permalink sees the same friendly card as
-      // a hard-deleted txn, without an ErrorBoundary in the spoke tree.
-      if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) {
-        return null;
-      }
-    }
     // Two independent reads given args.txnId — parallel to shave latency.
     const [lines, refunds] = await Promise.all([
       ctx.db

@@ -2,6 +2,14 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-17 — v1.1 Security Hardening
+- SEC-01: PIN-lockout counter no longer dedupes on client idempotencyKey (brute-force fix).
+- SEC-02: `commitCart` rejects non-positive/fractional quantities at the trust boundary.
+- SEC-03: `bootstrap` requires `BOOTSTRAP_MANAGER_PIN` env (no hardcoded `1111`); seeded manager carries `must_change_pin` (FE forces a one-time rotation prompt). Hardens future deploys/tests only — the live prod account is hardened by the operational PIN rotation, not by merging this.
+- SEC-04: device activation throttled (per-device 5/60s + global 50/15-min window); setup-code TTL 1h→15min. `activateDevice` is now an action so the throttle counter persists across the rejection.
+- SEC-05/06: `getById` + `getCurrentInvoice` session-gated + day-scoped + projected; `receipt_token` (and other internal fields) no longer leaked. System callers use new `_get*_internal` full-row variants.
+- SEC-07: off-booth Telegram-approve PIN misses are audited but no longer pollute the booth lockout counter (leaked-token DoS-lock fix); bounded by the per-token cap.
+
 ## 2026-06-12 — v1.0.0 launch
 
 - Polish slice across the staff-critical loop: offline banner + action guard on the charge screen (ADR-025; covers retry, manual override, method switch, cancel, and the off-booth approval-request buttons), `/stock` empty state, `useIsOnline` hook extracted from ConnDot, stock-in stub tile/route removed (restock = recount until v0.5.2b), dev version tags stripped from home tiles

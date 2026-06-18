@@ -298,7 +298,7 @@ describe("approveSpoilage", () => {
     expect(audits[0].source).toBe("telegram_approval");
   });
 
-  it("wrong PIN throws INVALID_PIN and records a failed attempt against the manager", async () => {
+  it("wrong PIN throws INVALID_PIN; off-booth miss writes no booth lockout row (SEC-07)", async () => {
     const t = convexTest(schema);
     const { rawToken, managerId } = await seedApprovable(t);
 
@@ -311,13 +311,14 @@ describe("approveSpoilage", () => {
       }),
     ).rejects.toThrow("INVALID_PIN");
 
+    // SEC-07: off-booth miss is audited but never touches the booth lockout counter.
     const attempts = await t.run((ctx) =>
       ctx.db
         .query("pos_auth_attempts")
         .filter((q) => q.eq(q.field("staff_id"), managerId))
         .collect(),
     );
-    expect(attempts.length).toBeGreaterThan(0);
+    expect(attempts.length).toBe(0);
   });
 
   it("bad token throws TOKEN_INVALID", async () => {

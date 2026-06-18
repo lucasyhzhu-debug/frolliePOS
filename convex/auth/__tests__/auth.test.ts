@@ -256,32 +256,68 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fix 10 — _recordFailedAttempt_internal is idempotent with derived key
+// SEC-01: the failed-attempt counter must NOT dedupe on a client key — every
+// wrong PIN increments, so lockout is reachable. (Replaces the old "Fix 10"
+// idempotency test, which asserted the now-removed vulnerable dedupe.)
 // ---------------------------------------------------------------------------
-describe("Fix 10: _recordFailedAttempt_internal is idempotent", () => {
-  it("same derived key does not double-increment fail_count", async () => {
+describe("SEC-01: failed-attempt counter increments unconditionally", () => {
+  it("two calls increment fail_count to 2 (no dedupe)", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Eko", "5678");
-
-    const derivedKey = "fix10-base-key:failed";
-
-    // Call twice with the same derived idempotencyKey
     await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
-      idempotencyKey: derivedKey,
-      staffId,
-      deviceId: "dev-1",
-    });
+      staffId, deviceId: "dev-1", countTowardLockout: true });
     await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
-      idempotencyKey: derivedKey,
-      staffId,
-      deviceId: "dev-1",
-    });
+      staffId, deviceId: "dev-1", countTowardLockout: true });
+    const attempt = await t.run((ctx) =>
+      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).first());
+    expect(attempt?.fail_count).toBe(2);
+  });
 
-    const attempt = await t.run(async (ctx) =>
-      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).first()
-    );
-    // Idempotent: fail_count is 1, not 2
-    expect(attempt?.fail_count).toBe(1);
+  it("third call locks the account", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Eko", "5678");
+    for (let i = 0; i < 2; i++)
+      await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
+        staffId, deviceId: "dev-1", countTowardLockout: true });
+    const r3 = await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
+      staffId, deviceId: "dev-1", countTowardLockout: true });
+    expect(r3.newly_locked).toBe(true);
+    await drainScheduled(t);
+  });
+
+  it("countTowardLockout:false audits but never locks", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Eko", "5678");
+    for (let i = 0; i < 5; i++)
+      await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
+        staffId, deviceId: "off-booth", countTowardLockout: false, source: "telegram_approval" });
+    const attempt = await t.run((ctx) =>
+      ctx.db.query("pos_auth_attempts").withIndex("by_staff", (q) => q.eq("staff_id", staffId)).first());
+    expect(attempt ?? null).toBeNull(); // no lockout row written
+    const audits = await t.run((ctx) =>
+      ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "staff.failed_pin")).collect());
+    expect(audits.length).toBe(5); // every off-booth miss is audited
+  });
+
+  it("action-level: 3 wrong logins with the SAME idempotencyKey still lock", async () => {
+    // SEC-01 regression: pre-fix, a reused client key froze fail_count at 1 and
+    // the account never locked. Now every miss counts; the 3rd throws LOCKED_OUT.
+    // (A legit network-retry now over-counts by one — deliberate fail-safe.)
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Gita", "4321");
+    const sameKey = "reused-client-key";
+    await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: sameKey,
+    }).catch(() => void 0);
+    await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "0001", deviceId: "dev-1", idempotencyKey: sameKey,
+    }).catch(() => void 0);
+    await expect(
+      t.action(api.auth.actions.loginWithPin, {
+        staffId, pin: "0002", deviceId: "dev-1", idempotencyKey: sameKey,
+      }),
+    ).rejects.toThrow(/LOCKED_OUT/);
+    await drainScheduled(t);
   });
 });
 

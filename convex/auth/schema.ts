@@ -13,6 +13,7 @@ export const authTables = {
     })),
     created_at: v.number(),
     last_login_at: v.optional(v.number()),
+    must_change_pin: v.optional(v.boolean()), // SEC-03: forced rotation after bootstrap default
   })
     .index("by_active", ["active"])
     .index("by_role", ["role"])
@@ -39,6 +40,18 @@ export const authTables = {
     locked_until: v.union(v.number(), v.null()),
     last_attempt_at: v.number(),
   }).index("by_staff", ["staff_id"]),
+
+  // SEC-04: brute-force throttle for /activate device-setup-code entry.
+  // device-scoped rows key on device_id; one singleton row keys on the sentinel
+  // "__global__" for the rolling-window ceiling (an attacker picks device_id, so
+  // per-device alone is bypassable — the global cap is load-bearing).
+  pos_device_activation_attempts: defineTable({
+    key: v.string(),               // device_id OR "__global__"
+    fail_count: v.number(),
+    window_start_at: v.number(),   // global: rolling-window anchor
+    locked_until: v.union(v.number(), v.null()),
+    last_attempt_at: v.number(),
+  }).index("by_key", ["key"]),
 
   registered_devices: defineTable({
     device_id: v.string(),

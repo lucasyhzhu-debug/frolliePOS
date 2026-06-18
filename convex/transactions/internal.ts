@@ -710,3 +710,25 @@ export const _fetchReceiptByTxnIds_internal = internalQuery({
     return out;
   },
 });
+
+/**
+ * SEC-05: full-row read for SYSTEM callers (payment/transaction actions) — the
+ * public `getById` is now session-gated + projected (strips receipt_token), so
+ * server-side callers that need the raw Doc must use this internal variant.
+ * Returns the full txn + lines, no projection, no auth (internal-only).
+ */
+export const _getTxnById_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<(Doc<"pos_transactions"> & { lines: Doc<"pos_transaction_lines">[] }) | null> => {
+    const txn = await ctx.db.get(args.txnId);
+    if (!txn) return null;
+    const lines = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .collect();
+    return { ...txn, lines };
+  },
+});

@@ -5,9 +5,10 @@ import type { Id } from "../_generated/dataModel";
 
 /**
  * Shared PIN-verification front-half for PIN-gated actions:
- * lockout pre-check → argon2Verify → on failure record the attempt (under a
- * `${idempotencyKey}:failed` derived key, so crash-retries don't double-count)
- * and throw. Returns void on success.
+ * lockout pre-check → argon2Verify → on failure record the attempt
+ * (`countTowardLockout: true`, keyed on staff_id — SEC-01 removed the old
+ * `${idempotencyKey}:failed` derived-key dedupe; a crash-retry over-counting by
+ * one is a deliberate fail-safe) and throw. Returns void on success.
  *
  * Throws `LOCKED_OUT:<secs>` if the account is already locked (emitting a
  * staff.locked_out probe audit row first). On a wrong PIN it throws INVALID_PIN —
@@ -45,10 +46,14 @@ export async function verifyPinOrThrow(
 
   const ok = await argon2Verify({ password: params.pin, hash: params.pinHash });
   if (!ok) {
+    // SEC-01: booth misses always count toward lockout (keyed on staff_id, not
+    // a client idempotencyKey). params.idempotencyKey is no longer consumed by
+    // the failed-attempt path; it is retained on the signature to avoid a wide
+    // caller sweep this phase — follow-up: remove it.
     const result = await ctx.runMutation(internal.auth.internal._recordFailedAttempt_internal, {
-      idempotencyKey: `${params.idempotencyKey}:failed`,
       staffId: params.staffId,
       deviceId: params.deviceId,
+      countTowardLockout: true,
     });
     if (opts.lockOnFail && result.newly_locked) {
       throw new Error(`LOCKED_OUT:${result.seconds_remaining}`);
@@ -82,8 +87,13 @@ export async function assertManagerSessionInAction(
  * Manager-PIN gate for inline (at-portal) admin actions. Resolves the session,
  * asserts the caller is an ACTIVE MANAGER, then runs the shared verifyPinOrThrow
  * funnel against the MANAGER's own hash (lockout pre-check + argon2 + failed-attempt
- * recording under `${idempotencyKey}:failed`). Returns the manager identity for
- * audit attribution. Never logs PIN values. Inline-only — NOT the Telegram path.
+ * recording — booth misses count unconditionally post-SEC-01, no idempotency key).
+ * Returns the manager identity for audit attribution. Never logs PIN values.
+ * Inline-only — NOT the Telegram path.
+ *
+ * NOTE: the `idempotencyKey` param below is no longer consumed by the
+ * failed-attempt path (SEC-01); retained to avoid a wide caller sweep this phase.
+ * Follow-up: remove it (tracked in the v1.1 hardening follow-ups).
  */
 export async function verifyManagerPinOrThrow(
   ctx: ActionCtx,

@@ -1,4 +1,4 @@
-import { mutation, query } from "../_generated/server";
+import { mutation, query, action } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
@@ -125,120 +125,54 @@ export const generateDeviceSetupCode = mutation({
   ),
 });
 
-export const activateDevice = mutation({
+/**
+ * SEC-04: device-activation entry point is now an ACTION (was a mutation). A
+ * throwing mutation rolls back its own writes, so the throttle counter could
+ * never persist across an INVALID_CODE rejection. The action mirrors the
+ * loginWithPin pattern: lock pre-check → commit attempt → on INVALID_CODE,
+ * record the failed attempt in a SEPARATE committed mutation, then re-throw.
+ *
+ * API path is preserved (api.staff.public.activateDevice) so the FE/tests need
+ * only switch useMutation→useAction / t.mutation→t.action.
+ */
+export const activateDevice = action({
   args: {
     idempotencyKey: v.string(),
     code: v.string(),
     deviceLabel: v.string(),
     deviceId: v.string(),
   },
-  handler: withIdempotency<
-    { idempotencyKey: string; code: string; deviceLabel: string; deviceId: string },
-    { _id: Id<"registered_devices">; device_id: string; label: string; active: boolean }
-  >(
-    "staff.activateDevice",
-    async (ctx, args) => {
-      if (!/^\d{6}$/.test(args.code)) throw new Error("INVALID_CODE");
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ _id: Id<"registered_devices">; device_id: string; label: string; active: boolean }> => {
+    // Cheap arg validation first (no DB) — format misses aren't brute-force
+    // guesses, so they don't count toward the throttle.
+    if (!/^\d{6}$/.test(args.code)) throw new Error("INVALID_CODE_FORMAT");
+    const trimmedLabel = args.deviceLabel.trim();
+    if (trimmedLabel.length === 0) throw new Error("INVALID_LABEL: deviceLabel must not be empty");
+    if (args.deviceLabel.length > 64) throw new Error("INVALID_LABEL: deviceLabel must be 64 characters or fewer");
 
-      // Server-side label validation (defense-in-depth — client form also validates)
-      const trimmedLabel = args.deviceLabel.trim();
-      if (trimmedLabel.length === 0) throw new Error("INVALID_LABEL: deviceLabel must not be empty");
-      if (args.deviceLabel.length > 64) throw new Error("INVALID_LABEL: deviceLabel must be 64 characters or fewer");
+    // SEC-04: reject if this device or the global window is throttle-locked.
+    const lock = await ctx.runQuery(internal.staff.internal._getActivationLockState_internal, {
+      deviceId: args.deviceId,
+    });
+    if (lock.locked) throw new Error(`ACTIVATION_LOCKED:${lock.seconds_remaining}`);
 
-      const now = Date.now();
-
-      // Use .collect() to defensively handle multiple rows (past-bug recovery)
-      const existingRows = await ctx.db
-        .query("registered_devices")
-        .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
-        .collect();
-
-      const activeRow = existingRows.find((r) => r.active);
-      if (activeRow) {
-        throw new Error("Device already registered");
-      }
-
-      const pending = await ctx.db
-        .query("pending_device_setups")
-        .withIndex("by_code", (q) => q.eq("setup_code", args.code))
-        .unique();
-      if (
-        !pending ||
-        pending.consumed_at != null ||
-        pending.expires_at < now
-      ) {
-        throw new Error("INVALID_CODE");
-      }
-
-      await ctx.db.patch(pending._id, { consumed_at: now });
-
-      // v0.6: codes minted via Telegram have no staff issuer — fall back to the
-      // "system" audit actor and carry the issuance channel into metadata.
-      // NOTE: `source` stays "booth_inline" — activation is always a physical
-      // booth act (code typed into the new device); only ISSUANCE came from
-      // Telegram. Don't overload "telegram_approval" (the approval/token flow
-      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
-      const auditActor = pending.issued_by ?? ("system" as const);
-      const activatedVia = pending.issued_via ?? "booth_inline";
-
-      let deviceRowId: Id<"registered_devices">;
-      let reactivated = false;
-
-      if (existingRows.length > 0) {
-        // Reactivate the most recently activated inactive row; delete the rest
-        const sorted = [...existingRows].sort(
-          (a, b) => (b.activated_at ?? 0) - (a.activated_at ?? 0),
-        );
-        const primary = sorted[0];
-        deviceRowId = primary._id;
-        await ctx.db.patch(primary._id, {
-          active: true,
-          label: args.deviceLabel,
-          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
-          activated_at: now,
-          last_seen_at: now,
-        });
-        // Delete any extra duplicate rows
-        for (const dup of sorted.slice(1)) {
-          await ctx.db.delete(dup._id);
-        }
-        reactivated = true;
-      } else {
-        deviceRowId = await ctx.db.insert("registered_devices", {
-          device_id: args.deviceId,
-          label: args.deviceLabel,
-          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
-          activated_at: now,
-          last_seen_at: now,
-          active: true,
+    try {
+      return await ctx.runMutation(internal.staff.internal._activateDeviceCommit_internal, args);
+    } catch (err) {
+      // SEC-04: only a wrong/expired CODE counts toward the throttle (I1: exact
+      // match, not `includes` — INVALID_CODE_FORMAT/INVALID_LABEL/already-registered
+      // are not brute-force guesses). Recorded in its OWN committed mutation so the
+      // increment survives this rejection.
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "INVALID_CODE") {
+        await ctx.runMutation(internal.staff.internal._recordActivationFailure_internal, {
+          deviceId: args.deviceId,
         });
       }
-
-      await logAudit(ctx, {
-        actor_id: auditActor,
-        action: "device.activated",
-        entity_type: "device",
-        entity_id: deviceRowId,
-        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
-        device_id: args.deviceId,
-        metadata: {
-          activated_via_pending_id: pending._id,
-          label: args.deviceLabel,
-          reactivated,
-          activated_via: activatedVia,
-        },
-      });
-      return {
-        _id: deviceRowId,
-        device_id: args.deviceId,
-        label: args.deviceLabel,
-        active: true,
-      };
-    },
-    {
-      // intentional: activateDevice runs before any session exists. Device-setup
-      // codes are the auth mechanism; no requireSession is possible here.
-      authCheck: async () => {},
-    },
-  ),
+      throw err;
+    }
+  },
 });

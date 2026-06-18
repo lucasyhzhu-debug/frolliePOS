@@ -45,8 +45,10 @@ export const _hashPin_internal = internalAction({
  * was force-ended between the original login and this retry, treat as a cache
  * miss and run a fresh login.
  *
- * Fix 10: pass a derived idempotencyKey (${key}:failed) to
- * _recordFailedAttempt_internal so crash-retries don't double-increment.
+ * SEC-01: the failed-attempt counter is no longer deduped on a client key
+ * (the old "Fix 10" derived-key wrap let a reused key defeat lockout). Booth
+ * misses always count (countTowardLockout: true); a crash-retry over-counting
+ * by one is a deliberate fail-safe.
  *
  * Fix 14: emit a staff.locked_out audit row before throwing LOCKED_OUT so
  * repeated probes are visible in the audit log.

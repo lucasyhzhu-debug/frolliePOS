@@ -1,11 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { Id } from "../../_generated/dataModel";
 
 describe("seed/actions.bootstrap", () => {
-  it("first call creates Lucas as S-0001, role manager, with hashed PIN 1111", async () => {
+  // SEC-03: bootstrap now requires BOOTSTRAP_MANAGER_PIN. Set a valid default
+  // for the existing behavioural tests; the SEC-03 block below toggles it.
+  beforeEach(() => {
+    process.env.BOOTSTRAP_MANAGER_PIN = "1234";
+  });
+
+  it("first call creates Lucas as S-0001, role manager, with hashed PIN", async () => {
     const t = convexTest(schema);
     const r = await t.action(internal.seed.actions.bootstrap, {});
     expect(r.staffCode).toBe("S-0001");
@@ -33,5 +39,28 @@ describe("seed/actions.bootstrap", () => {
     );
     expect(audit.length).toBe(1);
     expect(audit[0].actor_id).toBe("system");
+  });
+});
+
+describe("SEC-03: bootstrap env PIN", () => {
+  it("throws when BOOTSTRAP_MANAGER_PIN is absent", async () => {
+    const t = convexTest(schema);
+    delete process.env.BOOTSTRAP_MANAGER_PIN;
+    await expect(t.action(internal.seed.actions.bootstrap, {})).rejects.toThrow("BOOTSTRAP_PIN_REQUIRED");
+  });
+
+  it("throws when BOOTSTRAP_MANAGER_PIN is not 4 digits", async () => {
+    const t = convexTest(schema);
+    process.env.BOOTSTRAP_MANAGER_PIN = "abc";
+    await expect(t.action(internal.seed.actions.bootstrap, {})).rejects.toThrow("BOOTSTRAP_PIN_REQUIRED");
+  });
+
+  it("seeds manager with must_change_pin=true using the env PIN", async () => {
+    const t = convexTest(schema);
+    process.env.BOOTSTRAP_MANAGER_PIN = "8642";
+    await t.action(internal.seed.actions.bootstrap, {});
+    const mgr = await t.run((ctx) =>
+      ctx.db.query("staff").withIndex("by_code", (q) => q.eq("code", "S-0001")).unique());
+    expect(mgr?.must_change_pin).toBe(true);
   });
 });

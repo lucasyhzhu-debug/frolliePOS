@@ -28,6 +28,8 @@ const OWNERSHIP = {
   pos_auth_attempts: "auth",
   registered_devices: "auth",
   pending_device_setups: "auth",
+  pos_device_activation_attempts: "auth", // SEC-04; written by allowlisted `staff` module
+
   // catalog module
   pos_inventory_skus: "catalog",
   pos_products: "catalog",

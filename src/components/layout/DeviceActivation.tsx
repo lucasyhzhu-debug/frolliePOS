@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useMutation } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
@@ -9,6 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/errors";
+
+// SEC-04: map the raw structured errors from activateDevice to friendly copy.
+// ACTIVATION_LOCKED:<secs> surfaces after the throttle trips (per-device or global).
+// Uses the shared errorMessage() so a ConvexError (payload on .data, not .message)
+// is unwrapped correctly instead of falling through to the generic fallback.
+function friendlyActivationError(err: unknown): string {
+  const msg = errorMessage(err);
+  const locked = msg.match(/ACTIVATION_LOCKED:(\d+)/);
+  if (locked) return `Too many attempts. Try again in ${locked[1]}s.`;
+  if (msg.includes("INVALID_CODE")) return "Invalid or expired code.";
+  if (msg.includes("INVALID_LABEL")) return "Enter a device label (1–64 characters).";
+  if (msg.includes("already registered")) return "This device is already registered.";
+  return "Activation failed.";
+}
 
 export function DeviceActivation() {
   const navigate = useNavigate();
@@ -16,7 +31,7 @@ export function DeviceActivation() {
   // Use a stable fallback string while deviceId is still resolving so the
   // useIdempotency hook doesn't receive a changing key mid-render.
   const idempotencyKey = useIdempotency(`activate:${deviceId ?? "pending"}`);
-  const activate = useMutation(api.staff.public.activateDevice);
+  const activate = useAction(api.staff.public.activateDevice);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,7 +48,7 @@ export function DeviceActivation() {
       toast.success("Device activated");
       navigate("/login", { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Activation failed");
+      toast.error(friendlyActivationError(err));
     } finally {
       setBusy(false);
     }
