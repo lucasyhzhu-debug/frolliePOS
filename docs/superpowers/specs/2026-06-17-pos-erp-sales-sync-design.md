@@ -1,9 +1,29 @@
 # POS → Frollie Pro sales sync — design
 
 **Date:** 2026-06-17
-**Status:** Draft (awaiting final review)
+**Status:** Draft — reconciled 2026-06-17 with the shared contract + ERP consumer spec
 **Repos:** `D:\Claude\FrolliePOS` (producer) · `D:\Claude\Product Manager\product_master` (consumer)
 **Supersedes/implements:** ADR-034 §"External API surface", `docs/PUBLIC_API.md` (POS); Phase 74.5 channel spine (ERP)
+**Contract (source of truth):** `product_master\docs\superpowers\specs\2026-06-17-pos-erp-sales-sync-CONTRACT.md`
+**Consumer detail:** `product_master\docs\superpowers\specs\2026-06-17-pos-erp-sales-sync-erp-consumer-design.md`
+
+> **Reconciliation note (2026-06-17).** This spec was cross-checked against the
+> ERP codebase. Changes from the original draft:
+> 1. **Auth hashing: argon2id → SHA-256.** A 256-bit random token is high-entropy;
+>    argon2 (a password KDF) adds a dependency + per-request CPU for no security
+>    gain. Constant-time SHA-256 compare is the standard for opaque API tokens.
+> 2. **Dropped the `frollie_pro_aggregate_only` scope.** One fully-trusted consumer,
+>    one scope. The `scope` field is retained for forward-compat; only
+>    `frollie_pro_full` is implemented/issued.
+> 3. **Index/cursor (§4.3):** no new index — reuse the existing
+>    `by_status_paid_at: ["status","paid_at"]`. The tiebreak is `_creationTime`
+>    (Convex's implicit final index field), **not `_id`** (`_id` can't be named
+>    in an index). Cursor encodes `(paidAt, _creationTime)`.
+> 4. **Refund sign (D3):** POS serves **positive magnitudes**; the ERP carries
+>    direction via `transactionType:"return"` (a first-class field) — not a
+>    negative `revenueGross`.
+> 5. **ERP-side detail (§5/§6)** moved to the consumer spec to avoid two-doc drift;
+>    this spec keeps only the producer contract obligations.
 
 ---
 
@@ -24,7 +44,7 @@ Pull **product-level POS sales** into the Frollie Pro ERP so each booth transact
 |---|----------|-----------|
 | D1 | **Grain = product-level line items**, one `externalRevenue` parent per POS transaction, one `externalRevenueItems` row per line. | User wants "each transaction, what was sold (SKU)." Matches the ERP's parent/line model and product-mapping UI. |
 | D2 | **Join key = `productCode`** (e.g. `DUBAI_8PC`), a stable string per ADR-034 — never Convex `_id`. | Cross-deployment `Id<>` types don't transfer; ADR-034 mandates stable string IDs. |
-| D3 | **Refunds = separate `/api/v1/refunds` endpoint** on its own `created_at` cursor; ERP lands them as **negative reversal** `externalRevenue` keyed to the original `receiptNumber`. | Faithful to ADR-008 ("refunds are their own entity"); keeps the transactions endpoint append-only on `paid_at` with no transaction-level `updated_at`. |
+| D3 | **Refunds = separate `/api/v1/refunds` endpoint** on its own `created_at` cursor. POS serves **positive magnitudes**; the ERP lands them as `transactionType:"return"` reversals keyed to the original `receiptNumber` (it owns the sign). | Faithful to ADR-008 ("refunds are their own entity"); keeps the transactions endpoint append-only on `paid_at` with no transaction-level `updated_at`. The ERP's `transactionType` is a first-class field — cleaner than a negative-number convention. |
 | D4 | **ERP pulls** on an hourly cron; POS is a stateless server. **ERP owns the cursor.** | Matches every existing ERP source (K3Mart/GoBiz/BigSeller all pull). |
 | D5 | **Deduction stays OFF** in v1 (`channelDeductionEnabled.pos = false`); revenue-only first. | Smallest correct slice; deduction is a clean flag-flip follow-up after soak. |
 
@@ -40,9 +60,9 @@ ERP cron (hourly)
        │        → adapter.normalize() → ChannelSaleEvent[]  (one per line)
        │        → externalRevenue (source:"pos") + externalRevenueItems
        └─ GET  https://<pos>.convex.site/api/v1/refunds?cursor=<opaque>               (Bearer)
-                → negative reversal externalRevenue/items keyed to receiptNumber
+                → transactionType:"return" reversal keyed to receiptNumber (ERP owns the sign)
 
-       cursor persisted on platformCredentials(platformId:"pos")
+       cursors persisted on posSyncCheckpoint; token on platformCredentials(platformId:"pos")
 
 (deduction path — saveRevenueItems → channelRouting → productInventoryTransactions —
  gated behind channelDeductionEnabled.pos, OFF in v1)
@@ -56,36 +76,57 @@ POS endpoints are **httpActions on `.convex.site`** (not `.convex.cloud`). The E
 
 ### 4.1 Auth — `convex/api/v1/_auth.ts` (replace the throwing stub)
 Real `verifyBearerToken(request)`:
-- Extract `Authorization: Bearer <raw>`.
-- argon2id-hash compare (constant-time) against `_tokens` rows.
-- Reject: missing/bad → `401`; scope/endpoint not allowed → `403`; expired or revoked → `401`; RPM bucket exceeded → `429` + `Retry-After`.
-- On success return the token's scope so handlers can gate PII (`frollie_pro_full` vs `frollie_pro_aggregate_only`).
+- Extract `Authorization: Bearer <raw>` (expect the `frpos_live_` / `frpos_test_` prefix).
+- **SHA-256-hash compare (constant-time)** against `_tokens` rows. (High-entropy 256-bit token → a fast hash is correct; argon2id is a password KDF and buys nothing here. Reuse the constant-time pattern from the Xendit webhook's `verifyCallbackToken`.)
+- **Resolve consumer identity from the matched token row** — `consumer_label` + `consumer_account_hash` are the trustworthy anchor (bound at issuance, see §4.2). Never trust a client-declared identity for authz.
+- **Optional origin-binding (recommended):** if the request carries `X-Consumer-Account` (contract §2), compare it constant-time against the token's `consumer_account_hash`; mismatch → `403 CONSUMER_MISMATCH`. This catches a leaked token replayed from an unexpected origin. Absent header → skip the check (header is optional).
+- Reject per contract §4: missing/bad → `401 UNAUTHENTICATED`; endpoint not allow-listed → `403 ENDPOINT_NOT_ALLOWED`; consumer hash mismatch → `403 CONSUMER_MISMATCH`; expired or revoked → `401`; RPM bucket exceeded → `429 RATE_LIMITED` + `Retry-After`.
+- On success return the token row (single scope `frollie_pro_full` in v1).
+- **Log every request** (success AND every rejection path) to `api_request_log` (§4.2) — one row per request. Failed-auth rows have `token_id = null` but still capture endpoint + status + IP for forensics.
 
 ### 4.2 `_tokens` table + issuance (per ADR-034)
 ```ts
 api_tokens: {
-  hash: string,                 // argon2id(raw)
-  scope: "frollie_pro_full" | "frollie_pro_aggregate_only",
+  hash: string,                 // SHA-256(raw) hex; constant-time compare
+  consumer_label: string,       // human id of the caller, e.g. "frollie-pro-prod" / "frollie-pro-dev"
+  consumer_account_hash: string,// sha256(<ERP account/org id>) — bound at issuance, constant across rotation
+  scope: "frollie_pro_full",    // union retained for forward-compat; one value in v1
   endpointAllowList: string[],  // explicit, no globs
   rateLimitRpm: number,         // default 60
   issuedAt: number,             // server Date.now() (ADR-031)
   expiresAt: number,            // mandatory; ≤365d
-  rotatedFrom?: Id<"api_tokens">,
+  rotatedFrom?: Id<"api_tokens">, // rotation chains here; consumer_label + consumer_account_hash stay constant
   revokedAt?: number,
   createdByStaffId: Id<"staff">,
 }
 api_rate_buckets: { token_id, window_start, count }  // reset every 60s by scheduled action
+
+// Access trail — ONE row per request (success + every rejection). Reads don't
+// belong in the append-only business audit_log (ADR-007 is for state changes);
+// this is the separate access log so it can't pollute the ledger refunds/voids write to.
+api_request_log: {
+  token_id: Id<"api_tokens"> | null,  // null when auth itself failed (still logged)
+  consumer_label: string | null,      // denormalized for "every pull from frollie-pro-prod today"
+  endpoint: string,                   // "/api/v1/transactions" | "/api/v1/refunds"
+  http_status: number,                // 200 / 400 / 401 / 403 / 429 / 500
+  error_code?: string,                // contract §4 code on non-2xx
+  returned_count?: number,            // rows in the page (2xx only)
+  cursor_in?: string,
+  cursor_out?: string,                // nextCursor issued (null/absent = caught up)
+  ip?: string,                        // x-forwarded-for if present
+  at: number,
+}  // .index("by_token_at", ["token_id","at"]) + .index("by_consumer_at", ["consumer_label","at"])
 ```
-- Issuance = **manager-PIN-gated** mutation; returns the raw token **once**. CLI for v1 (dashboard UI deferred).
-- Rotation = overlapping 7-day windows (old + new both valid).
-- Audit: new `audit_log.source = "api_consumer"`.
+- Issuance = **manager-PIN-gated** mutation; binds `consumer_label` + `consumer_account_hash` at creation; returns the raw token **once**. CLI for v1 (dashboard UI deferred).
+- Rotation = overlapping 7-day windows (old + new both valid); the new row carries the **same** `consumer_label` + `consumer_account_hash` so identity is stable across rotation.
+- Audit (`audit_log`, business): token **issued / rotated / revoked** + **auth failures** (401/403) only. Routine pulls go to `api_request_log`, not `audit_log`.
 
 ### 4.3 `convex/api/v1/transactions.ts` (httpAction) — `GET /api/v1/transactions`
-- Query: `?cursor=<opaque>&limit=N` (default/max limit TBD, e.g. 100).
-- Cursor decodes to `{ sinceMs, lastId }`; opaque base64.
-- Reads `_listPaidTxnsSince_internal(sinceMs, lastId, limit)` over a **`by_paid_at` index `[paid_at, _id]`** — **add this index if absent** (verify against `convex/transactions/schema.ts`).
-- Only `status === "paid"` rows; ordered `(paid_at, _id)` ascending; `_id` is the tiebreak for equal `paid_at`.
-- `toApiShape()` per row: snake→camel, attach lines, expose `receiptNumber` (never `_id`).
+- Query: `?cursor=<opaque>&limit=N` (limit default **100**, max **500** per contract §3).
+- Cursor decodes to `{ paidAtMs, creationTime }`; opaque base64. `BAD_CURSOR` → `400`.
+- **Reuse the existing `by_status_paid_at: ["status","paid_at"]` index** — do NOT add a new one. The existing `_listPaidTxnsSince_internal` is `.order("desc")` + unbounded `.collect()`; add a **new paginated *ascending* internal query** (`_listPaidTxnsForApi_internal(cursor, limit)`) instead of bending the desc one.
+- Only `status === "paid"`; ordered `(paid_at, _creationTime)` ascending. **The tiebreak is `_creationTime`** — Convex appends it implicitly to every index; `_id` is NOT a nameable index field. Return rows strictly after the cursor.
+- `toApiShape()` per row: snake→camel, attach lines, expose `receiptNumber`/`staffCode`/`productCode` (never `_id`).
 
 Response envelope:
 ```json
@@ -94,7 +135,6 @@ Response envelope:
     {
       "receiptNumber": "R-2026-0042",
       "paidAt": 1718600000000,
-      "status": "paid",
       "subtotal": 90000,
       "voucherCode": "OPEN10",
       "voucherDiscount": 9000,
@@ -106,14 +146,15 @@ Response envelope:
       ]
     }
   ],
-  "nextCursor": "base64(paidAt|_id)"
+  "nextCursor": "base64(paidAt|_creationTime)"
 }
 ```
-`nextCursor === null` when the page is the last. All money = integer rupiah (ADR-015); all `_at` = UTC epoch ms.
+`status` is omitted (only paid rows are returned). `nextCursor === null` when the page is the last. All money = integer rupiah (ADR-015); all `_at` = UTC epoch ms.
 
 ### 4.4 `convex/api/v1/refunds.ts` (httpAction) — `GET /api/v1/refunds`
-- Cursor over `[created_at, _id]` on `pos_refunds`.
-- **Dedup key without a new schema field:** `externalRef = ${receiptNumber}|refund|${createdAt}` ((receiptNumber, created_at) is unique for append-only refunds).
+- Cursor over `(created_at, _creationTime)` on `pos_refunds` (same tiebreak rule as §4.3 — not `_id`).
+- `totalRefund` / `refundAmount` are served as **positive magnitudes**; the ERP applies the sign via `transactionType:"return"` and forms its own dedup id `"{receiptNumber}|R|{createdAt}"` ((receiptNumber, created_at) is unique for append-only refunds).
+- **Two joins the contract shape hides:** `pos_refunds.lines` carry only `{line_id, qty, refund_amount}` (`refunds/schema.ts:11-15`) — no `productCode`, no `receiptNumber`. The handler resolves `transaction_id → pos_transactions.receipt_number` and, per line, `line_id → pos_transaction_lines.product_code_snapshot`. These are **cross-module reads** (refunds vs. transactions ownership), so per ADR-034 they route through a transactions-module internal (e.g. `_resolveRefundLinesForApi_internal`), never direct `ctx.db`.
 - Shape:
 ```json
 {
@@ -126,7 +167,7 @@ Response envelope:
       "lines": [ { "productCode": "DUBAI_8PC", "qty": 1, "refundAmount": 45000 } ]
     }
   ],
-  "nextCursor": "base64(createdAt|_id)"
+  "nextCursor": "base64(createdAt|_creationTime)"
 }
 ```
 
@@ -135,39 +176,30 @@ Register both routes (path prefix `/api/v1/`), method `GET`, handlers from 4.3/4
 
 ---
 
-## 5. ERP side (consumer) — new code
+## 5. ERP side (consumer) — see the consumer spec
 
-### 5.1 Register the source
-- Add `"pos"` to `EXTERNAL_SOURCES` union in `convex/lib/externalSource.ts` (cascades exhaustive switches).
-- Add `channelDeductionEnabled.pos` to `productInventorySettings` (default **false**).
+The consumer is fully specced in
+`product_master\docs\superpowers\specs\2026-06-17-pos-erp-sales-sync-erp-consumer-design.md`
+(verified against the ERP codebase). It is **not** duplicated here — that would
+let the two docs drift. Producer-relevant summary only:
 
-### 5.2 `convex/integrations/pos/adapter.ts` — `ChannelAdapter<PosTxnPayload>`
-- `source: "pos"`.
-- `fetch`: GET the POS endpoint with stored cursor + Bearer (paged).
-- `normalize(payload)`: one `ChannelSaleEvent` per line:
-  - `externalTransactionId = receiptNumber`
-  - `externalItemId = ${receiptNumber}|${productCode}`
-  - `externalProductCode = productCode`
-  - `externalProductName = productName`
-  - `quantity`, `unitPrice` (= `unitPrice`), `transactionDate = paidAt`
+- POS becomes ERP source `"pos"` (a `ChannelAdapter`); `normalize()` emits one
+  `ChannelSaleEvent` per line, joined on `productCode`.
+- The ERP owns all sync state (token + two opaque cursors), pulls hourly, dedups
+  on existing indexes, and keeps inventory deduction **OFF** in v1.
+- Refunds land as `transactionType:"return"` (positive magnitude) — see §4.4 + D3.
 
-### 5.3 `convex/integrations/pos/sync.ts` + cron `syncPosRevenue` (hourly)
-- **Phase A (sales):** page `/api/v1/transactions` until `nextCursor === null`; create `externalRevenue` (`source:"pos"`, `dataOrigin:"api_revenue"`, `confidence:"exact"`, `externalTransactionId = receiptNumber`) + `externalRevenueItems`.
-- **Phase B (refunds):** page `/api/v1/refunds`; create **negative** `externalRevenue`/items keyed to `receiptNumber`, `externalRef = ${receiptNumber}|refund|${createdAt}`.
-- **Cursor persistence:** store sales-cursor and refunds-cursor on the `platformCredentials(platformId:"pos")` row. *(Swap to a dedicated sync-checkpoint table if the ERP already has that idiom — implementer's call.)*
-- Token stored in `platformCredentials(platformId:"pos", currentToken)`.
+**Producer obligation:** keep the contract shapes (CONTRACT.md §5/§6) stable, and
+honor the stable-ID guarantees in §7. Nothing else about the ERP is the POS
+repo's concern.
 
-### 5.4 Product mapping
-Manual via the existing `/admin/unlinked-products` UI: `productCode` → `menuProductId` in `externalProductMappings(source:"pos", externalProductCode)`. ~4 SKUs, one-time.
+## 6. Idempotency / dedup (producer side only)
 
----
-
-## 6. Idempotency / dedup
-
-- POS endpoints are read-only GETs → POS-side `Idempotency-Key` convention does **not** apply.
-- Sales dedup: ERP `externalRef = ${receiptNumber}|${productCode}` + set-once `inventoryDeductedAt` (when deduction later enabled). Re-pulling a page is a no-op.
-- Refunds dedup: `externalRef = ${receiptNumber}|refund|${createdAt}`.
-- Cursor is the primary watermark; dedup keys are the safety net against overlap/replay.
+- POS endpoints are read-only `GET`s → the POS `Idempotency-Key` convention does
+  **not** apply to them.
+- All transaction/line/refund dedup is the **consumer's** job and rides existing
+  ERP keys (`by_source_txn` for parents, `saveRevenueItems` set-once for items) —
+  detailed in the consumer spec §7. The cursor is the primary watermark.
 
 ---
 
@@ -178,15 +210,16 @@ Manual via the existing `/admin/unlinked-products` UI: `productCode` → `menuPr
 - `staff.code` (`staffCode`) — required for attribution field.
 - Cascades through `createStaff`/`_seedStaffCommit_internal`/`_createStaffCommit_internal` allocation logic + raw test inserts.
 - Allocation must be race-safe for `S-NNNN` (sequential, no collisions).
+- **Drop the `?? p.sku_family` fallback** at `transactions/public.ts:214` (`product_code: p.code ?? p.sku_family`). It's necessary-not-sufficient to flip `code` to required: the API serves the *frozen* `product_code_snapshot`, so a sale of a code-less product permanently bakes a non-`UPPERCASE_SNAKE` value into the line. Once `code` is required, commit should refuse a code-less product rather than fall back — guaranteeing every future snapshot conforms to the contract §7 `productCode` format. Live data is already clean (launch catalog seeds real codes, `seed/internal.ts:398-417`).
 
 ---
 
 ## 8. Testing (ADR-034's six gates, scoped to what ships)
 
 1. **Response-shape snapshot tests** — `transactions.snapshot.test.ts`, `refunds.snapshot.test.ts` (fixed input → frozen camelCase envelope).
-2. **Auth-path tests** — valid → 200; bad/missing → 401; scope/endpoint denied → 403; expired/revoked → 401; rate-limit → 429; constant-time-compare regression.
+2. **Auth-path tests** — valid → 200; bad/missing → 401; endpoint not allow-listed → 403; expired/revoked → 401; rate-limit → 429 + `Retry-After`; constant-time-compare regression.
 3. **Stable-ID conformance** — `receiptNumber` `R-YYYY-NNNN`, `productCode` `UPPERCASE_SNAKE(+_<N>PC)`, `staffCode` `S-NNNN`.
-4. **Cursor-pagination test** — multi-page walk returns each row once, no gaps/dupes across page boundaries, `(paid_at, _id)` tiebreak correct.
+4. **Cursor-pagination test** — multi-page walk returns each row once, no gaps/dupes across page boundaries, `(paid_at, _creationTime)` tiebreak correct (incl. two rows sharing a `paid_at` ms straddling a page boundary).
 5. **ERP `normalize()` unit test** — one API txn → N `ChannelSaleEvent`s with correct refs/dates.
 6. **Dedup test** — re-running a sync window inserts zero duplicate revenue rows.
 
@@ -196,7 +229,12 @@ Plus: `npx convex dev --once` schema-composition smoke (both deployments).
 
 ## 9. Open items deferred to planning
 
-- Exact `limit` default/max and cursor encoding format.
-- Whether `staffCode` is sent under `frollie_pro_aggregate_only` scope (PII gating).
-- ERP cursor-storage location (platformCredentials vs dedicated checkpoint table).
-- Dev↔dev rollout first (POS `helpful-grasshopper-46` ↔ ERP `exciting-fennec-671`), then prod↔prod.
+Resolved in reconciliation (no longer open): limit default/max (100/500, contract §3);
+cursor encoding (`base64(orderKeyMs|_creationTime)`); auth hashing (SHA-256); scope
+(single `frollie_pro_full`); ERP cursor storage (`posSyncCheckpoint`, consumer spec §3).
+
+Still open:
+- Exact base64 cursor payload format (JSON vs delimited) — implementer's call; must round-trip `(orderKeyMs, _creationTime)`.
+- Whether `staffCode` is exposed at all (attribution-only; the ERP may not store it — but POS still serves it).
+- Rate-bucket reset mechanism — scheduled action vs lazy window check at request time.
+- Dev↔dev rollout first (POS `helpful-grasshopper-46` ↔ ERP `exciting-fennec-671`), then prod↔prod (POS `savory-zebra-800` ↔ ERP `decisive-wombat-7`).
