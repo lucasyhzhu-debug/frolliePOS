@@ -21,7 +21,7 @@ async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
       active: true, created_at: Date.now(),
     });
     const p = await ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 8pc", pack_label: "8pc",
+      sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pc", pack_label: "8pc",
       price_idr: 200_000, active: true, sort_order: 1, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     });
@@ -71,7 +71,7 @@ async function seedTxnAwaitingWithVoucher(
       active: true, created_at: Date.now(),
     });
     const p = await ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 8pc", pack_label: "8pc",
+      sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pc", pack_label: "8pc",
       price_idr: 200_000, active: true, sort_order: 1, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     });

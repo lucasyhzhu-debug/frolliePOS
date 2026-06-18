@@ -25,7 +25,7 @@ async function seedStaffId(ctx: any) {
 async function seedProductId(ctx: any) {
   const now = Date.now();
   return ctx.db.insert("pos_products", {
-    sku_family: "_seed", name: "Seed Product", pack_label: "1pc",
+    sku_family: "_seed", code: "SEED_1PC", name: "Seed Product", pack_label: "1pc",
     price_idr: 0, tax_rate: 0, active: true, sort_order: 0,
     created_at: now, updated_at: now,
   });

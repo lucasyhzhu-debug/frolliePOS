@@ -35,7 +35,7 @@ async function seedAwaiting(t: ReturnType<typeof convexTest>) {
       active: true, created_at: Date.now(),
     });
     const product = await ctx.db.insert("pos_products", {
-      sku_family: "x", name: "X", pack_label: "1pc", price_idr: 25_000,
+      sku_family: "x", code: "X_1PC", name: "X", pack_label: "1pc", price_idr: 25_000,
       active: true, sort_order: 1, tax_rate: 0,
       created_at: Date.now(), updated_at: Date.now(),
     });

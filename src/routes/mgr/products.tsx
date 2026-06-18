@@ -58,6 +58,7 @@ type ComponentRow = {
 type PinAction =
   | {
       kind: "createProduct";
+      code: string;
       name: string;
       pack_label: string;
       sku_family: string;
@@ -94,6 +95,7 @@ function humanizeCatalogError(e: unknown): string {
   if (m.includes("SKU_NOT_FOUND")) return "Linked SKU not found.";
   if (m.includes("SKU_INACTIVE")) return "Linked SKU is inactive — reactivate it first.";
   if (m.includes("SKU_EXISTS")) return "That SKU already exists.";
+  if (m.includes("INVALID_PRODUCT_CODE")) return "Product code must be UPPERCASE_SNAKE (e.g. DUBAI_8PC).";
   if (m.includes("CODE_EXISTS")) return "That code is already in use.";
   if (m.includes("SKU_INVALID")) return "SKU must be lowercase letters, numbers, or hyphens (max 32).";
   if (m.includes("SKU_FAMILY_NOT_SLUGGABLE")) return "SKU family must be lowercase letters, numbers, or hyphens (max 32) when creating a matching SKU.";
@@ -187,6 +189,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   // ─── Add product dialog ─────────────────────────────────────────────────────
   const [addOpen, setAddOpen] = useState(false);
+  const [addProductCode, setAddProductCode] = useState("");
   const [addName, setAddName] = useState("");
   const [addPackLabel, setAddPackLabel] = useState("");
   const [addSkuFamily, setAddSkuFamily] = useState("");
@@ -250,6 +253,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   }
 
   function openAdd() {
+    setAddProductCode("");
     setAddName("");
     setAddPackLabel("");
     setAddSkuFamily("");
@@ -280,6 +284,12 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       parseIntStrict(addBundleThreshold) !== null);
 
   function submitAddOpenPin() {
+    const code = addProductCode.trim();
+    const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9_]*$/;
+    if (!PRODUCT_CODE_RE.test(code)) {
+      toast.error("Product code must start with a capital letter and contain only A-Z, 0-9, and _. E.g. DUBAI_8PC");
+      return;
+    }
     const name = addName.trim();
     if (name.length === 0 || name.length > 80) {
       toast.error("Name must be 1-80 characters.");
@@ -350,6 +360,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
     setPinAction({
       kind: "createProduct",
+      code,
       name,
       pack_label,
       sku_family,
@@ -592,6 +603,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             sessionId,
             managerPin,
             sku_family: pinAction.sku_family,
+            code: pinAction.code,
             name: pinAction.name,
             pack_label: pinAction.pack_label,
             price_idr: pinAction.price_idr,
@@ -844,6 +856,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="new-product-code">Product code</Label>
+              <Input
+                id="new-product-code"
+                value={addProductCode}
+                onChange={(e) => setAddProductCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""))}
+                placeholder="e.g. DUBAI_8PC"
+              />
+            </div>
             <div className="col-span-2 space-y-1.5">
               <Label htmlFor="new-product-name">Name</Label>
               <Input

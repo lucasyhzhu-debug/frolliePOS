@@ -46,7 +46,7 @@ describe("transactions/public — drafts", () => {
         ended_at: null, end_reason: null,
       });
       const product = await ctx.db.insert("pos_products", {
-        sku_family: "x", name: "P", pack_label: "1pc", price_idr: 10_000,
+        sku_family: "x", code: "X_1PC", name: "P", pack_label: "1pc", price_idr: 10_000,
         active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
       });

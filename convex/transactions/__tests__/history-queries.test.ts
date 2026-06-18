@@ -21,10 +21,10 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
     // _fetchDayWindow_internal projects only the snapshot fields off the line, so the
     // product doesn't need to be coherent — just needs to exist for the validator.
     const productId = await ctx.db.insert("pos_products", {
-      sku_family: "x", name: "X", pack_label: "1pc",
+      sku_family: "x", code: "X_1PC", name: "X", pack_label: "1pc",
       price_idr: args.total ?? 10_000, active: true, sort_order: 1, tax_rate: 0,
       created_at: 0, updated_at: 0,
-    } as any);
+    });
     // One line so DayTxn.lines is non-empty and downstream tests don't sweat it.
     await ctx.db.insert("pos_transaction_lines", {
       transaction_id: id,

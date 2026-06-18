@@ -23,7 +23,7 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff"
     // row is required (the prior "px" cast fails reference validation, not the
     // query under test).
     const productId = await ctx.db.insert("pos_products", {
-      sku_family: "dubai", name: "Dubai 8pcs", pack_label: "8pcs", price_idr: 25_000,
+      sku_family: "dubai", code: "DUBAI_8PC", name: "Dubai 8pcs", pack_label: "8pcs", price_idr: 25_000,
       active: true, sort_order: 0, tax_rate: 0, created_at: createdAt, updated_at: createdAt,
     });
     const txnId = await ctx.db.insert("pos_transactions", {

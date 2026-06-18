@@ -269,8 +269,9 @@ export const commitCart = mutation({
           productId, qty,
           unit_price: p.price_idr,
           product_name: p.name,
-          // code is optional until F6; fall back to sku_family for the frozen ADR-001 snapshot
-          product_code: p.code ?? p.sku_family,
+          // code is required (sync prereq) — snapshot it directly. A code-less product
+          // cannot reach a sale: createProduct refuses one, and the schema rejects it.
+          product_code: p.code,
           tax_rate: p.tax_rate,
         });
       }

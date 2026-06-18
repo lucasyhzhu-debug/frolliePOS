@@ -27,6 +27,7 @@ export const createProduct = action({
     sessionId: v.id("staff_sessions"),
     managerPin: v.string(),
     sku_family: v.string(),
+    code: v.string(),
     name: v.string(),
     pack_label: v.string(),
     price_idr: v.number(),
@@ -54,6 +55,8 @@ export const createProduct = action({
       { key: args.idempotencyKey, mutationName: "catalog.createProduct" },
       () => assertManagerSessionInAction(ctx, args.sessionId),
       async () => {
+        const PRODUCT_CODE = /^[A-Z][A-Z0-9_]*$/;  // accepts DUBAI_8PC and component-style codes
+        if (!PRODUCT_CODE.test(args.code)) throw new Error("INVALID_PRODUCT_CODE");
         const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
           sessionId: args.sessionId,
           managerPin: args.managerPin,
@@ -67,6 +70,7 @@ export const createProduct = action({
           mgrId: managerId,
           deviceId,
           sku_family: args.sku_family,
+          code: args.code,
           name: args.name,
           pack_label: args.pack_label,
           price_idr: args.price_idr,

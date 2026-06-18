@@ -161,7 +161,7 @@ export const _getProductsByIds_internal = internalQuery({
     tax_rate: number;
     active: boolean;
     sku_family: string;
-    code?: string;
+    code: string;
   }>> => {
     // Parallel point lookups (I8 — was a sequential get loop). Missing ids drop out.
     const rows = await Promise.all(args.productIds.map((id) => ctx.db.get(id)));
@@ -383,6 +383,7 @@ export const _createProductCommit_internal = internalMutation({
     idempotencyKey: v.string(),
     mgrId: v.id("staff"),
     sku_family: v.string(),
+    code: v.string(),
     name: v.string(),
     pack_label: v.string(),
     price_idr: v.number(),
@@ -406,6 +407,7 @@ export const _createProductCommit_internal = internalMutation({
       idempotencyKey: string;
       mgrId: Id<"staff">;
       sku_family: string;
+      code: string;
       name: string;
       pack_label: string;
       price_idr: number;
@@ -494,6 +496,7 @@ export const _createProductCommit_internal = internalMutation({
 
       const productId = await ctx.db.insert("pos_products", {
         sku_family: args.sku_family,
+        code: args.code,
         name: args.name.trim(),
         pack_label: args.pack_label,
         price_idr: args.price_idr,
