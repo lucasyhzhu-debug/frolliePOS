@@ -2,6 +2,11 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { describe, it, expect } from "vitest";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// v1.0.1: _confirmPaid now schedules sendTxnTicker; stub Telegram + drain to
+// avoid "Write outside of transaction" errors from the pending scheduled action.
+setupTelegramStub();
 
 describe("_confirmPaid_internal mints receipt_token", () => {
   it("a confirmed paid txn has a 43-char base64url receipt_token", async () => {
@@ -32,6 +37,7 @@ describe("_confirmPaid_internal mints receipt_token", () => {
       expect(txn?.receipt_token?.length).toBe(43);
       expect(txn?.receipt_token).toMatch(/^[A-Za-z0-9_-]+$/);
     });
+    await drainScheduled(t);
   });
 
   it("re-fire after paid is a no-op — receipt_token stays stable", async () => {
@@ -62,5 +68,6 @@ describe("_confirmPaid_internal mints receipt_token", () => {
     const secondToken = await t.run(async (ctx) => (await ctx.db.get(txnId))?.receipt_token);
 
     expect(secondToken).toBe(firstToken);
+    await drainScheduled(t);
   });
 });

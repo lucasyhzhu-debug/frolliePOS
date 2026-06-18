@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-18 — v1.0.1 Launch-day ops observability
+- Error pipe: client + backend failures `POST /ops/error` → deduped/storm-capped `pos_error_reports` (append-only telemetry, NOT `audit_log`) → `system_error` alert to the new Telegram `ops` role. New env vars `OPS_INGEST_TOKEN` (Convex) + `VITE_OPS_INGEST_TOKEN` (Vercel/`.env.local`) — set on both dev and prod before the FE deploy or `/ops/error` silently 204s (RUNBOOK §5).
+- Live sales ticker: every paid sale posts a silent `txn_ticker` message to the Managers group, hooked into `_confirmPaid_internal`; toggle `pos_settings.txn_ticker_enabled` (default on).
+- Runbook §9: pre-run smoke checklist + sanctioned hot-fix protocol + rollback + ticker-off.
+
 ## 2026-06-17 — v1.1 Security Hardening
 - SEC-01: PIN-lockout counter no longer dedupes on client idempotencyKey (brute-force fix).
 - SEC-02: `commitCart` rejects non-positive/fractional quantities at the trust boundary.

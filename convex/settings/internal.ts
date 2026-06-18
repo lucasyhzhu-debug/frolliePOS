@@ -16,6 +16,8 @@ export const _getSettings_internal = internalQuery({
     const row = await ctx.db.query("pos_settings").first();
     return {
       founders_summary_enabled: row?.founders_summary_enabled ?? true,
+      // v1.0.1: read-time default true — no migration needed for existing prod row
+      txn_ticker_enabled: row?.txn_ticker_enabled ?? true,
       receipt: {
         business_name: row?.receipt_business_name ?? RECEIPT_DEFAULTS.business_name,
         address: row?.receipt_address ?? RECEIPT_DEFAULTS.address,

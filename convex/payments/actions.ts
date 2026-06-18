@@ -1,11 +1,32 @@
 "use node";
 
-import { action } from "../_generated/server";
+import { action, ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal, api } from "../_generated/api";
 import { verifyPinOrThrow } from "../auth/verifyPin";
 import { createQrisCharge, createBcaVaCharge } from "./xendit";
+
+/**
+ * Best-effort ops report for payment-path failures. Never throws.
+ * NOTE: the FE (charge.tsx) also reports payment failures from its own vantage
+ * (route "useXenditPayment"). The differing routes mean a single Xendit outage
+ * surfaces as two reports — intentional: server-side captures the real Xendit
+ * error, client-side captures transport/client failures the server never sees.
+ */
+async function reportPaymentError(
+  ctx: ActionCtx,
+  err: unknown,
+  route: string,
+): Promise<void> {
+  try {
+    await ctx.runMutation(internal.ops.internal._recordError_internal, {
+      kind: "payment" as const,
+      message: err instanceof Error ? err.message : String(err),
+      route,
+    });
+  } catch { /* swallow — reporting must not mask the original error */ }
+}
 
 /**
  * Create a Xendit invoice for a transaction. Action-level idempotency pattern
@@ -45,10 +66,17 @@ export const requestPayment = action({
 
     // 3. Mint the charge via the deep adapter (QR Codes for QRIS, FVA for BCA).
     const ref = `pos-${args.txnId}`;
-    const charge =
-      args.method === "QRIS"
-        ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
-        : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
+    let charge: Awaited<ReturnType<typeof createQrisCharge>>;
+    try {
+      charge =
+        args.method === "QRIS"
+          ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
+          : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
+    } catch (err) {
+      // v1.0.1: best-effort ops report — kind: "payment"; always rethrow
+      await reportPaymentError(ctx, err, "convex/payments/actions.requestPayment");
+      throw err;
+    }
 
     // 4. Commit invoice + cache row atomically (returns the full action response).
     return await ctx.runMutation(
@@ -109,10 +137,17 @@ export const retryWithFreshInvoice = action({
     // reference. Matching is on the globally-unique provider id; this only avoids
     // any Xendit-side duplicate-reference ambiguity.
     const ref = `pos-${args.txnId}-r-${crypto.randomUUID()}`;
-    const charge =
-      args.method === "QRIS"
-        ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
-        : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
+    let charge: Awaited<ReturnType<typeof createQrisCharge>>;
+    try {
+      charge =
+        args.method === "QRIS"
+          ? await createQrisCharge(ref, txn.total, args.idempotencyKey)
+          : await createBcaVaCharge(ref, txn.total, args.idempotencyKey);
+    } catch (err) {
+      // v1.0.1: best-effort ops report — kind: "payment"; always rethrow
+      await reportPaymentError(ctx, err, "convex/payments/actions.retryWithFreshInvoice");
+      throw err;
+    }
 
     // No Xendit "expire" exists for QR codes; the prior row is superseded locally
     // (Decision E). Pass a success outcome — the local supersede did succeed.

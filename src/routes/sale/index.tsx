@@ -17,6 +17,7 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { reportOps } from "@/lib/reportOps";
 
 export default function Sale() {
   const navigate = useNavigate();
@@ -145,6 +146,7 @@ export default function Sale() {
         state: result.voucher_rejected ? { voucher_rejected: result.voucher_rejected } : undefined,
       });
     } catch (err) {
+      reportOps({ kind: "mutation", error: err });
       const msg = err instanceof Error ? err.message : "Could not start charge";
       toast.error(msg);
     }

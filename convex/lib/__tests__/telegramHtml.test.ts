@@ -1,5 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { renderLowStockAlert, renderRecountNotice } from "../telegramHtml";
+import { renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker } from "../telegramHtml";
+
+describe("renderSystemError", () => {
+  it("escapes HTML and has no buttons", () => {
+    const m = renderSystemError({ kind: "crash", message: "<script>boom</script>", occurred_at: 0 });
+    expect(m.text).toContain("&lt;script&gt;");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+});
+
+describe("renderTxnTicker", () => {
+  it("formats money + lines, escapes names, no buttons", () => {
+    const m = renderTxnTicker({
+      receipt_number: "R-2026-0042", total: 320000,
+      lines: [{ name: "Dubai <Cookie>", qty: 3 }], staff_name: "Bayu",
+      instrument: "QRIS", paid_at: 0,
+    });
+    expect(m.text).toContain("320.000");
+    expect(m.text).toContain("3× Dubai &lt;Cookie&gt;");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+  it("truncates beyond 6 lines", () => {
+    const lines = Array.from({ length: 9 }, (_, i) => ({ name: `P${i}`, qty: 1 }));
+    const m = renderTxnTicker({ receipt_number: "R", total: 1, lines, staff_name: "X", instrument: "QRIS", paid_at: 0 });
+    expect(m.text).toContain("…+3 more");
+  });
+});
 
 describe("telegramHtml v0.5.2 renderers", () => {
   it("renderLowStockAlert escapes the sku name and shows the numbers", () => {

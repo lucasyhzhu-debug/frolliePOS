@@ -1,4 +1,5 @@
 import { defineSchema } from "convex/server";
+import { opsTables } from "./ops/schema";
 import { authTables } from "./auth/schema";
 import { catalogTables } from "./catalog/schema";
 import { idempotencyTables } from "./idempotency/schema";
@@ -15,6 +16,7 @@ import { settingsTables } from "./settings/schema";
 import { settlementsTables } from "./settlements/schema";
 
 export default defineSchema({
+  ...opsTables,
   ...authTables,
   ...catalogTables,
   ...idempotencyTables,

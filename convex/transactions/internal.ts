@@ -297,6 +297,15 @@ export const _confirmPaid_internal = internalMutation({
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });
+
+    // v1.0.1: live sales ticker → Managers. Scheduled (not inline) so a
+    // Telegram failure runs in its own transaction and can never roll back the
+    // paid sale. The status === "paid" guard above guarantees this branch runs
+    // once per txn → exactly one ticker fires. Toggle/role checks live in
+    // sendTxnTicker itself.
+    await ctx.scheduler.runAfter(0, internal.telegram.txnTicker.sendTxnTicker, {
+      txnId: args.txnId,
+    });
   },
 });
 
@@ -730,5 +739,43 @@ export const _getTxnById_internal = internalQuery({
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
       .collect();
     return { ...txn, lines };
+  },
+});
+
+/**
+ * v1.0.1: Minimal txn read for the sales ticker. Returns only the fields
+ * sendTxnTicker needs — avoids pulling the entire txn+lines object through
+ * the action boundary. Returns null if txn is absent or not yet paid (the
+ * ticker fires on a 0-ms delay; the status guard is a safety net).
+ */
+export const _getTxnForTicker_internal = internalQuery({
+  args: { txnId: v.id("pos_transactions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    receipt_number: string;
+    total: number;
+    paid_at: number;
+    staff_id: Id<"staff">;
+    confirmed_via: "webhook" | "polling" | "manual" | null;
+    lines: Array<{ name: string; qty: number }>;
+  } | null> => {
+    const txn = await ctx.db.get(args.txnId);
+    if (!txn || txn.status !== "paid") return null;
+    const lineRows = await ctx.db
+      .query("pos_transaction_lines")
+      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .collect();
+    return {
+      receipt_number: txn.receipt_number ?? "—",
+      total: txn.total,
+      // paid_at is set alongside status="paid" in _confirmPaid (ADR-031), so the
+      // status guard above makes it present — assert rather than invent a time.
+      paid_at: txn.paid_at!,
+      staff_id: txn.staff_id,
+      confirmed_via: txn.confirmed_via ?? null,
+      lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
+    };
   },
 });

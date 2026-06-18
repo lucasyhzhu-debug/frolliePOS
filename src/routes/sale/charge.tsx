@@ -24,6 +24,7 @@ import { ApprovalPending } from "@/components/pos/ApprovalPending";
 import { ManagerPickerOverlay } from "@/components/pos/ManagerPickerOverlay";
 import { VoucherRejectBanner } from "./voucher-reject-banner";
 import { toast } from "sonner";
+import { reportOps } from "@/lib/reportOps";
 
 type VoucherRejected = {
   code: string;
@@ -215,6 +216,7 @@ export default function SaleCharge() {
       } catch (err) {
         // Allow a later attempt to retry this method.
         requestedMethods.current.delete(method);
+        reportOps({ kind: "payment", error: err, route: "useXenditPayment" });
         const msg =
           err instanceof Error ? err.message : "Could not start payment";
         toast.error(msg);

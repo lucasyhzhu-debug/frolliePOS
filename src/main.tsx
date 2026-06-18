@@ -5,6 +5,20 @@ import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { Toaster } from "sonner";
 import { router } from "@/router";
 import "@/index.css";
+import { reportOps } from "@/lib/reportOps";
+import { isChunkLoadError } from "@/lib/chunkLoadError";
+
+// Global unhandled error reporters — registered once at startup.
+// Chunk-load errors (stale deploy / offline) are excluded: they are noise, not
+// actionable crashes, and historically caused reload loops (ADR-025).
+window.addEventListener("error", (e) => {
+  if (isChunkLoadError(e.error)) return;
+  reportOps({ kind: "unhandled", error: e.error ?? e.message });
+});
+window.addEventListener("unhandledrejection", (e) => {
+  if (isChunkLoadError(e.reason)) return;
+  reportOps({ kind: "unhandled", error: e.reason });
+});
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 

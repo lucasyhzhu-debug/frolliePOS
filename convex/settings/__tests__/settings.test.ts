@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import schema from "../../schema";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 
 it("defaults founders_summary_enabled to true when the row is absent", async () => {
   const t = convexTest(schema);
@@ -56,6 +56,27 @@ it("manager toggles the flag; staff is rejected", async () => {
       enabled: true,
     }),
   ).rejects.toThrow(/MANAGER_ONLY/);
+});
+
+describe("txn_ticker_enabled", () => {
+  it("defaults txn_ticker_enabled true when row absent", async () => {
+    const t = convexTest(schema);
+    const s = await t.query(internal.settings.internal._getSettings_internal, {});
+    expect(s.txn_ticker_enabled).toBe(true);
+  });
+
+  it("returns false when row has txn_ticker_enabled: false", async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_settings", {
+        founders_summary_enabled: true,
+        txn_ticker_enabled: false,
+        updated_at: Date.now(),
+      });
+    });
+    const s = await t.query(internal.settings.internal._getSettings_internal, {});
+    expect(s.txn_ticker_enabled).toBe(false);
+  });
 });
 
 it("setFoundersSummaryEnabled replays the cached result for the same idempotencyKey without re-auditing", async () => {
