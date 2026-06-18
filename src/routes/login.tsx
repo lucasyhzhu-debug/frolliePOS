@@ -106,14 +106,14 @@ export default function LoginRoute() {
   // Show a minimal loading state while the device id is being resolved from IDB.
   if (deviceId === null) {
     return (
-      <main className="dark flex flex-1 flex-col bg-background p-6 text-foreground">
+      <main className="flex flex-1 flex-col bg-background p-6 text-foreground">
         <div className="text-sm text-muted-foreground">Loading…</div>
       </main>
     );
   }
 
   return (
-    <main className="dark flex flex-1 flex-col bg-background p-6 text-foreground">
+    <main className="flex flex-1 flex-col bg-background p-6 text-foreground">
       {/* Brand mark */}
       <div className="mb-8 flex flex-col items-center gap-1 pt-6">
         <span className="text-2xl font-bold tracking-tight text-primary">frollie</span>
