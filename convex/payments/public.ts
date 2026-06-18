@@ -18,12 +18,14 @@ import { wibDayWindow } from "../lib/time";
 export const getCurrentInvoice = query({
   args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
   handler: async (ctx, args) => {
-    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
-      sessionId: args.sessionId,
-    });
-    if (!who) return null;
-    const txn = await ctx.db.get(args.txnId);
-    if (!txn) return null;
+    // Day-scope gate mirrors transactions.resolveScopedTxn (single-writer there;
+    // can't import a local fn cross-module). The two independent reads run in
+    // parallel. Gates on the TRANSACTION's day, not the invoice's.
+    const [who, txn] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, { sessionId: args.sessionId }),
+      ctx.db.get(args.txnId),
+    ]);
+    if (!who || !txn) return null;
     if (who.role !== "manager") {
       const today = wibDayWindow(Date.now());
       if (txn.created_at < today.dayStartMs || txn.created_at >= today.dayEndMs) return null;

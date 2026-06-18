@@ -9,11 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/errors";
 
 // SEC-04: map the raw structured errors from activateDevice to friendly copy.
 // ACTIVATION_LOCKED:<secs> surfaces after the throttle trips (per-device or global).
+// Uses the shared errorMessage() so a ConvexError (payload on .data, not .message)
+// is unwrapped correctly instead of falling through to the generic fallback.
 function friendlyActivationError(err: unknown): string {
-  const msg = err instanceof Error ? err.message : "";
+  const msg = errorMessage(err);
   const locked = msg.match(/ACTIVATION_LOCKED:(\d+)/);
   if (locked) return `Too many attempts. Try again in ${locked[1]}s.`;
   if (msg.includes("INVALID_CODE")) return "Invalid or expired code.";

@@ -63,6 +63,9 @@ export async function recordActivationFailure(
   if (dev) {
     await ctx.db.patch(dev._id, { fail_count: devNext, locked_until: devLock, last_attempt_at: now });
   } else {
+    // window_start_at is only meaningful for the global rolling-window row; the
+    // per-device path uses fail_count + locked_until only. Set to `now` to satisfy
+    // the (non-optional) schema; device rows never read it.
     await ctx.db.insert("pos_device_activation_attempts", {
       key: deviceId, fail_count: devNext, window_start_at: now, locked_until: devLock, last_attempt_at: now,
     });
