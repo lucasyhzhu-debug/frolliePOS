@@ -5,6 +5,28 @@ import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 
 /**
+ * Pre-migration null-code audit. Scans pos_products and staff for rows where
+ * `code` is absent. Used as a deployment gate before Tasks 2–3 flip `code`
+ * from optional to required in the schema (Convex rejects a deploy if any
+ * existing row violates the stricter type). Run against both dev and prod
+ * before proceeding with the schema flip.
+ *
+ * Returns arrays of `_id` strings so the caller can patch offending rows by
+ * ID without re-querying.
+ */
+export const _auditMissingCodes_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ productsMissing: string[]; staffMissing: string[] }> => {
+    const products = await ctx.db.query("pos_products").collect();
+    const staff = await ctx.db.query("staff").collect();
+    return {
+      productsMissing: products.filter((p) => !p.code).map((p) => String(p._id)),
+      staffMissing: staff.filter((s) => !s.code).map((s) => String(s._id)),
+    };
+  },
+});
+
+/**
  * Active inventory SKU ids. Exposed so other modules (e.g. inventory) can
  * filter by active status without reaching into catalog-owned tables
  * directly (ADR-034 module boundary).
