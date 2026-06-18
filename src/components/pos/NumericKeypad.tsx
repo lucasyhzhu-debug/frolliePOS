@@ -62,6 +62,7 @@ export function NumericKeypad({
                 aria-label="Clear"
                 className={cn(
                   "tabular text-base font-medium",
+                  "border border-border text-foreground",
                   isCompact ? "h-12" : "h-14"
                 )}
                 onClick={handleClear}
@@ -78,7 +79,10 @@ export function NumericKeypad({
                 type="button"
                 variant="secondary"
                 aria-label="Backspace"
-                className={cn(isCompact ? "h-12" : "h-14")}
+                className={cn(
+                  "border border-border text-foreground",
+                  isCompact ? "h-12" : "h-14"
+                )}
                 onClick={handleBackspace}
               >
                 <Delete className="h-5 w-5" />
@@ -94,6 +98,7 @@ export function NumericKeypad({
               aria-label={`Digit ${key}`}
               className={cn(
                 "tabular font-medium",
+                "border-border bg-secondary text-foreground hover:bg-accent hover:text-accent-foreground",
                 isCompact ? "h-12 text-xl" : "h-14 text-2xl"
               )}
               onClick={() => onPress(key)}
