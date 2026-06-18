@@ -27,6 +27,56 @@ export const _auditMissingCodes_internal = internalQuery({
 });
 
 /**
+ * THROWAWAY MIGRATION ARTIFACT (sync prereq, Tasks 0/2/3). Backfills `code`
+ * onto the specific code-less prod rows that `_auditMissingCodes_internal`
+ * surfaced, BEFORE the schema flip makes `code` required. Explicit per-row
+ * `{ id, code }` mapping (prod `_id`s passed at the run command, never
+ * committed). Validates the contract code format, refuses to overwrite an
+ * existing code (idempotent re-runs are safe), and reports what it touched.
+ * Delete once prod is backfilled and the schema flip has shipped.
+ */
+const PRODUCT_CODE_RE = /^[A-Z][A-Z0-9_]*$/;
+const STAFF_CODE_RE = /^S-\d{4}$/;
+export const _backfillMissingCodes_internal = internalMutation({
+  args: {
+    products: v.array(v.object({ id: v.id("pos_products"), code: v.string() })),
+    staff: v.array(v.object({ id: v.id("staff"), code: v.string() })),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ patched: string[]; skippedExisting: string[] }> => {
+    const patched: string[] = [];
+    const skippedExisting: string[] = [];
+    for (const p of args.products) {
+      if (!PRODUCT_CODE_RE.test(p.code))
+        throw new Error(`INVALID_PRODUCT_CODE ${p.code}`);
+      const row = await ctx.db.get(p.id);
+      if (!row) throw new Error(`NO_SUCH_PRODUCT ${p.id}`);
+      if (row.code) {
+        skippedExisting.push(`${p.id}=${row.code}`);
+        continue;
+      }
+      await ctx.db.patch(p.id, { code: p.code });
+      patched.push(`product:${p.id}=${p.code}`);
+    }
+    for (const s of args.staff) {
+      if (!STAFF_CODE_RE.test(s.code))
+        throw new Error(`INVALID_STAFF_CODE ${s.code}`);
+      const row = await ctx.db.get(s.id);
+      if (!row) throw new Error(`NO_SUCH_STAFF ${s.id}`);
+      if (row.code) {
+        skippedExisting.push(`${s.id}=${row.code}`);
+        continue;
+      }
+      await ctx.db.patch(s.id, { code: s.code });
+      patched.push(`staff:${s.id}=${s.code}`);
+    }
+    return { patched, skippedExisting };
+  },
+});
+
+/**
  * Active inventory SKU ids. Exposed so other modules (e.g. inventory) can
  * filter by active status without reaching into catalog-owned tables
  * directly (ADR-034 module boundary).
