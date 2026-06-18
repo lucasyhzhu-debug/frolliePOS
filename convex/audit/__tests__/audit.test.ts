@@ -26,6 +26,7 @@ describe("logAudit", () => {
     const staffId = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
         name: "Citra",
+        code: "S-0001",
         pin_hash: "$argon2id$dummy",
         role: "staff",
         active: true,

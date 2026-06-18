@@ -7,6 +7,7 @@ import { internal } from "../../_generated/api";
 async function seedStaffId(ctx: any) {
   return ctx.db.insert("staff", {
     name: "Test Staff",
+    code: "S-0001",
     pin_hash: "$argon2id$dummy",
     role: "staff",
     active: true,

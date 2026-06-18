@@ -521,25 +521,35 @@ export const _createStaffCommit_internal = internalMutation({
       role: "staff" | "manager";
       pin_hash: string;
     },
-    { _id: Id<"staff">; name: string; role: "staff" | "manager" }
+    { _id: Id<"staff">; name: string; role: "staff" | "manager"; code: string }
   >(
     "staff.createStaff",
     async (ctx, args) => {
       const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
+      // Allocate next S-NNNN. Reading all staff codes inside the mutation makes
+      // the read part of the OCC read-set: a concurrent createStaff that also
+      // allocated will conflict and retry, so codes never collide (ADR-031 server-time
+      // analogue for sequential IDs).
+      const all = await ctx.db.query("staff").collect();
+      const maxN = all.reduce((m, s) => {
+        const n = s.code?.match(/^S-(\d{4})$/)?.[1];
+        return n ? Math.max(m, parseInt(n, 10)) : m;
+      }, 0);
+      const code = `S-${String(maxN + 1).padStart(4, "0")}`;
       // SEC-03 scope note (v1.1): must_change_pin is intentionally NOT set here.
       // The audit (SEC-03) targeted only the hardcoded bootstrap PIN; forcing
       // rotation on every manager-created staffer is a product/UX change that
       // belongs in its own spec (deferred — v1.1 follow-up), not this audit-fix.
       const newId = await ctx.db.insert("staff", {
         name: args.name, pin_hash: args.pin_hash, role: args.role,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), code,
       });
       await logAudit(ctx, {
         actor_id: mgrId, action: "staff.created",
         entity_type: "staff", entity_id: newId,
         source: "booth_inline", device_id: deviceId,
       });
-      return { _id: newId, name: args.name, role: args.role };
+      return { _id: newId, name: args.name, role: args.role, code };
     },
     {
       authCheck: async (ctx, args) => {

@@ -32,7 +32,7 @@ async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
       inventory_sku_id: dubai, on_hand: 100, updated_at: Date.now(),
     });
     const staff = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "$argon2id$x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0001", pin_hash: "$argon2id$x", role: "manager", active: true, created_at: Date.now(),
     });
     const txn = await ctx.db.insert("pos_transactions", {
       status: "awaiting_payment", subtotal: 200_000, voucher_discount: 0,
@@ -82,7 +82,7 @@ async function seedTxnAwaitingWithVoucher(
       inventory_sku_id: dubai, on_hand: 100, updated_at: Date.now(),
     });
     const staff = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "$argon2id$x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0001", pin_hash: "$argon2id$x", role: "manager", active: true, created_at: Date.now(),
     });
     const voucherId = await ctx.db.insert("pos_vouchers", {
       code: voucher.code,

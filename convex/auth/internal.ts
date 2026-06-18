@@ -446,12 +446,21 @@ export const _seedStaffCommit_internal = internalMutation({
     role: v.union(v.literal("staff"), v.literal("manager")),
   },
   handler: async (ctx, args): Promise<Id<"staff">> => {
+    // Allocate next S-NNNN using the same OCC-safe collect-and-reduce pattern
+    // as _createStaffCommit_internal (seed path must also assign a stable code).
+    const all = await ctx.db.query("staff").collect();
+    const maxN = all.reduce((m, s) => {
+      const n = s.code?.match(/^S-(\d{4})$/)?.[1];
+      return n ? Math.max(m, parseInt(n, 10)) : m;
+    }, 0);
+    const code = `S-${String(maxN + 1).padStart(4, "0")}`;
     return await ctx.db.insert("staff", {
       name: args.name,
       pin_hash: args.pin_hash,
       role: args.role,
       active: true,
       created_at: Date.now(),
+      code,
     });
   },
 });

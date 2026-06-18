@@ -7,7 +7,7 @@ import { Id } from "../../_generated/dataModel";
 async function seedStaff(t: ReturnType<typeof convexTest>, role: "staff" | "manager") {
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
-      name: "Ali", pin_hash: "x", role, active: true, created_at: Date.now(),
+      name: "Ali", code: "S-0001", pin_hash: "x", role, active: true, created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "dev-1",

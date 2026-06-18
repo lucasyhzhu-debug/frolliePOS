@@ -25,7 +25,7 @@ describe("pending_device_setups schema — issuance paths", () => {
     const t = convexTest(schema);
     const staffId = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "M", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+        name: "M", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
       }),
     );
     const id = await t.run(async (ctx) =>

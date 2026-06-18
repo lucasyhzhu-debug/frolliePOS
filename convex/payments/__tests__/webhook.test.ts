@@ -19,7 +19,7 @@ async function seedAwaitingWithInvoice(
 ) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "L", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const sku = await ctx.db.insert("pos_inventory_skus", {
       sku: "x", name: "X", unit: "piece", low_threshold: 0,

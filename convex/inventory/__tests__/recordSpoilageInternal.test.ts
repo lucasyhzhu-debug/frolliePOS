@@ -39,7 +39,7 @@ describe("inventory._recordSpoilage_internal", () => {
     });
     const mgr = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "M", pin_hash: "$argon2id$x", role: "manager",
+        name: "M", code: "S-0001", pin_hash: "$argon2id$x", role: "manager",
         active: true, created_at: Date.now(),
       }),
     );
@@ -95,7 +95,7 @@ describe("inventory._recordSpoilage_internal", () => {
     );
     const mgr = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "M", pin_hash: "$argon2id$x", role: "manager",
+        name: "M", code: "S-0001", pin_hash: "$argon2id$x", role: "manager",
         active: true, created_at: Date.now(),
       }),
     );
@@ -116,7 +116,7 @@ describe("inventory._recordSpoilage_internal", () => {
     const t = convexTest(schema);
     const mgr = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "M", pin_hash: "$argon2id$x", role: "manager",
+        name: "M", code: "S-0001", pin_hash: "$argon2id$x", role: "manager",
         active: true, created_at: Date.now(),
       }),
     );
@@ -141,7 +141,7 @@ describe("inventory._recordSpoilage_internal", () => {
     );
     const mgr = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
-        name: "M", pin_hash: "$argon2id$x", role: "manager",
+        name: "M", code: "S-0001", pin_hash: "$argon2id$x", role: "manager",
         active: true, created_at: Date.now(),
       }),
     );

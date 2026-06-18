@@ -14,7 +14,7 @@ async function seedProductAndSession(
 ): Promise<{ sessionId: Id<"staff_sessions">; productId: Id<"pos_products"> }> {
   return t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "T", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
+      name: "T", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "d1", started_at: Date.now(),
@@ -43,7 +43,7 @@ async function seedProductAndSession(
 async function seedCatalog(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0002", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "dev-1", started_at: Date.now(),

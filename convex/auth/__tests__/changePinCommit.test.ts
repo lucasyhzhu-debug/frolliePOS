@@ -6,10 +6,10 @@ import { internal } from "../../_generated/api";
 async function seedStaff(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
-      name: "Lucy", pin_hash: "old-hash", role: "staff", active: true, created_at: Date.now(),
+      name: "Lucy", code: "S-0001", pin_hash: "old-hash", role: "staff", active: true, created_at: Date.now(),
     });
     const mgr = await ctx.db.insert("staff", {
-      name: "Lucas", pin_hash: "mgr-hash", role: "manager", active: true, created_at: Date.now(),
+      name: "Lucas", code: "S-0002", pin_hash: "mgr-hash", role: "manager", active: true, created_at: Date.now(),
     });
     return { staff, mgr };
   });
@@ -36,7 +36,7 @@ describe("_changePinCommit_internal", () => {
   it("SEC-03: clears must_change_pin after a successful change", async () => {
     const t = convexTest(schema);
     const staff = await t.run((ctx) => ctx.db.insert("staff", {
-      name: "Lucy", pin_hash: "old-hash", role: "manager", active: true,
+      name: "Lucy", code: "S-0001", pin_hash: "old-hash", role: "manager", active: true,
       created_at: Date.now(), must_change_pin: true,
     }));
     await t.mutation(internal.auth.internal._changePinCommit_internal, {
