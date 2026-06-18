@@ -18,6 +18,7 @@ describe("stable-ID conformance", () => {
     const { rawToken } = await t.mutation(internal.api.v1.internal._issueApiToken_internal, {
       label: "t", endpointAllowList: ["/api/v1/transactions"], rateLimitRpm: 1000 });
     const body = await (await t.fetch("/api/v1/transactions", { method: "GET", headers: { Authorization: `Bearer ${rawToken}` } })).json();
+    expect(body.data.length).toBeGreaterThan(0);
     for (const txn of body.data) {
       expect(RECEIPT.test(txn.receiptNumber)).toBe(true);
       expect(STAFF.test(txn.staffCode)).toBe(true);
