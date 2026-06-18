@@ -269,6 +269,58 @@ export function renderStockDriftAlert(p: StockDriftAlertPayload): RenderedMessag
   return { text };
 }
 
+// v1.0.1: ops error alert — informational, no inline keyboard.
+export type SystemErrorPayload = {
+  kind: string;
+  message: string;
+  route?: string;
+  staff_code?: string;
+  device_id?: string;
+  app_version?: string;
+  occurred_at: number;
+};
+
+export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
+  const lines = [
+    `🚨 <b>POS error</b> · ${escapeHtml(p.kind)}`,
+    p.route ? `Route: <code>${escapeHtml(p.route)}</code>` : null,
+    `${escapeHtml(p.message)}`,
+    [p.staff_code ? `staff ${escapeHtml(p.staff_code)}` : null,
+     p.device_id ? `dev ${escapeHtml(p.device_id)}` : null,
+     p.app_version ? `v${escapeHtml(p.app_version)}` : null]
+      .filter(Boolean).join(" · ") || null,
+    formatWibDateTime(p.occurred_at),
+  ].filter(Boolean);
+  return { text: lines.join("\n") };
+}
+
+export const TICKER_MAX_LINES = 6;
+
+export type TxnTickerPayload = {
+  receipt_number: string;
+  total: number;
+  lines: Array<{ name: string; qty: number }>;
+  staff_name: string;
+  instrument: string;
+  paid_at: number;
+};
+
+// v1.0.1: live sales ticker — informational, no inline keyboard, silent notification.
+export function renderTxnTicker(p: TxnTickerPayload): RenderedMessage {
+  const shown = p.lines.slice(0, TICKER_MAX_LINES);
+  const overflow = p.lines.length - shown.length;
+  const itemLines = shown.map((l) => `${l.qty}× ${escapeHtml(l.name)}`);
+  if (overflow > 0) itemLines.push(`…+${overflow} more`);
+  const wib = formatWibDateTime(p.paid_at);
+  return {
+    text: [
+      `🧾 #${escapeHtml(p.receipt_number)} · Rp ${formatIdr(p.total)}`,
+      ...itemLines,
+      `${escapeHtml(p.staff_name)} · ${escapeHtml(p.instrument)} · ${wib}`,
+    ].join("\n"),
+  };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

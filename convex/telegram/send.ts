@@ -12,11 +12,15 @@ import {
   renderRecountNotice,
   renderSpoilageApproval,
   renderStockDriftAlert,
+  renderSystemError,
+  renderTxnTicker,
   type RenderedMessage,
   type LowStockAlertPayload,
   type RecountNoticePayload,
   type SpoilageApprovalPayload,
   type StockDriftAlertPayload,
+  type SystemErrorPayload,
+  type TxnTickerPayload,
 } from "../lib/telegramHtml";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
@@ -39,6 +43,8 @@ export const sendTemplate = action({
       v.literal("recount_notice"),      // v0.5.2
       v.literal("spoilage"),            // NEW v0.6: spoilage approval
       v.literal("stock_drift_alert"),   // NEW v0.6 R5: stock-recon drift alert
+      v.literal("system_error"),        // v1.0.1 ops alert
+      v.literal("txn_ticker"),          // v1.0.1 sales ticker
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -106,8 +112,22 @@ export const sendTemplate = action({
         ),
         detected_at: v.number(),
       }),
+      // system_error — matches SystemErrorPayload in lib/telegramHtml.ts
+      v.object({
+        kind: v.string(), message: v.string(),
+        route: v.optional(v.string()), staff_code: v.optional(v.string()),
+        device_id: v.optional(v.string()), app_version: v.optional(v.string()),
+        occurred_at: v.number(),
+      }),
+      // txn_ticker — matches TxnTickerPayload in lib/telegramHtml.ts
+      v.object({
+        receipt_number: v.string(), total: v.number(),
+        lines: v.array(v.object({ name: v.string(), qty: v.number() })),
+        staff_name: v.string(), instrument: v.string(), paid_at: v.number(),
+      }),
     ),
     idempotencyKey: v.string(),
+    disableNotification: v.optional(v.boolean()),
     // Optional: caller-supplied chatId that skips the role-resolve query.
     // Use when the caller has already resolved the chatId (e.g. a cron that
     // checks role-binding first and wants to avoid a second lookup between
@@ -191,6 +211,12 @@ export const sendTemplate = action({
       case "stock_drift_alert":
         rendered = renderStockDriftAlert(args.payload as StockDriftAlertPayload);
         break;
+      case "system_error":
+        rendered = renderSystemError(args.payload as SystemErrorPayload);
+        break;
+      case "txn_ticker":
+        rendered = renderTxnTicker(args.payload as TxnTickerPayload);
+        break;
     }
 
     // Step 4: send to Telegram
@@ -204,6 +230,7 @@ export const sendTemplate = action({
       text: rendered.text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
+      disable_notification: args.disableNotification ?? false,
     };
     if (rendered.inline_keyboard) {
       body.reply_markup = { inline_keyboard: rendered.inline_keyboard };
