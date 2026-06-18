@@ -11,6 +11,9 @@ import { PrinterProvider } from "@/components/pos/PrinterProvider";
 // Soft enforcement — we surface the "Change your PIN" step ONCE after login, then
 // stop redirecting so the manager can still operate the booth (no hard-block per
 // spec). The flag clears server-side on a successful change, so it won't recur.
+// Growth is bounded by distinct logins per unreloaded page session (one ~20-char
+// id each — negligible for a single-device booth PWA), not by request count. A
+// full reload resets it, which is desirable: a security prompt should re-surface.
 const rotationPrompted = new Set<string>();
 
 /**
