@@ -1958,60 +1958,61 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 - Refund ticker — paid sales only this slice
 
 ### Backend (`convex/`)
-- 📋 **[v101-be-ops-ingest]** `convex/ops/` — error-ingest pipe: `pos_error_reports` table + pure signature/dedup lib + `_recordError_internal` (dedup + storm-cap) + `POST /ops/error` httpAction + `ops` Telegram role
+- ✅ **[v101-be-ops-ingest]** `convex/ops/` — error-ingest pipe: `pos_error_reports` table + pure signature/dedup lib + `_recordError_internal` (dedup + storm-cap) + `POST /ops/error` httpAction + `ops` Telegram role (5db3fc7)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan Tasks 1–4, 7](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
   - **subtasks:**
-    - [ ] `pos_error_reports` schema + root compose + `txn_ticker_enabled` field
-    - [ ] `ops/lib.ts` pure `errorSignature`/`normalizeMessage`/`truncate` (+ tests)
-    - [ ] `_recordError_internal` dedup (5min) + storm-cap (10s) (+ tests)
-    - [ ] `ops` role in `KNOWN_TELEGRAM_ROLES`
-    - [ ] `/ops/error` httpAction — constant-time token, always 2xx (+ tests)
+    - [x] `pos_error_reports` schema + root compose + `txn_ticker_enabled` field
+    - [x] `ops/lib.ts` pure `errorSignature`/`normalizeMessage`/`truncate` (+ tests)
+    - [x] `_recordError_internal` dedup (5min) + storm-cap (10s) (+ tests)
+    - [x] `ops` role in `KNOWN_TELEGRAM_ROLES`
+    - [x] `/ops/error` httpAction — constant-time token, always 2xx (+ tests)
   - **notes:** _(empty)_
-- 📋 **[v101-be-error-alerts]** `system_error` template + `sendErrorAlert` action + backend reporting on payment action & webhook (auth-path only)
+- ✅ **[v101-be-error-alerts]** `system_error` template + `sendErrorAlert` action + backend reporting on payment action & webhook (auth-path only) (ad7e22c)
   - **agent:** `convex-expert`
   - **deps:** `v101-be-ops-ingest`
   - **docs:** [Plan Tasks 5, 6, 11](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
   - **subtasks:**
-    - [ ] `renderSystemError` + `system_error` kind/payload in `sendTemplate` (+ escape test)
-    - [ ] `sendErrorAlert({reportId})` action — narrow-catch role resolve, idempotency = reportId
-    - [ ] `requestPayment`/`retryWithFreshInvoice` best-effort report (rethrow preserved)
-    - [ ] webhook auth-path-only report; 401 path NOT reported (regression test)
+    - [x] `renderSystemError` + `system_error` kind/payload in `sendTemplate` (+ escape test)
+    - [x] `sendErrorAlert({reportId})` action — narrow-catch role resolve, idempotency = reportId
+    - [x] `requestPayment`/`retryWithFreshInvoice` best-effort report (rethrow preserved)
+    - [x] webhook auth-path-only report; 401 path NOT reported (regression test)
   - **notes:** _(empty)_
-- 📋 **[v101-be-sales-ticker]** `txn_ticker` template + `txn_ticker_enabled` read-default + `sendTxnTicker` action + once-per-sale hook in `_confirmPaid_internal`
+- ✅ **[v101-be-sales-ticker]** `txn_ticker` template + `txn_ticker_enabled` read-default + `sendTxnTicker` action + once-per-sale hook in `_confirmPaid_internal` (54ee43e)
   - **agent:** `convex-expert`
   - **deps:** `v101-be-error-alerts`
   - **docs:** [Plan Tasks 5, 8, 9, 10](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
   - **subtasks:**
-    - [ ] `renderTxnTicker` (line truncation) + `txn_ticker` kind/payload + optional `disableNotification`
-    - [ ] `_getSettings_internal` default `txn_ticker_enabled: true`
-    - [ ] `_getTxnForTicker_internal` + `sendTxnTicker` (SILENT skip, NO skip-audit; reuse `_getPaidInvoiceForTxn_internal`/`_listStaffNames_internal`)
-    - [ ] schedule ticker at `_confirmPaid_internal` tail (exactly-once re-fire test)
+    - [x] `renderTxnTicker` (line truncation) + `txn_ticker` kind/payload + optional `disableNotification`
+    - [x] `_getSettings_internal` default `txn_ticker_enabled: true`
+    - [x] `_getTxnForTicker_internal` + `sendTxnTicker` (SILENT skip, NO skip-audit; reuse `_getPaidInvoiceForTxn_internal`/`_listStaffNames_internal`)
+    - [x] schedule ticker at `_confirmPaid_internal` tail (exactly-once re-fire test)
   - **notes:** _(empty)_
 
 ### Frontend (`src/`)
-- 📋 **[v101-fe-error-reporter]** `src/lib/reportOps.ts` (`opsEndpoint` .cloud→.site + resilient `fetch` keepalive) wired at 4 sites: global handlers, `RouteErrorBoundary`, payment path, sale-flow mutation
+- ✅ **[v101-fe-error-reporter]** `src/lib/reportOps.ts` (`opsEndpoint` .cloud→.site + resilient `fetch` keepalive) wired at 4 sites: global handlers, `RouteErrorBoundary`, payment path, sale-flow mutation (4bca9bf)
   - **agent:** `frontend-integrator`
   - **deps:** `v101-be-ops-ingest`
   - **docs:** [Plan Tasks 12–13](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
   - **subtasks:**
-    - [ ] `opsEndpoint` suffix-swap (+ test) + `reportOps` (never-throws, client dedup, `keepalive`)
-    - [ ] `window.onerror`/`unhandledrejection` global handlers (skip `isChunkLoadError`)
-    - [ ] `RouteErrorBoundary` reports genuine crash only (chunk-load skipped)
-    - [ ] payment-path + sale-commit catch wiring (scoped, not blanket)
-  - **notes:** _(empty)_
+    - [x] `opsEndpoint` suffix-swap (+ test) + `reportOps` (never-throws, client dedup, `keepalive`)
+    - [x] `window.onerror`/`unhandledrejection` global handlers (skip `isChunkLoadError`)
+    - [x] `RouteErrorBoundary` reports genuine crash only (chunk-load skipped)
+    - [x] payment-path + sale-commit catch wiring (scoped, not blanket)
+  - **notes:**
+    - 2026-06-18: payment-path catch wired in `src/routes/sale/charge.tsx` (the real Xendit create catch), not `useXenditPayment.ts` (query-only, no catch) — anticipated by plan verify-first. Sale-commit catch = `handleCharge` in `src/routes/sale/index.tsx` (commitCart for charge intent only; draft-save not wrapped).
 
 ### Cross-cutting
-- 📋 **[v101-xc-runbook-docs]** RUNBOOK §9 (smoke checklist + sanctioned hot-fix protocol + rollback) + §5 env vars + SCHEMA + CLAUDE role table + CHANGELOG
+- ✅ **[v101-xc-runbook-docs]** RUNBOOK §9 (smoke checklist + sanctioned hot-fix protocol + rollback) + §5 env vars + SCHEMA + CLAUDE role table + CHANGELOG (bab578d)
   - **agent:** `claude`
   - **deps:** `v101-be-sales-ticker`, `v101-fe-error-reporter`
   - **docs:** [Plan Task 14](./superpowers/plans/2026-06-17-v1.0.1-launch-ops-observability.md)
   - **subtasks:**
-    - [ ] RUNBOOK §9 live-run ops + hot-fix + rollback
-    - [ ] RUNBOOK §5 `OPS_INGEST_TOKEN`/`VITE_OPS_INGEST_TOKEN` (dev+prod, before FE deploy)
-    - [ ] SCHEMA `pos_error_reports` + `txn_ticker_enabled`; RUNBOOK-telegram + CLAUDE role table `ops`
-    - [ ] CHANGELOG v1.0.1 entry
+    - [x] RUNBOOK §9 live-run ops + hot-fix + rollback
+    - [x] RUNBOOK §5 `OPS_INGEST_TOKEN`/`VITE_OPS_INGEST_TOKEN` (dev+prod, before FE deploy)
+    - [x] SCHEMA `pos_error_reports` + `txn_ticker_enabled`; RUNBOOK-telegram + CLAUDE role table `ops`
+    - [x] CHANGELOG v1.0.1 entry
   - **notes:** _(empty)_
 
 ---
