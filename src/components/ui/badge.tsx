@@ -17,29 +17,22 @@ const badgeVariants = cva(
         outline: "text-foreground",
 
         success:
-          "border-transparent bg-success-bg text-success",
+          "bg-success/15 text-success border-success/30",
         warning:
-          "border-transparent bg-warning-bg text-warning",
+          "bg-warning/15 text-warning border-warning/30",
         error:
-          "border-transparent bg-error-bg text-error",
+          "bg-error/15 text-error border-error/30",
         info:
-          "border-transparent bg-info-bg text-info",
-
-        gofood:
-          "border-transparent bg-gofood-light text-gofood-badge",
-        grabfood:
-          "border-transparent bg-grabfood-light text-grabfood",
-        k3mart:
-          "border-transparent bg-k3mart-light text-k3mart-badge",
+          "bg-info/15 text-info border-info/30",
 
         admin:
-          "border-transparent bg-role-admin-bg text-role-admin",
+          "bg-role-admin/15 text-role-admin border-role-admin/30",
         manager:
-          "border-transparent bg-role-manager-bg text-role-manager",
+          "bg-role-manager/15 text-role-manager border-role-manager/30",
         staff:
-          "border-transparent bg-role-staff-bg text-role-staff",
+          "bg-role-staff/15 text-role-staff border-role-staff/30",
         kitchen:
-          "border-transparent bg-role-kitchen-bg text-role-kitchen",
+          "bg-role-kitchen/15 text-role-kitchen border-role-kitchen/30",
       },
     },
     defaultVariants: {
