@@ -559,7 +559,7 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `receipt_instagram_handle` | `string?` | *(v0.5.3b)* IG handle for the receipt footer (e.g. `"@frollie"`) |
 | `receipt_footer_text` | `string?` | *(v0.5.3b)* Free-text footer line on the receipt (e.g. "Terima kasih") |
 | `receipt_logo_storage_id` | `Id<"_storage">?` | *(v0.5.3b)* Optional uploaded logo (Convex storage). Rendered as `<img>` above the header text when present. Set via `generateLogoUploadUrl` → `updateReceiptConfig` |
-| `txn_ticker_enabled` | `boolean?` | *(v1.0.1)* Controls the live sales ticker — a silent `txn_ticker` message to the Managers group on every paid sale. Read-time default `true` when absent; opt-out via a manager-session settings write |
+| `txn_ticker_enabled` | `boolean?` | *(v1.0.1)* Controls the live sales ticker — a silent `txn_ticker` message to the Managers group on every paid sale. Read-time default `true` when absent. v1.0.1 only *reads* this field; flip it via the Convex dashboard (launch kill-switch). A manager-session in-app toggle is deferred to v1.0.2 |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 

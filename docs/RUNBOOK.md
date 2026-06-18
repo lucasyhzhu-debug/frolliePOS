@@ -244,5 +244,6 @@ Launch-day observability: a client+backend error pipe (`POST /ops/error` → ded
 - FE: Vercel instant-rollback to the prior deployment.
 - BE: `npx convex deploy` of the prior commit.
 
-### 9.5 Turn the ticker off (post-launch)
-- `/mgr/...` settings or a manager-session write flipping `pos_settings.txn_ticker_enabled` to `false` (default `true`).
+### 9.5 Turn the ticker off (launch kill-switch)
+- **Launch path (v1.0.1):** edit the `pos_settings` singleton in the Convex dashboard — set `txn_ticker_enabled` to `false` (read-time default is `true` when absent). Takes effect on the next paid sale; no deploy needed.
+- A manager-facing in-app toggle (`/mgr/...` settings, manager-session write) is deferred to **v1.0.2** — the v1.0.1 backend only *reads* this field.

@@ -2018,7 +2018,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 ---
 
 ## v1.0.2 — post-launch hardening 🗂️ BACKLOG
-**Outcome:** The launch-day deferrals: full-route polish, real-device e2e, settlement live-verification.
+**Outcome:** The launch-day deferrals: full-route polish, real-device e2e, settlement live-verification, manager in-app sales-ticker toggle (`txn_ticker_enabled` write — v1.0.1 ships dashboard-only kill-switch).
 **Target:** TBD
 Plan not yet written. Tasks get IDs at planning time.
 
