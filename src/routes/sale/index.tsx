@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { usePathChangeBlocker } from "@/hooks/usePathChangeBlocker";
@@ -44,6 +46,9 @@ export default function Sale() {
   );
 
   const isEmpty = lines.length === 0;
+
+  // ---- reduced-motion flag (hook — must be above early returns) ----
+  const reduce = useReducedMotion() ?? false;
 
   // ---- navigation guard ----
   // Block route transitions when the cart has items so the user can save or
@@ -162,6 +167,10 @@ export default function Sale() {
   }
   if (session.status !== "active") return null;
 
+  // Resolve motion variants once per render (reused across all product cards).
+  const gridV = gridContainerVariants(reduce);
+  const itemV = gridItemVariants(reduce);
+
   return (
     <SpokeLayout title="New sale">
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
@@ -175,44 +184,54 @@ export default function Sale() {
               {catalog == null ? "Loading products…" : "No active products."}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <motion.div
+              variants={gridV}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+            >
               {products.map((p) => {
                 const line = lines.find((l) => l.productId === p._id);
                 return (
-                  <Card
+                  <motion.div
                     key={p._id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={buildAddCardLabel(p.name, p.pack_label)}
-                    onClick={() => addLine(p._id, p.price_idr)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        addLine(p._id, p.price_idr);
-                      }
-                    }}
-                    className={cn(
-                      "relative cursor-pointer select-none p-3 transition-colors hover:bg-accent active:scale-95",
-                      line && "ring-2 ring-primary",
-                    )}
+                    variants={itemV}
+                    whileTap={reduce ? undefined : { scale: 0.96 }}
                   >
-                    <p className="truncate text-sm font-medium leading-tight">{p.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{rp(p.price_idr)}</p>
-                    {line && (
-                      <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
-                        {line.qty}
-                      </span>
-                    )}
-                  </Card>
+                    <Card
+                      role="button"
+                      tabIndex={0}
+                      aria-label={buildAddCardLabel(p.name, p.pack_label)}
+                      onClick={() => addLine(p._id, p.price_idr)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          addLine(p._id, p.price_idr);
+                        }
+                      }}
+                      className={cn(
+                        "relative cursor-pointer select-none p-3 transition-colors hover:bg-accent",
+                        line && "ring-2 ring-primary",
+                      )}
+                    >
+                      <p className="truncate text-sm font-medium leading-tight">{p.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{rp(p.price_idr)}</p>
+                      {line && (
+                        <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-citrus text-[11px] font-semibold text-citrus-foreground">
+                          {line.qty}
+                        </span>
+                      )}
+                    </Card>
+                  </motion.div>
                 );
               })}
-            </div>
+            </motion.div>
           )}
         </section>
 
         {/* ---- Cart panel ---- */}
         <aside className="flex w-full flex-col border-t bg-card lg:w-72 lg:border-l lg:border-t-0">
-          <div className="flex items-center justify-between px-4 pt-4">
+          <div className="flex items-center justify-between border-b px-4 py-3">
             <h2 className="text-xs font-medium tracking-widest text-muted-foreground">CART</h2>
             {!isEmpty && (
               <button
@@ -226,45 +245,53 @@ export default function Sale() {
           </div>
 
           {/* Line items */}
-          <div className="flex-1 overflow-y-auto px-4 py-2">
+          <div className="flex-1 overflow-y-auto px-4 py-3">
             {isEmpty ? (
               <p className="py-4 text-center text-xs text-muted-foreground">
                 Tap a product to add it
               </p>
             ) : (
               <ul className="space-y-2">
-                {lines.map((line) => {
-                  const product = products.find((p) => p._id === line.productId);
-                  const name = product?.name ?? line.productId;
-                  return (
-                    <li key={line.productId} className="flex items-center gap-2">
-                      <span className="flex-1 truncate text-sm">{name}</span>
-                      {/* Qty stepper */}
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          aria-label={`Decrease qty for ${name}`}
-                          className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
-                          onClick={() => setQty(line.productId, line.qty - 1)}
-                        >
-                          −
-                        </button>
-                        <span className="w-6 text-center text-sm tabular-nums">{line.qty}</span>
-                        <button
-                          type="button"
-                          aria-label={`Increase qty for ${name}`}
-                          className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
-                          onClick={() => setQty(line.productId, line.qty + 1)}
-                        >
-                          +
-                        </button>
-                      </div>
-                      <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">
-                        {rp(line.unitPrice * line.qty)}
-                      </span>
-                    </li>
-                  );
-                })}
+                <AnimatePresence initial={false}>
+                  {lines.map((line) => {
+                    const product = products.find((p) => p._id === line.productId);
+                    const name = product?.name ?? line.productId;
+                    return (
+                      <motion.li
+                        key={line.productId}
+                        initial={reduce ? false : { opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={reduce ? undefined : { opacity: 0 }}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="flex-1 truncate text-sm">{name}</span>
+                        {/* Qty stepper */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={`Decrease qty for ${name}`}
+                            className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
+                            onClick={() => setQty(line.productId, line.qty - 1)}
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center text-sm tabular-nums">{line.qty}</span>
+                          <button
+                            type="button"
+                            aria-label={`Increase qty for ${name}`}
+                            className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
+                            onClick={() => setQty(line.productId, line.qty + 1)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">
+                          {rp(line.unitPrice * line.qty)}
+                        </span>
+                      </motion.li>
+                    );
+                  })}
+                </AnimatePresence>
               </ul>
             )}
           </div>
@@ -289,8 +316,10 @@ export default function Sale() {
 
             {/* Subtotal */}
             <div className="mb-4 flex items-baseline justify-between">
-              <span className="text-sm font-medium">Subtotal</span>
-              <span className="text-lg font-semibold tabular-nums">{rp(subtotal)}</span>
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Subtotal
+              </span>
+              <span className="text-xl font-bold tabular-nums">{rp(subtotal)}</span>
             </div>
 
             {/* Action buttons */}

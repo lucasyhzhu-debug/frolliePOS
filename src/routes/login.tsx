@@ -114,8 +114,16 @@ export default function LoginRoute() {
 
   return (
     <main className="flex flex-1 flex-col p-6">
+      {/* Brand mark */}
+      <div className="mb-8 flex flex-col items-center gap-1 pt-6">
+        <span className="text-2xl font-bold tracking-tight text-primary">frollie</span>
+        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          Point of Sale
+        </span>
+      </div>
+
       <header className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">
+        <h1 className="text-xl font-semibold text-foreground">
           {stage.kind === "list" ? "Who's working?" : stage.staff.name}
         </h1>
         <ConnDot />

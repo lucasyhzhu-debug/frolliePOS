@@ -590,7 +590,7 @@ export default function SaleCharge() {
                 </div>
                 <Progress value={Math.min(pctRemaining * 100, 100)} className="mt-1 h-1" />
                 {qrExpired && (
-                  <p className="mt-2 text-sm text-amber-600" data-testid="countdown-expired-msg">
+                  <p className="mt-2 text-sm text-warning" data-testid="countdown-expired-msg">
                     {selectedMethod === "QRIS" ? "QR" : "VA"} expired — tap Retry for a fresh one.
                   </p>
                 )}

@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from "react-router";
 import { useQuery } from "convex/react";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { rp } from "@/lib/format";
@@ -27,6 +28,9 @@ export default function SaleChargeSuccess() {
   const navigate = useNavigate();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
+
+  // Must be called above all early returns (React hooks rules).
+  const reduce = useReducedMotion() ?? false;
 
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : undefined;
@@ -115,10 +119,34 @@ export default function SaleChargeSuccess() {
   return (
     <SpokeLayout title="Sale complete" hideBack>
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
-      {/* Success mark */}
+      {/* Success mark — animated circle scale-in + checkmark draw */}
       <div className="flex flex-col items-center gap-2">
-        <CheckCircle2 className="h-14 w-14 text-teal-500" />
-        <p className="text-lg font-semibold text-teal-600">Payment confirmed</p>
+        <motion.div
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10"
+          initial={{ scale: reduce ? 1 : 0.6, opacity: reduce ? 1 : 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: reduce ? 0 : 0.35, ease: "easeOut" }}
+        >
+          <motion.svg
+            viewBox="0 0 52 52"
+            className="h-8 w-8"
+            aria-hidden="true"
+            fill="none"
+          >
+            <motion.path
+              d="M14 27 l8 8 l16 -18"
+              initial={{ pathLength: reduce ? 1 : 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: reduce ? 0 : 0.4, ease: "easeOut", delay: reduce ? 0 : 0.2 }}
+              stroke="currentColor"
+              className="text-primary"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </motion.svg>
+        </motion.div>
+        <p className="text-lg font-semibold text-primary">Payment confirmed</p>
       </div>
 
       {/* Receipt card */}
@@ -145,7 +173,7 @@ export default function SaleChargeSuccess() {
             <dd className="font-medium">{methodLabel}</dd>
           </div>
           {result.voucher_discount > 0 && (
-            <div className="flex items-center justify-between text-teal-600">
+            <div className="flex items-center justify-between text-primary">
               <dt>Voucher</dt>
               <dd className="tabular-nums">−{rp(result.voucher_discount)}</dd>
             </div>

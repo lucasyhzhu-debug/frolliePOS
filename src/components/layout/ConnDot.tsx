@@ -9,7 +9,7 @@ export function ConnDot() {
       <span
         className={cn(
           "h-2 w-2 rounded-full ring-1 ring-foreground/20",
-          online ? "bg-emerald-500" : "bg-red-500",
+          online ? "bg-success" : "bg-error",
         )}
       />
       <span>{online ? "live" : "offline"}</span>

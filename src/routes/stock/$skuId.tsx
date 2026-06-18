@@ -78,7 +78,7 @@ export default function SkuDetailScreen() {
         {detail.movements.map((m) => (
           <li key={m._id} className="flex justify-between p-3 text-sm">
             <span>{m.source}</span>
-            <span className={m.qty < 0 ? "text-red-600" : "text-emerald-600"}>
+            <span className={m.qty < 0 ? "text-error" : "text-success"}>
               {m.qty > 0 ? "+" : ""}
               {m.qty}
             </span>

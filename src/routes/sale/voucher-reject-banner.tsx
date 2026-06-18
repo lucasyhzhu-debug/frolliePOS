@@ -27,7 +27,7 @@ export function VoucherRejectBanner({
   return (
     <div
       role="alert"
-      className="border border-amber-500 bg-amber-50 dark:bg-amber-950 rounded-md p-3 flex items-center justify-between gap-2"
+      className="border border-warning/30 bg-warning/15 rounded-md p-3 flex items-center justify-between gap-2"
     >
       <p className="text-sm">
         Voucher <span className="font-mono font-semibold">{rejected.code}</span>{" "}

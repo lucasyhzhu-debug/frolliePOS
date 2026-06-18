@@ -407,11 +407,11 @@ function ReceiptPreview({
   logoUrl: string | null;
 }) {
   return (
-    <div className="rounded-xl bg-gray-100 p-4">
-      <div className="mx-auto max-w-[340px] rounded-xl bg-white p-5 shadow-sm">
+    <div className="rounded-xl bg-muted p-4">
+      <div className="mx-auto max-w-[340px] rounded-xl bg-card p-5 shadow-sm">
         {/* Header */}
-        <div className="border-b border-dashed border-gray-300 pb-3 text-center">
-          <div className="mb-1 flex items-center justify-center gap-1.5 text-sm font-bold tracking-wide text-teal-700">
+        <div className="border-b border-dashed border-border pb-3 text-center">
+          <div className="mb-1 flex items-center justify-center gap-1.5 text-sm font-bold tracking-wide text-primary">
             {logoUrl ? (
               <img
                 src={logoUrl}
@@ -423,7 +423,7 @@ function ReceiptPreview({
             )}
             <span>{businessName || "Business name"}</span>
           </div>
-          <div className="text-[11px] leading-snug text-gray-500">
+          <div className="text-[11px] leading-snug text-muted-foreground">
             {address || "Address"}
             <br />
             {contact || "Contact"}
@@ -431,12 +431,12 @@ function ReceiptPreview({
         </div>
 
         {/* Status pill (static — preview only) */}
-        <div className="my-3 rounded-md bg-emerald-100 py-1.5 text-center text-xs font-semibold text-emerald-800">
+        <div className="my-3 rounded-md bg-success/15 py-1.5 text-center text-xs font-semibold text-success">
           LUNAS
         </div>
 
         {/* Stand-in body — keeps the proportions believable without faking a real txn */}
-        <div className="border-t border-dashed border-gray-300 pt-2 text-[12px] text-gray-400">
+        <div className="border-t border-dashed border-border pt-2 text-[12px] text-muted-foreground">
           <div className="flex justify-between">
             <span>(line items)</span>
             <span>—</span>
@@ -448,7 +448,7 @@ function ReceiptPreview({
         </div>
 
         {/* Footer */}
-        <div className="mt-3 border-t border-dashed border-gray-300 pt-3 text-center text-[11px] leading-relaxed text-gray-500">
+        <div className="mt-3 border-t border-dashed border-border pt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
           {footerText || "Footer text"}
           <br />
           <span className="text-[11px]">
