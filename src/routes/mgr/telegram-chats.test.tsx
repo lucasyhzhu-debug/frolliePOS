@@ -227,7 +227,7 @@ describe("MgrTelegramChats — chat list", () => {
   });
 
   it("shows 'Loading chats…' while chats query is pending (undefined)", () => {
-    setupQueryMock({ founders_summary_enabled: true }, undefined);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, undefined);
     renderPage();
     expect(screen.getByText(/loading chats/i)).toBeInTheDocument();
   });
@@ -367,7 +367,7 @@ describe("MgrTelegramChats — founders summary toggle", () => {
   });
 
   it("renders founders toggle in checked state when founders_summary_enabled is true", () => {
-    setupQueryMock({ founders_summary_enabled: true }, []);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     setupMutationMock();
     renderPage();
     const toggle = screen.getByRole("switch", { name: /founders summary toggle/i });
