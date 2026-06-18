@@ -78,9 +78,8 @@ POS endpoints are **httpActions on `.convex.site`** (not `.convex.cloud`). The E
 Real `verifyBearerToken(request)`:
 - Extract `Authorization: Bearer <raw>` (expect the `frpos_live_` / `frpos_test_` prefix).
 - **SHA-256-hash compare (constant-time)** against `_tokens` rows. (High-entropy 256-bit token → a fast hash is correct; argon2id is a password KDF and buys nothing here. Reuse the constant-time pattern from the Xendit webhook's `verifyCallbackToken`.)
-- **Resolve consumer identity from the matched token row** — `consumer_label` + `consumer_account_hash` are the trustworthy anchor (bound at issuance, see §4.2). Never trust a client-declared identity for authz.
-- **Optional origin-binding (recommended):** if the request carries `X-Consumer-Account` (contract §2), compare it constant-time against the token's `consumer_account_hash`; mismatch → `403 CONSUMER_MISMATCH`. This catches a leaked token replayed from an unexpected origin. Absent header → skip the check (header is optional).
-- Reject per contract §4: missing/bad → `401 UNAUTHENTICATED`; endpoint not allow-listed → `403 ENDPOINT_NOT_ALLOWED`; consumer hash mismatch → `403 CONSUMER_MISMATCH`; expired or revoked → `401`; RPM bucket exceeded → `429 RATE_LIMITED` + `Retry-After`.
+- The matched token row IS the caller's identity (one token = one consumer; `frpos_live_`/`frpos_test_` prefix distinguishes env). No client-declared identity.
+- Reject per contract §4: missing/bad → `401 UNAUTHENTICATED`; endpoint not allow-listed → `403 ENDPOINT_NOT_ALLOWED`; expired or revoked → `401`; RPM bucket exceeded → `429 RATE_LIMITED` + `Retry-After`.
 - On success return the token row (single scope `frollie_pro_full` in v1).
 - **Log every request** (success AND every rejection path) to `api_request_log` (§4.2) — one row per request. Failed-auth rows have `token_id = null` but still capture endpoint + status + IP for forensics.
 
@@ -88,14 +87,12 @@ Real `verifyBearerToken(request)`:
 ```ts
 api_tokens: {
   hash: string,                 // SHA-256(raw) hex; constant-time compare
-  consumer_label: string,       // human id of the caller, e.g. "frollie-pro-prod" / "frollie-pro-dev"
-  consumer_account_hash: string,// sha256(<ERP account/org id>) — bound at issuance, constant across rotation
   scope: "frollie_pro_full",    // union retained for forward-compat; one value in v1
   endpointAllowList: string[],  // explicit, no globs
   rateLimitRpm: number,         // default 60
   issuedAt: number,             // server Date.now() (ADR-031)
   expiresAt: number,            // mandatory; ≤365d
-  rotatedFrom?: Id<"api_tokens">, // rotation chains here; consumer_label + consumer_account_hash stay constant
+  rotatedFrom?: Id<"api_tokens">,
   revokedAt?: number,
   createdByStaffId: Id<"staff">,
 }
@@ -105,8 +102,7 @@ api_rate_buckets: { token_id, window_start, count }  // reset every 60s by sched
 // belong in the append-only business audit_log (ADR-007 is for state changes);
 // this is the separate access log so it can't pollute the ledger refunds/voids write to.
 api_request_log: {
-  token_id: Id<"api_tokens"> | null,  // null when auth itself failed (still logged)
-  consumer_label: string | null,      // denormalized for "every pull from frollie-pro-prod today"
+  token_id: Id<"api_tokens"> | null,  // null when auth itself failed (still logged); identifies the caller via the token
   endpoint: string,                   // "/api/v1/transactions" | "/api/v1/refunds"
   http_status: number,                // 200 / 400 / 401 / 403 / 429 / 500
   error_code?: string,                // contract §4 code on non-2xx
@@ -115,10 +111,10 @@ api_request_log: {
   cursor_out?: string,                // nextCursor issued (null/absent = caught up)
   ip?: string,                        // x-forwarded-for if present
   at: number,
-}  // .index("by_token_at", ["token_id","at"]) + .index("by_consumer_at", ["consumer_label","at"])
+}  // .index("by_token_at", ["token_id","at"])
 ```
-- Issuance = **manager-PIN-gated** mutation; binds `consumer_label` + `consumer_account_hash` at creation; returns the raw token **once**. CLI for v1 (dashboard UI deferred).
-- Rotation = overlapping 7-day windows (old + new both valid); the new row carries the **same** `consumer_label` + `consumer_account_hash` so identity is stable across rotation.
+- Issuance = **manager-PIN-gated** mutation; returns the raw token **once**. CLI for v1 (dashboard UI deferred).
+- Rotation = overlapping 7-day windows (old + new both valid).
 - Audit (`audit_log`, business): token **issued / rotated / revoked** + **auth failures** (401/403) only. Routine pulls go to `api_request_log`, not `audit_log`.
 
 ### 4.3 `convex/api/v1/transactions.ts` (httpAction) — `GET /api/v1/transactions`

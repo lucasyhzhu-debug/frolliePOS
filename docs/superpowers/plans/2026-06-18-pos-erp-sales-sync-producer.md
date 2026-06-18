@@ -329,8 +329,7 @@ export const apiTables = {
   // auth = hash incoming token → indexed by_hash lookup (no plaintext stored).
   api_tokens: defineTable({
     hash: v.string(),                                  // sha256Hex(rawToken)
-    consumer_label: v.string(),                        // human identity e.g. "frollie-pro-prod"
-    consumer_account_hash: v.string(),                 // sha256(<ERP account/org id>) — bound at issuance; the "who"
+    label: v.string(),                                 // human note for ops e.g. "frollie-pro-prod"
     scope: v.literal("frollie_pro_full"),              // union retained for forward-compat; one value in v1
     endpointAllowList: v.array(v.string()),            // e.g. ["/api/v1/transactions","/api/v1/refunds"]
     rateLimitRpm: v.number(),                          // default 60
@@ -349,13 +348,12 @@ export const apiTables = {
 
   // Append-only access log — ONE row per API request (success AND failure,
   // incl. unauthenticated attempts where token_id is null). NOT the business
-  // audit_log (ADR-007 is state-changes only; pulls are reads). Indexed for
-  // ops queries: "every pull from frollie-pro-prod today".
+  // audit_log (ADR-007 is state-changes only; pulls are reads). The token IS
+  // the caller (look up api_tokens.label for a human name). Indexed for ops.
   api_request_log: defineTable({
     token_id: v.optional(v.id("api_tokens")),          // null = auth failed before a token resolved
-    consumer_label: v.optional(v.string()),            // copied from the token when resolved
     endpoint: v.string(),                              // "/api/v1/transactions" | "/api/v1/refunds"
-    http_status: v.number(),                           // 200/400/401/403/429/500
+    http_status: v.number(),                           // 200/400/401/429/500
     error_code: v.optional(v.string()),                // contract §4 code, when non-200
     returned_count: v.optional(v.number()),            // rows in the response page (200 only)
     cursor_in: v.optional(v.string()),                 // request cursor (opaque), if any
@@ -493,7 +491,7 @@ import { internal } from "../../_generated/api";
 
 async function issue(t: any, over: Partial<{ endpointAllowList: string[]; rateLimitRpm: number }> = {}) {
   return await t.mutation(internal.api.v1.internal._issueApiToken_internal, {
-    consumerLabel: "test", consumerAccountId: "erp-acct-1",
+    label: "test",
     endpointAllowList: over.endpointAllowList ?? ["/api/v1/transactions"],
     rateLimitRpm: over.rateLimitRpm ?? 60,
   });
@@ -535,25 +533,6 @@ describe("verifyBearerToken (via the transactions route)", () => {
     });
     expect(res.status).toBe(401);
   });
-  it("403 CONSUMER_MISMATCH when X-Consumer-Account doesn't match the bound hash", async () => {
-    const t = convexTest(schema);
-    const { rawToken } = await issue(t);  // bound to consumerAccountId "erp-acct-1"
-    const res = await t.fetch("/api/v1/transactions", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${rawToken}`, "X-Consumer-Account": "wrong-account" },
-    });
-    expect(res.status).toBe(403);
-    expect((await res.json()).error.code).toBe("CONSUMER_MISMATCH");
-  });
-  it("200 when X-Consumer-Account matches the bound id", async () => {
-    const t = convexTest(schema);
-    const { rawToken } = await issue(t);
-    const res = await t.fetch("/api/v1/transactions", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${rawToken}`, "X-Consumer-Account": "erp-acct-1" },
-    });
-    expect(res.status).toBe(200);
-  });
   it("429 once the RPM bucket is exceeded", async () => {
     const t = convexTest(schema);
     const { rawToken } = await issue(t, { rateLimitRpm: 1 });
@@ -587,8 +566,7 @@ const DAY_MS = 86_400_000;
 // token ONCE. See the deviation note in the plan header re: PIN vs ops issuance.
 export const _issueApiToken_internal = internalMutation({
   args: {
-    consumerLabel: v.string(),                  // "frollie-pro-prod"
-    consumerAccountId: v.string(),              // raw ERP account/org id — hashed here, never stored raw
+    label: v.string(),                          // human note for ops, "frollie-pro-prod"
     endpointAllowList: v.array(v.string()),
     rateLimitRpm: v.optional(v.number()),
     ttlDays: v.optional(v.number()),
@@ -603,8 +581,7 @@ export const _issueApiToken_internal = internalMutation({
     const ttl = Math.min(args.ttlDays ?? 365, 365);
     await ctx.db.insert("api_tokens", {
       hash: await sha256Hex(rawToken),
-      consumer_label: args.consumerLabel,
-      consumer_account_hash: await sha256Hex(args.consumerAccountId),
+      label: args.label,
       scope: "frollie_pro_full",
       endpointAllowList: args.endpointAllowList,
       rateLimitRpm: args.rateLimitRpm ?? 60,
@@ -621,7 +598,6 @@ export const _issueApiToken_internal = internalMutation({
 export const _logApiRequest_internal = internalMutation({
   args: {
     token_id: v.optional(v.id("api_tokens")),
-    consumer_label: v.optional(v.string()),
     endpoint: v.string(),
     http_status: v.number(),
     error_code: v.optional(v.string()),
@@ -656,20 +632,16 @@ export async function verifyBearerToken(
   ctx: GenericActionCtx<DataModel>,
   request: Request,
   endpointPath: string,
-): Promise<{ tokenId: Id<"api_tokens">; consumerLabel: string }> {
+): Promise<{ tokenId: Id<"api_tokens"> }> {
   const auth = request.headers.get("authorization") ?? "";
   const m = auth.match(/^Bearer\s+(\S+)$/);
   if (!m) throw new ApiError(401, "UNAUTHENTICATED");
   const hash = await sha256Hex(m[1]);
-  // Optional origin-binding (CONTRACT §2.2): header carries the RAW account id;
-  // POS hashes it and the mutation compares to the token's bound hash.
-  const accountHeader = request.headers.get("x-consumer-account");
-  const presentedAccountHash = accountHeader ? await sha256Hex(accountHeader) : undefined;
   const result = await ctx.runMutation(internal.api.v1.internal._authAndCount_internal, {
-    hash, endpointPath, presentedAccountHash,
+    hash, endpointPath,
   });
   if (result.error) throw new ApiError(result.status!, result.code!);
-  return { tokenId: result.tokenId!, consumerLabel: result.consumerLabel! };
+  return { tokenId: result.tokenId! };
 }
 ```
 
@@ -677,10 +649,9 @@ Add the verify+count mutation to `convex/api/v1/internal.ts` (one mutation so th
 
 ```typescript
 export const _authAndCount_internal = internalMutation({
-  args: { hash: v.string(), endpointPath: v.string(), presentedAccountHash: v.optional(v.string()) },
+  args: { hash: v.string(), endpointPath: v.string() },
   handler: async (ctx, args): Promise<{
-    error: boolean; status?: number; code?: string;
-    tokenId?: Id<"api_tokens">; consumerLabel?: string;
+    error: boolean; status?: number; code?: string; tokenId?: Id<"api_tokens">;
   }> => {
     const tok = await ctx.db.query("api_tokens")
       .withIndex("by_hash", (q) => q.eq("hash", args.hash)).first();
@@ -689,9 +660,6 @@ export const _authAndCount_internal = internalMutation({
       return { error: true, status: 401, code: "UNAUTHENTICATED" };
     if (!tok.endpointAllowList.includes(args.endpointPath))
       return { error: true, status: 403, code: "ENDPOINT_NOT_ALLOWED" };
-    // Optional origin-binding (CONTRACT §2.2): only enforced when the header was sent.
-    if (args.presentedAccountHash !== undefined && args.presentedAccountHash !== tok.consumer_account_hash)
-      return { error: true, status: 403, code: "CONSUMER_MISMATCH" };
     // RPM bucket: lazy per-minute window (no cron needed for correctness).
     const windowStart = now - (now % 60_000);
     const bucket = await ctx.db.query("api_rate_buckets")
@@ -701,7 +669,7 @@ export const _authAndCount_internal = internalMutation({
       return { error: true, status: 429, code: "RATE_LIMITED" };
     if (bucket) await ctx.db.patch(bucket._id, { count: bucket.count + 1 });
     else await ctx.db.insert("api_rate_buckets", { token_id: tok._id, window_start: windowStart, count: 1 });
-    return { error: false, tokenId: tok._id, consumerLabel: tok.consumer_label };
+    return { error: false, tokenId: tok._id };
   },
 });
 ```
@@ -917,8 +885,7 @@ import { internal } from "../../_generated/api";
 
 async function token(t: any) {
   const { rawToken } = await t.mutation(internal.api.v1.internal._issueApiToken_internal, {
-    consumerLabel: "t", consumerAccountId: "erp-acct-1",
-    endpointAllowList: ["/api/v1/transactions"], rateLimitRpm: 1000 });
+    label: "t", endpointAllowList: ["/api/v1/transactions"], rateLimitRpm: 1000 });
   return rawToken;
 }
 
@@ -1299,7 +1266,7 @@ git commit -m "docs(api): publish v1 endpoint table + changelog; rate-bucket hou
 - Test: `convex/api/v1/__tests__/request-log.test.ts`
 
 **Interfaces:**
-- Consumes: `_logApiRequest_internal` (Task 6), `verifyBearerToken` now returns `{ tokenId, consumerLabel }`.
+- Consumes: `_logApiRequest_internal` (Task 6), `verifyBearerToken` returns `{ tokenId }`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1317,8 +1284,7 @@ describe("api_request_log", () => {
     await t.fetch("/api/v1/transactions", { method: "GET" });
     // authenticated success
     const { rawToken } = await t.mutation(internal.api.v1.internal._issueApiToken_internal, {
-      consumerLabel: "frollie-pro-prod", consumerAccountId: "erp-acct-9",
-      endpointAllowList: ["/api/v1/transactions"], rateLimitRpm: 1000 });
+      label: "frollie-pro-prod", endpointAllowList: ["/api/v1/transactions"], rateLimitRpm: 1000 });
     await t.fetch("/api/v1/transactions", { method: "GET", headers: { Authorization: `Bearer ${rawToken}` } });
 
     const rows = await t.run((ctx) => ctx.db.query("api_request_log").collect());
@@ -1327,7 +1293,7 @@ describe("api_request_log", () => {
     expect(unauth!.token_id).toBeUndefined();
     expect(unauth!.endpoint).toBe("/api/v1/transactions");
     const ok = rows.find((r: any) => r.http_status === 200);
-    expect(ok!.consumer_label).toBe("frollie-pro-prod");
+    expect(ok!.token_id).toBeDefined();
     expect(typeof ok!.returned_count).toBe("number");
   });
 });
@@ -1347,18 +1313,17 @@ export const handleTransactionsRoute = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
   const cursorParam = url.searchParams.get("cursor");
   let tokenId: Id<"api_tokens"> | undefined;
-  let consumerLabel: string | undefined;
   const log = async (http_status: number, extra: Record<string, unknown> = {}) => {
     try {
       await ctx.runMutation(internal.api.v1.internal._logApiRequest_internal, {
-        token_id: tokenId, consumer_label: consumerLabel,
+        token_id: tokenId,
         endpoint: PATH, http_status, cursor_in: cursorParam ?? undefined, ...extra,
       });
     } catch (e) { console.error("[api/transactions] log write failed (non-fatal):", e); }
   };
   try {
     const auth = await verifyBearerToken(ctx, request, PATH);
-    tokenId = auth.tokenId; consumerLabel = auth.consumerLabel;
+    tokenId = auth.tokenId;
     const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, 1), 500);
     const cur = cursorParam ? decodeCursor(cursorParam) : undefined;  // throws BAD_CURSOR
     const { rows, nextCursor } = await ctx.runQuery(
@@ -1403,9 +1368,7 @@ git commit -m "feat(api): per-request access log + consumer-identity attribution
 
 **Spec coverage (producer spec §1–§8 + CONTRACT §1–§9):**
 - Auth (CONTRACT §2, spec §4.1/§4.2) → Tasks 1, 4, 6. ✅
-- Consumer identity binding (CONTRACT §2.1) → `consumer_label`/`consumer_account_hash` on `api_tokens` (Task 4), bound at issuance (Task 6). ✅
-- Optional `X-Consumer-Account` origin-binding + `403 CONSUMER_MISMATCH` (CONTRACT §2.2/§4) → `verifyBearerToken` + `_authAndCount_internal` + 2 test cases (Task 6). ✅
-- Access log (CONTRACT §2.3) → `api_request_log` table (Task 4), `_logApiRequest_internal` (Task 6), per-request wiring + test (Task 12). ✅
+- Access log → `api_request_log` table (Task 4), `_logApiRequest_internal` (Task 6), per-request wiring + test (Task 12). Token-keyed (the token is the caller; `api_tokens.label` is the human name). No consumer-identity binding / `X-Consumer-Account` in v1. ✅
 - Pagination (CONTRACT §3) → Tasks 5, 7, 9, 10. ✅
 - Error envelope (CONTRACT §4) → `errorBody` + try/catch in Tasks 8, 9. ✅
 - `/transactions` shape (CONTRACT §5) → Tasks 7, 8. ✅
