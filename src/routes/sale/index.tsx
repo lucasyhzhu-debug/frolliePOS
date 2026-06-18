@@ -322,7 +322,7 @@ export default function Sale() {
             {/* Subtotal */}
             <div className="mb-4 flex items-baseline justify-between">
               <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                Total
+                Subtotal
               </span>
               <span className="text-xl font-bold tabular-nums">{rp(subtotal)}</span>
             </div>
