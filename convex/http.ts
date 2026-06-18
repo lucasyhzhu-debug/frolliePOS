@@ -4,6 +4,7 @@ import { buildRegistryCommands } from "./telegram/registryCommands";
 import { buildActivatePosCommand } from "./telegram/activatePos";
 import { xenditWebhook } from "./payments/webhook";
 import { handleReceiptRoute } from "./receipts/http";
+import { opsErrorRoute } from "./ops/http";
 
 const http = httpRouter();
 
@@ -37,5 +38,8 @@ http.route({
   method: "GET",
   handler: handleReceiptRoute,
 });
+
+// Error ingest — token-gated, always returns 2xx (204=bad/missing token, 200=ok).
+http.route({ path: "/ops/error", method: "POST", handler: opsErrorRoute });
 
 export default http;
