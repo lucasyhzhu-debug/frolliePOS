@@ -33,11 +33,12 @@ export const _recordError_internal = internalMutation({
       .first();
 
     // Storm cap: most recent alerted row within global cooldown suppresses the alert.
+    // by_alerted_created indexes on alerted first, so this is an O(1) seek to the
+    // newest alerted row — no scan over suppressed alerted:false rows.
     const lastAlerted = await ctx.db
       .query("pos_error_reports")
-      .withIndex("by_created")
+      .withIndex("by_alerted_created", (q) => q.eq("alerted", true))
       .order("desc")
-      .filter((q) => q.eq(q.field("alerted"), true))
       .first();
     const stormCapped =
       lastAlerted !== null && now - lastAlerted.created_at < GLOBAL_ALERT_COOLDOWN_MS;

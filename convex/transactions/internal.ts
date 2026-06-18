@@ -756,8 +756,9 @@ export const _getTxnForTicker_internal = internalQuery({
   ): Promise<{
     receipt_number: string;
     total: number;
+    paid_at: number;
     staff_id: Id<"staff">;
-    confirmed_via: string | null;
+    confirmed_via: "webhook" | "polling" | "manual" | null;
     lines: Array<{ name: string; qty: number }>;
   } | null> => {
     const txn = await ctx.db.get(args.txnId);
@@ -769,6 +770,9 @@ export const _getTxnForTicker_internal = internalQuery({
     return {
       receipt_number: txn.receipt_number ?? "—",
       total: txn.total,
+      // paid_at is set alongside status="paid" in _confirmPaid (ADR-031), so the
+      // status guard above makes it present — assert rather than invent a time.
+      paid_at: txn.paid_at!,
       staff_id: txn.staff_id,
       confirmed_via: txn.confirmed_via ?? null,
       lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),

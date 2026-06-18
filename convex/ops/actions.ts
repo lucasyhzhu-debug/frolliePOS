@@ -1,4 +1,4 @@
-"use node";
+// V8-safe — no "use node". Uses runQuery/runAction only (no Node built-ins).
 
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";

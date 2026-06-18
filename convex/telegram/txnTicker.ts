@@ -54,31 +54,30 @@ export const sendTxnTicker = internalAction({
       throw err;
     }
 
-    // 3. Read txn + lines + staff name + instrument.
-    const txn = await ctx.runQuery(
-      internal.transactions.internal._getTxnForTicker_internal,
-      { txnId: args.txnId },
-    );
+    // 3. Read txn + staff names + invoice. These three are independent, so fire
+    //    them in parallel (per-sale hot path — Promise.all over serial awaits).
+    //    _listStaffNames_internal args: {} → Array<{ _id; name }> (resolve by .find).
+    //    _getPaidInvoiceForTxn_internal arg is `transactionId` (NOT txnId).
+    const [txn, names, inv] = await Promise.all([
+      ctx.runQuery(internal.transactions.internal._getTxnForTicker_internal, {
+        txnId: args.txnId,
+      }),
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
+      ctx.runQuery(internal.payments.internal._getPaidInvoiceForTxn_internal, {
+        transactionId: args.txnId,
+      }),
+    ]);
     if (!txn) return { skipped: "not_found" };
 
-    // _listStaffNames_internal args: {} → Array<{ _id; name }>. Resolve by .find.
-    const names = await ctx.runQuery(
-      internal.auth.internal._listStaffNames_internal,
-      {},
-    );
     const staffName = names.find((s) => s._id === txn.staff_id)?.name ?? "Staff";
-
-    // _getPaidInvoiceForTxn_internal arg is `transactionId` (NOT txnId).
-    const inv = await ctx.runQuery(
-      internal.payments.internal._getPaidInvoiceForTxn_internal,
-      { transactionId: args.txnId },
-    );
     const instrument = instrumentLabel(
       instrumentFromInvoice(inv),
       txn.confirmed_via === "manual",
     );
 
-    // 4. Send — disableNotification so it's a silent running feed.
+    // 4. Send — disableNotification so it's a silent running feed. paid_at is the
+    //    transaction's real settlement time (server-set in _confirmPaid), not the
+    //    ticker send time.
     await ctx.runAction(api.telegram.send.sendTemplate, {
       role: "managers",
       kind: "txn_ticker",
@@ -88,7 +87,7 @@ export const sendTxnTicker = internalAction({
         lines: txn.lines,
         staff_name: staffName,
         instrument,
-        paid_at: Date.now(),
+        paid_at: txn.paid_at,
       },
       idempotencyKey: `ticker:${args.txnId}`,
       chatIdOverride: chatId,

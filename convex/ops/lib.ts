@@ -14,7 +14,9 @@ export function truncate(s: string, max: number): string {
 export function normalizeMessage(message: string): string {
   return message
     .replace(/0x[0-9a-fA-F]+/g, "0x#")
-    .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F-]{20,}/g, "#uuid")
+    // Canonical UUID shape only — the looser `{8}-[hex-]{20,}` form false-matched
+    // any "8 hex + long hex/dash run", collapsing distinct messages to one sig.
+    .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, "#uuid")
     .replace(/\d+/g, "#")
     .trim()
     .slice(0, MESSAGE_MAX);

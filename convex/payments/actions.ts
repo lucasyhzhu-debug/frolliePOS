@@ -7,7 +7,13 @@ import { internal, api } from "../_generated/api";
 import { verifyPinOrThrow } from "../auth/verifyPin";
 import { createQrisCharge, createBcaVaCharge } from "./xendit";
 
-/** Best-effort ops report for payment-path failures. Never throws. */
+/**
+ * Best-effort ops report for payment-path failures. Never throws.
+ * NOTE: the FE (charge.tsx) also reports payment failures from its own vantage
+ * (route "useXenditPayment"). The differing routes mean a single Xendit outage
+ * surfaces as two reports — intentional: server-side captures the real Xendit
+ * error, client-side captures transport/client failures the server never sees.
+ */
 async function reportPaymentError(
   ctx: ActionCtx,
   err: unknown,

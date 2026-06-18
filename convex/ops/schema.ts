@@ -24,5 +24,8 @@ export const opsTables = {
     created_at: v.number(),        // server time (ADR-031)
   })
     .index("by_signature_created", ["signature", "created_at"])
-    .index("by_created", ["created_at"]),
+    .index("by_created", ["created_at"])
+    // Storm-cap lookup: newest alerted row. Composite avoids scanning the
+    // (potentially large) prefix of suppressed alerted:false rows during a storm.
+    .index("by_alerted_created", ["alerted", "created_at"]),
 };

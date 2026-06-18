@@ -1,7 +1,6 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { constantTimeEqual } from "../lib/constantTimeEqual";
-import { truncate, MESSAGE_MAX, STACK_MAX } from "./lib";
 
 const BODY_MAX = 16_000; // bytes; well under keepalive 64KB cap
 
@@ -34,10 +33,12 @@ export const opsErrorRoute = httpAction(async (ctx, request) => {
   const message = typeof body.message === "string" ? body.message : "";
   if (!KINDS.has(kind) || !message) return new Response(null, { status: 204 });
 
+  // Truncation is owned by _recordError_internal (single contract for both this
+  // route and direct BE callers) — don't pre-truncate here.
   await ctx.runMutation(internal.ops.internal._recordError_internal, {
     kind: kind as "crash" | "unhandled" | "payment" | "mutation" | "backend",
-    message: truncate(message, MESSAGE_MAX),
-    stack: typeof body.stack === "string" ? truncate(body.stack, STACK_MAX) : undefined,
+    message,
+    stack: typeof body.stack === "string" ? body.stack : undefined,
     route: typeof body.route === "string" ? body.route : undefined,
     staff_code: typeof body.staff_code === "string" ? body.staff_code : undefined,
     device_id: typeof body.device_id === "string" ? body.device_id : undefined,

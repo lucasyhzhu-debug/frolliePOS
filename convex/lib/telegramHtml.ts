@@ -289,7 +289,7 @@ export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
      p.device_id ? `dev ${escapeHtml(p.device_id)}` : null,
      p.app_version ? `v${escapeHtml(p.app_version)}` : null]
       .filter(Boolean).join(" · ") || null,
-    formatWibDateTime(p.occurred_at),
+    escapeHtml(formatWibDateTime(p.occurred_at)),
   ].filter(Boolean);
   return { text: lines.join("\n") };
 }
@@ -311,7 +311,7 @@ export function renderTxnTicker(p: TxnTickerPayload): RenderedMessage {
   const overflow = p.lines.length - shown.length;
   const itemLines = shown.map((l) => `${l.qty}× ${escapeHtml(l.name)}`);
   if (overflow > 0) itemLines.push(`…+${overflow} more`);
-  const wib = formatWibDateTime(p.paid_at);
+  const wib = escapeHtml(formatWibDateTime(p.paid_at));
   return {
     text: [
       `🧾 #${escapeHtml(p.receipt_number)} · Rp ${formatIdr(p.total)}`,
