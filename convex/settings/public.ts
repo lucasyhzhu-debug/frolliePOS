@@ -6,6 +6,9 @@ import { requireManagerSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 
+// Intentionally unauthenticated — returns only two non-sensitive notification
+// booleans (not PII/financial). The toggle components need this before the
+// manager session resolves (Switch stays disabled until loaded).
 export const getSettings = query({
   args: {},
   handler: async (ctx) => {
@@ -49,8 +52,11 @@ export const setFoundersSummaryEnabled = mutation({
           updated_by: staffId,
         });
       } else {
+        // txn_ticker_enabled defaults to true on a fresh row, symmetric with
+        // setTxnTickerEnabled defaulting founders_summary_enabled to true.
         await ctx.db.insert("pos_settings", {
           founders_summary_enabled: args.enabled,
+          txn_ticker_enabled: true,
           updated_at: Date.now(),
           updated_by: staffId,
         });
@@ -117,6 +123,8 @@ export const setTxnTickerEnabled = mutation({
       return { ok: true as const };
     },
     {
+      // ADR-013: a same-key replay from a non-manager session must not read
+      // back the cached {ok:true} — authCheck runs before the cache lookup.
       authCheck: async (ctx, args) => {
         await requireManagerSession(ctx, args.sessionId);
       },

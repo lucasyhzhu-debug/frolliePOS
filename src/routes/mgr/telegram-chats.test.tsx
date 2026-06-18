@@ -233,7 +233,7 @@ describe("MgrTelegramChats — chat list", () => {
   });
 
   it("renders empty-state when mgrListChats returns []", () => {
-    setupQueryMock({ founders_summary_enabled: true }, []);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     renderPage();
     expect(screen.getByText(/no registered telegram chats yet/i)).toBeInTheDocument();
     expect(screen.getByText(/invite the bot/i)).toBeInTheDocument();
@@ -241,7 +241,7 @@ describe("MgrTelegramChats — chat list", () => {
   });
 
   it("renders a chat card when mgrListChats returns rows", () => {
-    setupQueryMock({ founders_summary_enabled: true }, [baseChat]);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [baseChat]);
     setupMutationMock();
     renderPage();
     expect(screen.getByText("Frollie Managers")).toBeInTheDocument();
@@ -250,21 +250,21 @@ describe("MgrTelegramChats — chat list", () => {
   });
 
   it("shows Active badge for a chat with a role and no error", () => {
-    setupQueryMock({ founders_summary_enabled: true }, [baseChat]);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [baseChat]);
     setupMutationMock();
     renderPage();
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
 
   it("shows Dormant badge for a chat with no role", () => {
-    setupQueryMock({ founders_summary_enabled: true }, [{ ...baseChat, role: undefined }]);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [{ ...baseChat, role: undefined }]);
     setupMutationMock();
     renderPage();
     expect(screen.getByText("Dormant")).toBeInTheDocument();
   });
 
   it("shows Archived badge for an archived chat", () => {
-    setupQueryMock({ founders_summary_enabled: true }, [
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [
       { ...baseChat, archivedAt: Date.now() - 3_600_000 },
     ]);
     setupMutationMock();
@@ -273,7 +273,7 @@ describe("MgrTelegramChats — chat list", () => {
   });
 
   it("shows Archive button for active chats and Restore for archived chats", () => {
-    setupQueryMock({ founders_summary_enabled: true }, [
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, [
       baseChat,
       {
         ...baseChat,
@@ -383,7 +383,7 @@ describe("MgrTelegramChats — founders summary toggle", () => {
   });
 
   it("calls setFoundersSummaryEnabled(false) when toggled off (was true)", async () => {
-    setupQueryMock({ founders_summary_enabled: true }, []);
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     setupMutationMock();
     renderPage();
 
@@ -426,6 +426,7 @@ describe("MgrTelegramChats — sales ticker toggle", () => {
     stubSendTest = vi.fn().mockResolvedValue(undefined);
     mockUseSession.mockReturnValue(activeManagerSession);
     mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
+    setupQueryMock({ founders_summary_enabled: true, txn_ticker_enabled: true }, []);
     setupMutationMock();
   });
 

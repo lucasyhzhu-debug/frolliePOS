@@ -762,7 +762,7 @@ inventory_sku.created       # v0.5.5. New inventory SKU created (standalone Add 
                             #   (bundled-create path also carries `via:"create_product_bundled"`).
 product.updated             # updateProductMeta (session) / updateProductPricing (PIN) / setProductComponents (session) / bundled create_product (PIN, v0.5.5) — metadata variants: { field:"meta"|"pricing"|... } | { components_changed:true, count[, sku_id, qty, via:"create_product_bundled"] } | { price_idr:{ from, to } }
 product.archived            # archiveProduct — manager-session; soft-delete via active=false
-settings.founders_summary_toggled  # setFoundersSummaryEnabled — manager-session; metadata={ enabled: boolean }; source=booth_inline
+settings.founders_summary_toggled  # (v0.4) setFoundersSummaryEnabled — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.txn_ticker_toggled        # setTxnTickerEnabled (v1.0.2) — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)

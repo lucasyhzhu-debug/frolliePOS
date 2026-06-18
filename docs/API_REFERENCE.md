@@ -282,7 +282,7 @@ Per-day payout aggregate. No Xendit "settlement object"/webhook — dual-source 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
 | q | `settings.public.getSettings` | `{}` | `{ founders_summary_enabled: boolean, txn_ticker_enabled: boolean }` | Public-readable. Returns `true` if the `pos_settings` row is absent (default-on). |
-| m | `settings.public.setFoundersSummaryEnabled` | `{ sessionId, enabled }` | `{ ok: true }` | Manager-only. Upserts the `pos_settings` singleton. Logs `settings.founders_summary_toggled`. |
+| m | `settings.public.setFoundersSummaryEnabled` | `{ idempotencyKey, sessionId, enabled }` | `{ ok: true }` | Manager-only. Upserts the `pos_settings` singleton. Logs `settings.founders_summary_toggled`. |
 | m | `settings.public.setTxnTickerEnabled` | `{ idempotencyKey, sessionId, enabled }` | `{ ok: true }` | Manager-session. Flips `pos_settings.txn_ticker_enabled`; audit `settings.txn_ticker_toggled`. |
 
 ### Receipt branding (v0.5.3b)
