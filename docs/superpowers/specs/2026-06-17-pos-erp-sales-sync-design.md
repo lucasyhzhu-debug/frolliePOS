@@ -92,9 +92,9 @@ api_tokens: {
   rateLimitRpm: number,         // default 60
   issuedAt: number,             // server Date.now() (ADR-031)
   expiresAt: number,            // mandatory; ≤365d
+  label: string,                // human note for ops, "frollie-pro-prod"
   rotatedFrom?: Id<"api_tokens">,
   revokedAt?: number,
-  createdByStaffId: Id<"staff">,
 }
 api_rate_buckets: { token_id, window_start, count }  // reset every 60s by scheduled action
 
@@ -113,7 +113,7 @@ api_request_log: {
   at: number,
 }  // .index("by_token_at", ["token_id","at"])
 ```
-- Issuance = **manager-PIN-gated** mutation; returns the raw token **once**. CLI for v1 (dashboard UI deferred).
+- Issuance = **ops-run `internalMutation`** (`npx convex run`, same trust level as `seed:reset`); returns the raw token **once**. NOT a manager-PIN app mutation — a CLI has no booth session. Dashboard UI deferred.
 - Rotation = overlapping 7-day windows (old + new both valid).
 - Audit (`audit_log`, business): token **issued / rotated / revoked** + **auth failures** (401/403) only. Routine pulls go to `api_request_log`, not `audit_log`.
 
