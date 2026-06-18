@@ -496,6 +496,23 @@ export const _listStaffNames_internal = internalQuery({
 });
 
 /**
+ * Return all staff (active + inactive) projected to { _id, code } for the
+ * Public API transactions feed. `_listStaffNames_internal` returns { _id, name }
+ * with NO `code` — a separate internal is needed per ADR-034 (transactions reads
+ * staff via an auth internal, never direct ctx.db).
+ *
+ * `code` is required post-Task 3 (staff.code: v.string()), so no ?? fallback
+ * is needed. Includes inactive staff so historical txns still resolve.
+ */
+export const _listStaffCodes_internal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Array<{ _id: Id<"staff">; code: string }>> => {
+    const rows = await ctx.db.query("staff").collect();
+    return rows.map((s) => ({ _id: s._id, code: s.code }));
+  },
+});
+
+/**
  * List active managers (with codes) for the /approve manager-identity picker.
  * Lives here per ADR-034 — approvals does not read the `staff` table directly.
  *

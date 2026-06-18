@@ -10,6 +10,7 @@ import { NEG_STOCK, VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH, withFlag } f
 import type { DayTxn } from "./lib";
 import { instrumentFromInvoice } from "../payments/internal";
 import { refundStatus } from "../refunds/lib";
+import { encodeCursor } from "../lib/apiCursor";
 
 /**
  * Pure helper (no writes): for a cart of {productId, qty}, expand to
@@ -777,5 +778,136 @@ export const _getTxnForTicker_internal = internalQuery({
       confirmed_via: txn.confirmed_via ?? null,
       lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Public API v1 — transactions feed
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a single row emitted by the Public API transactions feed.
+ * All money is integer rupiah (ADR-015). Fields are camelCase to match the
+ * JSON contract. Snapshots are served directly — never re-join lines → products.
+ */
+export type ApiTxnRow = {
+  receiptNumber: string;
+  paidAt: number;
+  subtotal: number;
+  voucherCode: string | null;
+  voucherDiscount: number;
+  total: number;
+  staffCode: string;
+  lines: Array<{
+    productCode: string;
+    productName: string;
+    qty: number;
+    unitPrice: number;
+    lineSubtotal: number;
+    taxRate: number;
+  }>;
+};
+
+/**
+ * Paginated feed of paid transactions for the Public API (GET /api/v1/transactions).
+ *
+ * Cursor semantics: (afterPaidAtMs, afterCreationTime) represent the last row
+ * of the previous page. Rows with (paid_at, _creationTime) strictly greater
+ * than the cursor are returned, ascending by paid_at.
+ *
+ * Tiebreak correctness: paid_at is a server timestamp — multiple transactions
+ * can share the exact same ms. We over-fetch (limit*2+1) from gte(paid_at)
+ * then filter `strictlyAfter` by (paid_at, _creationTime) > cursor so we never
+ * re-emit a row from the previous page, even when several transactions share
+ * the same paid_at ms.
+ *
+ * N+1 avoidance: staffCodes resolved once via _listStaffCodes_internal → Map.
+ * Lines are fetched per-txn (small page — max 500) via the by_transaction index.
+ *
+ * Cross-module reads (ADR-034):
+ *   staff codes → auth._listStaffCodes_internal (never direct ctx.db on staff)
+ */
+export const _listPaidTxnsForApi_internal = internalQuery({
+  args: {
+    afterPaidAtMs: v.optional(v.number()),
+    afterCreationTime: v.optional(v.number()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ rows: ApiTxnRow[]; nextCursor: string | null }> => {
+    const limit = Math.min(Math.max(args.limit, 1), 500);
+    const after = args.afterPaidAtMs;
+
+    // Ascending scan of paid rows from the watermark. Over-fetch by limit*2+1
+    // to provide headroom for same-ms tiebreak filtering without losing rows.
+    // _creationTime is the implicit tiebreak; rows at the exact watermark ms
+    // are filtered by (paidAt, _creationTime) > cursor in strictlyAfter below.
+    const candidates = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        after === undefined
+          ? q.eq("status", "paid")
+          : q.eq("status", "paid").gte("paid_at", after),
+      )
+      .order("asc")
+      .take(limit * 2 + 1);
+
+    // Filter to rows strictly after the cursor. When no cursor is given (first
+    // page), all candidates pass. When a cursor is given, rows at the exact
+    // watermark ms are disambiguated by _creationTime.
+    const strictlyAfter = candidates.filter((t) => {
+      if (after === undefined) return true;
+      if (t.paid_at! > after) return true;
+      // equal ms → compare _creationTime
+      return t._creationTime > (args.afterCreationTime ?? -Infinity);
+    });
+
+    const page = strictlyAfter.slice(0, limit);
+
+    // Resolve staffCode once (small set) → Map to avoid N+1 per txn.
+    // ADR-034: transactions reads staff via an auth internal, never direct ctx.db.
+    const staffCodes = await ctx.runQuery(
+      internal.auth.internal._listStaffCodes_internal,
+      {},
+    );
+    const codeByStaffId = new Map(staffCodes.map((s) => [String(s._id), s.code]));
+
+    const rows: ApiTxnRow[] = [];
+    for (const t of page) {
+      const lines = await ctx.db
+        .query("pos_transaction_lines")
+        .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+        .collect();
+
+      const staffCode = codeByStaffId.get(String(t.staff_id));
+      // status === "paid" + staff are soft-deleted (never hard-deleted), so a
+      // missing code means corruption — fail loud rather than silently omit.
+      if (!staffCode) throw new Error(`STAFF_CODE_MISSING_FOR_TXN ${t._id}`);
+
+      rows.push({
+        // receipt_number is set by _confirmPaid (invariant for status="paid")
+        receiptNumber: t.receipt_number!,
+        paidAt: t.paid_at!,
+        subtotal: t.subtotal,
+        voucherCode: t.voucher_code_snapshot ?? null,
+        voucherDiscount: t.voucher_discount,
+        total: t.total,
+        staffCode,
+        lines: lines.map((l) => ({
+          productCode: l.product_code_snapshot,
+          productName: l.product_name_snapshot,
+          qty: l.qty,
+          unitPrice: l.unit_price_snapshot,
+          lineSubtotal: l.line_subtotal,
+          taxRate: l.tax_rate_snapshot,
+        })),
+      });
+    }
+
+    const last = page[page.length - 1];
+    const more = strictlyAfter.length > limit;
+    const nextCursor =
+      more && last ? encodeCursor(last.paid_at!, last._creationTime) : null;
+
+    return { rows, nextCursor };
   },
 });
