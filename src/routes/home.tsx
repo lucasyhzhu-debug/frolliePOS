@@ -20,8 +20,6 @@ interface Tile {
   hint: string;
   to: string;
   primary?: boolean;
-  badge?: number;
-  warn?: boolean;
   mgrOnly?: boolean;
   glyph: string;
   photoUrl?: string; // reserved for #3 — product/initials image slot

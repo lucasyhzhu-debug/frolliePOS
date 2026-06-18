@@ -113,6 +113,12 @@ implementation:
 | Station | `--color-station-production-{bg,border,text,icon}`, `--color-station-boxing-*`, `--color-station-stickering-*`, `--color-station-packing-*` | 16 |
 | Channel | `--color-gofood-{bg,border}`, `--color-grabfood-{bg,border}`, `--color-k3mart-{bg,border}` | 8 |
 | Kitchen | `--color-kitchen-{bg,border,counter}` | 3 |
+| Semantic/role `*-bg` | `--color-{success,warning,error,info}-bg`, `--color-role-{admin,manager,staff,kitchen}-bg` | 8 |
+
+**Total: ~35 tokens.** The semantic/role `*-bg` fills became dead writes once
+the dark-tuned badge variants switched to opacity modifiers on the base color
+(`bg-success/15` instead of `bg-success-bg`) — zero consumers remained, so they
+are pruned alongside the kitchen-vocabulary tokens.
 
 **Paired removal:** the `gofood`, `grabfood`, and `k3mart` variants in
 `src/components/ui/badge.tsx` are deleted alongside the tokens. No POS
@@ -134,8 +140,9 @@ zero before deletion.
 - The POS finally matches the Frollie visual identity. All new features
   (v1.2+) are built on the correct canvas from the start.
 - The glare-gate fallback is a single attribute — rollback risk is near-zero.
-- Pruning 27 dead tokens reduces `index.css` cognitive load and removes
-  Frollie Pro kitchen concepts from the POS design vocabulary.
+- Pruning ~35 dead tokens (27 station/channel/kitchen + 8 semantic/role `*-bg`)
+  reduces `index.css` cognitive load and removes Frollie Pro kitchen concepts
+  from the POS design vocabulary.
 - `@custom-variant dark` makes `dark:` utilities class-driven, enabling
   coherent single-attribute theme switching without media-query dependence.
 
