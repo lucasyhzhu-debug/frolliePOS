@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-18 — v1.2 Phase 1: Phthalo-dark design system (#2, folds in #4 + #5)
+- feat(ui): the POS now ships the Frollie/Lucas **phthalo-dark** canvas as its default theme — paper `#102821`, lifted cards `#163630`, warm ink `#F1E9D8`, teal `#14B8A6` primary, **citrus `#F9A84A`** accent. Mounted via a permanent `class="dark"` on `<html>`; `:root` retained as an enriched-light glare-gate fallback (flip one attribute). `@custom-variant dark` re-keys `dark:` utilities to the class. ADR-047. **Tokens drive everything, so untouched routes inherit the dark canvas automatically.**
+- feat(ui): primitives enriched — Card elevation (`shadow-md`), Button tactile press (`active:scale-[0.97]` + primary gradient), Badge dark-tuned to translucent fills (`bg-x/15 text-x border-x/30`). Motion via `tw-animate-css` (Radix primitives) + Framer Motion micro-interactions, every one a full no-op under `prefers-reduced-motion`.
+- feat(ui): three surfaces redesigned — **Home** gets a top app-bar (Lock icon left, Printer + ConnDot right), a hero "New sale" CTA (~half screen), grouped tiles with a reserved photo/initials slot, and **folds in #4** (manager tiles + Settlements hidden from staff, empty groups dropped) and **#5** (Lock moved to the app-bar icon, bottom Lock button removed). **Sale** gets tap-to-cart pop + cart reflow motion + citrus qty badge. **Charge-success** gets a checkmark-draw celebration. **Login + keypad** restyled to the dark shell (visual only — submit/keypad-interaction logic stays #7/#11).
+- refactor(ui): swept ~44 raw Tailwind palette literals → semantic tokens across 15 files (dark-safe); pruned ~35 dead tokens (16 station + 8 channel + 3 kitchen + 8 semantic/role `*-bg`) with their never-rendered `badge.tsx` variants. Shared grid-stagger motion variants extracted to `src/lib/motion.ts`.
+- **Glare HARD GATE (open):** the emulated-tablet readability pass cleared in dev; the real booth-tablet readability check under mall lighting remains owner-owned before the rollout is declared done. Fallback if it washes out: remove `class="dark"` (one-attribute revert to enriched-light). No schema/backend/deploy-skew surface — fully reversible.
+
 ## 2026-06-18 — v1.2 Phase 0: Modal off-screen fix
 - fix(ui): `DialogContent` now caps at the viewport (`max-h-[calc(100dvh-2rem)]`) and scrolls internally (`overflow-y-auto`), so tall dialogs (PinSheet, PrinterSheet, mgr admin dialogs) no longer clip their header/footer off-screen on the booth tablet (#8). One change to the shared primitive fixes all 11 dialog instances; verified on emulated 800×600 + 800×420 viewports. No schema/backend/deploy-skew surface.
 
