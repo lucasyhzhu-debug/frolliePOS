@@ -22,6 +22,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `receipts/` *(v0.5.1 PR A)* | `pos_receipt_html_cache` |
 | `refunds/` *(v0.5.1 PR B)* | `pos_refunds` |
 | `ops/` *(v1.0.1)* | `pos_error_reports` (append-only launch-ops telemetry — NOT `audit_log`) |
+| `api/v1/` *(v1)* | `api_tokens`, `api_rate_buckets`, `api_request_log` |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -793,6 +794,53 @@ settlement.sync_skipped         # _auditSyncSkip_internal — sync cron ran and 
 | `kitchen_inventory` | no | future (v1.1) | Decremented via recipe lookup from POS sales |
 | `packaging` | no | no | Out of scope |
 | `orders` | no | no | Frollie Pro's order entity is B2B/wholesale, separate concept |
+
+### `api_tokens` *(v1 — Public API, owned by `api/v1/`)*
+Opaque bearer tokens for the external API. SHA-256 hashed at rest; auth = hash incoming token → `by_hash` indexed lookup (no plaintext stored). See [ADR-034](./ADR/034-deep-modules-surface-apis.md).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"api_tokens">` | |
+| `hash` | `string` | `sha256Hex(rawToken)` — plaintext never stored |
+| `label` | `string` | Human note for ops e.g. `"frollie-pro-prod"` |
+| `scope` | `"frollie_pro_full"` | Literal union retained for forward-compat; one value in v1 |
+| `endpointAllowList` | `string[]` | e.g. `["/api/v1/transactions", "/api/v1/refunds"]` |
+| `rateLimitRpm` | `number` | Default 60 |
+| `issuedAt` | `number` | ms epoch |
+| `expiresAt` | `number` | ms epoch; mandatory, ≤ 365d from issuance |
+| `rotatedFrom` | `Id<"api_tokens">?` | Prior token replaced by this rotation |
+| `revokedAt` | `number?` | ms epoch; non-null = revoked |
+
+Indexes: `by_hash` on `hash`.
+
+### `api_rate_buckets` *(v1 — Public API, owned by `api/v1/`)*
+Per-token RPM counter. One row per `(token_id, minute-window)` pair; count incremented on every request within the window.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"api_rate_buckets">` | |
+| `token_id` | `Id<"api_tokens">` | |
+| `window_start` | `number` | ms epoch floored to the minute |
+| `count` | `number` | Requests in this window |
+
+Indexes: `by_token_window` on `[token_id, window_start]`.
+
+### `api_request_log` *(v1 — Public API, owned by `api/v1/`)*
+Append-only access log — one row per API request (success AND failure, including unauthenticated attempts where `token_id` is null). This is NOT `audit_log` — [ADR-007](./ADR/007-audit-log-append-only.md) covers state-changing mutations only; reads/pulls go here. The token IS the caller (look up `api_tokens.label` for a human name).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"api_request_log">` | |
+| `token_id` | `Id<"api_tokens">?` | Null when auth failed before a token resolved |
+| `endpoint` | `string` | `"/api/v1/transactions"` \| `"/api/v1/refunds"` |
+| `http_status` | `number` | `200`/`400`/`401`/`429`/`500` |
+| `error_code` | `string?` | Contract §4 error code, when non-200 |
+| `returned_count` | `number?` | Rows in the response page (200 only) |
+| `cursor_in` | `string?` | Request cursor (opaque), if any |
+| `cursor_out` | `string?` | `nextCursor` returned, if any |
+| `at` | `number` | Server `Date.now()` |
+
+Indexes: `by_token_at` on `[token_id, at]`, `by_at` on `at`.
 
 ## Future migrations (documented for awareness)
 
