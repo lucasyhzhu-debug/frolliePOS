@@ -50,7 +50,9 @@ const containerVariants = (reduce: boolean) => ({
 });
 
 const itemVariants = (reduce: boolean) => ({
-  hidden: { opacity: 0, y: reduce ? 0 : 8 },
+  // Under prefers-reduced-motion this is a full no-op: tiles start fully
+  // visible (opacity 1, no offset) so nothing animates on mount.
+  hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 8 },
   show: { opacity: 1, y: 0 },
 });
 
