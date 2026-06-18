@@ -2134,8 +2134,11 @@ Plan not yet written. Tasks get IDs at planning time.
 **You'll be able to:**
 - Use every PIN/printer/manager dialog on the booth tablet without it clipping off-screen (#8 — Phase 0)
 
+**In Phase 1 (planned):**
+- Phthalo-dark design system (#2) — **absorbs staff-home declutter (#4) + lock icon (#5)** (home laid out once; #4/#5 fold in here rather than re-churning home across 3 PRs). Gates #12.
+
 **Still not yet (later v1.2 phases):**
-- Phthalo-dark design system (#2), inline messaging over toasts (#12), staff-home declutter (#4), receipt cleanup (#13), login PIN feedback (#11+#7), lock icon (#5), manual BCA transfer (#10), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6), EN/ID toggle (#1)
+- Inline messaging over toasts (#12), receipt cleanup (#13), login PIN feedback (#11+#7), manual BCA transfer (#10), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6), EN/ID toggle (#1)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2149,6 +2152,62 @@ Plan not yet written. Tasks get IDs at planning time.
     - [x] Full frontend suite green (320 tests); CHANGELOG entry
   - **notes:**
     - Animation revive/strip, bottom-sheet short-height layout, sticky close button deliberately deferred to #2 (design system) — keeps the blocker fix minimal
+- 📋 **[v12-fe-design-mock]** Throwaway `.design-mock.html` of the 3 surfaces (home/sale/login) + motion feel; chrome-devtools tablet screenshots = glare-gate dev pass; **Lucas sign-off STOP** before propagation (#2)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-18-v1.2-phase1-design-system.md), [Plan](./superpowers/plans/v1.2-phase1-design-system.md), [spec staffreview](./reviews/staffreview-v1.2-phase1-design-system-2026-06-18.md), [plan staffreview](./reviews/staffreview-v1.2-phase1-design-system-plan-2026-06-18.md)
+  - **subtasks:**
+    - [ ] Self-contained mock: app-bar + hero New Sale + tiles (photo slot), sale grid+cart, login keypad on phthalo canvas
+    - [ ] chrome-devtools emulate ~800×1280 + 1280×800 screenshots
+    - [ ] WCAG-AA contrast pass (ink/muted-ink on paper)
+    - [ ] STOP for Lucas sign-off before Task propagation
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-dark-tokens]** `src/index.css` + `index.html` — port phthalo canvas into `.dark` (permanent `.dark` mount), enriched-light `:root` fallback, citrus accent, `@custom-variant dark`, `tw-animate-css`, dark `theme-color`; **prune ~27 dead station/channel/kitchen tokens**; ADR-047 (#2)
+  - **agent:** `claude`
+  - **deps:** v12-fe-design-mock
+  - **docs:** [Spec](./superpowers/specs/2026-06-18-v1.2-phase1-design-system.md), [Plan](./superpowers/plans/v1.2-phase1-design-system.md), [ADR-047](./ADR/047-phthalo-dark-design-system.md)
+  - **subtasks:**
+    - [ ] ADR-047 (dark default + glare HARD GATE + token prune)
+    - [ ] Install tw-animate-css + `@custom-variant dark` + `class="dark"` + theme-color `#102821`
+    - [ ] `.dark` phthalo block + `:root` enriched-light fallback + citrus in `@theme inline`
+    - [ ] Prune 16 station + 8 channel + 3 kitchen tokens; build:fe + typecheck green
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-primitives]** `components/ui/{card,button,badge}.tsx` — Card elevation, Button tactile press, dark-tune Badge + **drop dead `gofood`/`grabfood`/`k3mart` variants** (+ guard test); Framer Motion + `useReducedMotion` foundation (#2)
+  - **agent:** `claude`
+  - **deps:** v12-fe-dark-tokens
+  - **docs:** [Plan](./superpowers/plans/v1.2-phase1-design-system.md)
+  - **subtasks:**
+    - [ ] Card shadow/elevation; Button `active:scale-[0.97]` + optional primary gradient
+    - [ ] Badge: delete 3 dead channel variants + dark-tune role/semantic; failing→passing guard test
+    - [ ] typecheck green (no removed-variant consumers)
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-home-redesign]** `routes/home.tsx` (+ `__tests__/home.test.tsx`) — top app-bar [Lock left · Printer+ConnDot right], **hero New Sale (~half screen)**, photo slot reserved; **#4** hide mgr tiles from staff + drop empty groups + Settlements→mgr; **#5** lock icon, remove bottom Lock button (#2/#4/#5)
+  - **agent:** `claude`
+  - **deps:** v12-fe-primitives
+  - **docs:** [Plan](./superpowers/plans/v1.2-phase1-design-system.md)
+  - **subtasks:**
+    - [ ] Failing role-render tests (manager/staff tile visibility, lock icon) via mutable `mockRole`
+    - [ ] App-bar + hero + tile redesign + photo slot; preserve recovery/recount banner testids+hrefs
+    - [ ] #4 declutter + #5 lock icon (remove `handleLock`; `/lock` owns logout); home suite green
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-surfaces]** `routes/sale/index.tsx` + `charge-success.tsx` + `login.tsx` + `NumericKeypad.tsx` — sale grid/cart redesign + tap-to-cart/reflow motion, charge-success celebration, dark login shell (visual only — logic stays #7/#11) (#2)
+  - **agent:** `claude`
+  - **deps:** v12-fe-primitives
+  - **docs:** [Plan](./superpowers/plans/v1.2-phase1-design-system.md)
+  - **subtasks:**
+    - [ ] Sale: grid stagger + whileTap pop + cart reflow; preserve aria-labels/qty badge/handlers; tests green
+    - [ ] Charge-success: checkmark-draw celebration; test green
+    - [ ] Login + keypad color/token restyle only (no press/pending interaction); login test green
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-palette-docs]** Raw-palette → semantic-token sweep across ~14 files (dark-safe) + CHANGELOG + CLAUDE.md token note + PROGRESS close-out (#2)
+  - **agent:** `claude`
+  - **deps:** v12-fe-home-redesign, v12-fe-surfaces
+  - **docs:** [Plan](./superpowers/plans/v1.2-phase1-design-system.md)
+  - **subtasks:**
+    - [ ] Swap raw amber/teal/emerald/red/gray literals → semantic tokens; grep confirms none remain
+    - [ ] typecheck + full `vitest run src/` green; CHANGELOG + CLAUDE.md note; delete mock
+    - [ ] Real-tablet glare HARD GATE scheduled/owned before declaring rollout done
+  - **notes:** _(empty)_
 
 ---
 
