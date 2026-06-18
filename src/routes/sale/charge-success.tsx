@@ -138,7 +138,6 @@ export default function SaleChargeSuccess() {
               initial={{ pathLength: reduce ? 1 : 0 }}
               animate={{ pathLength: 1 }}
               transition={{ duration: reduce ? 0 : 0.4, ease: "easeOut", delay: reduce ? 0 : 0.2 }}
-              fill="none"
               stroke="currentColor"
               className="text-primary"
               strokeWidth={3}

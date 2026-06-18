@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { usePathChangeBlocker } from "@/hooks/usePathChangeBlocker";
@@ -19,17 +20,6 @@ import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { reportOps } from "@/lib/reportOps";
-
-// Module-level motion variants (mirrors home.tsx) — factories of `reduce` so
-// they are not re-created per render. Fully no-op under prefers-reduced-motion.
-const gridVariants = (reduce: boolean) => ({
-  hidden: {},
-  show: { transition: { staggerChildren: reduce ? 0 : 0.03 } },
-});
-const itemVariants = (reduce: boolean) => ({
-  hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 8 },
-  show: { opacity: 1, y: 0 },
-});
 
 export default function Sale() {
   const navigate = useNavigate();
@@ -177,6 +167,10 @@ export default function Sale() {
   }
   if (session.status !== "active") return null;
 
+  // Resolve motion variants once per render (reused across all product cards).
+  const gridV = gridContainerVariants(reduce);
+  const itemV = gridItemVariants(reduce);
+
   return (
     <SpokeLayout title="New sale">
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
@@ -191,7 +185,7 @@ export default function Sale() {
             </div>
           ) : (
             <motion.div
-              variants={gridVariants(reduce)}
+              variants={gridV}
               initial="hidden"
               animate="show"
               className="grid grid-cols-2 gap-2 sm:grid-cols-3"
@@ -201,7 +195,7 @@ export default function Sale() {
                 return (
                   <motion.div
                     key={p._id}
-                    variants={itemVariants(reduce)}
+                    variants={itemV}
                     whileTap={reduce ? undefined : { scale: 0.96 }}
                   >
                     <Card
@@ -265,7 +259,6 @@ export default function Sale() {
                     return (
                       <motion.li
                         key={line.productId}
-                        layout
                         initial={reduce ? false : { opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={reduce ? undefined : { opacity: 0 }}

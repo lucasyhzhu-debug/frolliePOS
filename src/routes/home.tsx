@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 
 interface Tile {
   id: string;
@@ -19,7 +19,6 @@ interface Tile {
   label: string;
   hint: string;
   to: string;
-  primary?: boolean;
   mgrOnly?: boolean;
   glyph: string;
   photoUrl?: string; // reserved for #3 — product/initials image slot
@@ -38,21 +37,10 @@ const TILES: Tile[] = [
 
 const GROUP_LABELS = { sell: "SELL", stock: "STOCK", you: "YOU", mgr: "MANAGER" } as const;
 
-const containerVariants = (reduce: boolean) => ({
-  hidden: {},
-  show: {
-    transition: {
-      staggerChildren: reduce ? 0 : 0.03,
-    },
-  },
-});
-
-const itemVariants = (reduce: boolean) => ({
-  // Under prefers-reduced-motion this is a full no-op: tiles start fully
-  // visible (opacity 1, no offset) so nothing animates on mount.
-  hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 8 },
-  show: { opacity: 1, y: 0 },
-});
+// Shared with the warning banners below — single source for the dark-safe
+// warning-tone treatment so the recount + recovery banners stay in sync.
+const BANNER_CLS =
+  "block rounded-md bg-warning/15 text-warning border border-warning/30 p-3 text-center text-sm";
 
 export default function HomeRoute() {
   const navigate = useNavigate();
@@ -74,6 +62,10 @@ export default function HomeRoute() {
       tiles: TILES.filter((t) => t.group === g && (!t.mgrOnly || isManager)),
     }))
     .filter((x) => x.tiles.length > 0);
+
+  // Resolve motion variants once per render (reused across all tiles).
+  const containerV = gridContainerVariants(reduce);
+  const itemV = gridItemVariants(reduce);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -112,10 +104,7 @@ export default function HomeRoute() {
       <main className="flex flex-1 flex-col gap-4 p-4 overflow-y-auto">
         {/* Banners */}
         {nudge && (
-          <Link
-            to="/stock/recount"
-            className="block rounded-md bg-warning/15 text-warning border border-warning/30 p-3 text-center text-sm"
-          >
+          <Link to="/stock/recount" className={BANNER_CLS}>
             Saatnya menghitung ulang stok — ketuk untuk mulai
           </Link>
         )}
@@ -123,7 +112,7 @@ export default function HomeRoute() {
         {recovery.latest && (
           <Link
             to={`/sale/charge/${recovery.latest._id}`}
-            className="block rounded-md bg-warning/15 text-warning border border-warning/30 p-3 text-center text-sm"
+            className={BANNER_CLS}
             data-testid="awaiting-recovery-banner"
           >
             {recovery.count} pembayaran belum selesai — ketuk untuk lanjutkan
@@ -150,7 +139,7 @@ export default function HomeRoute() {
         {/* Tile groups */}
         <motion.div
           className="space-y-4"
-          variants={containerVariants(reduce)}
+          variants={containerV}
           initial="hidden"
           animate="show"
         >
@@ -161,7 +150,7 @@ export default function HomeRoute() {
               </h2>
               <div className="grid grid-cols-2 gap-2">
                 {tiles.map((t) => (
-                  <motion.div key={t.id} variants={itemVariants(reduce)}>
+                  <motion.div key={t.id} variants={itemV}>
                     <Card className="relative p-3 transition-colors hover:bg-accent">
                       <Link to={t.to} className="block">
                         <TileBody tile={t} />
@@ -180,19 +169,15 @@ export default function HomeRoute() {
 
 function TileBody({ tile }: { tile: Tile }) {
   return (
-    <>
-      <div className="flex items-center gap-2">
-        {/* Photo slot placeholder — reserved for #3 */}
-        <div className="size-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-          <span className={cn("text-xl leading-none", tile.primary ? "text-primary" : "text-muted-foreground")}>
-            {tile.glyph}
-          </span>
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium leading-tight truncate">{tile.label}</p>
-          <p className="text-xs text-muted-foreground truncate">{tile.hint}</p>
-        </div>
+    <div className="flex items-center gap-2">
+      {/* Photo slot placeholder — reserved for #3 */}
+      <div className="size-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+        <span className="text-xl leading-none text-muted-foreground">{tile.glyph}</span>
       </div>
-    </>
+      <div className="min-w-0">
+        <p className="text-sm font-medium leading-tight truncate">{tile.label}</p>
+        <p className="text-xs text-muted-foreground truncate">{tile.hint}</p>
+      </div>
+    </div>
   );
 }

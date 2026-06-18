@@ -7,9 +7,9 @@ export const INSTRUMENT_LABEL: Record<"qris" | "bca_va" | "unknown", string> = {
 };
 
 export const REFUND_BADGE = {
-  none: { label: "LUNAS", cls: "bg-success/15 text-success border-transparent" },
-  partial: { label: "SEBAGIAN DIKEMBALIKAN", cls: "bg-warning/15 text-warning border-transparent" },
-  full: { label: "DIKEMBALIKAN", cls: "bg-error/15 text-error border-transparent" },
+  none: { label: "LUNAS", cls: "bg-success/15 text-success border-success/30" },
+  partial: { label: "SEBAGIAN DIKEMBALIKAN", cls: "bg-warning/15 text-warning border-warning/30" },
+  full: { label: "DIKEMBALIKAN", cls: "bg-error/15 text-error border-error/30" },
 } as const;
 
 /**
