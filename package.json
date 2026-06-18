@@ -6,7 +6,8 @@
   "description": "Frollie POS — internal point-of-sale for the Frollie stall. PWA on Android. Same Convex project as product_master.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/build.mjs",
+    "build:fe": "tsc -b && vite build",
     "preview": "vite preview --host",
     "lint": "eslint . && bash tools/ci/assert-strict-idempotency-rule.sh",
     "typecheck": "tsc -b && tsc -p convex",
