@@ -1,6 +1,18 @@
-import { httpAction } from "../_generated/server";
+import { httpAction, ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { parseXenditWebhook } from "./xendit";
+
+/** Best-effort ops report for post-auth webhook failures. Never throws — a
+ * report failure must not break the return-200 Xendit contract. */
+async function reportWebhookError(ctx: ActionCtx, err: unknown): Promise<void> {
+  try {
+    await ctx.runMutation(internal.ops.internal._recordError_internal, {
+      kind: "backend",
+      message: err instanceof Error ? err.message : String(err),
+      route: "convex/payments/webhook",
+    });
+  } catch { /* swallow — reporting must not affect Xendit retry behavior */ }
+}
 
 /** Constant-time compare; folds any length difference into the diff (I2). */
 function tokenMatches(received: string, expected: string): boolean {
@@ -52,25 +64,13 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
         // error level: a paid webhook that couldn't commit is an alertable event.
         console.error("[xendit] webhook mutation error:", err);
         // v1.0.1: best-effort ops report — kind: "backend", never mask original behavior
-        try {
-          await ctx.runMutation(internal.ops.internal._recordError_internal, {
-            kind: "backend",
-            message: err instanceof Error ? err.message : String(err),
-            route: "convex/payments/webhook",
-          });
-        } catch { /* swallow — reporting must not affect Xendit retry behavior */ }
+        await reportWebhookError(ctx, err);
       }
     }
   } catch (err) {
     // Parsing or other post-auth error — report and swallow
     console.error("[xendit] webhook processing error:", err);
-    try {
-      await ctx.runMutation(internal.ops.internal._recordError_internal, {
-        kind: "backend",
-        message: err instanceof Error ? err.message : String(err),
-        route: "convex/payments/webhook",
-      });
-    } catch { /* swallow */ }
+    await reportWebhookError(ctx, err);
   }
 
   return new Response("ok", { status: 200 });

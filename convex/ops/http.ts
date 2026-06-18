@@ -4,7 +4,8 @@ import { constantTimeEqual } from "../lib/constantTimeEqual";
 
 const BODY_MAX = 16_000; // bytes; well under keepalive 64KB cap
 
-const KINDS = new Set(["crash", "unhandled", "payment", "mutation", "backend"]);
+const KINDS = ["crash", "unhandled", "payment", "mutation", "backend"] as const;
+type OpsKind = (typeof KINDS)[number];
 
 // Always 2xx/204 — never reveal token validity, never make the browser retry.
 export const opsErrorRoute = httpAction(async (ctx, request) => {
@@ -31,12 +32,14 @@ export const opsErrorRoute = httpAction(async (ctx, request) => {
 
   const kind = typeof body.kind === "string" ? body.kind : "";
   const message = typeof body.message === "string" ? body.message : "";
-  if (!KINDS.has(kind) || !message) return new Response(null, { status: 204 });
+  if (!(KINDS as readonly string[]).includes(kind) || !message) {
+    return new Response(null, { status: 204 });
+  }
 
   // Truncation is owned by _recordError_internal (single contract for both this
   // route and direct BE callers) — don't pre-truncate here.
   await ctx.runMutation(internal.ops.internal._recordError_internal, {
-    kind: kind as "crash" | "unhandled" | "payment" | "mutation" | "backend",
+    kind: kind as OpsKind,
     message,
     stack: typeof body.stack === "string" ? body.stack : undefined,
     route: typeof body.route === "string" ? body.route : undefined,

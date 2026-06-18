@@ -1,3 +1,5 @@
+import { convexSiteOrigin } from "./convexUrl";
+
 const IDR = new Intl.NumberFormat("id-ID", {
   style: "currency",
   currency: "IDR",
@@ -64,12 +66,9 @@ export function buildReceiptUrl(token: string): string {
   if (!convexUrl) {
     return `/r/${token}`;
   }
-  // VITE_CONVEX_URL is always the bare origin (no path) for the WS endpoint.
-  // The previous regex had an optional path group that never matched in
-  // practice — tighten so any future surprise shape surfaces in tests rather
-  // than silently stripping data.
-  const siteOrigin = convexUrl.replace(/\.convex\.cloud$/, ".convex.site");
-  return `${siteOrigin}/r/${token}`;
+  // VITE_CONVEX_URL is the bare `.convex.cloud` WS origin; swap to `.site` for
+  // the httpAction surface via the shared helper (single source for the swap).
+  return `${convexSiteOrigin(convexUrl)}/r/${token}`;
 }
 
 export function fmtRelative(epochMs: number): string {

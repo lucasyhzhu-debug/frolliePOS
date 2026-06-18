@@ -1,8 +1,10 @@
 // Resilient client-side error reporter. Uses raw fetch (NOT the Convex client,
 // which a crash may have taken down) + keepalive (survives navigation/reload).
 
+import { convexSiteOrigin } from "./convexUrl";
+
 export function opsEndpoint(convexUrl: string): string {
-  return convexUrl.replace(".convex.cloud", ".convex.site").replace(/\/$/, "") + "/ops/error";
+  return convexSiteOrigin(convexUrl) + "/ops/error";
 }
 
 // In-memory dedup so a tight error loop can't hammer the endpoint (belt-and-

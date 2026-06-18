@@ -24,22 +24,23 @@ export const _recordError_internal = internalMutation({
     const now = Date.now();
     const signature = errorSignature({ kind: args.kind, route: args.route, message: args.message });
 
-    // Dedup: any same-signature row within the window suppresses the alert.
-    const recentSame = await ctx.db
-      .query("pos_error_reports")
-      .withIndex("by_signature_created", (q) =>
-        q.eq("signature", signature).gte("created_at", now - DEDUP_WINDOW_MS),
-      )
-      .first();
-
-    // Storm cap: most recent alerted row within global cooldown suppresses the alert.
-    // by_alerted_created indexes on alerted first, so this is an O(1) seek to the
-    // newest alerted row — no scan over suppressed alerted:false rows.
-    const lastAlerted = await ctx.db
-      .query("pos_error_reports")
-      .withIndex("by_alerted_created", (q) => q.eq("alerted", true))
-      .order("desc")
-      .first();
+    // These two index seeks are independent — run them in parallel.
+    //   recentSame: any same-signature row within the dedup window (suppresses alert).
+    //   lastAlerted: most recent alerted row; by_alerted_created seeks O(1) to the
+    //     newest alerted:true row (no scan over suppressed alerted:false rows).
+    const [recentSame, lastAlerted] = await Promise.all([
+      ctx.db
+        .query("pos_error_reports")
+        .withIndex("by_signature_created", (q) =>
+          q.eq("signature", signature).gte("created_at", now - DEDUP_WINDOW_MS),
+        )
+        .first(),
+      ctx.db
+        .query("pos_error_reports")
+        .withIndex("by_alerted_created", (q) => q.eq("alerted", true))
+        .order("desc")
+        .first(),
+    ]);
     const stormCapped =
       lastAlerted !== null && now - lastAlerted.created_at < GLOBAL_ALERT_COOLDOWN_MS;
 
