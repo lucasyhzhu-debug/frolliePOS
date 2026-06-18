@@ -103,8 +103,8 @@ export default function SaleVoucher() {
           <div className="rounded-md border px-4 py-3">
             {validation.valid ? (
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-green-600">Valid</span>
-                <span className="text-sm tabular-nums text-green-600">
+                <span className="text-sm font-medium text-success">Valid</span>
+                <span className="text-sm tabular-nums text-success">
                   −{rp(validation.discountAmount)}
                 </span>
               </div>

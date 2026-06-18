@@ -20,12 +20,12 @@ const LABEL: Record<PrinterStatus, string> = {
 // Glanceable status dot on the header chip — green = linked, amber pulse =
 // working, grey = not linked, red = error (mirrors ConnDot's palette).
 const DOT: Record<PrinterStatus, string> = {
-  unsupported: "bg-slate-300",
-  disconnected: "bg-slate-400",
-  connecting: "bg-amber-500 animate-pulse",
-  connected: "bg-emerald-500",
-  printing: "bg-amber-500 animate-pulse",
-  error: "bg-red-500",
+  unsupported: "bg-muted-foreground/40",
+  disconnected: "bg-muted-foreground/60",
+  connecting: "bg-warning animate-pulse",
+  connected: "bg-success",
+  printing: "bg-warning animate-pulse",
+  error: "bg-error",
 };
 
 export function PrinterSheet() {
@@ -60,7 +60,7 @@ export function PrinterSheet() {
         <Printer
           className={
             status === "connected" || status === "printing"
-              ? "text-teal-600"
+              ? "text-primary"
               : "text-muted-foreground"
           }
         />

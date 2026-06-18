@@ -187,7 +187,7 @@ export default function HistoryDetail() {
                     <p className="text-xs text-muted-foreground">
                       {l.qty} × {rp(l.unit_price_snapshot)}
                       {refunded > 0 ? (
-                        <span className="ml-1 text-amber-700">
+                        <span className="ml-1 text-warning">
                           · {refunded} dikembalikan
                         </span>
                       ) : null}

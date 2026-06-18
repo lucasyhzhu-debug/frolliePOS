@@ -147,7 +147,7 @@ export default function SaleChargeSuccess() {
             />
           </motion.svg>
         </motion.div>
-        <p className="text-lg font-semibold text-teal-600">Payment confirmed</p>
+        <p className="text-lg font-semibold text-primary">Payment confirmed</p>
       </div>
 
       {/* Receipt card */}
@@ -174,7 +174,7 @@ export default function SaleChargeSuccess() {
             <dd className="font-medium">{methodLabel}</dd>
           </div>
           {result.voucher_discount > 0 && (
-            <div className="flex items-center justify-between text-teal-600">
+            <div className="flex items-center justify-between text-primary">
               <dt>Voucher</dt>
               <dd className="tabular-nums">−{rp(result.voucher_discount)}</dd>
             </div>
