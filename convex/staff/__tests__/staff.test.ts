@@ -370,6 +370,35 @@ describe("SEC-04: activateDevice throttle + TTL", () => {
     const audit = await t.run((ctx) =>
       ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "device.activation_throttled")).first());
     expect(audit).not.toBeNull();
+    // C1 regression: the breach must lock until the WINDOW resets (15min), not a
+    // fixed 60s — else a device-rotating attacker waits 60s and resumes. Assert
+    // the global row's lock spans the full window from its anchor.
+    const globalRow = await t.run((ctx) =>
+      ctx.db.query("pos_device_activation_attempts").withIndex("by_key", (q) => q.eq("key", "__global__")).unique());
+    expect(globalRow?.locked_until).toBe((globalRow!.window_start_at) + 15 * 60 * 1000);
+  });
+
+  it("I1: a format-invalid code does NOT count toward the throttle; a valid-format wrong code does", async () => {
+    const t = convexTest(schema);
+    // Format-invalid inputs (not 6 digits) are rejected before the throttle and
+    // must NOT write an attempt row — they aren't brute-force guesses.
+    for (const bad of ["abc", "12345", "1234567"]) {
+      await t.action(api.staff.public.activateDevice, {
+        idempotencyKey: `fmt-${bad}`, code: bad, deviceLabel: "x", deviceId: "dev-fmt",
+      }).catch(() => {});
+    }
+    let rows = await t.run((ctx) =>
+      ctx.db.query("pos_device_activation_attempts").withIndex("by_key", (q) => q.eq("key", "dev-fmt")).collect());
+    expect(rows.length).toBe(0); // format misses never touch the counter
+
+    // A valid-format but wrong 6-digit code IS a guess → counts.
+    await t.action(api.staff.public.activateDevice, {
+      idempotencyKey: "fmt-real", code: "000000", deviceLabel: "x", deviceId: "dev-fmt",
+    }).catch(() => {});
+    rows = await t.run((ctx) =>
+      ctx.db.query("pos_device_activation_attempts").withIndex("by_key", (q) => q.eq("key", "dev-fmt")).collect());
+    expect(rows.length).toBe(1);
+    expect(rows[0].fail_count).toBe(1);
   });
 
   it("rejects an expired (>15min) code with INVALID_CODE", async () => {

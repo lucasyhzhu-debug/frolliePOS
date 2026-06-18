@@ -1,14 +1,11 @@
-import { mutation, query, action, internalMutation } from "../_generated/server";
+import { mutation, query, action } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { internal } from "../_generated/api";
-import {
-  issueDeviceSetupCode,
-  clearActivationAttempts,
-} from "./internal";
+import { issueDeviceSetupCode } from "./internal";
 
 export const isDeviceRegistered = query({
   args: { deviceId: v.string() },
@@ -163,13 +160,14 @@ export const activateDevice = action({
     if (lock.locked) throw new Error(`ACTIVATION_LOCKED:${lock.seconds_remaining}`);
 
     try {
-      return await ctx.runMutation(internal.staff.public._activateDeviceCommit_internal, args);
+      return await ctx.runMutation(internal.staff.internal._activateDeviceCommit_internal, args);
     } catch (err) {
-      // SEC-04: a wrong/expired code counts toward the throttle. Recorded in its
-      // OWN mutation so the increment survives this rejection. Other errors
-      // (already-registered, bad label) are not code guesses — don't count them.
+      // SEC-04: only a wrong/expired CODE counts toward the throttle (I1: exact
+      // match, not `includes` — INVALID_CODE_FORMAT/INVALID_LABEL/already-registered
+      // are not brute-force guesses). Recorded in its OWN committed mutation so the
+      // increment survives this rejection.
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("INVALID_CODE")) {
+      if (msg === "INVALID_CODE") {
         await ctx.runMutation(internal.staff.internal._recordActivationFailure_internal, {
           deviceId: args.deviceId,
         });
@@ -177,126 +175,4 @@ export const activateDevice = action({
       throw err;
     }
   },
-});
-
-/**
- * SEC-04: the device-registration transaction (was the body of activateDevice).
- * Internal — only the activateDevice action calls it. withIdempotency dedupes a
- * successful registration on retry. Throws INVALID_CODE for a missing/expired/
- * consumed code (the action records the throttle failure separately).
- */
-export const _activateDeviceCommit_internal = internalMutation({
-  args: {
-    idempotencyKey: v.string(),
-    code: v.string(),
-    deviceLabel: v.string(),
-    deviceId: v.string(),
-  },
-  handler: withIdempotency<
-    { idempotencyKey: string; code: string; deviceLabel: string; deviceId: string },
-    { _id: Id<"registered_devices">; device_id: string; label: string; active: boolean }
-  >(
-    "staff.activateDevice",
-    async (ctx, args) => {
-      const now = Date.now();
-
-      // Use .collect() to defensively handle multiple rows (past-bug recovery)
-      const existingRows = await ctx.db
-        .query("registered_devices")
-        .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
-        .collect();
-
-      const activeRow = existingRows.find((r) => r.active);
-      if (activeRow) {
-        throw new Error("Device already registered");
-      }
-
-      const pending = await ctx.db
-        .query("pending_device_setups")
-        .withIndex("by_code", (q) => q.eq("setup_code", args.code))
-        .unique();
-      if (
-        !pending ||
-        pending.consumed_at != null ||
-        pending.expires_at < now
-      ) {
-        // SEC-04: a throwing mutation rolls back its writes, so the throttle
-        // counter is incremented by the activateDevice ACTION (in its own
-        // committed mutation) when this INVALID_CODE surfaces — never here.
-        throw new Error("INVALID_CODE");
-      }
-
-      await ctx.db.patch(pending._id, { consumed_at: now });
-      // SEC-04: successful activation clears this device's failed-attempt counter.
-      await clearActivationAttempts(ctx, args.deviceId);
-
-      // v0.6: codes minted via Telegram have no staff issuer — fall back to the
-      // "system" audit actor and carry the issuance channel into metadata.
-      // NOTE: `source` stays "booth_inline" — activation is always a physical
-      // booth act (code typed into the new device); only ISSUANCE came from
-      // Telegram. Don't overload "telegram_approval" (the approval/token flow
-      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
-      const auditActor = pending.issued_by ?? ("system" as const);
-      const activatedVia = pending.issued_via ?? "booth_inline";
-
-      let deviceRowId: Id<"registered_devices">;
-      let reactivated = false;
-
-      if (existingRows.length > 0) {
-        // Reactivate the most recently activated inactive row; delete the rest
-        const sorted = [...existingRows].sort(
-          (a, b) => (b.activated_at ?? 0) - (a.activated_at ?? 0),
-        );
-        const primary = sorted[0];
-        deviceRowId = primary._id;
-        await ctx.db.patch(primary._id, {
-          active: true,
-          label: args.deviceLabel,
-          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
-          activated_at: now,
-          last_seen_at: now,
-        });
-        // Delete any extra duplicate rows
-        for (const dup of sorted.slice(1)) {
-          await ctx.db.delete(dup._id);
-        }
-        reactivated = true;
-      } else {
-        deviceRowId = await ctx.db.insert("registered_devices", {
-          device_id: args.deviceId,
-          label: args.deviceLabel,
-          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
-          activated_at: now,
-          last_seen_at: now,
-          active: true,
-        });
-      }
-
-      await logAudit(ctx, {
-        actor_id: auditActor,
-        action: "device.activated",
-        entity_type: "device",
-        entity_id: deviceRowId,
-        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
-        device_id: args.deviceId,
-        metadata: {
-          activated_via_pending_id: pending._id,
-          label: args.deviceLabel,
-          reactivated,
-          activated_via: activatedVia,
-        },
-      });
-      return {
-        _id: deviceRowId,
-        device_id: args.deviceId,
-        label: args.deviceLabel,
-        active: true,
-      };
-    },
-    {
-      // intentional: activateDevice runs before any session exists. Device-setup
-      // codes are the auth mechanism; no requireSession is possible here.
-      authCheck: async () => {},
-    },
-  ),
 });

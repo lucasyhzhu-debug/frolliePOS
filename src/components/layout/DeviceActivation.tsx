@@ -10,6 +10,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+// SEC-04: map the raw structured errors from activateDevice to friendly copy.
+// ACTIVATION_LOCKED:<secs> surfaces after the throttle trips (per-device or global).
+function friendlyActivationError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : "";
+  const locked = msg.match(/ACTIVATION_LOCKED:(\d+)/);
+  if (locked) return `Too many attempts. Try again in ${locked[1]}s.`;
+  if (msg.includes("INVALID_CODE")) return "Invalid or expired code.";
+  if (msg.includes("INVALID_LABEL")) return "Enter a device label (1–64 characters).";
+  if (msg.includes("already registered")) return "This device is already registered.";
+  return "Activation failed.";
+}
+
 export function DeviceActivation() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
@@ -33,7 +45,7 @@ export function DeviceActivation() {
       toast.success("Device activated");
       navigate("/login", { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Activation failed");
+      toast.error(friendlyActivationError(err));
     } finally {
       setBusy(false);
     }

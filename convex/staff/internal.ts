@@ -38,11 +38,16 @@ async function getActivationAttempt(ctx: MutationCtx, key: string) {
 /**
  * SEC-04: record one failed activation. Increments the per-device counter (locks
  * that device for 60s past 5 misses) and the global rolling-window counter. On a
- * global breach (>50 fails / 15min) the global singleton is locked for the window
- * so ALL activateDevice calls reject — but pending_device_setups is NOT wiped:
- * nuking live codes would let an attacker repeatedly DoS a manager's freshly
- * issued code (re-issue DoS). The window-block + 15-min TTL is sufficient (~50
- * guesses/window against a ~900k space).
+ * global breach (≥50 fails / 15min) the global singleton is locked until the
+ * window resets so ALL activateDevice calls reject for the rest of the window —
+ * but pending_device_setups is NOT wiped: nuking live codes would let an attacker
+ * repeatedly DoS a manager's freshly issued code (re-issue DoS). The window-block
+ * + 15-min TTL is sufficient (≤50 guesses/window against a ~900k space).
+ *
+ * Over-count note: because the activateDevice ACTION calls this recorder in a
+ * SEPARATE (un-cached) mutation, a network retry of the action can double-count a
+ * single guess. That is fail-SAFE (tightens the throttle, never loosens it) — the
+ * counts here are an upper-bound rate limiter, not an exact tally.
  */
 export async function recordActivationFailure(
   ctx: MutationCtx,
@@ -69,7 +74,10 @@ export async function recordActivationFailure(
   const globNext = windowExpired ? 1 : glob.fail_count + 1;
   const windowStart = windowExpired ? now : glob.window_start_at;
   const globBreached = globNext >= ACTIVATION_GLOBAL_CAP;
-  const globLock = globBreached ? now + ACTIVATION_LOCKOUT_MS : null;
+  // C1 fix: lock until the window RESETS (windowStart + WINDOW), not a fixed 60s.
+  // A 60s lock let a device-rotating attacker resume ~1 guess/60s and defeat the
+  // cap; locking to the window boundary enforces ≤CAP guesses per 15-min window.
+  const globLock = globBreached ? windowStart + ACTIVATION_GLOBAL_WINDOW_MS : null;
   if (glob) {
     await ctx.db.patch(glob._id, {
       fail_count: globNext, window_start_at: windowStart, locked_until: globLock, last_attempt_at: now,
@@ -142,6 +150,131 @@ export const _recordActivationFailure_internal = internalMutation({
   handler: async (ctx, args): Promise<void> => {
     await recordActivationFailure(ctx, args.deviceId);
   },
+});
+
+/**
+ * SEC-04: the device-registration transaction (was the body of the activateDevice
+ * mutation pre-v1.1). Internal — only the `staff.public.activateDevice` ACTION
+ * calls it. withIdempotency dedupes a successful registration on retry. Throws
+ * `INVALID_CODE` for a missing/expired/consumed code; the action records the
+ * throttle failure in a separate committed mutation (a throwing mutation would
+ * roll back any counter write it did itself). Lives in internal.ts per ADR-034
+ * (C2 review fix — public.ts is the external surface only).
+ */
+export const _activateDeviceCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    code: v.string(),
+    deviceLabel: v.string(),
+    deviceId: v.string(),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; code: string; deviceLabel: string; deviceId: string },
+    { _id: Id<"registered_devices">; device_id: string; label: string; active: boolean }
+  >(
+    "staff.activateDevice",
+    async (ctx, args) => {
+      const now = Date.now();
+
+      // Use .collect() to defensively handle multiple rows (past-bug recovery)
+      const existingRows = await ctx.db
+        .query("registered_devices")
+        .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
+        .collect();
+
+      const activeRow = existingRows.find((r) => r.active);
+      if (activeRow) {
+        throw new Error("Device already registered");
+      }
+
+      const pending = await ctx.db
+        .query("pending_device_setups")
+        .withIndex("by_code", (q) => q.eq("setup_code", args.code))
+        .unique();
+      if (
+        !pending ||
+        pending.consumed_at != null ||
+        pending.expires_at < now
+      ) {
+        // SEC-04: a throwing mutation rolls back its writes, so the throttle
+        // counter is incremented by the activateDevice ACTION (in its own
+        // committed mutation) when this INVALID_CODE surfaces — never here.
+        throw new Error("INVALID_CODE");
+      }
+
+      await ctx.db.patch(pending._id, { consumed_at: now });
+      // SEC-04: successful activation clears this device's failed-attempt counter.
+      await clearActivationAttempts(ctx, args.deviceId);
+
+      // v0.6: codes minted via Telegram have no staff issuer — fall back to the
+      // "system" audit actor and carry the issuance channel into metadata.
+      // NOTE: `source` stays "booth_inline" — activation is always a physical
+      // booth act (code typed into the new device); only ISSUANCE came from
+      // Telegram. Don't overload "telegram_approval" (the approval/token flow
+      // source, CLAUDE.md rule #10). The channel lives in metadata.activated_via.
+      const auditActor = pending.issued_by ?? ("system" as const);
+      const activatedVia = pending.issued_via ?? "booth_inline";
+
+      let deviceRowId: Id<"registered_devices">;
+      let reactivated = false;
+
+      if (existingRows.length > 0) {
+        // Reactivate the most recently activated inactive row; delete the rest
+        const sorted = [...existingRows].sort(
+          (a, b) => (b.activated_at ?? 0) - (a.activated_at ?? 0),
+        );
+        const primary = sorted[0];
+        deviceRowId = primary._id;
+        await ctx.db.patch(primary._id, {
+          active: true,
+          label: args.deviceLabel,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
+          activated_at: now,
+          last_seen_at: now,
+        });
+        // Delete any extra duplicate rows
+        for (const dup of sorted.slice(1)) {
+          await ctx.db.delete(dup._id);
+        }
+        reactivated = true;
+      } else {
+        deviceRowId = await ctx.db.insert("registered_devices", {
+          device_id: args.deviceId,
+          label: args.deviceLabel,
+          activated_by: pending.issued_by, // may be undefined (Telegram-issued)
+          activated_at: now,
+          last_seen_at: now,
+          active: true,
+        });
+      }
+
+      await logAudit(ctx, {
+        actor_id: auditActor,
+        action: "device.activated",
+        entity_type: "device",
+        entity_id: deviceRowId,
+        source: "booth_inline", // activation is a physical booth act regardless of issuance channel
+        device_id: args.deviceId,
+        metadata: {
+          activated_via_pending_id: pending._id,
+          label: args.deviceLabel,
+          reactivated,
+          activated_via: activatedVia,
+        },
+      });
+      return {
+        _id: deviceRowId,
+        device_id: args.deviceId,
+        label: args.deviceLabel,
+        active: true,
+      };
+    },
+    {
+      // intentional: activateDevice runs before any session exists. Device-setup
+      // codes are the auth mechanism; no requireSession is possible here.
+      authCheck: async () => {},
+    },
+  ),
 });
 
 function generateSecureSetupCode(): string {
@@ -390,6 +523,10 @@ export const _createStaffCommit_internal = internalMutation({
     "staff.createStaff",
     async (ctx, args) => {
       const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
+      // SEC-03 scope note (v1.1): must_change_pin is intentionally NOT set here.
+      // The audit (SEC-03) targeted only the hardcoded bootstrap PIN; forcing
+      // rotation on every manager-created staffer is a product/UX change that
+      // belongs in its own spec (deferred — v1.1 follow-up), not this audit-fix.
       const newId = await ctx.db.insert("staff", {
         name: args.name, pin_hash: args.pin_hash, role: args.role,
         active: true, created_at: Date.now(),
