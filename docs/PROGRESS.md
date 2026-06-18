@@ -2020,7 +2020,7 @@ Plan: [`docs/superpowers/plans/2026-06-02-bluetooth-thermal-printing.md`](./supe
 ## v1.0.2 — post-launch hardening 🗂️ BACKLOG
 **Outcome:** The launch-day deferrals: full-route polish, real-device e2e, settlement live-verification, manager in-app sales-ticker toggle (`txn_ticker_enabled` write — v1.0.1 ships dashboard-only kill-switch).
 **Target:** TBD
-Plan not yet written. Tasks get IDs at planning time.
+Plan not yet written for the broader hardening items. **Sales-ticker toggle slice planned 2026-06-19:** [spec](./superpowers/specs/2026-06-19-v1.0.2-sales-ticker-toggle-design.md) · [plan](./superpowers/plans/2026-06-19-v1.0.2-sales-ticker-toggle.md) · staffreviews: [spec](./reviews/staffreview-v1.0.2-sales-ticker-toggle-2026-06-19.md), [plan](./reviews/staffreview-plan-v1.0.2-sales-ticker-toggle-2026-06-19.md). Remaining items keep IDs-at-planning-time.
 
 **You'll be able to:**
 - See proper empty/error states on every remaining route (`mgr/*`, settlements, account, approve)
@@ -2029,17 +2029,44 @@ Plan not yet written. Tasks get IDs at planning time.
 
 ### Backend (`convex/`)
 - 🗂️ Settlement reconciliation polish (variance detection, alerts; per-transaction match-back N1; auto-poll **live-verification** once Xendit KYB clears — [#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66))
+- 📋 **[v102-be-ticker-toggle]** `settings/public.ts` — `setTxnTickerEnabled` mutation + `getSettings` field
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [plan](./superpowers/plans/2026-06-19-v1.0.2-sales-ticker-toggle.md), [CLAUDE.md §rule-22](../CLAUDE.md)
+  - **subtasks:**
+    - [ ] Extend `getSettings` to return `txn_ticker_enabled`
+    - [ ] Add `setTxnTickerEnabled` (manager-session, idempotent, audited `settings.txn_ticker_toggled`)
+    - [ ] Tests: flip both directions, insert-default-founders, staff-reject, idempotent replay + audit-count
+  - **notes:** _(empty)_
 
 ### Frontend (`src/`)
 - 🗂️ Full-route empty/error pass (`mgr/*`, settlements, account, approve)
 - 🗂️ PWA install prompt polish (Android Chrome A2HS UX)
 - 🗂️ Unreachable-stub cleanup (`/receipt`, `/wait`)
 - ~~Universal route-error framing~~ — **shipped v0.5.5** as `RouteErrorBoundary` (`src/components/layout/RouteErrorBoundary.tsx`, wired in `router.tsx`)
+- 📋 **[v102-fe-ticker-toggle]** `mgr/telegram-chats.tsx` — `TxnTickerToggle` switch + test-harness re-index
+  - **agent:** `frontend-integrator`
+  - **deps:** v102-be-ticker-toggle
+  - **docs:** [plan](./superpowers/plans/2026-06-19-v1.0.2-sales-ticker-toggle.md)
+  - **subtasks:**
+    - [ ] Re-index `setupMutationMock` order array (+ `stubSetTicker`) + comment blocks
+    - [ ] Add `TxnTickerToggle` beneath `FoundersSummaryToggle`
+    - [ ] Tests: checked/unchecked render + both-direction flip; full suite green (no regression)
+  - **notes:** _(empty)_
 
 ### Cross-cutting
 - 🗂️ Full e2e pass on real Android device
 - 🗂️ Spare-device protocol (single-device SPOF — risk register)
 - 🗂️ Operational runbook expansion (oncall rotation, dashboards, alert thresholds — booth basics shipped in v1.0 RUNBOOK §7)
+- 📋 **[v102-xc-ticker-docs]** docs — SCHEMA/RUNBOOK/CLAUDE/API/CHANGELOG for the ticker toggle
+  - **agent:** `—`
+  - **deps:** v102-be-ticker-toggle, v102-fe-ticker-toggle
+  - **docs:** [plan](./superpowers/plans/2026-06-19-v1.0.2-sales-ticker-toggle.md)
+  - **subtasks:**
+    - [ ] SCHEMA.md audit verb + field note; RUNBOOK kill-switch path
+    - [ ] CLAUDE.md rule #22 manager-session list; API_REFERENCE settings module
+    - [ ] CHANGELOG v1.0.2 entry
+  - **notes:** _(empty)_
 
 ---
 
