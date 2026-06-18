@@ -2126,6 +2126,32 @@ Plan not yet written. Tasks get IDs at planning time.
 
 ---
 
+## v1.2 — post-launch backlog (fixes + features) 🚧 IN PROGRESS
+**Outcome:** The 13 post-launch items Lucas flagged, dependency-ordered into 5 phases (critical path 8→2→12→10→9). Phase 0 unblocks the booth; later phases land the dark design system, inline messaging, manual BCA transfer, real refunds, and i18n — one PR per phase.
+**Target:** Phase 0 shipped 2026-06-18; later phases TBD
+[Roadmap spec](./superpowers/specs/2026-06-18-pos-backlog-roadmap-design.md)
+
+**You'll be able to:**
+- Use every PIN/printer/manager dialog on the booth tablet without it clipping off-screen (#8 — Phase 0)
+
+**Still not yet (later v1.2 phases):**
+- Phthalo-dark design system (#2), inline messaging over toasts (#12), staff-home declutter (#4), receipt cleanup (#13), login PIN feedback (#11+#7), lock icon (#5), manual BCA transfer (#10), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6), EN/ID toggle (#1)
+
+### Frontend (`src/`)
+- ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-18-phase0-modal-offscreen.md), [Plan](./superpowers/plans/v1.2-phase0-modal-offscreen.md), [staffreview](./reviews/staffreview-phase0-modal-offscreen-2026-06-18.md)
+  - **subtasks:**
+    - [x] Failing class-presence guard test (jsdom + RTL) for the max-h/overflow classes
+    - [x] Add `max-h-[calc(100dvh-2rem)] overflow-y-auto` to the shared `DialogContent` primitive
+    - [x] Emulated-viewport HARD gate: real PinSheet contained at 800×600, capped + internal scroll at 800×420
+    - [x] Full frontend suite green (320 tests); CHANGELOG entry
+  - **notes:**
+    - Animation revive/strip, bottom-sheet short-height layout, sticky close button deliberately deferred to #2 (design system) — keeps the blocker fix minimal
+
+---
+
 ## Risks under watch
 
 - **Xendit settlement timing** — payout latency vs cashflow visibility. v0.5 settlements module is the canary; if it ships clean, settlement risk is closed.
