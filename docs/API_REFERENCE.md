@@ -277,6 +277,45 @@ Per-day payout aggregate. No Xendit "settlement object"/webhook — dual-source 
 | a | `settlements.cronActions.syncSettlements` | `{}` | `{ ok, days } \| { skipped: "no_settlements" }` | V8-safe inner action. Calls `GET /transactions` (LOOKBACK_DAYS=7), `parseListTransactions` + `aggregateSettledByDate`, upserts one row per WIB settlement day. On-demand callable. |
 | a | `settlements.cronActions.syncSettlementsResilient` | `{ attempt? }` | `{ ok, days } \| { skipped } \| { ok, retried, nextAttempt }` | **Cron entry-point** (`settlement-sync`, 20:30 UTC / 03:30 WIB). Wraps `syncSettlements` with shared `cronRetry` policy (linear back-off, `RESILIENT_MAX_ATTEMPTS`). |
 
+## `shifts/` *(v1.2 #6 — booth shift lifecycle)*
+
+Booth shift state machine. Booth state is **derived** from the latest `pos_shift_events` row by the pure `deriveBoothState` function — never stored directly. See [ADR-050](./ADR/050-shift-lifecycle-state-machine.md).
+
+### Public
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `shifts.public.boothState` | `{ deviceId: string }` | `{ state: "closed" \| "open" \| "locked" \| "handover_pending"; staffId: Id<"staff"> \| null; staffName: string \| null; staleAutoclose: boolean }` | Reactive. Calls `_latestShiftEvent_internal`, derives state via `deriveBoothState(latest, wibDayStartMs)`, enriches with staff name via `_listStaffNames_internal`. `staleAutoclose: true` when the latest non-closed event is from a prior WIB day (forgot-to-close path). Powers the login-gate fork in the FE. |
+| m | `shifts.public.completeStartOfDay` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; eventId }` | Records `start_of_day` event (CLOSED → OPEN). `shift_started_at = Date.now()` inside the handler (ADR-031). `steps` captures the completed SOP checklist. Audits `shift.start_of_day`. ADR-013 wrapped; `authCheck` runs `requireSession` before cache lookup. |
+| m | `shifts.public.endOfDaySignOff` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; durationMs }` | Records `signoff_close` event (OPEN → CLOSED). Resolves shift-start anchor via `_shiftStartAnchor_internal`, builds summary (sales aggregate + manual-BCA totals) via `_buildSignoffSummary_internal`, ends session (`end_reason: "force_logout"`), audits `shift.signoff`. Schedules deferred `_sendSignoffSummary` → Founders Telegram (staff_shift_signoff template, `endedBy: "self"`). |
+| m | `shifts.public.handoverOut` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; durationMs }` | Records `handover_out` event (OPEN → HANDOVER_PENDING). Same summary + session-end + Founders summary pipeline as `endOfDaySignOff`. Audits `shift.handover_out`. The incoming staff calls `completeHandoverIn` after logging in. |
+| m | `shifts.public.completeHandoverIn` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; eventId }` | Records `handover_in` event (HANDOVER_PENDING → OPEN). `shift_started_at = now` marks the start of the new staff's shift. Links to the pending `handover_out` event via `linked_event_id` (if latest is `handover_out`; else null). Audits `shift.handover_in`. |
+| m | `shifts.public.lockShift` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | Records `lock` event (OPEN → LOCKED). Preserves `shift_started_at` from the anchor so accumulated hours survive the lock. Ends session (`end_reason: "manual_lock"`, ADR-003). Audits `shift.lock`. |
+| m | `shifts.public.recordResume` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | Records `resume` event (LOCKED → OPEN). `_shiftStartAnchor_internal` skips `lock` events to recover the original start, preserving accumulated hours. Requires a fresh session from `loginWithPin` (the new `sessionId` is passed). Audits `shift.resume`. |
+
+### Actions (Node runtime)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| a | `shifts.actions.managerTakeover` | `{ idempotencyKey, deviceId, managerStaffId, managerPin }` | `{ sessionId: Id<"staff_sessions">; eventId: Id<"pos_shift_events"> }` | **Manager-PIN gated** (argon2id, Node runtime). Escape hatch when the locked booth's staff is unavailable. `authCheck` (ADR-046) does a cheap role/active check before the action-level cache; argon2 PIN verify runs inside `fn`. Atomically (via `_commitManagerTakeover_internal`): force-ends active sessions (`end_reason: "force_logout"`), creates a manager session, records `manager_takeover` event (`takeover: true`, `outgoing_uncounted: true`). Schedules deferred `_sendTakeoverSummary` → Founders Telegram (`endedBy: "manager"`, `outgoingUncounted: true`). Errors: `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. Audits `shift.manager_takeover`. |
+
+### Internal (helpers — `convex/shifts/internal.ts`)
+
+| Helper | Notes |
+|---|---|
+| `_latestShiftEvent_internal` | Returns the most recent `pos_shift_events` row for a `deviceId` by `by_device_created` index. Used by `boothState` and `completeHandoverIn`. |
+| `_shiftStartAnchor_internal` | Walks backward from the latest event, skipping `lock` events, to recover the most recent `start_of_day` / `handover_in` / `manager_takeover` event. Returns `{ shift_started_at }` or `null`. Ensures hours accumulated before a lock are not reset on resume. |
+| `_buildSignoffSummary_internal` | Aggregates sales + manual-BCA for the window `[shiftStartMs, endMs]` using `transactions/internal`. Returns `{ durationMs, totalSalesIdr, txnCount, manualBcaCount, manualBcaTotalIdr }`. |
+| `_recordShiftEvent_internal` | Single writer for `pos_shift_events`. All lifecycle mutations delegate here. |
+| `_commitManagerTakeover_internal` | Atomic commit: force-end sessions + create manager session (via `auth/internal._managerTakeoverSession_internal`) + record `manager_takeover` event + audit. `withIdempotency`-wrapped on a `:commit`-derived key for crash-retry safety. |
+
+### Pure helpers (`convex/shifts/lib.ts`)
+
+| Function | Signature | Notes |
+|---|---|---|
+| `deriveBoothState` | `(latest: LatestEvent, wibDayStartMs: number) → { state: BoothState; staffId; staleAutoclose }` | Pure; no DB reads. Stale-autoclose: prior-day non-closed event → `closed` + `staleAutoclose: true`. |
+| `computeShiftHoursMs` | `(shiftStartedAt: number, endedAt: number) → number` | `max(0, endedAt - shiftStartedAt)`. |
+
 ## `settings.ts` *(v0.4 + v0.5.3b)*
 
 | Type | Name | Args | Returns | Notes |
