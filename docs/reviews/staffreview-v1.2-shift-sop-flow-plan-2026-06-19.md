@@ -95,7 +95,7 @@
 | Phase | Docs |
 |-------|------|
 | T1 | `SCHEMA.md` (`pos_shift_events` + audit verbs) |
-| T18 | ADR-049, `CLAUDE.md` (module row + rule), `API_REFERENCE.md`, `CHANGELOG.md` |
+| T18 | ADR-050, `CLAUDE.md` (module row + rule), `API_REFERENCE.md`, `CHANGELOG.md` |
 
 ## 10. Testing Plan Assessment
 **Verdict:** Adequate (after Issue 3 fix). Each backend fn has valid + auth-reject + idempotent-replay; pure lib fully unit-tested; FE components + routes + login-gate fork covered; the #12 jsdom `useIdempotency`→string trap is called out. Hours-across-lock regression test present (Task 7).
