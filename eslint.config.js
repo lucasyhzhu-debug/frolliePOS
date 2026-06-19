@@ -158,4 +158,37 @@ export default [
       ],
     },
   },
+
+  {
+    // v1.2 #12 — inline-messaging migration registry. Files here have had their
+    // sync form-validation toasts converted to <FieldMessage>; this fence stops
+    // regressions to literal-arg toast.error/toast.warning. Heuristic: string-
+    // literal first arg = sync validation (must be inline); dynamic first arg
+    // (toast.error(humanizeX(err))) = server/async, stays legal; toast.success
+    // stays legal. Append files here as later #12 slices convert them. ADR-048.
+    files: ["src/routes/mgr/products.tsx", "src/routes/mgr/vouchers.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.name='toast'][callee.property.name='error'][arguments.0.type='Literal']",
+          message:
+            'Sync form-validation must use <FieldMessage>, not toast.error("literal"). Dynamic server errors (toast.error(humanizeX(err))) stay legal. See ADR-048.',
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='toast'][callee.property.name='error'][arguments.0.type='TemplateLiteral'][arguments.0.expressions.length=0]",
+          message:
+            "Sync form-validation must use <FieldMessage>, not a literal toast.error(`...`). See ADR-048.",
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='toast'][callee.property.name='warning'][arguments.0.type='Literal']",
+          message:
+            'Sync form-validation must use <FieldMessage>, not toast.warning("literal"). See ADR-048.',
+        },
+      ],
+    },
+  },
 ];
