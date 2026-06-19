@@ -73,14 +73,6 @@ const STEPS: WizardStep[] = [
   },
 ];
 
-// Override last step label to match the spec terminal button text.
-(STEPS[STEPS.length - 1] as WizardStep).label = "Rapikan booth";
-// Terminal button text is set via the last step's label in ShiftWizard.
-// Re-assign as the terminal action label.
-const STEPS_WITH_TERMINAL: WizardStep[] = [
-  ...STEPS.slice(0, -1),
-  { ...STEPS[STEPS.length - 1], label: "Mulai hari" },
-];
 
 export default function ShiftStart() {
   const navigate = useNavigate();
@@ -109,8 +101,9 @@ export default function ShiftStart() {
   return (
     <ShiftWizard
       title="Mulai hari"
-      steps={STEPS_WITH_TERMINAL}
+      steps={STEPS}
       onComplete={onComplete}
+      terminalLabel="Mulai hari"
     />
   );
 }

@@ -183,6 +183,32 @@ describe("ShiftWizard", () => {
     vi.mocked(useReducedMotion).mockReturnValue(false);
   });
 
+  it("terminalLabel overrides final button text while rail keeps step label", async () => {
+    render(
+      <ShiftWizard
+        title="Shift Start"
+        steps={STEPS}
+        onComplete={vi.fn<[ConfirmedStep[], number | null], Promise<void>>()}
+        terminalLabel="Mulai hari"
+      />,
+    );
+
+    // Rail shows the last step's semantic label "Selesai" (not "Mulai hari")
+    expect(screen.getByText("Selesai")).toBeInTheDocument();
+
+    // Advance to the last step (count step)
+    fireEvent.click(screen.getByRole("button", { name: /next|confirm|lanjut/i }));
+    await screen.findByText("MockCountStep");
+    // Unlock count step
+    fireEvent.click(screen.getByRole("button", { name: /submit count/i }));
+
+    // Terminal button should show "Mulai hari" (from terminalLabel), not "Selesai"
+    const terminalBtn = await screen.findByRole("button", { name: /mulai hari/i });
+    expect(terminalBtn).toBeInTheDocument();
+    // Rail label "Selesai" is still visible in the step rail
+    expect(screen.getByText("Selesai")).toBeInTheDocument();
+  });
+
   it("Back button returns to previous step", async () => {
     renderWizard();
 

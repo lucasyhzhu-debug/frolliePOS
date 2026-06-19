@@ -25,6 +25,8 @@ export interface ShiftWizardProps {
   title: string;
   steps: WizardStep[];
   onComplete: (confirmed: ConfirmedStep[], countChanged: number | null) => Promise<void>;
+  /** Override the final-step button text without touching the rail's step label. */
+  terminalLabel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,7 @@ const transition = (reduce: boolean) =>
 
 // ---------------------------------------------------------------------------
 
-export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardProps) {
+export default function ShiftWizard({ title, steps, onComplete, terminalLabel }: ShiftWizardProps) {
   const reduce = useReducedMotion() ?? false;
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -170,7 +172,7 @@ export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardPro
         {/* For count steps: only show the advance button once countReady */}
         {canAdvance && (
           <Button disabled={busy} onClick={handleNext}>
-            {isLastStep ? steps[currentIndex].label : "Lanjut"}
+            {isLastStep ? (terminalLabel ?? steps[currentIndex].label) : "Lanjut"}
           </Button>
         )}
       </div>
