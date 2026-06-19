@@ -3,6 +3,11 @@ import { expect, test } from "vitest";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// endOfDaySignOff now schedules _sendSignoffSummary (Task 9). Stub Telegram +
+// drain the scheduler so the deferred action resolves cleanly in tests.
+setupTelegramStub();
 
 async function seedActiveSession(t: ReturnType<typeof convexTest>) {
   return t.run(async (ctx) => {
@@ -54,6 +59,8 @@ test("endOfDaySignOff ends the session, closes the booth, returns duration", asy
     ctx.db.get(sessionId as Id<"staff_sessions">),
   );
   expect(sess?.ended_at).not.toBeNull();
+  // Drain the _sendSignoffSummary scheduled action so it doesn't fire after teardown.
+  await drainScheduled(t);
 });
 
 test("endOfDaySignOff rejects an already-ended session", async () => {
@@ -73,4 +80,5 @@ test("endOfDaySignOff rejects an already-ended session", async () => {
       countChanged: undefined,
     }),
   ).rejects.toThrow(/NO_SESSION/);
+  // No scheduler drain needed — the mutation throws before scheduling.
 });

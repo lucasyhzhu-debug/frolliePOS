@@ -349,6 +349,66 @@ export function renderTxnTicker(p: TxnTickerPayload): RenderedMessage {
   };
 }
 
+// v1.2 #6: per-shift staff signoff summary sent to the founders chat.
+// Mirrors FoundersSummaryPayload but scoped to a single staff shift.
+// `endedBy: "manager"` flags that a manager takeover displaced the staff
+// (their count was unchecked); `outgoingUncounted` is set alongside it.
+export type StaffShiftSignoffPayload = {
+  dateLabel: string;
+  staffName: string;
+  shiftStartMs: number;
+  shiftEndMs: number;
+  durationMs: number;
+  totalSalesIdr: number;
+  txnCount: number;
+  manualBca?: ManualBcaTally;
+  endedBy: "self" | "manager";
+  outgoingUncounted?: boolean;
+};
+
+// Format milliseconds as "Xj Ym" (jam / menit). Drops the minutes part when
+// duration is an exact hour; drops jam part when < 1 hour.
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}j ${minutes}m`;
+  if (hours > 0) return `${hours}j`;
+  return `${minutes}m`;
+}
+
+export function renderStaffShiftSignoff(p: StaffShiftSignoffPayload): RenderedMessage {
+  const lines: string[] = [];
+
+  if (p.endedBy === "manager") {
+    lines.push(`⚠️ <b>Diakhiri oleh manajer</b>`);
+  }
+  if (p.outgoingUncounted) {
+    lines.push(`⚠️ <i>Stok keluar belum dihitung (tidak ada handover)</i>`);
+  }
+
+  lines.push(
+    `👤 <b>Shift selesai — ${escapeHtml(p.staffName)}</b>`,
+    `<b>Tanggal:</b> ${escapeHtml(p.dateLabel)}`,
+    `<b>Durasi:</b> ${formatDuration(p.durationMs)}`,
+    `<b>Penjualan:</b> Rp ${formatIdr(p.totalSalesIdr)}`,
+    `<b>Transaksi:</b> ${p.txnCount}`,
+  );
+
+  if (p.manualBca && p.manualBca.count > 0) {
+    lines.push("", `🏦 <b>Manual BCA:</b> ${p.manualBca.count} txn · Rp ${formatIdr(p.manualBca.totalIdr)}`);
+    const shown = p.manualBca.items.slice(0, MANUAL_BCA_EOD_MAX_LINES);
+    for (const it of shown) {
+      const when = escapeHtml(formatWibDateTime(it.paidAt));
+      lines.push(`• ${when} · Rp ${formatIdr(it.total)} · ${escapeHtml(it.staffName)} (${escapeHtml(it.receiptNumber)})`);
+    }
+    const overflow = p.manualBca.items.length - shown.length;
+    if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
+  }
+
+  return { text: lines.join("\n") };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

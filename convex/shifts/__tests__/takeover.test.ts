@@ -14,6 +14,7 @@ import { expect, test, beforeEach, afterEach } from "vitest";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { drainScheduled } from "../../__tests__/_helpers";
 
 // ---------------------------------------------------------------------------
 // Telegram fetch stub (matches auth.test.ts pattern)
@@ -138,6 +139,8 @@ test("managerTakeover: correct manager PIN starts a takeover, force-ends locked 
     action: "shift.manager_takeover",
   });
   expect(audits.length).toBeGreaterThanOrEqual(1);
+  // Drain the _sendTakeoverSummary scheduled action (Task 9).
+  await drainScheduled(t);
 });
 
 // ---------------------------------------------------------------------------
@@ -208,4 +211,6 @@ test("managerTakeover: force-ends any active session left on the device", async 
   );
   expect(dangling?.ended_at).not.toBeNull();
   expect(dangling?.end_reason).toBe("force_logout");
+  // Drain the _sendTakeoverSummary scheduled action (Task 9).
+  await drainScheduled(t);
 });

@@ -225,10 +225,22 @@ export const endOfDaySignOff = mutation({
         metadata: { durationMs: summary.durationMs },
       });
 
-      // Task 9 adds:
-      // await ctx.scheduler.runAfter(0, internal.shifts.actions._sendSignoffSummary, {
-      //   eventId, staffId, summary,
-      // });
+      // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
+      await ctx.scheduler.runAfter(
+        0,
+        internal.shifts.actions._sendSignoffSummary,
+        {
+          eventId,
+          staffId,
+          shiftStartMs,
+          shiftEndMs: now,
+          totalSalesIdr: summary.totalSalesIdr,
+          txnCount: summary.txnCount,
+          manualBcaCount: summary.manualBcaCount,
+          manualBcaTotalIdr: summary.manualBcaTotalIdr,
+          idempotencyKeySuffix: eventId,
+        },
+      );
 
       return { ok: true as const, durationMs: summary.durationMs };
     },
@@ -319,7 +331,22 @@ export const handoverOut = mutation({
         metadata: { durationMs: summary.durationMs },
       });
 
-      // Task 9 adds Telegram notification for handover summary.
+      // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
+      await ctx.scheduler.runAfter(
+        0,
+        internal.shifts.actions._sendSignoffSummary,
+        {
+          eventId,
+          staffId,
+          shiftStartMs,
+          shiftEndMs: now,
+          totalSalesIdr: summary.totalSalesIdr,
+          txnCount: summary.txnCount,
+          manualBcaCount: summary.manualBcaCount,
+          manualBcaTotalIdr: summary.manualBcaTotalIdr,
+          idempotencyKeySuffix: eventId,
+        },
+      );
 
       return { ok: true as const, durationMs: summary.durationMs };
     },

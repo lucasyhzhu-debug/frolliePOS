@@ -1,11 +1,12 @@
 "use node";
 
-import { action } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { internal, api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { verifyPinOrThrow } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
+import { wibDayWindow } from "../lib/time";
 
 /**
  * Manager takeover: a manager proves their PIN at the locked booth to take over
@@ -88,4 +89,142 @@ export const managerTakeover = action({
         );
       },
     ),
+});
+
+// ─── _sendSignoffSummary ──────────────────────────────────────────────────────
+//
+// Deferred internal action scheduled from `endOfDaySignOff` and `handoverOut`
+// (both self-signoff paths). Builds the full Telegram payload (including
+// manual-BCA items) and sends it via `sendTemplate` to the founders role.
+//
+// Runs after the mutation commits, so the session end + shift event are already
+// persisted. Failure here does not roll back the signoff — it only affects
+// the Telegram notification.
+//
+// `endedBy: "self"` for both paths (the staff performed their own signoff).
+
+export const _sendSignoffSummary = internalAction({
+  args: {
+    eventId: v.id("pos_shift_events"),
+    staffId: v.id("staff"),
+    shiftStartMs: v.number(),
+    shiftEndMs: v.number(),
+    totalSalesIdr: v.number(),
+    txnCount: v.number(),
+    manualBcaCount: v.number(),
+    manualBcaTotalIdr: v.number(),
+    idempotencyKeySuffix: v.string(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    // Resolve staff display name.
+    const staffNames = await ctx.runQuery(
+      internal.auth.internal._listStaffNames_internal,
+      {},
+    );
+    const staffName =
+      staffNames.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(args.staffId))?.name ??
+      "Unknown";
+
+    // Fetch manual-BCA items for the full itemized list (summary has only count+total).
+    const manualBca = await ctx.runQuery(
+      internal.transactions.internal._manualBcaReconciliation_internal,
+      { dayStartMs: args.shiftStartMs, dayEndMs: args.shiftEndMs },
+    );
+
+    const { dateLabel } = wibDayWindow(args.shiftEndMs);
+
+    await ctx.runAction(api.telegram.send.sendTemplate, {
+      role: "founders",
+      kind: "staff_shift_signoff",
+      payload: {
+        dateLabel,
+        staffName,
+        shiftStartMs: args.shiftStartMs,
+        shiftEndMs: args.shiftEndMs,
+        durationMs: Math.max(0, args.shiftEndMs - args.shiftStartMs),
+        totalSalesIdr: args.totalSalesIdr,
+        txnCount: args.txnCount,
+        manualBca: args.manualBcaCount > 0
+          ? { count: args.manualBcaCount, totalIdr: args.manualBcaTotalIdr, items: manualBca.items }
+          : undefined,
+        endedBy: "self",
+      },
+      idempotencyKey: `signoff:${args.idempotencyKeySuffix}`,
+    });
+  },
+});
+
+// ─── _sendTakeoverSummary ─────────────────────────────────────────────────────
+//
+// Deferred internal action scheduled from `_commitManagerTakeover_internal`.
+// Summarises the displaced staff's shift up to the takeover moment.
+// `endedBy: "manager"`, `outgoingUncounted: true`.
+//
+// For the takeover case we don't have a pre-computed summary (the internal
+// mutation deliberately avoids aggregation). We query the shift anchor to
+// recover shiftStartMs, then build the same summary query.
+
+export const _sendTakeoverSummary = internalAction({
+  args: {
+    eventId: v.id("pos_shift_events"),
+    displacedStaffId: v.union(v.id("staff"), v.null()),
+    deviceId: v.string(),
+    takeoverAtMs: v.number(),
+    idempotencyKeySuffix: v.string(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    // Resolve displaced staff name (may be null if no one was on shift).
+    const staffNames = await ctx.runQuery(
+      internal.auth.internal._listStaffNames_internal,
+      {},
+    );
+    const staffName = args.displacedStaffId
+      ? (staffNames.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(args.displacedStaffId))?.name ?? "Unknown")
+      : "Unknown";
+
+    // Recover shift start for the displaced staff from the most recent
+    // start_of_day / handover_in anchor BEFORE the takeover event.
+    // We pass deviceId; the query walks back through events to find it.
+    const anchor = await ctx.runQuery(
+      internal.shifts.internal._shiftStartAnchor_internal,
+      { deviceId: args.deviceId },
+    );
+    // If no anchor exists, the booth was never formally opened — use takeoverAtMs
+    // so duration = 0 (better than throwing).
+    const shiftStartMs = anchor?.shift_started_at ?? args.takeoverAtMs;
+
+    // Build sales aggregate for the displaced staff's shift window.
+    const [sales, manualBca] = await Promise.all([
+      ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
+        dayStartMs: shiftStartMs,
+        dayEndMs: args.takeoverAtMs,
+      }),
+      ctx.runQuery(
+        internal.transactions.internal._manualBcaReconciliation_internal,
+        { dayStartMs: shiftStartMs, dayEndMs: args.takeoverAtMs },
+      ),
+    ]);
+
+    const { dateLabel } = wibDayWindow(args.takeoverAtMs);
+
+    await ctx.runAction(api.telegram.send.sendTemplate, {
+      role: "founders",
+      kind: "staff_shift_signoff",
+      payload: {
+        dateLabel,
+        staffName,
+        shiftStartMs,
+        shiftEndMs: args.takeoverAtMs,
+        durationMs: Math.max(0, args.takeoverAtMs - shiftStartMs),
+        totalSalesIdr: sales.totalSalesIdr,
+        txnCount: sales.txnCount,
+        manualBca: manualBca.count > 0
+          ? { count: manualBca.count, totalIdr: manualBca.totalIdr, items: manualBca.items }
+          : undefined,
+        endedBy: "manager",
+        outgoingUncounted: true,
+      },
+      idempotencyKey: `signoff:takeover:${args.idempotencyKeySuffix}`,
+    });
+  },
 });

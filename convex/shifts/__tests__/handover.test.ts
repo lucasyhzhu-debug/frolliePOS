@@ -3,6 +3,11 @@ import { expect, test } from "vitest";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+// handoverOut now schedules _sendSignoffSummary (Task 9). Stub Telegram +
+// drain the scheduler so the deferred action resolves cleanly in tests.
+setupTelegramStub();
 
 test("handoverOut closes outgoing session → handover_pending; handoverIn → open(new staff)", async () => {
   const t = convexTest(schema);
@@ -92,6 +97,8 @@ test("handoverOut closes outgoing session → handover_pending; handoverIn → o
     ctx.db.get(bSession as Id<"staff_sessions">),
   );
   expect(bSess?.ended_at).toBeNull();
+  // Drain the _sendSignoffSummary scheduled action from handoverOut.
+  await drainScheduled(t);
 });
 
 test("handoverOut rejects an already-ended session", async () => {

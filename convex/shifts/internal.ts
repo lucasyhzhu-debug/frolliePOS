@@ -165,12 +165,14 @@ export const _commitManagerTakeover_internal = internalMutation({
       // Use the by_device_active index: compound on [device_id, ended_at].
       // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
       // filter on null in JS after collecting the index-narrowed set.
+      // Capture the displaced staff_id (first active session) for Task 9 summary.
       const activeSessions = await ctx.db
         .query("staff_sessions")
         .withIndex("by_device_active", (q) =>
           q.eq("device_id", args.deviceId).eq("ended_at", null),
         )
         .collect();
+      const displacedStaffId = activeSessions[0]?.staff_id ?? null;
       for (const sess of activeSessions) {
         await ctx.db.patch(sess._id, {
           ended_at: now,
@@ -221,10 +223,18 @@ export const _commitManagerTakeover_internal = internalMutation({
         metadata: { outgoing_uncounted: true },
       });
 
-      // Task 9 placeholder: dispatch deferred Founders summary for displaced staff.
-      // await ctx.scheduler.runAfter(0, internal.shifts.actions._sendTakeoverSummary, {
-      //   eventId, managerStaffId: args.managerStaffId, deviceId: args.deviceId,
-      // });
+      // Schedule deferred Founders summary for the displaced staff (v1.2 #6).
+      await ctx.scheduler.runAfter(
+        0,
+        internal.shifts.actions._sendTakeoverSummary,
+        {
+          eventId,
+          displacedStaffId,
+          deviceId: args.deviceId,
+          takeoverAtMs: now,
+          idempotencyKeySuffix: eventId,
+        },
+      );
 
       return { sessionId, eventId };
     },
