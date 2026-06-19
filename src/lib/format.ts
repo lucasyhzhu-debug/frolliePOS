@@ -81,3 +81,10 @@ export function fmtRelative(epochMs: number): string {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
+
+export function parseIntStrict(s: string): number | null {
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return n;
+}

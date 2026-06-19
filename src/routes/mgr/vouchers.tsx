@@ -46,7 +46,8 @@ import {
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { FieldMessage } from "@/components/ui/field-message";
-import { rp, fmtDate } from "@/lib/format";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
+import { rp, fmtDate, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 
 type Voucher = Doc<"pos_vouchers">;
@@ -83,13 +84,6 @@ function humanizeVoucherError(e: unknown): string {
   return "Something went wrong. Try again.";
 }
 
-function parseIntStrict(s: string): number | null {
-  if (!/^\d+$/.test(s)) return null;
-  const n = Number(s);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return n;
-}
-
 // ─── Focus maps (module scope — no closure deps, recreating each render wastes memory) ──
 const ADD_FOCUS: Record<string, string> = {
   "add.code": "new-voucher-code",
@@ -98,14 +92,12 @@ const ADD_FOCUS: Record<string, string> = {
   "add.maxRedemptions": "new-voucher-max",
   "add.expires": "new-voucher-expires",
 };
-const ADD_ORDER = Object.keys(ADD_FOCUS);
 
 const META_FOCUS: Record<string, string> = {
   "meta.minCart": "edit-min",
   "meta.maxRedemptions": "edit-max",
   "meta.expires": "edit-expires",
 };
-const META_ORDER = Object.keys(META_FOCUS);
 
 /**
  * Convert a date input value (YYYY-MM-DD, local-naive) to an end-of-day WIB
@@ -152,21 +144,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const archiveVoucher = useMutation(api.vouchers.public.archiveVoucher);
 
   // ─── Per-field inline error state ───────────────────────────────────────────
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  // Clear a single field's error (used on input change).
-  const clearFieldError = (k: string) =>
-    setErrors((e) => {
-      if (!(k in e)) return e;
-      const { [k]: _omit, ...rest } = e;
-      return rest;
-    });
-  // Clear a whole dialog's errors by key prefix (used on open/close); no arg = all.
-  const clearErrors = (prefix?: string) =>
-    setErrors((e) =>
-      prefix
-        ? Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith(prefix)))
-        : {},
-    );
+  const { errors, clearFieldError, clearErrors, applyErrors } = useFieldErrors();
 
   // ─── Sorted view: active first, then by code ────────────────────────────────
   const sortedVouchers = useMemo(() => {
@@ -202,7 +180,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddOpen(true);
   }
 
-  // Focus map for Add voucher dialog → ADD_FOCUS / ADD_ORDER at module scope.
+  // Focus map for Add voucher dialog → ADD_FOCUS at module scope.
 
   function submitAddOpenPin() {
     const next: Record<string, string> = {};
@@ -246,16 +224,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       }
     }
 
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("add."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = ADD_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(ADD_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("add.", next, ADD_FOCUS)) return;
 
     setPinAction({
       kind: "createVoucher",
@@ -277,7 +246,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaExpires, setMetaExpires] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
 
-  // Focus map for Edit meta dialog → META_FOCUS / META_ORDER at module scope.
+  // Focus map for Edit meta dialog → META_FOCUS at module scope.
 
   function openMetaEdit(v: Voucher) {
     setMetaTarget(v);
@@ -350,16 +319,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       }
     }
 
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("meta."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = META_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(META_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("meta.", next, META_FOCUS)) return;
 
     // Assemble patch — only include changed fields (preserve existing logic).
     const patch: {

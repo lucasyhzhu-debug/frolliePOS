@@ -44,7 +44,8 @@ import {
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { FieldMessage } from "@/components/ui/field-message";
-import { rp } from "@/lib/format";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
+import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 
 type Product = Doc<"pos_products">;
@@ -122,7 +123,6 @@ const SKU_FOCUS: Record<string, string> = {
   "sku.threshold": "new-sku-threshold",
   "sku.hue": "new-sku-hue",
 };
-const SKU_ORDER = Object.keys(SKU_FOCUS);
 
 const ADD_FOCUS: Record<string, string> = {
   "add.code": "new-product-code",
@@ -137,7 +137,6 @@ const ADD_FOCUS: Record<string, string> = {
   "add.bundleQty": "bundle-qty",
   "add.bundleThreshold": "bundle-threshold",
 };
-const ADD_ORDER = Object.keys(ADD_FOCUS);
 
 const META_FOCUS: Record<string, string> = {
   "meta.name": "edit-name",
@@ -147,23 +146,11 @@ const META_FOCUS: Record<string, string> = {
   "meta.initials": "edit-initials",
   "meta.hue": "edit-hue",
 };
-const META_ORDER = Object.keys(META_FOCUS);
 
 const PRICE_FOCUS: Record<string, string> = {
   "price.price": "price-buf",
   "price.tax": "price-tax",
 };
-const PRICE_ORDER = Object.keys(PRICE_FOCUS);
-
-function parseIntStrict(s: string): number | null {
-  // Integer-only — reject decimals/scientific/negative input. price_idr is
-  // integer rupiah (ADR-015). tax_rate accepts the same integer parser since
-  // we constrain UI to 0..11 (whole percents).
-  if (!/^\d+$/.test(s)) return null;
-  const n = Number(s);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return n;
-}
 
 export default function MgrProducts() {
   const navigate = useNavigate();
@@ -206,21 +193,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const archiveProduct = useMutation(api.catalog.public.archiveProduct);
 
   // ─── Per-field inline error state ───────────────────────────────────────────
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  // Clear a single field's error (used on input change).
-  const clearFieldError = (k: string) =>
-    setErrors((e) => {
-      if (!(k in e)) return e;
-      const { [k]: _omit, ...rest } = e;
-      return rest;
-    });
-  // Clear a whole dialog's errors by key prefix (used on open/close); no arg = all.
-  const clearErrors = (prefix?: string) =>
-    setErrors((e) =>
-      prefix
-        ? Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith(prefix)))
-        : {},
-    );
+  const { errors, clearFieldError, clearErrors, mergeErrors, applyErrors } = useFieldErrors();
 
   // ─── Sorted view ────────────────────────────────────────────────────────────
   const sortedProducts = useMemo(() => {
@@ -280,7 +253,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddSkuOpen(true);
   }
 
-  // Focus map for Add SKU dialog → SKU_FOCUS / SKU_ORDER at module scope.
+  // Focus map for Add SKU dialog → SKU_FOCUS at module scope.
 
   function submitAddSkuOpenPin() {
     const next: Record<string, string> = {};
@@ -298,16 +271,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       if (h === null || h > 360) next["sku.hue"] = "Hue must be an integer between 0 and 360.";
       else hue = h;
     }
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("sku."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = SKU_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(SKU_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("sku.", next, SKU_FOCUS)) return;
     setPinAction({ kind: "createInventorySku", sku, name, low_threshold: low_threshold as number, code, initials, hue });
     setPinError(undefined);
   }
@@ -344,7 +308,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       (parseIntStrict(addSkuComponentQty) ?? 0) >= 1 &&
       parseIntStrict(addBundleThreshold) !== null);
 
-  // Focus map for Add product dialog → ADD_FOCUS / ADD_ORDER at module scope.
+  // Focus map for Add product dialog → ADD_FOCUS at module scope.
 
   function submitAddOpenPin() {
     const next: Record<string, string> = {};
@@ -386,16 +350,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         inventorySkuComponentQty = qty;
       }
     }
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("add."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = ADD_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(ADD_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("add.", next, ADD_FOCUS)) return;
     setPinAction({
       kind: "createProduct",
       code,
@@ -424,7 +379,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaHue, setMetaHue] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
 
-  // Focus map for Edit metadata dialog → META_FOCUS / META_ORDER at module scope.
+  // Focus map for Edit metadata dialog → META_FOCUS at module scope.
 
   function openMetaEdit(p: Product) {
     setMetaTarget(p);
@@ -460,16 +415,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       if (h === null || h > 360) next["meta.hue"] = "Hue must be an integer between 0 and 360.";
       else hue = h;
     }
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("meta."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = META_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(META_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("meta.", next, META_FOCUS)) return;
     setMetaBusy(true);
     try {
       await updateProductMeta({
@@ -498,7 +444,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [priceBuf, setPriceBuf] = useState("");
   const [priceTaxBuf, setPriceTaxBuf] = useState("");
 
-  // Focus map for Edit price dialog → PRICE_FOCUS / PRICE_ORDER at module scope.
+  // Focus map for Edit price dialog → PRICE_FOCUS at module scope.
 
   function openPriceEdit(p: Product) {
     setPriceTarget(p);
@@ -518,16 +464,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     if (price_idr === null) next["price.price"] = "Price must be a non-negative integer.";
     const tax_rate = parseIntStrict(priceTaxBuf);
     if (tax_rate === null || tax_rate > 11) next["price.tax"] = "Tax rate must be an integer between 0 and 11.";
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("price."))), ...next }));
-    if (Object.keys(next).length > 0) {
-      const firstBad = PRICE_ORDER.find((k) => next[k]);
-      if (firstBad) {
-        const el = document.getElementById(PRICE_FOCUS[firstBad]);
-        el?.focus();
-        el?.scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
+    if (applyErrors("price.", next, PRICE_FOCUS)) return;
     setPinAction({
       kind: "updatePricing",
       productId: priceTarget._id,
@@ -587,7 +524,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         next[`comp.row${idx}`] = "Qty must be a positive integer.";
       }
     });
-    setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("comp."))), ...next }));
+    mergeErrors("comp.", next);
     if (Object.keys(next).length > 0) {
       const firstErrIdx = compRows.findIndex((_, i) => next[`comp.row${i}`] !== undefined);
       if (firstErrIdx !== -1) {
