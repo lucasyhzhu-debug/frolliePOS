@@ -2167,14 +2167,17 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 2 (✅ shipped 2026-06-19, PR #90):**
 - Inline messaging over toasts (#12) — slice 1: `FieldMessage` primitive + ADR-048 + ESLint fence + convert the 2 worst files (products 26, vouchers 12). Remaining bucket-A files = follow-up slices.
 
-**In Phase 3 (✅ shipped 2026-06-19, PR #93/#96):**
-- Retire BCA VA + static-account manual transfer (#10) — hide the broken BCA VA tab (kills the toast storm), staff-self-confirm manual bank transfer marked `manual_bca`, manager account config + toggle, MANUAL-flagged ticker, itemized EOD reconciliation. Lands before/with #6 (clock-out reads the reconciliation query).
+**In Phase 3 (✅ shipped 2026-06-19, PR #93–96):**
+- Retire BCA VA + static-account manual transfer (#10) — hid the broken BCA VA tab (killed the toast storm), staff-self-confirm manual bank transfer marked `manual_bca`, manager account config + toggle, MANUAL-flagged ticker, itemized EOD reconciliation.
 
 **In Phase 4 (📋 planned 2026-06-19):**
 - EN/ID language toggle (#1) — a flag-backed per-staff language switch on the home YOU group, backed by a zero-dependency typed i18n dictionary (`src/lib/i18n/`); English default, `staff.locale` preference + `setOwnLocale`. Then full copy extraction across all `src/` (Workflow fan-out). Currency + dates stay `id-ID`; receipts/Telegram out of scope. ADR-049.
 
+**In Phase 5 (📋 planned 2026-06-19):**
+- Shift SOP flow (#6) — booth state machine (CLOSED/OPEN/LOCKED/HANDOVER_PENDING) on a new `pos_shift_events` table; start-of-day / end-of-day / handover / manager-takeover wizards integrating the paper opening + closing SOPs; staff sign-off shows hours, founders get the financial + manual-BCA summary. Builds on #2/#4/#5/#12/#10.
+
 **Still not yet (later v1.2 phases):**
-- Receipt cleanup (#13), login PIN feedback (#11+#7), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6)
+- Receipt cleanup (#13), login PIN feedback (#11+#7), real Xendit refunds (#9, spike-gated), product photos (#3)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2456,6 +2459,84 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] ADR-049 + ESLint i18n fence block (seed registry with Task-5 files)
     - [ ] Lint green + fence-bites smoke; SCHEMA/CHANGELOG/CLAUDE updates
     - [ ] commit
+**Phase 5 — #6 shift SOP flow (📋 PLANNED 2026-06-19):** integrate the booth opening + closing paper SOPs into guided in-app wizards on a booth state machine. New `convex/shifts/` module owns `pos_shift_events` (source of truth for state + attendance + step ledger). Start-of-day (open from closed), end-of-day (close), handover (staff swap), and manager-takeover (from lock) journeys; lock honours ADR-003 (ends session, booth-state layer). Staff sign-off = hours only; founders get the per-shift financial + manual-BCA summary via a new `staff_shift_signoff` Telegram kind (reuses #10's reconciliation query). Spec→2× staffreview→plan→staffreview pipeline; both gates passed (spec: hours-anchor/LOCKED-ADR-003/telegram-kind; plan: end_reason union/_listStaffNames/convex-test).
+
+### Backend (`convex/`) — Phase 5
+- 📋 **[v12-be-shift-schema]** `shifts/schema.ts` + `shifts/lib.ts` — `pos_shift_events` table (+ `by_device_created`/`by_staff_started` indexes) + pure V8-safe `deriveBoothState`/`computeShiftHoursMs` (T1-2)
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-shift-sop-flow-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md), [spec review](./reviews/staffreview-v1.2-shift-sop-flow-spec-2026-06-19.md), [plan review](./reviews/staffreview-v1.2-shift-sop-flow-plan-2026-06-19.md)
+  - **subtasks:**
+    - [ ] schema fragment + spread into root + SCHEMA.md
+    - [ ] pure lib: 4 states + stale-autoclose + hours; unit tests
+  - **notes:** _(empty)_
+- 📋 **[v12-be-shift-events]** `shifts/internal.ts` + `shifts/public.ts` — `_latestShiftEvent`/`_recordShiftEvent`/`_shiftStartAnchor` internals + `boothState` query (T3)
+  - **agent:** `convex-expert`
+  - **deps:** v12-be-shift-schema
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] event writer + latest/anchor internals
+    - [ ] boothState query (maps staff name via `_listStaffNames_internal({})`)
+  - **notes:** _(empty)_
+- 📋 **[v12-be-shift-lifecycle]** `shifts/public.ts` — `completeStartOfDay`/`endOfDaySignOff`/`handoverOut`/`completeHandoverIn`/`lockShift`/`recordResume` mutations (T4-7)
+  - **agent:** `convex-expert`
+  - **deps:** v12-be-shift-events
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] start-of-day + sign-off (summary + session end via `force_logout`)
+    - [ ] handover out/in (2-write count) + lock/resume (`manual_lock`)
+  - **notes:** _(empty)_
+- 📋 **[v12-be-shift-takeover]** `shifts/actions.ts` — `managerTakeover` action (verifyPinOrThrow + force-end displaced + `manager_takeover` event, `outgoing_uncounted`) (T8)
+  - **agent:** `convex-expert`
+  - **deps:** v12-be-shift-events
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] action + `_commitManagerTakeover_internal`
+    - [ ] tests: non-manager reject, force-end, uncounted flag
+  - **notes:** _(empty)_
+- 📋 **[v12-be-shift-telegram]** `telegram/send.ts` + `lib/telegramHtml.ts` — `staff_shift_signoff` kind + `renderStaffShiftSignoff` (reuse `manualBca` fragment) + schedule from sign-off/handover/takeover (T9)
+  - **agent:** `convex-expert`
+  - **deps:** v12-be-shift-lifecycle
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] render fn + kind union + case
+    - [ ] wire `ctx.scheduler.runAfter` in the 3 sign-off paths
+  - **notes:** _(empty)_
+
+### Frontend (`src/`) — Phase 5
+- 📋 **[v12-fe-shift-components]** `components/pos/{CountStep,StepRail,ShiftWizard}.tsx` + `hooks/useBoothState.ts` — extract count UI from recount route + wizard shell + state hook (T10-12)
+  - **agent:** `ui-component-builder`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] extract `CountStep` (re-point recount route onto it)
+    - [ ] `StepRail` + `ShiftWizard` (reduced-motion-guarded) + `useBoothState`
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-shift-routes]** `routes/shift/{start,end,handover}.tsx` + `router.tsx` — start-of-day, end-shift (close/handover-out choice), handover-incoming (T13-15)
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-be-shift-lifecycle, v12-fe-shift-components
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] `/shift/start` + `/shift/end` (choice + close summary + handover-out)
+    - [ ] `/shift/handover` (pick→PIN→count, no accept screen)
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-shift-gate]** `routes/login.tsx` + `hooks/useLastStaff.ts` + `routes/lock.tsx` + `routes/home.tsx` — booth-state login fork, same-staff lock resume, manager-unlock takeover, home End-shift entry (T16-17)
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-fe-shift-routes, v12-be-shift-takeover
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] login fork per state (closed→start, locked→same-staff, handover_pending→handover)
+    - [ ] lock → `lockShift` + manager-unlock `managerTakeover`; home End-shift button
+  - **notes:** _(empty)_
+
+### Cross-cutting — Phase 5
+- 📋 **[v12-xc-shift-docs]** `docs/ADR/050-…md` + `CLAUDE.md` + `docs/API_REFERENCE.md` + `docs/CHANGELOG.md` — shift lifecycle ADR (state machine + ADR-003 amendment + takeover-as-handover) + module row + business rule + final full verification (T18)
+  - **agent:** `claude`
+  - **deps:** v12-be-shift-telegram, v12-fe-shift-gate
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
+  - **subtasks:**
+    - [ ] ADR-049 + CLAUDE.md module row + business rule
+    - [ ] API_REFERENCE + CHANGELOG; `typecheck && lint && vitest && build:fe` green
   - **notes:** _(empty)_
 
 ---
