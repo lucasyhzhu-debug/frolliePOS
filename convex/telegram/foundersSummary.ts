@@ -112,6 +112,12 @@ export const sendFoundersSummary = internalAction({
       { dayStartMs, dayEndMs },
     );
 
+    // Step 3b: manual-BCA tally for the same WIB day window (v1.2 #10).
+    const manualBca = await ctx.runQuery(
+      internal.transactions.internal._manualBcaReconciliation_internal,
+      { dayStartMs, dayEndMs },
+    );
+
     // Step 4: send via sendTemplate — pass chatIdOverride so sendTemplate skips
     // its own role-resolve (race window closed: chatId captured once above).
     try {
@@ -123,6 +129,7 @@ export const sendFoundersSummary = internalAction({
           totalSalesIdr: summary.totalSalesIdr,
           txnCount: summary.txnCount,
           flaggedCount: summary.flaggedCount,
+          manualBca,
         },
         idempotencyKey: `founders:${dateLabel}`,
         chatIdOverride: resolvedChatId,

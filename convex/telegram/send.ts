@@ -67,6 +67,13 @@ export const sendTemplate = action({
         totalSalesIdr: v.number(),
         txnCount: v.number(),
         flaggedCount: v.number(),
+        manualBca: v.optional(v.object({
+          count: v.number(), totalIdr: v.number(),
+          items: v.array(v.object({
+            paidAt: v.number(), total: v.number(),
+            staffName: v.string(), receiptNumber: v.string(),
+          })),
+        })),
       }),
       // refund — matches RefundPayload
       v.object({
@@ -182,6 +189,10 @@ export const sendTemplate = action({
             totalSalesIdr: number;
             txnCount: number;
             flaggedCount: number;
+            manualBca?: {
+              count: number; totalIdr: number;
+              items: Array<{ paidAt: number; total: number; staffName: string; receiptNumber: string }>;
+            };
           },
         );
         break;
