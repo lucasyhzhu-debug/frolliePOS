@@ -115,7 +115,7 @@ export const _reset_internal = internalMutation({
       // Without these, a dev reset left orphaned txns + an ever-climbing receipt
       // counter, breaking the "wipe + bootstrap" smoke-flow premise (I5).
       "pos_voucher_redemptions", "pos_stock_movements", "pos_xendit_invoices",
-      "pos_refunds",
+      "pos_refunds", "pos_shift_events",
       "pos_transaction_lines", "pos_transactions", "pos_receipt_counters",
       "pos_vouchers", "pos_approval_requests",
       "pos_low_stock_alerts", "pos_recount_state",
@@ -245,6 +245,28 @@ export const _reset_internal = internalMutation({
       started_at: now,
       ended_at: null,
       end_reason: null,
+    });
+    inserted++;
+
+    // Open the booth: record a start_of_day shift event so the seeded device
+    // boots into an OPEN booth (booth state derives from the latest
+    // pos_shift_events row — ADR-050). Without this the booth is CLOSED and the
+    // login-gate + RootLayout SOP fork redirects every e2e sign-in to
+    // /shift/start instead of the home dashboard the flow specs expect.
+    await ctx.db.insert("pos_shift_events", {
+      device_id: "dev-booth-device",
+      type: "start_of_day",
+      staff_id: lucasId,
+      shift_started_at: now,
+      shift_ended_at: null,
+      steps: [],
+      count_changed: null,
+      takeover: null,
+      outgoing_uncounted: null,
+      stale_autoclose: null,
+      linked_event_id: null,
+      summary: null,
+      created_at: now,
     });
     inserted++;
 
