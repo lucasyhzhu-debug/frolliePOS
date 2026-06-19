@@ -172,10 +172,14 @@ describe("Lock route", () => {
 // ─── lockShift + manager-unlock tests ─────────────────────────────────────────
 
 describe("Lock route — lockShift + manager-unlock", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
     vi.clearAllMocks();
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
+    // Restore a safe default for useMutation so tests that don't re-mock it
+    // don't get `undefined` and throw on click.
+    const convexReact = await import("convex/react");
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
   });
 
   test("Lock button calls lockShift (not bare logout) with sessionId + idempotencyKey", async () => {

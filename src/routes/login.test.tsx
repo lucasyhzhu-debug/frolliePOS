@@ -257,6 +257,53 @@ describe("Login route — booth state navigation fork", () => {
     await waitFor(() =>
       expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument(),
     );
+    // Login action must NOT have been called — redirect fires before any PIN entry.
+    expect(mockLoginAction).not.toHaveBeenCalled();
+  });
+
+  it("booth locked but DIFFERENT staff logs in → recordResume NOT called, navigates /", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    // Booth is locked for LUCAS (staffId=A), but SARI (staffId=B) logs in.
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "locked",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    // Only SARI in the active list — LUCAS was deactivated or not pre-staged.
+    mockStaff([SARI]);
+    localStorage.setItem(LAST_STAFF_KEY, SARI._id);
+
+    renderLogin();
+
+    // Pre-stage should NOT fire for SARI because locked.staffId !== SARI._id.
+    // The list view shows instead.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /who's working/i })).toBeInTheDocument(),
+    );
+
+    // Manually pick SARI from the list.
+    fireEvent.click(screen.getByText("Sari"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+    );
+
+    // Submit PIN via numeric keypad
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+    // Guard must block recordResume — SARI is not the locked staff.
+    expect(mockRecordResume).not.toHaveBeenCalled();
   });
 
   it("booth open → after login navigates to / (normal)", async () => {

@@ -114,7 +114,9 @@ export default function LoginRoute() {
       // (handover_pending is handled by the redirect effect above.)
       if (boothState?.state === "closed") {
         navigate("/shift/start", { replace: true });
-      } else if (boothState?.state === "locked") {
+      } else if (boothState?.state === "locked" && stage.staff._id === boothState.staffId) {
+        // Only the staff who locked the booth resumes — a different staff logging
+        // in during "locked" skips recordResume and goes straight to home.
         await recordResume({ idempotencyKey: `${idempotencyKey}:resume`, sessionId });
         navigate("/", { replace: true });
       } else {

@@ -17,7 +17,14 @@ export default function Lock() {
   const deviceId = useDeviceId();
   const lockShift = useMutation(api.shifts.public.lockShift);
   const managerTakeover = useAction(api.shifts.actions.managerTakeover);
-  const idemKey = useIdempotency(`lock:${session.sessionId ?? "none"}`);
+  // Two distinct idempotency key roots — they MUST NOT share a root because after
+  // clearSession the session-based key collapses to `lock:none`, which would
+  // collide between lock and takeover paths.
+  //   lockKey  → keyed on sessionId (available for the active lock action)
+  //   takeoverKey → keyed on deviceId (stable across clearSession; takeover
+  //                 happens with no active session so sessionId is unreliable)
+  const lockKey = useIdempotency(`shift:lock:${session.sessionId ?? "none"}`);
+  const takeoverKey = useIdempotency(`shift:takeover:${deviceId ?? "none"}`);
 
   // Manager-takeover state
   const [takeoverOpen, setTakeoverOpen] = useState(false);
@@ -36,8 +43,8 @@ export default function Lock() {
   if (session.status !== "active") return null;
 
   const handleLock = async () => {
-    if (!session.sessionId || !idemKey) return;
-    await lockShift({ sessionId: session.sessionId, idempotencyKey: idemKey });
+    if (!session.sessionId || !lockKey) return;
+    await lockShift({ sessionId: session.sessionId, idempotencyKey: lockKey });
     clearSession();
     navigate("/login", { replace: true });
   };
@@ -49,7 +56,7 @@ export default function Lock() {
   };
 
   const handleTakeoverPin = async (pin: string) => {
-    if (!deviceId || !idemKey || !pickedManager) {
+    if (!deviceId || !takeoverKey || !pickedManager) {
       setTakeoverError("Device or manager not ready");
       return;
     }
@@ -57,7 +64,7 @@ export default function Lock() {
     setTakeoverError(undefined);
     try {
       const { sessionId } = await managerTakeover({
-        idempotencyKey: `${idemKey}:takeover`,
+        idempotencyKey: takeoverKey,
         deviceId,
         managerStaffId: pickedManager._id,
         managerPin: pin,
