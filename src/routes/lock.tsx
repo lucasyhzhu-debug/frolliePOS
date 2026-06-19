@@ -57,7 +57,7 @@ export default function Lock() {
 
   const handleTakeoverPin = async (pin: string) => {
     if (!deviceId || !takeoverKey || !pickedManager) {
-      setTakeoverError("Device or manager not ready");
+      setTakeoverError("Perangkat atau manajer belum siap");
       return;
     }
     setTakeoverPending(true);
@@ -73,11 +73,11 @@ export default function Lock() {
       setTakeoverOpen(false);
       navigate("/shift/handover", { replace: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Takeover failed";
+      const msg = err instanceof Error ? err.message : "Pengalihan gagal";
       setTakeoverError(
-        msg.includes("INVALID_PIN") ? "Wrong PIN." :
-        msg.includes("NOT_MANAGER") ? "Not a manager account." :
-        msg.includes("LOCKED_OUT") ? "Account locked. Try again later." :
+        msg.includes("INVALID_PIN") ? "PIN salah." :
+        msg.includes("NOT_MANAGER") ? "Bukan akun manajer." :
+        msg.includes("LOCKED_OUT") ? "Akun terkunci. Coba lagi nanti." :
         msg,
       );
     } finally {
