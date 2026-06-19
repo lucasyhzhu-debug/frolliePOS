@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { requireManagerSession } from "../auth/sessions";
+import { requireManagerSession, requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 
@@ -278,6 +278,113 @@ export const updateReceiptConfig = mutation({
         entity_type: "pos_settings",
         source: "booth_inline",
         metadata: { logo_changed: args.logo_storage_id !== undefined },
+      });
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
+// ─── Manual-BCA account config (v1.2 #10 T4) ─────────────────────────────────
+// Manager-only CRUD + staff-readable read over the manual_bca sub-object of
+// pos_settings. Reads via _getSettings_internal so defaults stay single-sourced
+// (MANUAL_BCA_DEFAULTS). Mirrors the receipt-config pattern above.
+
+// Explicit return type breaks the cross-module ctx.runQuery type cycle (TS7022).
+type ManualBcaView = {
+  enabled: boolean;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+};
+
+/** Manager-only read — settings screen. */
+export const getManualBcaConfig = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, args): Promise<ManualBcaView> => {
+    await requireManagerSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      {},
+    );
+    return { ...s.manual_bca };
+  },
+});
+
+/** Any active staff — charge screen displays account details to customer. */
+export const getManualBcaAccount = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, args): Promise<ManualBcaView> => {
+    await requireSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      {},
+    );
+    return { ...s.manual_bca };
+  },
+});
+
+type UpdateManualBcaConfigResult = { ok: true };
+
+export const updateManualBcaConfig = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    enabled: v.boolean(),
+    bank_name: v.string(),
+    account_name: v.string(),
+    account_number: v.string(),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      enabled: boolean;
+      bank_name: string;
+      account_name: string;
+      account_number: string;
+    },
+    UpdateManualBcaConfigResult
+  >(
+    "settings.updateManualBcaConfig",
+    async (ctx, args) => {
+      const { staffId: mgrId } = await requireManagerSession(ctx, args.sessionId);
+      // Bound each user-supplied string at 120 chars — keeps account details
+      // visually sane; UI mirrors this bound client-side (same rule as receipt).
+      for (const [k, val] of Object.entries({
+        bank_name: args.bank_name,
+        account_name: args.account_name,
+        account_number: args.account_number,
+      })) {
+        if (val.length > 120) throw new Error(`FIELD_TOO_LONG:${k}`);
+      }
+      const patch = {
+        manual_bca_enabled: args.enabled,
+        manual_bca_bank_name: args.bank_name,
+        manual_bca_account_name: args.account_name,
+        manual_bca_account_number: args.account_number,
+        updated_at: Date.now(),
+        updated_by: mgrId,
+      };
+      const row = await ctx.db.query("pos_settings").first();
+      if (row) {
+        await ctx.db.patch(row._id, patch);
+      } else {
+        await ctx.db.insert("pos_settings", {
+          founders_summary_enabled: true,
+          ...patch,
+        });
+      }
+      await logAudit(ctx, {
+        actor_id: mgrId,
+        action: "settings.manual_bca_updated",
+        entity_type: "pos_settings",
+        source: "booth_inline",
+        metadata: { enabled: args.enabled },
       });
       return { ok: true as const };
     },

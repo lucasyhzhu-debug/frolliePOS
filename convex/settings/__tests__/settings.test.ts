@@ -191,3 +191,102 @@ it("_getSettings_internal returns manual_bca defaults when row absent", async ()
   expect(s.manual_bca.account_name).toBe("PT Malo Group Bahagia");
   expect(s.manual_bca.account_number).toBe("6044830994");
 });
+
+// ─── manual-BCA config (v1.2 #10 T4) ────────────────────────────────────────
+describe("manual-BCA", () => {
+  async function seedSessions(t: ReturnType<typeof convexTest>) {
+    return t.run(async (ctx) => {
+      const mgrStaffId = await ctx.db.insert("staff", {
+        name: "M", code: "S-M1", role: "manager", active: true,
+        pin_hash: "x", created_at: Date.now(),
+      });
+      const staffStaffId = await ctx.db.insert("staff", {
+        name: "S", code: "S-S1", role: "staff", active: true,
+        pin_hash: "x", created_at: Date.now(),
+      });
+      const mgr = await ctx.db.insert("staff_sessions", {
+        staff_id: mgrStaffId, device_id: "d",
+        started_at: Date.now(), ended_at: null, end_reason: null,
+      });
+      const staff = await ctx.db.insert("staff_sessions", {
+        staff_id: staffStaffId, device_id: "d",
+        started_at: Date.now(), ended_at: null, end_reason: null,
+      });
+      return { mgr, staff };
+    });
+  }
+
+  it("getManualBcaConfig returns defaults (manager-only)", async () => {
+    const t = convexTest(schema);
+    const { mgr, staff } = await seedSessions(t);
+    const cfg = await t.query(api.settings.public.getManualBcaConfig, { sessionId: mgr });
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.bank_name).toBe("BCA");
+    expect(cfg.account_name).toBe("PT Malo Group Bahagia");
+    expect(cfg.account_number).toBe("6044830994");
+    await expect(
+      t.query(api.settings.public.getManualBcaConfig, { sessionId: staff }),
+    ).rejects.toThrow("MANAGER_ONLY");
+  });
+
+  it("getManualBcaAccount is readable by any active staff", async () => {
+    const t = convexTest(schema);
+    const { mgr, staff } = await seedSessions(t);
+    const cfgMgr = await t.query(api.settings.public.getManualBcaAccount, { sessionId: mgr });
+    expect(cfgMgr.account_number).toBe("6044830994");
+    const cfgStaff = await t.query(api.settings.public.getManualBcaAccount, { sessionId: staff });
+    expect(cfgStaff.account_number).toBe("6044830994");
+  });
+
+  it("updateManualBcaConfig persists and emits audit; staff is rejected; FIELD_TOO_LONG enforced", async () => {
+    const t = convexTest(schema);
+    const { mgr, staff } = await seedSessions(t);
+
+    // manager can update
+    await t.mutation(api.settings.public.updateManualBcaConfig, {
+      idempotencyKey: "bca-1",
+      sessionId: mgr,
+      enabled: false,
+      bank_name: "BNI",
+      account_name: "PT Test",
+      account_number: "1234567890",
+    });
+    const cfg = await t.query(api.settings.public.getManualBcaConfig, { sessionId: mgr });
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.bank_name).toBe("BNI");
+    expect(cfg.account_number).toBe("1234567890");
+
+    // audit row emitted
+    const audits = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "settings.manual_bca_updated"))
+        .collect(),
+    );
+    expect(audits.length).toBe(1);
+    expect(JSON.parse(audits[0].metadata as string)).toEqual({ enabled: false });
+
+    // staff is rejected
+    await expect(
+      t.mutation(api.settings.public.updateManualBcaConfig, {
+        idempotencyKey: "bca-2",
+        sessionId: staff,
+        enabled: true,
+        bank_name: "X",
+        account_name: "Y",
+        account_number: "Z",
+      }),
+    ).rejects.toThrow("MANAGER_ONLY");
+
+    // FIELD_TOO_LONG enforced for account_name > 120 chars
+    await expect(
+      t.mutation(api.settings.public.updateManualBcaConfig, {
+        idempotencyKey: "bca-3",
+        sessionId: mgr,
+        enabled: true,
+        bank_name: "B",
+        account_name: "x".repeat(121),
+        account_number: "0",
+      }),
+    ).rejects.toThrow(/FIELD_TOO_LONG/);
+  });
+});
