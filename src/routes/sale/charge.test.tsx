@@ -859,6 +859,13 @@ describe("SaleCharge route — offline guard", () => {
   it("shows an offline banner and disables payment actions while disconnected", async () => {
     vi.mocked(useIsOnline).mockReturnValue(false);
     setupCeilingState();
+    // Enable the manual-BCA tab so the method switcher renders (v1.2 #10).
+    (vi.mocked(convexReact.useQuery) as Mock).mockReturnValue({
+      enabled: true,
+      bank_name: "BCA",
+      account_name: "PT Frollie",
+      account_number: "1234567890",
+    });
     renderAt("txn-test-123");
 
     // Banner appears with "offline" text.
@@ -888,12 +895,19 @@ describe("SaleCharge route — offline guard", () => {
 
     // Method-switch tabs are disabled offline.
     expect(screen.getByRole("tab", { name: "QRIS" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "BCA VA" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Bank transfer" })).toBeDisabled();
   });
 
   it("online: no offline banner, online-gated buttons are enabled (override stays disabled by role)", async () => {
     // isOnline = true (default from beforeEach)
     setupCeilingState();
+    // Enable the manual-BCA tab so the method switcher renders (v1.2 #10).
+    (vi.mocked(convexReact.useQuery) as Mock).mockReturnValue({
+      enabled: true,
+      bank_name: "BCA",
+      account_name: "PT Frollie",
+      account_number: "1234567890",
+    });
     renderAt("txn-test-123");
 
     await waitFor(() => expect(screen.getByText(/Retry/)).toBeTruthy());
@@ -919,6 +933,6 @@ describe("SaleCharge route — offline guard", () => {
 
     // Method-switch tabs are enabled online.
     expect(screen.getByRole("tab", { name: "QRIS" })).not.toBeDisabled();
-    expect(screen.getByRole("tab", { name: "BCA VA" })).not.toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Bank transfer" })).not.toBeDisabled();
   });
 });
