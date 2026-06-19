@@ -9,6 +9,19 @@ import { requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { stepValidator } from "./schema";
 
+// Shared args type used by handoverOut and completeHandoverIn.
+type HandoverArgs = {
+  idempotencyKey: string;
+  sessionId: Id<"staff_sessions">;
+  steps: Array<{
+    key: string;
+    label: string;
+    type: "instruction" | "count";
+    confirmed_at: number;
+  }>;
+  countChanged?: number;
+};
+
 export const boothState = query({
   args: { deviceId: v.string() },
   handler: async (
@@ -218,6 +231,171 @@ export const endOfDaySignOff = mutation({
       // });
 
       return { ok: true as const, durationMs: summary.durationMs };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
+type HandoverOutResult = { ok: true; durationMs: number };
+
+/**
+ * Record that the outgoing staff has completed the handover-out SOP checklist.
+ * Creates a `handover_out` shift event (transitions booth to "handover_pending"),
+ * builds the shift summary, and ends the outgoing session.
+ *
+ * Task 9 wires Telegram notification for the outgoing summary. Deferred so
+ * this task's test remains Telegram-free.
+ *
+ * ADR-013 (idempotency): authCheck runs `requireSession` BEFORE cache lookup
+ * (rule #20). Handler RE-CALLS `requireSession` — intentional dual-call.
+ */
+export const handoverOut = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    countChanged: v.optional(v.number()),
+  },
+  handler: withIdempotency<HandoverArgs, HandoverOutResult>(
+    "shifts.handoverOut",
+    async (ctx, args): Promise<HandoverOutResult> => {
+      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const now = Date.now();
+
+      // Resolve shift start anchor to compute duration + sales window.
+      const anchor = await ctx.runQuery(
+        internal.shifts.internal._shiftStartAnchor_internal,
+        { deviceId },
+      );
+      const shiftStartMs = anchor?.shift_started_at ?? now;
+
+      // Build the shift summary (sales aggregate + manual-BCA totals).
+      const summary = await ctx.runQuery(
+        internal.shifts.internal._buildSignoffSummary_internal,
+        { deviceId, shiftStartMs, endMs: now },
+      );
+
+      // Record the handover_out shift event (transitions booth → "handover_pending").
+      const eventId: Id<"pos_shift_events"> = await ctx.runMutation(
+        internal.shifts.internal._recordShiftEvent_internal,
+        {
+          device_id: deviceId,
+          type: "handover_out",
+          staff_id: staffId,
+          shift_started_at: shiftStartMs,
+          shift_ended_at: now,
+          steps: args.steps,
+          count_changed: args.countChanged ?? null,
+          takeover: null,
+          outgoing_uncounted: null,
+          stale_autoclose: null,
+          linked_event_id: null,
+          summary: {
+            durationMs: summary.durationMs,
+            totalSalesIdr: summary.totalSalesIdr,
+            txnCount: summary.txnCount,
+            manualBcaCount: summary.manualBcaCount,
+            manualBcaTotalIdr: summary.manualBcaTotalIdr,
+          },
+        },
+      );
+
+      // End the outgoing session (ADR-003).
+      await ctx.db.patch(args.sessionId, {
+        ended_at: now,
+        end_reason: "force_logout",
+      });
+
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "shift.handover_out",
+        entity_type: "pos_shift_events",
+        entity_id: eventId,
+        source: "booth_inline",
+        metadata: { durationMs: summary.durationMs },
+      });
+
+      // Task 9 adds Telegram notification for handover summary.
+
+      return { ok: true as const, durationMs: summary.durationMs };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
+type CompleteHandoverInResult = { ok: true; eventId: Id<"pos_shift_events"> };
+
+/**
+ * Record that the incoming staff has completed the handover-in SOP checklist.
+ * The incoming staff MUST already have a fresh session (from `loginWithPin`).
+ * Creates a `handover_in` shift event (transitions booth to "open" for the new
+ * staff), with `shift_started_at = now` marking the start of the new shift.
+ * Links to the pending `handover_out` event via `linked_event_id` if the latest
+ * event is a `handover_out` (else null).
+ *
+ * The incoming session is NOT ended here.
+ *
+ * ADR-013 (idempotency): authCheck runs `requireSession` BEFORE cache lookup
+ * (rule #20). Handler RE-CALLS `requireSession` — intentional dual-call.
+ */
+export const completeHandoverIn = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    countChanged: v.optional(v.number()),
+  },
+  handler: withIdempotency<HandoverArgs, CompleteHandoverInResult>(
+    "shifts.completeHandoverIn",
+    async (ctx, args): Promise<CompleteHandoverInResult> => {
+      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const now = Date.now();
+
+      // Fetch the latest shift event to link to the pending handover_out (if any).
+      const pending = await ctx.runQuery(
+        internal.shifts.internal._latestShiftEvent_internal,
+        { deviceId },
+      );
+
+      // Record the handover_in shift event (transitions booth → "open").
+      // shift_started_at = now: marks the beginning of the new staff's shift.
+      const eventId: Id<"pos_shift_events"> = await ctx.runMutation(
+        internal.shifts.internal._recordShiftEvent_internal,
+        {
+          device_id: deviceId,
+          type: "handover_in",
+          staff_id: staffId,
+          shift_started_at: now,
+          shift_ended_at: null,
+          steps: args.steps,
+          count_changed: args.countChanged ?? null,
+          takeover: null,
+          outgoing_uncounted: null,
+          stale_autoclose: null,
+          linked_event_id:
+            pending?.type === "handover_out" ? pending._id : null,
+          summary: null,
+        },
+      );
+
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "shift.handover_in",
+        entity_type: "pos_shift_events",
+        entity_id: eventId,
+        source: "booth_inline",
+        metadata: { linked_event_id: pending?.type === "handover_out" ? pending._id : null },
+      });
+
+      return { ok: true as const, eventId };
     },
     {
       authCheck: async (ctx, args) => {
