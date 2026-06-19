@@ -54,7 +54,7 @@ src/lib/i18n/
   dictionaries/en.ts   // export const en = { "home.newSale": "New sale", ... } as const  ← key source of truth
   dictionaries/id.ts   // export const id: Record<keyof typeof en, string> = { ... }       ← typed = completeness
   types.ts             // Locale = "en" | "id"; TranslationKey = keyof typeof en
-  t.ts                 // pure t(locale, key, params?) + plural rule  (V8-safe pure fn, unit-testable)
+  t.ts                 // pure t(locale, key, params?) + plural rule  (pure fn, unit-testable)
   context.tsx          // LocaleProvider + useT() hook + useLocale() [locale, setLocale]
   index.ts             // barrel
 ```
@@ -82,21 +82,33 @@ src/lib/i18n/
 
 ### B. Persistence & lifecycle (per-staff, hybrid)
 
-- **Schema:** add `locale: v.optional(v.union(v.literal("en"), v.literal("id")))` to the `staff` table
-  (`convex/staff/schema.ts` + `docs/SCHEMA.md`). Optional ⇒ absent means English (no migration; absent
-  is the common case until a staffer toggles).
-- **Mutation:** new `staff.setOwnLocale` (public mutation) — **staff-session, self-only** (low-stakes
-  config per CLAUDE.md rule #22; no manager-PIN). Args `{ locale, idempotencyKey }`, wrapped with
-  `withIdempotency` + `authCheck` re-calling the session check before the cache lookup (rule #20 /
-  `docs/PATTERNS/idempotency-dual-call-authcheck.md`). Patches **the caller's own** staff row only.
-- **Audit:** emit a light append-only `staff.locale_set` audit entry (rule #4 — state-changing writes
-  log; cheap, keeps the discipline). *(Open decision below: audit vs skip-as-noise — recommend audit.)*
-- **Session projection:** the session-resolve path that feeds `useSession()` must include the new
-  `locale` field on the returned staff object (verify the exact projection in
-  `convex/auth/sessions.ts` / `_resolveSessionRole_internal`; ensure `locale` is not stripped the way
-  `pin_hash` is).
-- **Apply-on-login:** an effect in `LocaleProvider` (or `RootLayout`) watches `useSession()`; when
-  `status === "active"`, `setLocale(session.staff.locale ?? "en")`. On lock/logout it resets to `"en"`.
+- **Schema:** add `locale: v.optional(v.union(v.literal("en"), v.literal("id")))` to the `staff` table at
+  **`convex/auth/schema.ts:5`** (the `auth/` module owns Staff — there is **no** `convex/staff/schema.ts`)
+  + document in `docs/SCHEMA.md`. Optional ⇒ absent means English (no migration; absent is the common
+  case until a staffer toggles).
+- **Mutation:** new `staff.setOwnLocale` (public mutation, in **`convex/staff/public.ts`** — that module
+  owns staff-row writes; the read-side stays in `auth.getSession`) — **staff-session, self-only**
+  (low-stakes config per CLAUDE.md rule #22; no manager-PIN). **Args = `{ locale, sessionId,
+  idempotencyKey }` only — NO `staffId` arg.** It derives `staff_id` from the validated session, so a
+  staffer can only set **their own** locale (an explicit `staffId` would let anyone rewrite another
+  staffer's preference). Wrapped with `withIdempotency` + a **real** staff-session `authCheck` re-calling
+  the session check before the cache lookup (rule #20 / `docs/PATTERNS/idempotency-dual-call-authcheck.md`)
+  — **not** the deliberately-lax `authCheck: async () => {}` that `logout` uses (`auth/public.ts:63-70`).
+- **Audit:** emit a light append-only `staff.locale_set` audit entry, `source: "booth_inline"` (matches
+  `logout`'s shape), `actor_id` = the session's `staff_id` (rule #4 — state-changing writes log; cheap).
+- **Session projection (explicit ADD, not "don't strip"):** `getSession` (`convex/auth/public.ts:33-38`)
+  returns an **explicit allowlist** of staff fields (`{ _id, name, role, must_change_pin }`) — a new field
+  is invisible to the client unless added. Two edits required:
+  1. `convex/auth/public.ts` `getSession` → add `locale: staff.locale ?? "en"` to the returned `staff`.
+  2. `src/hooks/useSession.ts:21-26` → add `locale: "en" | "id"` to the `status:"active"` staff type.
+  (`getActiveStaff`, the pre-auth login query at `auth/public.ts:12-21`, intentionally has no locale —
+  reinforcing English pre-login.)
+- **Apply-on-login (login-transition SEED, not a continuous sync):** an effect in `RootLayout` (where
+  `useSession()` is already consumed) seeds `setLocale(session.staff.locale ?? "en")` **only when session
+  status transitions `none/loading → active`** (track the previous status with a ref). It must **not**
+  continuously sync on every `staff.locale` change — that would clobber the toggle's optimistic flip
+  before `getSession` refetches and flicker the UI back. The **toggle is the single writer** of runtime
+  locale post-login. On lock/logout, reset to `"en"`.
 - **Pre-login** (login, staff-picker, device-activation): always English default — no staff identity
   exists yet, so per-staff cannot apply. (No device-level localStorage cache for v1; English default is
   locked and sufficient. A "remember last staffer's locale pre-login" is an additive follow-on.)
@@ -153,10 +165,10 @@ YOU
 - **ESLint regression fence** (scoped allowlist, mirroring the #12 `no-restricted-syntax` toast fence in
   `eslint.config.js`): in converted files, ban bare user-facing JSX text / string literals in known text
   props so new hardcoded copy can't regress. Files join the fence registry as they're converted.
-- **ADR** (roadmap-gated, next ADR number — confirm at write time, e.g. ADR-049): "i18n architecture —
-  client-side typed dictionary, per-staff locale, English default, `format.ts` (currency + dates)
-  excluded; receipts/Telegram out of scope." Records why no library (2 analytic-friendly locales) and
-  the hybrid pre-login fallback.
+- **ADR-049** (roadmap-gated; highest existing ADR = 048): "i18n architecture — client-side typed
+  dictionary, per-staff locale, English default, `format.ts` (currency + dates) excluded;
+  receipts/Telegram out of scope." Records why no library (2 analytic-friendly locales) and the hybrid
+  pre-login fallback.
 - **Tests:**
   - `t.ts` unit: lookup, `{param}` interpolation, plural selection (EN `_one`/`_other`, ID `_other`),
     EN fallback path.
@@ -181,17 +193,18 @@ YOU
 - **Deploy:** adding an optional `staff.locale` field is additive (no skew risk); `setOwnLocale` is a
   net-new mutation (no rename → no mutation↔action skew).
 
-## Open decisions (recommended defaults — confirm in spec review)
+## Decisions resolved in spec staffreview (2026-06-19)
 
-1. **Audit the locale change?** Recommend **yes** (`staff.locale_set`, append-only consistency) over
-   skip-as-noise.
-2. **Provider mount point** — `src/main.tsx` vs `RootLayout`. Recommend **`main.tsx`** (above router,
-   simplest; the apply-on-login effect can live in `RootLayout` where `useSession` is already consumed).
-3. **Flag for English** — Union Jack (GB) vs US. Recommend **Union Jack** (conventional "English"
-   marker internationally).
-4. **Plural mechanism** — `_one`/`_other` suffix convention (recommended) vs reword count strings to
-   avoid plurals. Recommend the suffix convention (handles English correctly, ~5 lines).
-5. **Pre-login locale** — always English (recommended, locked default) vs cache last staffer's locale in
-   localStorage. Recommend **always English** for v1.
-6. **ESLint fence now vs follow-on** — recommend **now** (registry grows per converted file) so full
-   coverage doesn't silently regress.
+- **Audit the locale change** → **yes** (`staff.locale_set`, `source: "booth_inline"`).
+- **Mutation module** → **`convex/staff/public.ts`** (owns staff-row writes); read-side in `auth.getSession`.
+- **Provider mount** → `LocaleProvider` in `src/main.tsx` (above router); apply-on-login effect in
+  `RootLayout` (consumes `useSession`), as a **login-transition seed** (not continuous sync).
+- **ADR** → **ADR-049**.
+- **Plural** → `_one`/`_other` suffix convention.
+- **Pre-login locale** → always English (v1).
+- **ESLint fence** → add **now**; registry grows per converted file.
+
+## Open decisions (confirm at plan time)
+
+1. **Flag for English** — Union Jack (GB) vs US. Recommend **Union Jack** (conventional "English" marker).
+2. **Extraction batching** — file-cluster size per Workflow Stage-1 agent (tune for the 16-agent cap).
