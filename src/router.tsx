@@ -47,6 +47,9 @@ const Stock = lazy(() => import("@/routes/stock"));
 const StockRecount = lazy(() => import("@/routes/stock/recount"));
 const StockDetail = lazy(() => import("@/routes/stock/$skuId"));
 const Lock = lazy(() => import("@/routes/lock"));
+const ShiftStart = lazy(() => import("@/routes/shift/start"));
+const ShiftEnd = lazy(() => import("@/routes/shift/end"));
+const ShiftHandover = lazy(() => import("@/routes/shift/handover"));
 const Refund = lazy(() => import("@/routes/refund"));
 const RefundDetail = lazy(() => import("@/routes/refund/detail"));
 const Account = lazy(() => import("@/routes/account"));
@@ -103,6 +106,9 @@ const routes: RouteObject[] = [
       { path: "stock/recount", element: <StockRecount /> },
       { path: "stock/:skuId", element: <StockDetail /> },
       { path: "lock", element: <Lock /> },
+      { path: "shift/start", element: <ShiftStart /> },
+      { path: "shift/end", element: <ShiftEnd /> },
+      { path: "shift/handover", element: <ShiftHandover /> },
       { path: "account", element: <Account /> },
       { path: "refund", element: <Refund /> },
       { path: "refund/:txnId", element: <RefundDetail /> },

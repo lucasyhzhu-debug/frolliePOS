@@ -23,6 +23,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `refunds/` *(v0.5.1 PR B)* | `pos_refunds` |
 | `ops/` *(v1.0.1)* | `pos_error_reports` (append-only launch-ops telemetry — NOT `audit_log`) |
 | `api/v1/` *(v1)* | `api_tokens`, `api_rate_buckets`, `api_request_log` |
+| `shifts/` *(v1.2 #6)* | `pos_shift_events` |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -848,6 +849,43 @@ Append-only access log — one row per API request (success AND failure, includi
 | `at` | `number` | Server `Date.now()` |
 
 Indexes: `by_token_at` on `[token_id, at]`, `by_at` on `at`.
+
+### `pos_shift_events` *(v1.2 #6 — owned by `shifts/`)*
+
+Single source of truth for booth shift state. One row per shift lifecycle event. State is derived by reading the latest event for a given `device_id`; there is no separate "current state" row.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_shift_events">` | |
+| `device_id` | `string` | Registered device identifier — matches `registered_devices.device_id` |
+| `type` | `"start_of_day" \| "lock" \| "resume" \| "signoff_close" \| "handover_out" \| "handover_in" \| "manager_takeover"` | Shift lifecycle event type |
+| `staff_id` | `Id<"staff">` | Staff member who triggered the event |
+| `shift_started_at` | `number` | UTC ms when this staff member's active shift segment began |
+| `shift_ended_at` | `number \| null` | UTC ms when this shift segment ended; null while open |
+| `steps` | `Array<{ key: string, label: string, type: "instruction" \| "count", confirmed_at: number }>` | SOP checklist steps completed during the event |
+| `count_changed` | `number \| null` | Number of stock counts that differed from expected (for `start_of_day`/`signoff_close`; null for other types) |
+| `takeover` | `boolean \| null` | Set `true` **only** on a `manager_takeover` event (a manager unlocked a LOCKED booth and displaced the prior staff); null for every other event type, including normal handovers |
+| `outgoing_uncounted` | `boolean \| null` | True when the outgoing staff did not complete their count SOP; null for non-handover types |
+| `stale_autoclose` | `boolean \| null` | Persisted `true` on the `signoff_close` event that `completeStartOfDay` auto-writes when it finds a non-closed shift left over from a **prior WIB day** (forgot-to-close). That auto-close still fires the displaced shift's Founders summary (spec §2). Null on all normally-recorded events. |
+| `linked_event_id` | `Id<"pos_shift_events"> \| null` | Pairs `handover_out` ↔ `handover_in` events; null for unpaired event types |
+| `summary` | `{ durationMs: number, totalSalesIdr: number, txnCount: number, manualBcaCount: number, manualBcaTotalIdr: number } \| null` | Shift summary snapshot written on `signoff_close` / `handover_out`; null for open-type events |
+| `created_at` | `number` | Server UTC ms ([ADR-031](./ADR/031-convex-server-time-wins.md)) |
+
+Indexes:
+- `by_device_created` on `[device_id, created_at]` — primary lookup: latest event for a device
+- `by_staff_started` on `[staff_id, shift_started_at]` — staff shift history
+
+Audit verbs (written to `audit_log`; source `booth_inline` unless noted):
+
+```
+shift.start_of_day      # staff started the booth (first event of the day)
+shift.signoff           # staff completed end-of-shift SOP (signoff_close)
+shift.handover_out      # outgoing staff completed handover-out SOP
+shift.handover_in       # incoming staff completed handover-in SOP (links to handover_out)
+shift.manager_takeover  # manager overrode a stale or uncounted shift
+shift.lock              # staff locked the booth mid-shift
+shift.resume            # staff resumed an interrupted shift
+```
 
 ## Future migrations (documented for awareness)
 

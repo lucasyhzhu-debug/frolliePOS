@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, vi, type Mock } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
@@ -8,9 +8,12 @@ import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 // ─── module mocks ─────────────────────────────────────────────────────────────
 
 // vi.hoisted so these refs are available inside the hoisted vi.mock factories.
-const { mockLogout, mockClearSession } = vi.hoisted(() => ({
+const { mockLogout, mockClearSession, mockLockShift, mockManagerTakeover, mockStoreSession } = vi.hoisted(() => ({
   mockLogout: vi.fn().mockResolvedValue(undefined),
   mockClearSession: vi.fn(),
+  mockLockShift: vi.fn().mockResolvedValue({ ok: true }),
+  mockManagerTakeover: vi.fn().mockResolvedValue({ sessionId: "kn7ses_mgr_000000000000000" }),
+  mockStoreSession: vi.fn(),
 }));
 
 vi.mock("convex/react", async (importOriginal) => {
@@ -19,12 +22,14 @@ vi.mock("convex/react", async (importOriginal) => {
     ...actual,
     useQuery: vi.fn(() => undefined),
     useMutation: vi.fn(() => mockLogout),
+    useAction: vi.fn(() => mockManagerTakeover),
   };
 });
 
 vi.mock("@/hooks/useSession", () => ({
   useSession: vi.fn(() => ({ status: "none", sessionId: null, staff: null })),
   clearSession: mockClearSession,
+  storeSession: mockStoreSession,
 }));
 
 vi.mock("@/hooks/useIdempotency", () => ({
@@ -62,6 +67,7 @@ function renderLock() {
           <Route path="/lock" element={<Lock />} />
           <Route path="/" element={<div data-testid="home-page" />} />
           <Route path="/login" element={<div data-testid="login-page" />} />
+          <Route path="/shift/handover" element={<div data-testid="shift-handover-page" />} />
         </Routes>
       </MemoryRouter>
     </ConvexProvider>,
@@ -160,5 +166,114 @@ describe("Lock route", () => {
     renderLock();
 
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(/Lucas/);
+  });
+});
+
+// ─── lockShift + manager-unlock tests ─────────────────────────────────────────
+
+describe("Lock route — lockShift + manager-unlock", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
+    // Restore a safe default for useMutation so tests that don't re-mock it
+    // don't get `undefined` and throw on click.
+    const convexReact = await import("convex/react");
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+  });
+
+  test("Lock button calls lockShift (not bare logout) with sessionId + idempotencyKey", async () => {
+    // Wire useMutation to return lockShift for the lockShift call
+    const convexReact = await import("convex/react");
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+
+    renderLock();
+    fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
+
+    await waitFor(() => expect(mockLockShift).toHaveBeenCalledOnce());
+    expect(mockLockShift).toHaveBeenCalledWith({
+      sessionId: ACTIVE_SESSION.sessionId,
+      idempotencyKey: "test-idem-key",
+    });
+    // bare logout should NOT be called
+    expect(mockLogout).not.toHaveBeenCalled();
+  });
+
+  test("Lock button clears session and navigates to /login after lockShift", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+
+    renderLock();
+    fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
+
+    await waitFor(() => expect(mockClearSession).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("login-page")).toBeInTheDocument());
+  });
+
+  test("'Manajer buka kunci' button is visible when session is active", () => {
+    renderLock();
+    expect(
+      screen.getByRole("button", { name: /manajer buka kunci/i }),
+    ).toBeInTheDocument();
+  });
+
+  test("'Manajer buka kunci' opens PinSheet", async () => {
+    // Need a manager in the query result for the picker
+    const convexReact = await import("convex/react");
+    (convexReact.useQuery as Mock).mockReturnValue([{ _id: "kn7lucas000000000000000000000", name: "Lucas", role: "manager" }]);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+
+    renderLock();
+    fireEvent.click(screen.getByRole("button", { name: /manajer buka kunci/i }));
+
+    // PinSheet dialog title should appear
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toBeInTheDocument(),
+    );
+  });
+
+  test("managerTakeover is called with correct args and navigates to /shift/handover", async () => {
+    const convexReact = await import("convex/react");
+    // First useQuery call = getActiveStaff with managers
+    (convexReact.useQuery as Mock).mockReturnValue([
+      { _id: "kn7lucas000000000000000000000", name: "Lucas", role: "manager" },
+    ]);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+    (convexReact.useAction as Mock).mockReturnValue(mockManagerTakeover);
+
+    renderLock();
+    fireEvent.click(screen.getByRole("button", { name: /manajer buka kunci/i }));
+
+    // Wait for dialog to open
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    // Click Lucas in the picker (there may be multiple "Lucas" elements — the
+    // picker button is the one inside the dialog/PinSheet extraField).
+    const lucasButtons = screen.getAllByText("Lucas");
+    // The picker button is a <button> element
+    const lucasPickerBtn = lucasButtons.find((el) => el.tagName === "BUTTON");
+    fireEvent.click(lucasPickerBtn!);
+
+    // Enter PIN via numeric keypad buttons (4 digits)
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() => expect(mockManagerTakeover).toHaveBeenCalledOnce());
+    const callArgs = mockManagerTakeover.mock.calls[0][0];
+    expect(callArgs).toMatchObject({
+      managerStaffId: "kn7lucas000000000000000000000",
+      managerPin: "1111",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument(),
+    );
+    expect(mockStoreSession).toHaveBeenCalled();
   });
 });

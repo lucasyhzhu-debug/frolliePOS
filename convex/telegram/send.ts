@@ -14,6 +14,7 @@ import {
   renderStockDriftAlert,
   renderSystemError,
   renderTxnTicker,
+  renderStaffShiftSignoff,
   type RenderedMessage,
   type LowStockAlertPayload,
   type RecountNoticePayload,
@@ -21,6 +22,7 @@ import {
   type StockDriftAlertPayload,
   type SystemErrorPayload,
   type TxnTickerPayload,
+  type StaffShiftSignoffPayload,
 } from "../lib/telegramHtml";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
@@ -45,6 +47,7 @@ export const sendTemplate = action({
       v.literal("stock_drift_alert"),   // NEW v0.6 R5: stock-recon drift alert
       v.literal("system_error"),        // v1.0.1 ops alert
       v.literal("txn_ticker"),          // v1.0.1 sales ticker
+      v.literal("staff_shift_signoff"), // v1.2 #6 per-shift summary → founders
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -132,6 +135,25 @@ export const sendTemplate = action({
         lines: v.array(v.object({ name: v.string(), qty: v.number() })),
         staff_name: v.string(), instrument: v.string(), paid_at: v.number(),
         manual_bca: v.optional(v.boolean()),
+      }),
+      // staff_shift_signoff — matches StaffShiftSignoffPayload in lib/telegramHtml.ts
+      v.object({
+        dateLabel: v.string(),
+        staffName: v.string(),
+        shiftStartMs: v.number(),
+        shiftEndMs: v.number(),
+        durationMs: v.number(),
+        totalSalesIdr: v.number(),
+        txnCount: v.number(),
+        manualBca: v.optional(v.object({
+          count: v.number(), totalIdr: v.number(),
+          items: v.array(v.object({
+            paidAt: v.number(), total: v.number(),
+            staffName: v.string(), receiptNumber: v.string(),
+          })),
+        })),
+        endedBy: v.union(v.literal("self"), v.literal("manager")),
+        outgoingUncounted: v.optional(v.boolean()),
       }),
     ),
     idempotencyKey: v.string(),
@@ -228,6 +250,9 @@ export const sendTemplate = action({
         break;
       case "txn_ticker":
         rendered = renderTxnTicker(args.payload as TxnTickerPayload);
+        break;
+      case "staff_shift_signoff":
+        rendered = renderStaffShiftSignoff(args.payload as StaffShiftSignoffPayload);
         break;
     }
 

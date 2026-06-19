@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { renderFoundersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker } from "../telegramHtml";
+import { describe, it, expect, test } from "vitest";
+import { renderFoundersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker, renderStaffShiftSignoff } from "../telegramHtml";
 
 describe("renderSystemError", () => {
   it("escapes HTML and has no buttons", () => {
@@ -70,6 +70,78 @@ describe("renderFoundersSummary manual-BCA section", () => {
     });
     expect(m.text).not.toContain("Manual BCA");
   });
+});
+
+test("renderStaffShiftSignoff shows hours, sales, manual-BCA, and the manager-ended flag", () => {
+  const out = renderStaffShiftSignoff({
+    dateLabel: "19 Jun 2026",
+    staffName: "Budi",
+    shiftStartMs: 0,
+    shiftEndMs: 3_600_000,
+    durationMs: 3_600_000,
+    totalSalesIdr: 2_480_000,
+    txnCount: 38,
+    manualBca: {
+      count: 1,
+      totalIdr: 90_000,
+      items: [{ paidAt: 1, total: 90_000, staffName: "Budi", receiptNumber: "R-1" }],
+    },
+    endedBy: "manager",
+    outgoingUncounted: true,
+  });
+  expect(out.text).toContain("Budi");
+  expect(out.text).toMatch(/1j/);          // duration rendered as "1j"
+  expect(out.text).toContain("2.480.000"); // formatIdr
+  expect(out.text).toMatch(/[Mm]anual.*BCA|BCA.*[Mm]anual/);
+  expect(out.text).toMatch(/manajer/i);    // ended-by-manager flag
+  expect(out.inline_keyboard).toBeUndefined();
+});
+
+test("renderStaffShiftSignoff: self sign-off has no manager flag", () => {
+  const out = renderStaffShiftSignoff({
+    dateLabel: "19 Jun 2026",
+    staffName: "Sari",
+    shiftStartMs: 0,
+    shiftEndMs: 7_200_000,
+    durationMs: 7_200_000,
+    totalSalesIdr: 500_000,
+    txnCount: 5,
+    endedBy: "self",
+  });
+  expect(out.text).toContain("Sari");
+  expect(out.text).toContain("2j");        // 2 hours
+  expect(out.text).not.toContain("manajer");
+  expect(out.text).not.toContain("Manual BCA"); // no manualBca provided
+});
+
+test("renderStaffShiftSignoff: duration < 1h shows only minutes", () => {
+  const out = renderStaffShiftSignoff({
+    dateLabel: "19 Jun 2026",
+    staffName: "X",
+    shiftStartMs: 0,
+    shiftEndMs: 30 * 60_000,
+    durationMs: 30 * 60_000,
+    totalSalesIdr: 0,
+    txnCount: 0,
+    endedBy: "self",
+  });
+  expect(out.text).toContain("30m");
+  expect(out.text).not.toMatch(/\dj/);
+});
+
+test("renderStaffShiftSignoff: omits manual-BCA section when count=0", () => {
+  const out = renderStaffShiftSignoff({
+    dateLabel: "19 Jun 2026",
+    staffName: "X",
+    shiftStartMs: 0,
+    shiftEndMs: 3_600_000,
+    durationMs: 3_600_000,
+    totalSalesIdr: 100_000,
+    txnCount: 1,
+    manualBca: { count: 0, totalIdr: 0, items: [] },
+    endedBy: "self",
+  });
+  expect(out.text).not.toContain("Manual BCA");
 });
 
 describe("telegramHtml v0.5.2 renderers", () => {

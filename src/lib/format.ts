@@ -88,3 +88,19 @@ export function parseIntStrict(s: string): number | null {
   if (!Number.isInteger(n) || n < 0) return null;
   return n;
 }
+
+/**
+ * Format shift duration (milliseconds) as a human-readable string.
+ * Canonical 3-branch logic matching convex/lib/telegramHtml.ts::formatDuration:
+ *   - Both hours and minutes: "Xj Ym"
+ *   - Exact hour (minutes == 0): "Xj"
+ *   - Sub-hour (hours == 0): "Ym"
+ */
+export function fmtShiftDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}j ${minutes}m`;
+  if (hours > 0) return `${hours}j`;
+  return `${minutes}m`;
+}

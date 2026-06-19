@@ -539,3 +539,96 @@ export const _listActiveManagers_internal = internalQuery({
       .sort((a, b) => a.code.localeCompare(b.code));
   },
 });
+
+/**
+ * End a single staff_sessions row (shift lifecycle session-end). Called by
+ * shifts.public lifecycle mutations (signoff / handover-out / lock) to cross the
+ * ADR-034 module boundary — `staff_sessions` is owned by auth; shifts must not
+ * patch it directly. Mirrors the patch shape used by _managerTakeoverSession_internal
+ * (`ended_at` + `end_reason`).
+ *
+ * `endReason` is constrained to the two literals the shift flow uses:
+ *   - "force_logout" — end-of-day sign-off + handover-out (the staff is done /
+ *     handed over; PLAN-mandated value).
+ *   - "manual_lock"  — lockShift (staff steps away; PLAN-mandated value).
+ *
+ * No withIdempotency wrapper — the calling public mutation owns the idempotency
+ * key; this is a single deterministic patch.
+ */
+export const _endShiftSession_internal = internalMutation({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    endReason: v.union(v.literal("manual_lock"), v.literal("force_logout")),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    await ctx.db.patch(args.sessionId, {
+      ended_at: Date.now(),
+      end_reason: args.endReason,
+    });
+  },
+});
+
+/**
+ * Force-end all active sessions on a device and create a new manager session.
+ * Called by shifts._commitManagerTakeover_internal to cross the ADR-034 module
+ * boundary — `staff_sessions` is owned by auth; shifts must not access it directly.
+ *
+ * Steps:
+ *   1. Query by_device_active for ended_at = null; patch each with force_logout.
+ *   2. Capture the first displaced staff_id (for Task 9 Founders summary).
+ *   3. Insert the new manager session (mirrors _loginCommit_internal shape).
+ *   4. Patch last_login_at on the manager + emit staff.login audit row for parity.
+ *
+ * No withIdempotency wrapper — this is called from within the already-idempotent
+ * _commitManagerTakeover_internal; nesting would require a separate key derivation.
+ *
+ * Returns { sessionId, displacedStaffId }.
+ */
+export const _managerTakeoverSession_internal = internalMutation({
+  args: {
+    deviceId: v.string(),
+    managerStaffId: v.id("staff"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ sessionId: Id<"staff_sessions">; displacedStaffId: Id<"staff"> | null }> => {
+    const now = Date.now();
+
+    // Step 1: Force-end all active sessions for the device.
+    // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
+    // collect via index then check in JS (by_device_active narrows on device_id).
+    const activeSessions = await ctx.db
+      .query("staff_sessions")
+      .withIndex("by_device_active", (q) =>
+        q.eq("device_id", args.deviceId).eq("ended_at", null),
+      )
+      .collect();
+    const displacedStaffId: Id<"staff"> | null = activeSessions[0]?.staff_id ?? null;
+    for (const sess of activeSessions) {
+      await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
+    }
+
+    // Step 2: Create new manager session (mirrors _loginCommit_internal shape).
+    const sessionId: Id<"staff_sessions"> = await ctx.db.insert("staff_sessions", {
+      staff_id: args.managerStaffId,
+      device_id: args.deviceId,
+      started_at: now,
+      ended_at: null,
+      end_reason: null,
+    });
+
+    // Step 3: Record last_login_at + staff.login audit (parity with _loginCommit_internal).
+    await ctx.db.patch(args.managerStaffId, { last_login_at: now });
+    await logAudit(ctx, {
+      actor_id: args.managerStaffId,
+      action: "staff.login",
+      entity_type: "staff_session",
+      entity_id: sessionId,
+      source: "booth_inline",
+      device_id: args.deviceId,
+    });
+
+    return { sessionId, displacedStaffId };
+  },
+});

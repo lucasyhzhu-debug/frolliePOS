@@ -6,6 +6,7 @@ import { useStartupReconciliation } from "@/hooks/useStartupReconciliation";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
+import { useBoothState } from "@/hooks/useBoothState";
 
 // SEC-03: session IDs already shown the forced-rotation prompt this app session.
 // Soft enforcement — we surface the "Change your PIN" step ONCE after login, then
@@ -31,6 +32,7 @@ export function RootLayout() {
   const location = useLocation();
   const deviceId = useDeviceId();
   const session = useSession();
+  const boothState = useBoothState();
 
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
   // Skip query while deviceId is still resolving (null = IDB not yet read).
@@ -73,6 +75,28 @@ export function RootLayout() {
     return <Navigate to="/account" replace />;
   }
 
+
+  // Booth-state SOP gate: redirect to mandatory start-of-day / handover flows.
+  // Only fires when: (a) there IS an active session (session gate above already
+  // handled the no-session case), (b) boothState has resolved (not undefined —
+  // undefined = still loading, render children), (c) current path is not already
+  // the target route (loop-safety).
+  // "locked" and "open" states: no forced shift redirect (normal app flow).
+  // "closed": mandatory /shift/start (start of day).
+  // "handover_pending": mandatory /shift/handover (incoming handover).
+  // Routes outside these shift screens are NOT affected when state is open/locked.
+  // /login and /activate are outside this layout entirely (see router.tsx comment).
+  if (
+    session.status === "active" &&
+    boothState !== undefined
+  ) {
+    if (boothState.state === "closed" && location.pathname !== "/shift/start") {
+      return <Navigate to="/shift/start" replace />;
+    }
+    if (boothState.state === "handover_pending" && location.pathname !== "/shift/handover") {
+      return <Navigate to="/shift/handover" replace />;
+    }
+  }
   return (
     <div className="min-h-dvh flex flex-col bg-background">
       {/* PrinterProvider sits above the Outlet so one BLE connection survives

@@ -9,7 +9,7 @@ import { ConnDot } from "@/components/layout/ConnDot";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Lock } from "lucide-react";
+import { Flag, Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 
@@ -71,14 +71,25 @@ export default function HomeRoute() {
     <div className="flex flex-1 flex-col">
       {/* App bar */}
       <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Lock and hand off"
-          onClick={() => navigate("/lock")}
-        >
-          <Lock className="size-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Akhiri shift"
+            title="Akhiri shift"
+            onClick={() => navigate("/shift/end")}
+          >
+            <Flag className="size-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Lock and hand off"
+            onClick={() => navigate("/lock")}
+          >
+            <Lock className="size-5" />
+          </Button>
+        </div>
 
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold leading-tight truncate">

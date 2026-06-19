@@ -2,6 +2,36 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — v1.2 #6: Shift SOP flow
+
+Booth shift lifecycle as a state machine, structured handovers, and an audience-split signoff summary.
+
+**Backend (`convex/shifts/`):**
+- New `pos_shift_events` table: event-sourced source of truth for booth state. Indexed by `(device_id, created_at)` and `(staff_id, shift_started_at)`.
+- Pure `deriveBoothState(latestEvent, wibDayStartMs)` maps the latest row to one of four states: `closed` / `open` / `locked` / `handover_pending`. Stale-autoclose: prior-day non-closed event → `closed + staleAutoclose: true`.
+- Seven event types: `start_of_day`, `lock`, `resume`, `signoff_close`, `handover_out`, `handover_in`, `manager_takeover`.
+- Public mutations (all ADR-013 wrapped): `completeStartOfDay`, `lockShift`, `recordResume`, `endOfDaySignOff`, `handoverOut`, `completeHandoverIn`. Query: `boothState`.
+- Write-side state guards: each lifecycle mutation re-derives the booth state via `deriveBoothState` and rejects illegal source states with a stable error (`BOOTH_NOT_CLOSED` / `BOOTH_NOT_OPEN` / `BOOTH_NOT_LOCKED` / `NO_HANDOVER_PENDING`).
+- Stale auto-close: `completeStartOfDay` finding a prior-WIB-day open shift records a `stale_autoclose: true` `signoff_close` for the displaced staff (with summary) and fires that shift's Founders summary server-side before opening today (spec §2).
+- Session end routes through `auth.internal._endShiftSession_internal` (ADR-034) — sign-off / handover-out / lock no longer patch the auth-owned `staff_sessions` directly. `pos_shift_events` added to the ESLint cross-module OWNERSHIP map.
+- `managerTakeover` action (Node, argon2id): escape hatch when the locked booth's original staff is unavailable. Atomically force-ends the displaced session, creates a manager session, records the event with `outgoing_uncounted: true`.
+- `_shiftStartAnchor_internal`: recovers the original shift-start (skipping `lock` events) bounded to today's WIB-day window (no `.take(50)` ceiling that could silently miss the anchor on a busy day); ensures accumulated hours survive lock/resume cycles.
+- `_sendSignoffSummary` / `_sendTakeoverSummary` deferred actions: dispatch `staff_shift_signoff` Telegram template to Founders (`endedBy: "self"` or `"manager"`).
+- ADR-003 confirmed: lock still ends the session (`end_reason: "manual_lock"`); `locked` is a booth-state layer, not a held session. No `staff_sessions` schema change.
+- Audit verbs: `shift.start_of_day`, `shift.lock`, `shift.resume`, `shift.signoff`, `shift.handover_out`, `shift.handover_in`, `shift.manager_takeover`.
+
+**Telegram:** new `staff_shift_signoff` template to the Founders role — hours + sales IDR + txn count + manual-BCA itemized list. Staff-facing close screen shows hours + stock only (no financials). ADR-050.
+
+**Frontend (`src/routes/shift/`):**
+- `ShiftWizard` multi-step rail: instruction + count steps, reduced-motion safe.
+- `CountStep`: reusable stock count input, also wired to the existing recount flow.
+- `useBoothState` hook: subscribes to `shifts.public.boothState`; drives the login-gate fork.
+- Routes: `/shift/start`, `/shift/end`, `/shift/handover` (`src/routes/shift/{start,end,handover}.tsx`).
+- Login-gate fork in `login.tsx` branches on `boothState` to prompt the start-of-day SOP on first login of the day.
+- Lock screen: "Unlock" resumes for the same staff; "Manager unlock" enters `managerTakeover` flow.
+
+**ADR:** [ADR-050](docs/ADR/050-shift-lifecycle-state-machine.md) — booth shift lifecycle state machine.
+
 ## 2026-06-19 — chore: bump app version 1.0.0 → 1.2.0
 - `package.json` version had sat at `1.0.0` since launch while shipping through the v1.2 milestone. Bumped to `1.2.0` so the home-screen label (`__APP_VERSION__`) and ops error reports reflect the real release line. (Milestone phase IDs like "v1.2 #10" remain the planning handle; package semver tracks the shipped milestone.)
 

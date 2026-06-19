@@ -52,6 +52,8 @@ const OWNERSHIP = {
   pos_voucher_redemptions: "vouchers",
   // approvals module
   pos_approval_requests: "approvals",
+  // shifts module
+  pos_shift_events: "shifts",
   // idempotency module
   pos_idempotency: "idempotency",
   // audit module

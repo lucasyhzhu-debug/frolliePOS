@@ -88,4 +88,11 @@ describe("HomeRoute role-based tile rendering", () => {
     renderHome();
     expect(screen.getByLabelText(/lock/i)).toBeInTheDocument();
   });
+
+  it("renders an Akhiri shift control in the app-bar that navigates to /shift/end", () => {
+    mockRole = "staff";
+    renderHome();
+    const endShiftBtn = screen.getByLabelText(/akhiri shift/i);
+    expect(endShiftBtn).toBeInTheDocument();
+  });
 });
