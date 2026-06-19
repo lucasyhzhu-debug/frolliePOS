@@ -1,7 +1,10 @@
-import { query } from "../_generated/server";
+import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { wibDayWindow } from "../lib/time";
+import { requireSession } from "../auth/sessions";
+import { withIdempotency } from "../idempotency/internal";
 
 /**
  * Returns the most recently created (non-replaced) invoice for a txn — the
@@ -55,4 +58,85 @@ export const getCurrentInvoice = query({
       cancelled_at: inv.cancelled_at,
     };
   },
+});
+
+/**
+ * Staff-self-confirm for manual BCA transfer — the charge screen calls this
+ * when the cashier has visually verified the BCA m-banking screenshot and taps
+ * "Confirm". No manager PIN required (staff-session-only per ADR-036 §manual-BCA
+ * design — staff is the attesting party; Telegram audit trail covers the approval
+ * gap instead of a live PIN).
+ *
+ * Flow:
+ *   1. Auth: valid staff session (throws NO_SESSION if invalid).
+ *   2. Funnel: _confirmPaid_internal with source="manual_bca" + confirm_staff_id.
+ *      Status-guard inside _confirmPaid means this is idempotent: if webhook
+ *      already confirmed, _confirmPaid no-ops and the txn stays paid via webhook.
+ *   3. Guard: read back txn — if not paid / no receipt, throw RECEIPT_UNCONFIRMED
+ *      (C4: don't report false success; catches cancelled/expired races).
+ *   4. Invoice cancel (WE-won-the-race guard): cancel the live QRIS/VA invoice
+ *      ONLY when confirmed_via==="manual_bca". If the webhook arrived first and
+ *      already set confirmed_via="webhook", skip — the paying invoice stays intact
+ *      for the audit/receipt trail and cancelling it would corrupt forensics.
+ *
+ * Wrapped in withIdempotency + authCheck (ADR-013, rule #20). authCheck runs
+ * BEFORE the cache lookup so an expired-session retry can't replay a cached
+ * success (docs/PATTERNS/idempotency-dual-call-authcheck.md).
+ */
+export const confirmManualBcaPayment = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    txnId: v.id("pos_transactions"),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      txnId: Id<"pos_transactions">;
+    },
+    { confirmed: true; receiptNumber: string }
+  >(
+    "payments.confirmManualBcaPayment",
+    async (ctx, args) => {
+      // Step 1: Require valid session — dual call intentional per ADR-013 §authCheck.
+      const { staffId } = await requireSession(ctx, args.sessionId);
+
+      // Step 2: Funnel through _confirmPaid_internal. Status-guard makes this
+      // idempotent: if txn is already paid (webhook arrived first), this no-ops.
+      await ctx.runMutation(internal.transactions.internal._confirmPaid_internal, {
+        txnId: args.txnId,
+        source: "manual_bca",
+        confirm_staff_id: staffId,
+      });
+
+      // Step 3: Read back — throw if not paid or no receipt (C4: false-success guard).
+      const txn = await ctx.db.get(args.txnId);
+      if (!txn || txn.status !== "paid" || !txn.receipt_number) {
+        throw new Error("RECEIPT_UNCONFIRMED");
+      }
+
+      // Step 4: Cancel the live invoice only if WE won the confirmation race.
+      // If webhook got there first (confirmed_via="webhook"), the paying invoice
+      // carries the bank RRN and must NOT be cancelled — receipts + audit need it.
+      if (txn.confirmed_via === "manual_bca") {
+        await ctx.runMutation(
+          internal.payments.internal._cancelActiveInvoiceForTxn_internal,
+          {
+            txnId: args.txnId,
+            cancel_reason: "manual_bca_confirmed",
+            actor_id: staffId,
+            source: "booth_inline",
+          },
+        );
+      }
+
+      return { confirmed: true as const, receiptNumber: txn.receipt_number };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireSession(ctx, args.sessionId);
+      },
+    },
+  ),
 });
