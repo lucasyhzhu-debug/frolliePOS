@@ -864,9 +864,9 @@ Single source of truth for booth shift state. One row per shift lifecycle event.
 | `shift_ended_at` | `number \| null` | UTC ms when this shift segment ended; null while open |
 | `steps` | `Array<{ key: string, label: string, type: "instruction" \| "count", confirmed_at: number }>` | SOP checklist steps completed during the event |
 | `count_changed` | `number \| null` | Number of stock counts that differed from expected (for `start_of_day`/`signoff_close`; null for other types) |
-| `takeover` | `boolean \| null` | True when this handover was from an active outgoing shift (non-zero-delta handover); null for non-handover types |
+| `takeover` | `boolean \| null` | Set `true` **only** on a `manager_takeover` event (a manager unlocked a LOCKED booth and displaced the prior staff); null for every other event type, including normal handovers |
 | `outgoing_uncounted` | `boolean \| null` | True when the outgoing staff did not complete their count SOP; null for non-handover types |
-| `stale_autoclose` | `boolean \| null` | True when a prior open event was auto-closed because the new event superseded it; null otherwise |
+| `stale_autoclose` | `boolean \| null` | Persisted `true` on the `signoff_close` event that `completeStartOfDay` auto-writes when it finds a non-closed shift left over from a **prior WIB day** (forgot-to-close). That auto-close still fires the displaced shift's Founders summary (spec §2). Null on all normally-recorded events. |
 | `linked_event_id` | `Id<"pos_shift_events"> \| null` | Pairs `handover_out` ↔ `handover_in` events; null for unpaired event types |
 | `summary` | `{ durationMs: number, totalSalesIdr: number, txnCount: number, manualBcaCount: number, manualBcaTotalIdr: number } \| null` | Shift summary snapshot written on `signoff_close` / `handover_out`; null for open-type events |
 | `created_at` | `number` | Server UTC ms ([ADR-031](./ADR/031-convex-server-time-wins.md)) |

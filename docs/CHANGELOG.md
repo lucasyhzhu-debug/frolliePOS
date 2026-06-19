@@ -11,8 +11,11 @@ Booth shift lifecycle as a state machine, structured handovers, and an audience-
 - Pure `deriveBoothState(latestEvent, wibDayStartMs)` maps the latest row to one of four states: `closed` / `open` / `locked` / `handover_pending`. Stale-autoclose: prior-day non-closed event → `closed + staleAutoclose: true`.
 - Seven event types: `start_of_day`, `lock`, `resume`, `signoff_close`, `handover_out`, `handover_in`, `manager_takeover`.
 - Public mutations (all ADR-013 wrapped): `completeStartOfDay`, `lockShift`, `recordResume`, `endOfDaySignOff`, `handoverOut`, `completeHandoverIn`. Query: `boothState`.
+- Write-side state guards: each lifecycle mutation re-derives the booth state via `deriveBoothState` and rejects illegal source states with a stable error (`BOOTH_NOT_CLOSED` / `BOOTH_NOT_OPEN` / `BOOTH_NOT_LOCKED` / `NO_HANDOVER_PENDING`).
+- Stale auto-close: `completeStartOfDay` finding a prior-WIB-day open shift records a `stale_autoclose: true` `signoff_close` for the displaced staff (with summary) and fires that shift's Founders summary server-side before opening today (spec §2).
+- Session end routes through `auth.internal._endShiftSession_internal` (ADR-034) — sign-off / handover-out / lock no longer patch the auth-owned `staff_sessions` directly. `pos_shift_events` added to the ESLint cross-module OWNERSHIP map.
 - `managerTakeover` action (Node, argon2id): escape hatch when the locked booth's original staff is unavailable. Atomically force-ends the displaced session, creates a manager session, records the event with `outgoing_uncounted: true`.
-- `_shiftStartAnchor_internal`: skips `lock` events to recover the original shift-start; ensures accumulated hours survive lock/resume cycles.
+- `_shiftStartAnchor_internal`: recovers the original shift-start (skipping `lock` events) bounded to today's WIB-day window (no `.take(50)` ceiling that could silently miss the anchor on a busy day); ensures accumulated hours survive lock/resume cycles.
 - `_sendSignoffSummary` / `_sendTakeoverSummary` deferred actions: dispatch `staff_shift_signoff` Telegram template to Founders (`endedBy: "self"` or `"manager"`).
 - ADR-003 confirmed: lock still ends the session (`end_reason: "manual_lock"`); `locked` is a booth-state layer, not a held session. No `staff_sessions` schema change.
 - Audit verbs: `shift.start_of_day`, `shift.lock`, `shift.resume`, `shift.signoff`, `shift.handover_out`, `shift.handover_in`, `shift.manager_takeover`.
@@ -23,8 +26,8 @@ Booth shift lifecycle as a state machine, structured handovers, and an audience-
 - `ShiftWizard` multi-step rail: instruction + count steps, reduced-motion safe.
 - `CountStep`: reusable stock count input, also wired to the existing recount flow.
 - `useBoothState` hook: subscribes to `shifts.public.boothState`; drives the login-gate fork.
-- Routes: `/shift/start`, `/shift/close`, `/shift/handover-out`, `/shift/handover-in`.
-- Login-gate fork in `RootLayout` (or equivalent) branches on `boothState` to prompt the start-of-day SOP on first login of the day.
+- Routes: `/shift/start`, `/shift/end`, `/shift/handover` (`src/routes/shift/{start,end,handover}.tsx`).
+- Login-gate fork in `login.tsx` branches on `boothState` to prompt the start-of-day SOP on first login of the day.
 - Lock screen: "Unlock" resumes for the same staff; "Manager unlock" enters `managerTakeover` flow.
 
 **ADR:** [ADR-050](docs/ADR/050-shift-lifecycle-state-machine.md) — booth shift lifecycle state machine.
