@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useSession, clearSession } from "@/hooks/useSession";
+import type { Id } from "../../convex/_generated/dataModel";
+import { useSession, clearSession, storeSession } from "@/hooks/useSession";
+import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
+import { PinSheet } from "@/components/pos/PinSheet";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,16 +14,68 @@ import { Card } from "@/components/ui/card";
 export default function Lock() {
   const navigate = useNavigate();
   const session = useSession();
-  const logout = useMutation(api.auth.public.logout);
+  const deviceId = useDeviceId();
+  const lockShift = useMutation(api.shifts.public.lockShift);
+  const managerTakeover = useAction(api.shifts.actions.managerTakeover);
   const idemKey = useIdempotency(`lock:${session.sessionId ?? "none"}`);
+
+  // Manager-takeover state
+  const [takeoverOpen, setTakeoverOpen] = useState(false);
+  const [pickedManager, setPickedManager] = useState<{
+    _id: Id<"staff">;
+    name: string;
+  } | null>(null);
+  const [takeoverError, setTakeoverError] = useState<string | undefined>();
+  const [takeoverPending, setTakeoverPending] = useState(false);
+
+  // Fetch active staff to filter for managers. Public query (no session needed)
+  // so it works even when the session is about to be cleared.
+  const allStaff = useQuery(api.auth.public.getActiveStaff, {});
+  const managers = allStaff?.filter((s) => s.role === "manager") ?? [];
 
   if (session.status !== "active") return null;
 
   const handleLock = async () => {
     if (!session.sessionId || !idemKey) return;
-    await logout({ sessionId: session.sessionId, idempotencyKey: idemKey });
+    await lockShift({ sessionId: session.sessionId, idempotencyKey: idemKey });
     clearSession();
     navigate("/login", { replace: true });
+  };
+
+  const handleTakeoverOpen = () => {
+    setPickedManager(null);
+    setTakeoverError(undefined);
+    setTakeoverOpen(true);
+  };
+
+  const handleTakeoverPin = async (pin: string) => {
+    if (!deviceId || !idemKey || !pickedManager) {
+      setTakeoverError("Device or manager not ready");
+      return;
+    }
+    setTakeoverPending(true);
+    setTakeoverError(undefined);
+    try {
+      const { sessionId } = await managerTakeover({
+        idempotencyKey: `${idemKey}:takeover`,
+        deviceId,
+        managerStaffId: pickedManager._id,
+        managerPin: pin,
+      });
+      storeSession(sessionId, pickedManager._id);
+      setTakeoverOpen(false);
+      navigate("/shift/handover", { replace: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Takeover failed";
+      setTakeoverError(
+        msg.includes("INVALID_PIN") ? "Wrong PIN." :
+        msg.includes("NOT_MANAGER") ? "Not a manager account." :
+        msg.includes("LOCKED_OUT") ? "Account locked. Try again later." :
+        msg,
+      );
+    } finally {
+      setTakeoverPending(false);
+    }
   };
 
   return (
@@ -38,8 +94,51 @@ export default function Lock() {
               Lock
             </Button>
           </div>
+          <div className="mt-4">
+            <Button variant="ghost" size="sm" onClick={handleTakeoverOpen}>
+              Manajer buka kunci
+            </Button>
+          </div>
         </Card>
       </div>
+
+      {/* Manager-picker + PIN sheet for takeover */}
+      <PinSheet
+        open={takeoverOpen}
+        title="Manajer buka kunci"
+        label={
+          pickedManager
+            ? `PIN untuk ${pickedManager.name}`
+            : "Pilih manajer dulu"
+        }
+        pending={takeoverPending}
+        error={takeoverError}
+        onSubmit={pickedManager ? handleTakeoverPin : () => undefined}
+        onCancel={() => {
+          setTakeoverOpen(false);
+          setPickedManager(null);
+          setTakeoverError(undefined);
+        }}
+        extraField={
+          !pickedManager ? (
+            <div className="flex flex-col gap-1 mb-2">
+              {managers.map((m) => (
+                <button
+                  key={m._id}
+                  type="button"
+                  className="rounded border border-border bg-card px-3 py-2 text-sm text-left hover:bg-accent"
+                  onClick={() => setPickedManager(m)}
+                >
+                  {m.name}
+                </button>
+              ))}
+              {managers.length === 0 && (
+                <p className="text-sm text-muted-foreground">Tidak ada manajer aktif.</p>
+              )}
+            </div>
+          ) : null
+        }
+      />
     </SpokeLayout>
   );
 }

@@ -5,6 +5,7 @@
  *   - convex/react: useQuery controlled via vi.fn(); useAction returns stub.
  *   - sonner: toast.error stub so we can assert "no toast" in fallback tests.
  *   - ConnDot: stubbed to avoid IDB/deviceId side-effects.
+ *   - useBoothState: stubbed to control booth state in navigation tests.
  *
  * The component renders two useQuery calls per tree:
  *   Call 0 = api.auth.public.getActiveStaff   (staff list)
@@ -15,20 +16,26 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import LoginRoute from "./login";
 import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 
 // ─── module mocks (hoisted by Vite) ──────────────────────────────────────────
 
+const { mockLoginAction, mockRecordResume } = vi.hoisted(() => ({
+  mockLoginAction: vi.fn().mockResolvedValue({ sessionId: "kn7ses000000000000000000000" }),
+  mockRecordResume: vi.fn().mockResolvedValue({ ok: true }),
+}));
+
 vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   return {
     ...actual,
     useQuery: vi.fn(() => undefined),
-    useAction: vi.fn(() => vi.fn()),
+    useAction: vi.fn(() => undefined),
+    useMutation: vi.fn(() => undefined),
   };
 });
 
@@ -38,6 +45,23 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/layout/ConnDot", () => ({
   ConnDot: () => null,
+}));
+
+vi.mock("@/hooks/useBoothState", () => ({
+  useBoothState: vi.fn(() => undefined),
+}));
+
+vi.mock("@/hooks/useDeviceId", () => ({
+  useDeviceId: vi.fn(() => "test-device-id"),
+}));
+
+vi.mock("@/hooks/useIdempotency", () => ({
+  useIdempotency: vi.fn(() => "test-idem-key"),
+  clearIntent: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/hooks/useSession", () => ({
+  storeSession: vi.fn(),
 }));
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -78,6 +102,10 @@ beforeEach(async () => {
   useQueryMock = convexReact.useQuery;
   (useQueryMock as Mock).mockReset();
   localStorage.clear();
+  vi.clearAllMocks();
+  // Default: useAction returns the login stub, useMutation returns recordResume stub
+  (convexReact.useAction as Mock).mockReturnValue(mockLoginAction);
+  (convexReact.useMutation as Mock).mockReturnValue(mockRecordResume);
 });
 
 function renderLogin() {
@@ -85,7 +113,12 @@ function renderLogin() {
   return render(
     <ConvexProvider client={convex}>
       <MemoryRouter initialEntries={["/login"]}>
-        <LoginRoute />
+        <Routes>
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/" element={<div data-testid="home-page" />} />
+          <Route path="/shift/start" element={<div data-testid="shift-start-page" />} />
+          <Route path="/shift/handover" element={<div data-testid="shift-handover-page" />} />
+        </Routes>
       </MemoryRouter>
     </ConvexProvider>,
   );
@@ -134,5 +167,128 @@ describe("Login route", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /who's working/i })).toBeInTheDocument(),
     );
+  });
+});
+
+// ─── booth-state navigation fork tests ───────────────────────────────────────
+
+describe("Login route — booth state navigation fork", () => {
+  it("booth closed → after login navigates to /shift/start", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "closed",
+      staffId: null,
+      staffName: null,
+      staleAutoclose: false,
+    });
+    mockStaff([SARI]);
+    // Pre-stage SARI so we're at PIN entry immediately
+    localStorage.setItem(LAST_STAFF_KEY, SARI._id);
+
+    renderLogin();
+
+    // Wait for PIN entry stage
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+    );
+
+    // Submit PIN via buttons
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() =>
+      expect(screen.getByTestId("shift-start-page")).toBeInTheDocument(),
+    );
+  });
+
+  it("booth locked with matching staffId → pre-stages only that staff, calls recordResume after login, navigates /", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "locked",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    mockStaff([LUCAS, SARI]);
+    // Set last staff so the pre-stage effect has something to match against.
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+
+    renderLogin();
+
+    // Pre-stage should fire for LUCAS only (booth.locked and staffId matches)
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+
+    // Submit PIN
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() => expect(mockRecordResume).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+  });
+
+  it("booth handover_pending → immediately redirects to /shift/handover before login", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "handover_pending",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    mockStaff([LUCAS, SARI]);
+
+    renderLogin();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument(),
+    );
+  });
+
+  it("booth open → after login navigates to / (normal)", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "open",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    mockStaff([SARI]);
+    localStorage.setItem(LAST_STAFF_KEY, SARI._id);
+
+    renderLogin();
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+    );
+
+    // Submit PIN
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+    expect(mockRecordResume).not.toHaveBeenCalled();
   });
 });
