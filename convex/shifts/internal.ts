@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { stepValidator } from "./schema";
 
 const shiftEventFields = {
@@ -68,5 +69,55 @@ export const _shiftStartAnchor_internal = internalQuery({
     return anchor
       ? { shift_started_at: anchor.shift_started_at, staff_id: anchor.staff_id }
       : null;
+  },
+});
+
+/**
+ * Aggregate sales + manual-BCA stats for the end-of-day sign-off summary.
+ *
+ * Consumes:
+ *   - transactions._dailySalesSummary_internal → { totalSalesIdr, txnCount, flaggedCount }
+ *   - transactions._manualBcaReconciliation_internal → { items, count, totalIdr }
+ *
+ * Returns a flat object stored on the pos_shift_events.summary field. The
+ * `flaggedCount` from _dailySalesSummary_internal is intentionally NOT stored
+ * in the summary field (the schema doesn't include it); it's available from
+ * the audit log if needed. `manualBca.items` is also dropped — the per-item
+ * detail is already available via the transactions query; only count + totalIdr
+ * are summary-level aggregates.
+ */
+export const _buildSignoffSummary_internal = internalQuery({
+  args: {
+    deviceId: v.string(),
+    shiftStartMs: v.number(),
+    endMs: v.number(),
+  },
+  handler: async (
+    ctx,
+    { shiftStartMs, endMs },
+  ): Promise<{
+    durationMs: number;
+    totalSalesIdr: number;
+    txnCount: number;
+    manualBcaCount: number;
+    manualBcaTotalIdr: number;
+  }> => {
+    const [sales, manualBca] = await Promise.all([
+      ctx.runQuery(
+        internal.transactions.internal._dailySalesSummary_internal,
+        { dayStartMs: shiftStartMs, dayEndMs: endMs },
+      ),
+      ctx.runQuery(
+        internal.transactions.internal._manualBcaReconciliation_internal,
+        { dayStartMs: shiftStartMs, dayEndMs: endMs },
+      ),
+    ]);
+    return {
+      durationMs: Math.max(0, endMs - shiftStartMs),
+      totalSalesIdr: sales.totalSalesIdr,
+      txnCount: sales.txnCount,
+      manualBcaCount: manualBca.count,
+      manualBcaTotalIdr: manualBca.totalIdr,
+    };
   },
 });
