@@ -54,7 +54,7 @@ Keys come in `_one` / `_other` pairs (e.g. `home.catalogSummary_one`, `home.cata
 As files are converted to route copy through `t()`, they are added to the i18n migration registry in `eslint.config.js`. The registry enforces:
 
 1. No bare JSX text literals matching `[A-Za-z]{3,}` (catches hardcoded copy between tags).
-2. No string literals in `placeholder`, `title`, or `aria-label` JSX attributes matching `[A-Za-z]{3,}` (catches hardcoded accessibility copy).
+2. No string literals in `label`, `placeholder`, `title`, or `aria-label` JSX attributes matching `[A-Za-z]{3,}` (catches hardcoded accessibility copy).
 
 Brand names that are intentionally not translated are wrapped as `{"BrandName"}` (a `JSXExpressionContainer`, not `JSXText`) to keep them out of the `JSXText` selector without disabling the rule.
 

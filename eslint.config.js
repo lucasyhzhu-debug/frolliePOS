@@ -211,7 +211,7 @@ export default [
         },
         {
           selector:
-            "JSXAttribute[name.name=/^(placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
+            "JSXAttribute[name.name=/^(label|placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
           message:
             "Converted file: text props must use t(...) (ADR-049).",
         },
