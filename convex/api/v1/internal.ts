@@ -8,19 +8,27 @@ const DAY_MS = 86_400_000;
 
 // Ops-run (npx convex run). Mints a token, stores only its hash, returns the raw
 // token ONCE. See the deviation note in the plan header re: PIN vs ops issuance.
+//
+// `isTest` selects the human-readable prefix only — the token is opaque to
+// consumers (stored as SHA-256, compared constant-time), so the prefix is an
+// ops-hygiene discriminator to keep dev/prod credentials visually distinct
+// (CONTRACT §7: frpos_live_ on prod, frpos_test_ on dev). Pass isTest:true when
+// minting against a dev/test deployment; omit (default false) for prod.
 export const _issueApiToken_internal = internalMutation({
   args: {
     label: v.string(),                          // human note for ops, "frollie-pro-prod"
     endpointAllowList: v.array(v.string()),
     rateLimitRpm: v.optional(v.number()),
     ttlDays: v.optional(v.number()),
+    isTest: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ rawToken: string }> => {
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
     const b64url = btoa(String.fromCharCode(...bytes))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const rawToken = `frpos_live_${b64url}`;
+    const prefix = args.isTest ? "frpos_test_" : "frpos_live_";
+    const rawToken = `${prefix}${b64url}`;
     const now = Date.now();
     const ttl = Math.min(args.ttlDays ?? 365, 365);
     await ctx.db.insert("api_tokens", {

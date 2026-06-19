@@ -880,23 +880,37 @@ export const _listPaidTxnsForApi_internal = internalQuery({
   args: {
     afterPaidAtMs: v.optional(v.number()),
     afterCreationTime: v.optional(v.number()),
+    // CONTRACT §6a date filtering: inclusive-lower / exclusive-upper paid_at
+    // bounds. Composes with the cursor — the effective lower bound is
+    // max(cursor watermark, fromMs) so a window can be paged.
+    fromMs: v.optional(v.number()),
+    toMs: v.optional(v.number()),
     limit: v.number(),
   },
   handler: async (ctx, args): Promise<{ rows: ApiTxnRow[]; nextCursor: string | null }> => {
     const limit = Math.min(Math.max(args.limit, 1), 500);
     const after = args.afterPaidAtMs;
 
+    // Effective lower bound = max(cursor watermark, fromMs). The cursor advances
+    // the window forward across pages; fromMs clamps it to the caller's window.
+    const lo = Math.max(after ?? -Infinity, args.fromMs ?? -Infinity);
+    const hasLo = after !== undefined || args.fromMs !== undefined;
+    const hi = args.toMs;
+
     // Ascending scan of paid rows from the watermark. Over-fetch by limit*2+1
     // to provide headroom for same-ms tiebreak filtering without losing rows.
     // _creationTime is the implicit tiebreak; rows at the exact watermark ms
     // are filtered by (paidAt, _creationTime) > cursor in strictlyAfter below.
+    // toMs (exclusive) is bounded at the index so over-fetch stays in-window.
     const candidates = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_paid_at", (q) =>
-        after === undefined
-          ? q.eq("status", "paid")
-          : q.eq("status", "paid").gte("paid_at", after),
-      )
+      .withIndex("by_status_paid_at", (q) => {
+        const base = q.eq("status", "paid");
+        if (hasLo && hi !== undefined) return base.gte("paid_at", lo).lt("paid_at", hi);
+        if (hasLo) return base.gte("paid_at", lo);
+        if (hi !== undefined) return base.lt("paid_at", hi);
+        return base;
+      })
       .order("asc")
       // 2x+1 over-fetch: worst case up to `limit` same-ms stragglers at the cursor watermark get filtered out by strictlyAfter, so fetch headroom to still fill a full page + detect a next one.
       .take(limit * 2 + 1);

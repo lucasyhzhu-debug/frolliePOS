@@ -2,6 +2,21 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — Public API v1: date filtering + dev token prefix
+- feat(api/v1): `GET /api/v1/transactions` and `/api/v1/refunds` accept optional
+  `from`/`to` query params (epoch ms, inclusive-lower / exclusive-upper) that
+  clamp the feed to a time window, filtering on the cursor's order key
+  (`paidAt`/`createdAt`). Composes with the cursor (effective lower bound =
+  `max(cursor watermark, from)`), bounded at the existing range indexes
+  (`by_status_paid_at` / `by_created_at`) so no scan. Backward-compatible:
+  omitting both = prior drain-from-beginning behaviour. New `400 BAD_RANGE`
+  (non-integer/negative bound, or `from > to`). Lets the ERP reconcile a single
+  day / re-pull a range / backfill without resetting its cursor.
+- fix(api/v1): `_issueApiToken_internal` now takes `isTest` to mint the
+  `frpos_test_` prefix on dev (prod default stays `frpos_live_`), matching the
+  consumer contract §7. Token stays opaque — prefix is ops hygiene only.
+- Shared `convex/api/v1/_request.ts::parseRange`; `docs/PUBLIC_API.md` §2/§4a/§5/§8 updated.
+
 ## v1.2 #12 slice 1 — Inline messaging over toasts
 - New `FieldMessage` design-system primitive (`src/components/ui/field-message.tsx`) for sync form-validation, AA-legible on the phthalo-dark canvas (error/success tokens dark-lifted).
 - Converted `mgr/products.tsx` (26) and `mgr/vouchers.tsx` (12) sync-validation toasts to per-field inline messages with `aria-invalid`/`aria-describedby` + focus-first-error.
