@@ -1,7 +1,7 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const stepValidator = v.object({
+export const stepValidator = v.object({
   key: v.string(),
   label: v.string(),
   type: v.union(v.literal("instruction"), v.literal("count")),
