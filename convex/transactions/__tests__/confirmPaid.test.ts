@@ -246,6 +246,34 @@ describe("_confirmPaid_internal funnel", () => {
     await drainScheduled(t);
   });
 
+  // v1.2 #10 Task 2: manual_bca source — staff self-confirm manual bank transfer.
+  // stamps confirmed_via="manual_bca", audits the attesting cashier as actor,
+  // source="booth_inline". No mgr_approver_id on this path.
+  it("source=manual_bca stamps confirmed_via + audits the attesting staff (booth_inline)", async () => {
+    const t = convexTest(schema);
+    const s = await seedTxnAwaiting(t);
+    await t.mutation(internal.transactions.internal._confirmPaid_internal, {
+      txnId: s.txn,
+      source: "manual_bca",
+      confirm_staff_id: s.staff,
+    });
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    expect(txn?.confirmed_via).toBe("manual_bca");
+    expect(txn?.confirmed_mgr_approver_id).toBeUndefined();
+    const audit = await t.run((ctx) =>
+      ctx.db.query("audit_log")
+        .filter((q) => q.eq(q.field("action"), "payment.confirmed"))
+        .collect(),
+    );
+    const row = audit.find((a) => a.entity_id === s.txn);
+    expect(row).toBeDefined();
+    expect(row?.actor_id).toBe(s.staff);
+    expect(row?.source).toBe("booth_inline");
+    expect(JSON.parse(row!.metadata as string).source).toBe("manual_bca");
+    await drainScheduled(t);
+  });
+
   // v1.0.1 Task 10: ticker hook — exactly one scheduled sendTxnTicker per paid
   // transition; re-fire (status guard) does NOT schedule a second one.
   it("schedules exactly one ticker on paid transition, none on re-fire", async () => {

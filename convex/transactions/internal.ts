@@ -142,7 +142,7 @@ export const _setCurrentInvoice_internal = internalMutation({
 export const _confirmPaid_internal = internalMutation({
   args: {
     txnId: v.id("pos_transactions"),
-    source: v.union(v.literal("webhook"), v.literal("polling"), v.literal("manual")),
+    source: v.union(v.literal("webhook"), v.literal("polling"), v.literal("manual"), v.literal("manual_bca")),   // v1.2 #10
     mgr_approver_id: v.optional(v.id("staff")),
     manual_reason: v.optional(v.string()),
     paid_amount: v.optional(v.number()),
@@ -153,6 +153,9 @@ export const _confirmPaid_internal = internalMutation({
     approvalSource: v.optional(
       v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
     ),
+    // v1.2 #10: attesting cashier for source="manual_bca" — audit actor only
+    // (no manager approver on this path). Ignored for other sources.
+    confirm_staff_id: v.optional(v.id("staff")),
   },
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
@@ -168,14 +171,19 @@ export const _confirmPaid_internal = internalMutation({
       // Money may have moved with no sale record. Do NOT auto-flip (a manager
       // reconciles), but emit an alert so it isn't silently swallowed.
       await logAudit(ctx, {
-        actor_id: args.mgr_approver_id ?? "system",
+        actor_id:
+          args.source === "manual_bca"
+            ? (args.confirm_staff_id ?? "system")
+            : (args.mgr_approver_id ?? "system"),
         action: "payment.confirmed_on_terminal",
         entity_type: "pos_transactions",
         entity_id: args.txnId,
         source:
           args.source === "manual"
             ? args.approvalSource ?? "booth_inline"
-            : "system",
+            : args.source === "manual_bca"
+              ? "booth_inline"
+              : "system",
         reason: args.manual_reason,
         metadata: { source: args.source, txn_status: txn.status },
       });
@@ -281,7 +289,10 @@ export const _confirmPaid_internal = internalMutation({
 
     // 8. Audit (logAudit accepts mgr_approver_id, reason, device_id as top-level fields)
     await logAudit(ctx, {
-      actor_id: args.mgr_approver_id ?? "system",
+      actor_id:
+        args.source === "manual_bca"
+          ? (args.confirm_staff_id ?? "system")
+          : (args.mgr_approver_id ?? "system"),
       action: "payment.confirmed",
       entity_type: "pos_transactions",
       entity_id: args.txnId,
@@ -290,11 +301,15 @@ export const _confirmPaid_internal = internalMutation({
       // (payments._onPaidManual_internal) threads approvalSource so the audit
       // row reflects where the action actually happened: booth_inline at the
       // booth (default), telegram_approval via the off-booth approve link.
+      // v1.2 #10: manual_bca is always booth_inline (staff self-confirm at
+      // the booth — no off-booth path for this tender).
       // Non-manual paths (webhook/polling) keep source="system".
       source:
         args.source === "manual"
           ? args.approvalSource ?? "booth_inline"
-          : "system",
+          : args.source === "manual_bca"
+            ? "booth_inline"
+            : "system",
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });
@@ -759,7 +774,7 @@ export const _getTxnForTicker_internal = internalQuery({
     total: number;
     paid_at: number;
     staff_id: Id<"staff">;
-    confirmed_via: "webhook" | "polling" | "manual" | null;
+    confirmed_via: "webhook" | "polling" | "manual" | "manual_bca" | null;
     lines: Array<{ name: string; qty: number }>;
   } | null> => {
     const txn = await ctx.db.get(args.txnId);
