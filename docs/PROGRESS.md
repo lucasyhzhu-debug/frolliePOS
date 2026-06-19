@@ -2167,11 +2167,14 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 2 (✅ shipped 2026-06-19, PR #90):**
 - Inline messaging over toasts (#12) — slice 1: `FieldMessage` primitive + ADR-048 + ESLint fence + convert the 2 worst files (products 26, vouchers 12). Remaining bucket-A files = follow-up slices.
 
-**In Phase 3 (📋 planned 2026-06-19):**
+**In Phase 3 (✅ shipped 2026-06-19, PR #93/#96):**
 - Retire BCA VA + static-account manual transfer (#10) — hide the broken BCA VA tab (kills the toast storm), staff-self-confirm manual bank transfer marked `manual_bca`, manager account config + toggle, MANUAL-flagged ticker, itemized EOD reconciliation. Lands before/with #6 (clock-out reads the reconciliation query).
 
+**In Phase 4 (📋 planned 2026-06-19):**
+- EN/ID language toggle (#1) — a flag-backed per-staff language switch on the home YOU group, backed by a zero-dependency typed i18n dictionary (`src/lib/i18n/`); English default, `staff.locale` preference + `setOwnLocale`. Then full copy extraction across all `src/` (Workflow fan-out). Currency + dates stay `id-ID`; receipts/Telegram out of scope. ADR-049.
+
 **Still not yet (later v1.2 phases):**
-- Receipt cleanup (#13), login PIN feedback (#11+#7), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6), EN/ID toggle (#1)
+- Receipt cleanup (#13), login PIN feedback (#11+#7), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2382,6 +2385,77 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] ADR-036 amendment section + "Affects other ADRs"
     - [ ] SCHEMA.md manual_bca fields + audit string + confirmed_via literal
     - [ ] CHANGELOG entry; commit
+  - **notes:** _(empty)_
+
+**Phase 4 — #1 EN/ID language picker (📋 PLANNED 2026-06-19):** a per-staff EN/ID language toggle (flag-backed, on the home YOU group) backed by a zero-dependency typed i18n dictionary, then extract every user-facing string in `src/` into keyed `{en, id}` pairs (Workflow fan-out). English default; `staff.locale` preference persisted via a self-only `setOwnLocale`; pre-login screens are English. `src/lib/format.ts` (currency + dates, `id-ID`) untouched; receipts/Telegram out of scope. ADR-049. Spec→2× staffreview→plan→staffreview pipeline; spec C1-C3 (staff-table path, session-projection ADD, self-only authCheck) + plan C1-C3 (convex-test seed `code`/`ended_at`, home.test LocaleProvider wrap) folded.
+
+### Backend (`convex/`) — Phase 4
+- 📋 **[v12-be-i18n-locale]** `auth/{schema,public}.ts` + `src/hooks/useSession.ts` — add optional `staff.locale` (`"en"|"id"`); add `locale: staff.locale ?? "en"` to the `getSession` projection; add `locale` to the `useSession` active-staff type (Task 3)
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-19-i18n-language-picker-design.md), [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md), [spec staffreview](./reviews/staffreview-i18n-language-picker-spec-2026-06-19.md), [plan staffreview](./reviews/staffreview-i18n-language-picker-plan-2026-06-19.md)
+  - **subtasks:**
+    - [ ] Failing convex-test: `getSession` returns `staff.locale` (absent ⇒ "en"; patched ⇒ "id")
+    - [ ] Schema field + projection add + `useSession` type; SCHEMA.md row
+    - [ ] typecheck + test green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-be-i18n-setlocale]** `staff/public.ts` — `setOwnLocale` self-only staff-session mutation (withIdempotency + requireSession, no `staffId` arg, `staff.locale_set` audit) (Task 4)
+  - **agent:** `convex-expert`
+  - **deps:** v12-be-i18n-locale
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] Failing tests: patches own row + audit; rejects ended session
+    - [ ] Implement (staffIdFromArgs ⇒ undefined; self-derived staff_id)
+    - [ ] Tests green; commit
+  - **notes:** _(empty)_
+
+### Frontend (`src/`) — Phase 4
+- 📋 **[v12-fe-i18n-core]** `src/lib/i18n/{types,t}.ts` + `dictionaries/{en,id}.ts` — typed en (key source-of-truth) + id (`Record<keyof typeof en>`), pure `t(locale,key,params?)` with `{param}` interpolation + `_one`/`_other` plural rule; keyset-parity test (Task 1)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] Failing t() unit tests (lookup, interpolation, EN/ID plural) + dict parity
+    - [ ] Seed dicts (home strings) + types + t(); barrel
+    - [ ] Tests green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-i18n-provider]** `src/lib/i18n/context.tsx` + `src/main.tsx` — `LocaleProvider` + `useT`/`useLocale`; login-transition SEED (not continuous sync, single-writer toggle); mount above router (Task 2)
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-fe-i18n-core
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] Failing context test (default EN + setLocale flip)
+    - [ ] Provider + seed effect + mount in main.tsx
+    - [ ] Test + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-i18n-toggle]** `src/components/pos/flags/*` + `LocaleToggle.tsx` + `routes/home.tsx` (+ `home.test.tsx` LocaleProvider wrap) — inline-SVG flags (no emoji — Windows), flag-backed in-place toggle in the YOU group, optimistic flip + persist, convert home copy (Task 5)
+  - **agent:** `ui-component-builder`
+  - **deps:** v12-fe-i18n-provider, v12-be-i18n-setlocale, v12-be-i18n-locale
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] Failing LocaleToggle test (active flag + tap flips + persists)
+    - [ ] Flags + toggle + home YOU-cell wiring + home copy → t(); wrap home.test in LocaleProvider
+    - [ ] Tests + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-i18n-extract]** all `src/**/*.tsx` — full copy extraction into `en/id` dicts via Workflow fan-out (per-file extract → merge → verify); grow the ESLint fence registry; bilingual smoke (Task 7)
+  - **agent:** `claude`
+  - **deps:** v12-fe-i18n-toggle, v12-xc-i18n-adr
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] Enumerate file work-list; run extraction Workflow (pipeline, worktree isolation)
+    - [ ] Merge into en/id; register converted files in the fence
+    - [ ] Full gate (typecheck+lint+vitest+build) + manual EN/ID smoke; commit
+  - **notes:** _(empty)_
+
+### Cross-cutting — Phase 4
+- 📋 **[v12-xc-i18n-adr]** `docs/ADR/049-…md` (new) + `eslint.config.js` + `docs/{SCHEMA,CHANGELOG}.md` + `CLAUDE.md` — ADR-049 (client typed dictionary, per-staff locale, format.ts excluded); registry-gated i18n hardcoded-copy fence; docs (Task 6)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-i18n-language-picker.md)
+  - **subtasks:**
+    - [ ] ADR-049 + ESLint i18n fence block (seed registry with Task-5 files)
+    - [ ] Lint green + fence-bites smoke; SCHEMA/CHANGELOG/CLAUDE updates
+    - [ ] commit
   - **notes:** _(empty)_
 
 ---
