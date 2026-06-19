@@ -18,6 +18,8 @@ export const en = {
   "home.group.mgr": "MANAGER",
   "home.catalogSummary_one": "{count} product · {skus} SKUs",
   "home.catalogSummary_other": "{count} products · {skus} SKUs",
+  "home.endShift": "End shift",
+  "home.lockHandoff": "Lock and hand off",
   "home.recountNudge": "Time to recount stock — tap to start",
   "home.awaitingPayment_one": "{count} payment unfinished — tap to continue",
   "home.awaitingPayment_other": "{count} payments unfinished — tap to continue",

@@ -76,8 +76,8 @@ export default function HomeRoute() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Akhiri shift"
-            title="Akhiri shift"
+            aria-label={t("home.endShift")}
+            title={t("home.endShift")}
             onClick={() => navigate("/shift/end")}
           >
             <Flag className="size-5" />
@@ -85,7 +85,7 @@ export default function HomeRoute() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Lock and hand off"
+            aria-label={t("home.lockHandoff")}
             onClick={() => navigate("/lock")}
           >
             <Lock className="size-5" />
@@ -94,7 +94,7 @@ export default function HomeRoute() {
 
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold leading-tight truncate">
-            Frollie{" "}
+            {"Frollie"}{" "}
             <span className="font-normal text-muted-foreground">· {session.staff.name}</span>
           </h1>
           <p className="text-[10px] text-muted-foreground leading-none mt-0.5">

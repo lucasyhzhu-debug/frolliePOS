@@ -17,6 +17,8 @@ export const id: Record<keyof typeof en, string> = {
   "home.group.mgr": "MANAJER",
   "home.catalogSummary_one": "{count} produk · {skus} SKU",
   "home.catalogSummary_other": "{count} produk · {skus} SKU",
+  "home.endShift": "Akhiri shift",
+  "home.lockHandoff": "Kunci dan serah terima",
   "home.recountNudge": "Saatnya menghitung ulang stok — ketuk untuk mulai",
   "home.awaitingPayment_one": "{count} pembayaran belum selesai — ketuk untuk lanjutkan",
   "home.awaitingPayment_other": "{count} pembayaran belum selesai — ketuk untuk lanjutkan",

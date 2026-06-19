@@ -193,4 +193,29 @@ export default [
       ],
     },
   },
+
+  {
+    // v1.2 #1 — i18n migration registry. Files here route user-facing copy through
+    // t(); this fence stops regressions to hardcoded JSX text literals and string
+    // literals in text props. Brand-name JSXText should be wrapped as {"Brand"} to
+    // keep it out of the JSXText node type. Append files as later #1 slices convert
+    // them; Task 7 will add the remaining routes. ADR-049.
+    files: ["src/routes/home.tsx", "src/components/pos/LocaleToggle.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXText[value=/[A-Za-z]{3,}/]",
+          message:
+            "Converted file: user-facing text must go through t(...) (ADR-049), not a hardcoded JSX literal.",
+        },
+        {
+          selector:
+            "JSXAttribute[name.name=/^(placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
+          message:
+            "Converted file: text props must use t(...) (ADR-049).",
+        },
+      ],
+    },
+  },
 ];
