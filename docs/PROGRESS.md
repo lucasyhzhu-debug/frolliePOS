@@ -2465,81 +2465,81 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **Phase 5 — #6 shift SOP flow (📋 PLANNED 2026-06-19):** integrate the booth opening + closing paper SOPs into guided in-app wizards on a booth state machine. New `convex/shifts/` module owns `pos_shift_events` (source of truth for state + attendance + step ledger). Start-of-day (open from closed), end-of-day (close), handover (staff swap), and manager-takeover (from lock) journeys; lock honours ADR-003 (ends session, booth-state layer). Staff sign-off = hours only; founders get the per-shift financial + manual-BCA summary via a new `staff_shift_signoff` Telegram kind (reuses #10's reconciliation query). Spec→2× staffreview→plan→staffreview pipeline; both gates passed (spec: hours-anchor/LOCKED-ADR-003/telegram-kind; plan: end_reason union/_listStaffNames/convex-test).
 
 ### Backend (`convex/`) — Phase 5
-- 📋 **[v12-be-shift-schema]** `shifts/schema.ts` + `shifts/lib.ts` — `pos_shift_events` table (+ `by_device_created`/`by_staff_started` indexes) + pure V8-safe `deriveBoothState`/`computeShiftHoursMs` (T1-2)
+- ✅ **[v12-be-shift-schema]** `shifts/schema.ts` + `shifts/lib.ts` — `pos_shift_events` table (+ `by_device_created`/`by_staff_started` indexes) + pure V8-safe `deriveBoothState`/`computeShiftHoursMs` (T1-2) (9194587)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-shift-sop-flow-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md), [spec review](./reviews/staffreview-v1.2-shift-sop-flow-spec-2026-06-19.md), [plan review](./reviews/staffreview-v1.2-shift-sop-flow-plan-2026-06-19.md)
   - **subtasks:**
-    - [ ] schema fragment + spread into root + SCHEMA.md
-    - [ ] pure lib: 4 states + stale-autoclose + hours; unit tests
+    - [x] schema fragment + spread into root + SCHEMA.md
+    - [x] pure lib: 4 states + stale-autoclose + hours; unit tests
   - **notes:** _(empty)_
-- 📋 **[v12-be-shift-events]** `shifts/internal.ts` + `shifts/public.ts` — `_latestShiftEvent`/`_recordShiftEvent`/`_shiftStartAnchor` internals + `boothState` query (T3)
+- ✅ **[v12-be-shift-events]** `shifts/internal.ts` + `shifts/public.ts` — `_latestShiftEvent`/`_recordShiftEvent`/`_shiftStartAnchor` internals + `boothState` query (T3) (9194587)
   - **agent:** `convex-expert`
   - **deps:** v12-be-shift-schema
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] event writer + latest/anchor internals
-    - [ ] boothState query (maps staff name via `_listStaffNames_internal({})`)
+    - [x] event writer + latest/anchor internals
+    - [x] boothState query (maps staff name via `_listStaffNames_internal({})`)
   - **notes:** _(empty)_
-- 📋 **[v12-be-shift-lifecycle]** `shifts/public.ts` — `completeStartOfDay`/`endOfDaySignOff`/`handoverOut`/`completeHandoverIn`/`lockShift`/`recordResume` mutations (T4-7)
+- ✅ **[v12-be-shift-lifecycle]** `shifts/public.ts` — `completeStartOfDay`/`endOfDaySignOff`/`handoverOut`/`completeHandoverIn`/`lockShift`/`recordResume` mutations (T4-7) (9194587)
   - **agent:** `convex-expert`
   - **deps:** v12-be-shift-events
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] start-of-day + sign-off (summary + session end via `force_logout`)
-    - [ ] handover out/in (2-write count) + lock/resume (`manual_lock`)
+    - [x] start-of-day + sign-off (summary + session end via `force_logout`)
+    - [x] handover out/in (2-write count) + lock/resume (`manual_lock`)
   - **notes:** _(empty)_
-- 📋 **[v12-be-shift-takeover]** `shifts/actions.ts` — `managerTakeover` action (verifyPinOrThrow + force-end displaced + `manager_takeover` event, `outgoing_uncounted`) (T8)
+- ✅ **[v12-be-shift-takeover]** `shifts/actions.ts` — `managerTakeover` action (verifyPinOrThrow + force-end displaced + `manager_takeover` event, `outgoing_uncounted`) (T8) (9194587)
   - **agent:** `convex-expert`
   - **deps:** v12-be-shift-events
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] action + `_commitManagerTakeover_internal`
-    - [ ] tests: non-manager reject, force-end, uncounted flag
+    - [x] action + `_commitManagerTakeover_internal`
+    - [x] tests: non-manager reject, force-end, uncounted flag
   - **notes:** _(empty)_
-- 📋 **[v12-be-shift-telegram]** `telegram/send.ts` + `lib/telegramHtml.ts` — `staff_shift_signoff` kind + `renderStaffShiftSignoff` (reuse `manualBca` fragment) + schedule from sign-off/handover/takeover (T9)
+- ✅ **[v12-be-shift-telegram]** `telegram/send.ts` + `lib/telegramHtml.ts` — `staff_shift_signoff` kind + `renderStaffShiftSignoff` (reuse `manualBca` fragment) + schedule from sign-off/handover/takeover (T9) (9194587)
   - **agent:** `convex-expert`
   - **deps:** v12-be-shift-lifecycle
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] render fn + kind union + case
-    - [ ] wire `ctx.scheduler.runAfter` in the 3 sign-off paths
+    - [x] render fn + kind union + case
+    - [x] wire `ctx.scheduler.runAfter` in the 3 sign-off paths
   - **notes:** _(empty)_
 
 ### Frontend (`src/`) — Phase 5
-- 📋 **[v12-fe-shift-components]** `components/pos/{CountStep,StepRail,ShiftWizard}.tsx` + `hooks/useBoothState.ts` — extract count UI from recount route + wizard shell + state hook (T10-12)
+- ✅ **[v12-fe-shift-components]** `components/pos/{CountStep,StepRail,ShiftWizard}.tsx` + `hooks/useBoothState.ts` — extract count UI from recount route + wizard shell + state hook (T10-12) (9194587)
   - **agent:** `ui-component-builder`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] extract `CountStep` (re-point recount route onto it)
-    - [ ] `StepRail` + `ShiftWizard` (reduced-motion-guarded) + `useBoothState`
+    - [x] extract `CountStep` (re-point recount route onto it)
+    - [x] `StepRail` + `ShiftWizard` (reduced-motion-guarded) + `useBoothState`
   - **notes:** _(empty)_
-- 📋 **[v12-fe-shift-routes]** `routes/shift/{start,end,handover}.tsx` + `router.tsx` — start-of-day, end-shift (close/handover-out choice), handover-incoming (T13-15)
+- ✅ **[v12-fe-shift-routes]** `routes/shift/{start,end,handover}.tsx` + `router.tsx` — start-of-day, end-shift (close/handover-out choice), handover-incoming (T13-15) (9194587)
   - **agent:** `frontend-integrator`
   - **deps:** v12-be-shift-lifecycle, v12-fe-shift-components
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] `/shift/start` + `/shift/end` (choice + close summary + handover-out)
-    - [ ] `/shift/handover` (pick→PIN→count, no accept screen)
+    - [x] `/shift/start` + `/shift/end` (choice + close summary + handover-out)
+    - [x] `/shift/handover` (pick→PIN→count, no accept screen)
   - **notes:** _(empty)_
-- 📋 **[v12-fe-shift-gate]** `routes/login.tsx` + `hooks/useLastStaff.ts` + `routes/lock.tsx` + `routes/home.tsx` — booth-state login fork, same-staff lock resume, manager-unlock takeover, home End-shift entry (T16-17)
+- ✅ **[v12-fe-shift-gate]** `routes/login.tsx` + `hooks/useLastStaff.ts` + `routes/lock.tsx` + `routes/home.tsx` — booth-state login fork, same-staff lock resume, manager-unlock takeover, home End-shift entry (T16-17) (9194587)
   - **agent:** `frontend-integrator`
   - **deps:** v12-fe-shift-routes, v12-be-shift-takeover
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] login fork per state (closed→start, locked→same-staff, handover_pending→handover)
-    - [ ] lock → `lockShift` + manager-unlock `managerTakeover`; home End-shift button
+    - [x] login fork per state (closed→start, locked→same-staff, handover_pending→handover)
+    - [x] lock → `lockShift` + manager-unlock `managerTakeover`; home End-shift button
   - **notes:** _(empty)_
 
 ### Cross-cutting — Phase 5
-- 📋 **[v12-xc-shift-docs]** `docs/ADR/050-…md` + `CLAUDE.md` + `docs/API_REFERENCE.md` + `docs/CHANGELOG.md` — shift lifecycle ADR (state machine + ADR-003 amendment + takeover-as-handover) + module row + business rule + final full verification (T18)
+- ✅ **[v12-xc-shift-docs]** `docs/ADR/050-…md` + `CLAUDE.md` + `docs/API_REFERENCE.md` + `docs/CHANGELOG.md` — shift lifecycle ADR (state machine + ADR-003 amendment + takeover-as-handover) + module row + business rule + final full verification (T18) (9194587)
   - **agent:** `claude`
   - **deps:** v12-be-shift-telegram, v12-fe-shift-gate
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-shift-sop-flow.md)
   - **subtasks:**
-    - [ ] ADR-049 + CLAUDE.md module row + business rule
-    - [ ] API_REFERENCE + CHANGELOG; `typecheck && lint && vitest && build:fe` green
+    - [x] ADR-049 + CLAUDE.md module row + business rule
+    - [x] API_REFERENCE + CHANGELOG; `typecheck && lint && vitest && build:fe` green
   - **notes:** _(empty)_
 
 **Phase 6 — #11+#7 login PIN feedback (📋 PLANNED 2026-06-19):** make booth PIN entry responsive + legible — pressed keys, a "Verifying…" spinner with the keypad locked, inline red wrong-PIN / persistent locked-out banner (replacing toasts), a 200ms green success tick — and fix the spurious "PIN reset declined" toast that re-fired on remount (evidence-first per the #44 rule). FE-only, one squash PR; deps #2 + #12 (both shipped). Spec→2× staffreview→plan→staffreview pipeline; spec folded 5 improvements, plan folded 3 (success-path test, success-tick input lock, login→#12 lint fence).
