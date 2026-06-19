@@ -104,6 +104,20 @@ export type FoundersSummaryPayload = {
   manualBca?: ManualBcaTally; // v1.2 #10
 };
 
+/** Shared helper: appends Manual BCA summary lines into an existing lines array.
+ * Called by both renderFoundersSummary and renderStaffShiftSignoff. V8-safe. */
+function renderManualBcaBlock(tally: ManualBcaTally, lines: string[]): void {
+  if (tally.count <= 0) return;
+  lines.push("", `🏦 <b>Manual BCA:</b> ${tally.count} txn · Rp ${formatIdr(tally.totalIdr)}`);
+  const shown = tally.items.slice(0, MANUAL_BCA_EOD_MAX_LINES);
+  for (const it of shown) {
+    const when = escapeHtml(formatWibDateTime(it.paidAt));
+    lines.push(`• ${when} · Rp ${formatIdr(it.total)} · ${escapeHtml(it.staffName)} (${escapeHtml(it.receiptNumber)})`);
+  }
+  const overflow = tally.items.length - shown.length;
+  if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
+}
+
 export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessage {
   const lines = [
     `📊 <b>Frollie — ${escapeHtml(p.dateLabel)}</b>`,
@@ -111,16 +125,7 @@ export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessag
     `<b>Transactions:</b> ${p.txnCount}`,
     `<b>Flagged for review:</b> ${p.flaggedCount}`,
   ];
-  if (p.manualBca && p.manualBca.count > 0) {
-    lines.push("", `🏦 <b>Manual BCA:</b> ${p.manualBca.count} txn · Rp ${formatIdr(p.manualBca.totalIdr)}`);
-    const shown = p.manualBca.items.slice(0, MANUAL_BCA_EOD_MAX_LINES);
-    for (const it of shown) {
-      const when = escapeHtml(formatWibDateTime(it.paidAt));
-      lines.push(`• ${when} · Rp ${formatIdr(it.total)} · ${escapeHtml(it.staffName)} (${escapeHtml(it.receiptNumber)})`);
-    }
-    const overflow = p.manualBca.items.length - shown.length;
-    if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
-  }
+  if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
   return { text: lines.join("\n") };
 }
 
@@ -395,16 +400,7 @@ export function renderStaffShiftSignoff(p: StaffShiftSignoffPayload): RenderedMe
     `<b>Transaksi:</b> ${p.txnCount}`,
   );
 
-  if (p.manualBca && p.manualBca.count > 0) {
-    lines.push("", `🏦 <b>Manual BCA:</b> ${p.manualBca.count} txn · Rp ${formatIdr(p.manualBca.totalIdr)}`);
-    const shown = p.manualBca.items.slice(0, MANUAL_BCA_EOD_MAX_LINES);
-    for (const it of shown) {
-      const when = escapeHtml(formatWibDateTime(it.paidAt));
-      lines.push(`• ${when} · Rp ${formatIdr(it.total)} · ${escapeHtml(it.staffName)} (${escapeHtml(it.receiptNumber)})`);
-    }
-    const overflow = p.manualBca.items.length - shown.length;
-    if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
-  }
+  if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
 
   return { text: lines.join("\n") };
 }
