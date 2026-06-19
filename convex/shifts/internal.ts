@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { stepValidator } from "./schema";
+import { logAudit } from "../audit/internal";
+import { withIdempotency } from "../idempotency/internal";
 
 const shiftEventFields = {
   device_id: v.string(),
@@ -120,4 +123,111 @@ export const _buildSignoffSummary_internal = internalQuery({
       manualBcaTotalIdr: manualBca.totalIdr,
     };
   },
+});
+
+/**
+ * Atomic commit for `managerTakeover`:
+ *   1. Force-end ALL active `staff_sessions` for the device (`by_device_active`
+ *      index, `ended_at = null`). The displaced staff session(s) become
+ *      `force_logout`. There may be zero (booth was already locked/idle).
+ *   2. Create a new `staff_sessions` row for the manager.
+ *   3. Record a `manager_takeover` shift event:
+ *        - `takeover: true`, `outgoing_uncounted: true` (displaced staff's count
+ *          was never handed over — Task 9 defers the Founders summary).
+ *        - `shift_started_at = now` (fresh shift for the manager).
+ *   4. Emit audit `shift.manager_takeover` (actor = manager).
+ *
+ * Wrapped with `withIdempotency` so a crash between the action's commit call and
+ * the action-level cache write does not double-commit (mirrors staff/internal.ts
+ * _setStaffRoleCommit_internal pattern).
+ *
+ * Task 9 placeholder: wire
+ *   `ctx.scheduler.runAfter(0, internal.shifts.actions._sendTakeoverSummary, {...})`
+ * here after the audit call to dispatch the displaced-staff Founders summary.
+ *
+ * Returns `{ sessionId, eventId }`.
+ */
+export const _commitManagerTakeover_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    deviceId: v.string(),
+    managerStaffId: v.id("staff"),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; deviceId: string; managerStaffId: Id<"staff"> },
+    { sessionId: Id<"staff_sessions">; eventId: Id<"pos_shift_events"> }
+  >(
+    "shifts.managerTakeover",
+    async (ctx, args) => {
+      const now = Date.now();
+
+      // Step 1: Force-end any active sessions for the device.
+      // Use the by_device_active index: compound on [device_id, ended_at].
+      // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
+      // filter on null in JS after collecting the index-narrowed set.
+      const activeSessions = await ctx.db
+        .query("staff_sessions")
+        .withIndex("by_device_active", (q) =>
+          q.eq("device_id", args.deviceId).eq("ended_at", null),
+        )
+        .collect();
+      for (const sess of activeSessions) {
+        await ctx.db.patch(sess._id, {
+          ended_at: now,
+          end_reason: "force_logout",
+        });
+      }
+
+      // Step 2: Create new manager session.
+      const sessionId: Id<"staff_sessions"> = await ctx.db.insert("staff_sessions", {
+        staff_id: args.managerStaffId,
+        device_id: args.deviceId,
+        started_at: now,
+        ended_at: null,
+        end_reason: null,
+      });
+
+      // Step 3: Record manager_takeover shift event.
+      // shift_started_at = now (fresh shift for the manager).
+      // outgoing_uncounted: true — the displaced staff's count was never handed
+      // over; Task 9 dispatches the deferred Founders summary.
+      const eventId: Id<"pos_shift_events"> = await ctx.db.insert(
+        "pos_shift_events",
+        {
+          device_id: args.deviceId,
+          type: "manager_takeover",
+          staff_id: args.managerStaffId,
+          shift_started_at: now,
+          shift_ended_at: null,
+          steps: [],
+          count_changed: null,
+          takeover: true,
+          outgoing_uncounted: true,
+          stale_autoclose: null,
+          linked_event_id: null,
+          summary: null,
+          created_at: now,
+        },
+      );
+
+      // Step 4: Audit.
+      await logAudit(ctx, {
+        actor_id: args.managerStaffId,
+        action: "shift.manager_takeover",
+        entity_type: "pos_shift_events",
+        entity_id: eventId,
+        source: "booth_inline",
+        device_id: args.deviceId,
+        metadata: { outgoing_uncounted: true },
+      });
+
+      // Task 9 placeholder: dispatch deferred Founders summary for displaced staff.
+      // await ctx.scheduler.runAfter(0, internal.shifts.actions._sendTakeoverSummary, {
+      //   eventId, managerStaffId: args.managerStaffId, deviceId: args.deviceId,
+      // });
+
+      return { sessionId, eventId };
+    },
+    { staffIdFromArgs: (a) => a.managerStaffId },
+  ),
 });
