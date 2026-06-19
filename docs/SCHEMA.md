@@ -769,7 +769,7 @@ product.archived            # archiveProduct — manager-session; soft-delete vi
 settings.founders_summary_toggled  # (v0.4) setFoundersSummaryEnabled — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.txn_ticker_toggled        # setTxnTickerEnabled (v1.0.2) — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
-settings.manual_bca_updated # (v1.2 #10) updateManualBcaConfig — manager-session; metadata={ enabled: boolean }; source=booth_inline
+settings.manual_bca_updated # (v1.2 #10) settings.internal._updateManualBcaConfig_internal — INTERNAL ONLY (ops/dashboard; no public writer — the settlement account is not client-editable); actor_id=system; metadata={ enabled: boolean, via: "backend" }; source=system
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
 voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
 voucher.edited              # updateVoucher — metadata captures changed fields
