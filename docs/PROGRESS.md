@@ -2176,8 +2176,11 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 5 (📋 planned 2026-06-19):**
 - Shift SOP flow (#6) — booth state machine (CLOSED/OPEN/LOCKED/HANDOVER_PENDING) on a new `pos_shift_events` table; start-of-day / end-of-day / handover / manager-takeover wizards integrating the paper opening + closing SOPs; staff sign-off shows hours, founders get the financial + manual-BCA summary. Builds on #2/#4/#5/#12/#10.
 
+**In Phase 6 (📋 planned 2026-06-19):**
+- Login PIN feedback (#11+#7) — pressed keys + "Verifying…" spinner, inline red/locked-out messaging (replacing toasts), 200ms green success, and the evidence-first fix for the spurious "PIN reset declined" remount toast. Includes the narrow-phone sale-grid title-legibility fix scoped into #3 (separate session).
+
 **Still not yet (later v1.2 phases):**
-- Receipt cleanup (#13), login PIN feedback (#11+#7), real Xendit refunds (#9, spike-gated), product photos (#3)
+- Receipt cleanup (#13), real Xendit refunds (#9, spike-gated), product photos (#3, incl. sale-grid title legibility)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2537,6 +2540,64 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **subtasks:**
     - [ ] ADR-049 + CLAUDE.md module row + business rule
     - [ ] API_REFERENCE + CHANGELOG; `typecheck && lint && vitest && build:fe` green
+  - **notes:** _(empty)_
+
+**Phase 6 — #11+#7 login PIN feedback (📋 PLANNED 2026-06-19):** make booth PIN entry responsive + legible — pressed keys, a "Verifying…" spinner with the keypad locked, inline red wrong-PIN / persistent locked-out banner (replacing toasts), a 200ms green success tick — and fix the spurious "PIN reset declined" toast that re-fired on remount (evidence-first per the #44 rule). FE-only, one squash PR; deps #2 + #12 (both shipped). Spec→2× staffreview→plan→staffreview pipeline; spec folded 5 improvements, plan folded 3 (success-path test, success-tick input lock, login→#12 lint fence).
+
+### Frontend (`src/`) — Phase 6
+- 📋 **[v12-fe-pin-keypad]** `components/pos/NumericKeypad.tsx` — `disabled` prop (native attr + keydown guard) + `active:bg-accent` pressed cue (scale reused from Button base) (#7 T1)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-login-pin-feedback-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md), [spec staffreview](./reviews/staffreview-v1.2-login-pin-feedback-spec-2026-06-19.md), [plan staffreview](./reviews/staffreview-v1.2-login-pin-feedback-plan-2026-06-19.md)
+  - **subtasks:**
+    - [ ] Failing test: disabled blocks click + hardware keydown; pressed-class present
+    - [ ] Add `disabled` prop + keydown early-return + `active:bg-accent`
+    - [ ] vitest + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-pin-denials]** `lib/storage-keys.ts` + new `lib/pinResetDenials.ts` — remount-safe localStorage denial-dedup helper (#11 T2)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
+  - **subtasks:**
+    - [ ] Failing test: hasShownDenial/markDenialShown persist + idempotent + malformed-safe
+    - [ ] Add `SHOWN_PIN_RESET_DENIALS_KEY` constant + helper module
+    - [ ] vitest + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-pin-entry]** `components/auth/PinEntry.tsx` — presentational rewrite: pending spinner, phase-tinted dots, inline `FieldMessage`, `persist` clear-rule, success input-lock (#7/#11 T3)
+  - **agent:** `ui-component-builder`
+  - **deps:** v12-fe-pin-keypad
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
+  - **subtasks:**
+    - [ ] Failing tests: pending hides dots+disables; error role=alert; non-persist hides on type; persist stays; success role=status+locked
+    - [ ] Rewrite with pending/phase/message/persist props
+    - [ ] vitest (2 existing + 5 new) + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-pin-login]** `routes/login.tsx` (+ `eslint.config.js`) — phase state machine, error→channel mapping (drop INVALID_PIN toast, LOCKED_OUT inline banner, 200ms green→navigate), register login in #12 lint fence (#7/#11 T4)
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-fe-pin-entry
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
+  - **subtasks:**
+    - [ ] Failing tests: INVALID_PIN inline (no toast); LOCKED_OUT banner; success→navigate (useNavigate spy)
+    - [ ] Phase machine + onPinSubmit mapping + PinEntry wiring + success-timer cleanup
+    - [ ] Add login.tsx to ESLint #12 fence; lint + vitest + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-pin-denialfix]** `routes/login.tsx` — EVIDENCE-FIRST fix: regression test RED on current code, then localStorage dedup so the denial toast fires once across remount (#11 T5)
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-fe-pin-denials, v12-fe-pin-login
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md), [#44 postmortem](./postmortems/2026-06-issue-44-misdiagnosis.md)
+  - **subtasks:**
+    - [ ] Regression test (args-discriminated denied query) RED on current code — fires twice across remount
+    - [ ] Swap useRef guard → hasShownDenial/markDenialShown; test GREEN
+    - [ ] Full login suite + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-pin-stafflist]** `components/auth/StaffListItem.tsx` + `docs/CHANGELOG.md` — touch pressed-state (`active:bg-accent` + motion-safe scale) + changelog (#7 T6)
+  - **agent:** `claude`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
+  - **subtasks:**
+    - [ ] Failing class-presence test
+    - [ ] Add pressed-state classes; CHANGELOG entry
+    - [ ] Full suite + typecheck green; commit
   - **notes:** _(empty)_
 
 ---
