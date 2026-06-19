@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FieldMessage } from "@/components/ui/field-message";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { PinSheet } from "@/components/pos/PinSheet";
@@ -32,7 +33,7 @@ type VoucherRejected = {
 };
 type NavState = { voucher_rejected?: VoucherRejected };
 
-type Method = "QRIS" | "BCA_VA";
+type Method = "QRIS" | "MANUAL_BCA";
 
 /**
  * Charge screen — the payment confirmation surface (ADR strategic foundations
@@ -42,7 +43,8 @@ type Method = "QRIS" | "BCA_VA";
  * Retry (fresh invoice), Manager override (manual confirm), Cancel sale.
  *
  * State-machine shape:
- *   - selectedMethod: which tab is active (QRIS default, BCA_VA secondary).
+ *   - selectedMethod: which tab is active (QRIS default; MANUAL_BCA = staff-
+ *     confirmed bank transfer, which never mints a Xendit invoice — v1.2 #10).
  *   - The initial invoice for (txnId, method) is created exactly once via a
  *     stable IDB idempotency key + a per-method ref guard, so React re-renders
  *     and StrictMode double-invokes never double-create invoices.
@@ -74,6 +76,14 @@ export default function SaleCharge() {
 
   const [selectedMethod, setSelectedMethod] = useState<Method>("QRIS");
 
+  // Inline error for the QRIS auto-create path (replaces a toast per ADR-048).
+  const [chargeError, setChargeError] = useState<string | undefined>(undefined);
+
+  // ---- manual bank-transfer tender state (v1.2 #10) ----
+  const [attested, setAttested] = useState(false);
+  const [manualPending, setManualPending] = useState(false);
+  const [manualError, setManualError] = useState<string | undefined>(undefined);
+
   // Payment polling + reactive phase. useXenditPayment requires a concrete id;
   // when the param is missing we fall back to a placeholder and render an error
   // below (txnId === undefined never produces a real subscription).
@@ -88,6 +98,20 @@ export default function SaleCharge() {
   // (txnId, method) so a re-render replays the same key and the server / Xendit
   // dedupe rather than minting a second invoice.
   const initKey = useIdempotency(`pay:${txnId ?? "none"}:${selectedMethod}`);
+
+  // ---- manual bank-transfer tender (v1.2 #10) ----
+  // Staff-readable account config. The "Bank transfer" tab + manual tender only
+  // render when manualBca.enabled. Skip while the session isn't active (the
+  // query is session-gated).
+  const manualBca = useQuery(
+    api.settings.public.getManualBcaAccount,
+    session.status === "active" ? { sessionId: session.sessionId } : "skip",
+  );
+  // Stable per-txn key for the manual confirm mutation (ADR-013).
+  const manualConfirmKey = useIdempotency(`confirm-manual:${txnId ?? "none"}`);
+  const confirmManualBcaPayment = useMutation(
+    api.payments.public.confirmManualBcaPayment,
+  );
 
   // ---- actions ----
   const requestPayment = useAction(api.payments.actions.requestPayment);
@@ -173,6 +197,9 @@ export default function SaleCharge() {
   useEffect(() => {
     if (session.status !== "active") return;
     if (!txnId) return;
+    // The manual bank-transfer tab never mints a Xendit invoice — bail before
+    // any requestPayment/retry call.
+    if (selectedMethod === "MANUAL_BCA") return;
     if (!initKey) return;
     // The selected method already has its active invoice — clear its in-flight
     // marker so a later tab-swap back to this method can re-create it. The marker
@@ -190,8 +217,11 @@ export default function SaleCharge() {
     if (requestedMethods.current.has(selectedMethod)) return;
 
     requestedMethods.current.add(selectedMethod);
-    const method = selectedMethod;
+    // The effect early-returns for MANUAL_BCA above, so the only method that
+    // reaches the Xendit create/retry calls is QRIS (v1.2 #10).
+    const method = "QRIS" as const;
     const idempotencyKey = initKey;
+    setChargeError(undefined);
     void (async () => {
       try {
         if (invoice === null) {
@@ -219,7 +249,8 @@ export default function SaleCharge() {
         reportOps({ kind: "payment", error: err, route: "useXenditPayment" });
         const msg =
           err instanceof Error ? err.message : "Could not start payment";
-        toast.error(msg);
+        // Inline on the QRIS card (ADR-048) instead of a toast.
+        setChargeError(msg);
       }
     })();
   }, [
@@ -346,16 +377,50 @@ export default function SaleCharge() {
     }
   };
 
+  // ---- manual bank-transfer confirm (v1.2 #10) ----
+  // Staff attests the customer's transfer + proof, then commits the sale via
+  // confirmManualBcaPayment. Navigates on the AWAITED result — there is no
+  // invoice, so the reactive phase.kind==="paid" effect can never fire (C1).
+  const handleManualConfirm = async () => {
+    if (session.status !== "active" || !txnId || !manualConfirmKey) return;
+    setManualPending(true);
+    setManualError(undefined);
+    try {
+      await confirmManualBcaPayment({
+        idempotencyKey: manualConfirmKey,
+        sessionId: session.sessionId,
+        txnId,
+      });
+      navigate(`/sale/charge/${txnId}/success`, { replace: true });
+    } catch (err) {
+      // Map raw server codes to friendly copy (mirrors handleOverrideSubmit).
+      // RECEIPT_UNCONFIRMED = txn no longer awaiting (cancelled/expired race) or
+      // no receipt minted; NO_SESSION = session lapsed. Fallback keeps the raw
+      // message so an unexpected code is still surfaced (not swallowed).
+      const raw = err instanceof Error ? err.message : "Could not confirm payment";
+      const msg = raw.includes("RECEIPT_UNCONFIRMED")
+        ? "This sale is no longer waiting for payment"
+        : raw.includes("NO_SESSION")
+          ? "Session expired — please log in again"
+          : raw;
+      setManualError(msg);
+    } finally {
+      setManualPending(false);
+    }
+  };
+
   // ---- retry ----
   const [retrying, setRetrying] = useState(false);
   const handleRetry = async () => {
     if (session.status !== "active" || !txnId) return;
     setRetrying(true);
     try {
+      // Retry is only reachable from the QRIS ceiling state — the manual tab
+      // never mints an invoice (v1.2 #10), so the method is always QRIS here.
       await retryWithFreshInvoice({
         sessionId: session.sessionId,
         txnId,
-        method: selectedMethod,
+        method: "QRIS",
         idempotencyKey: crypto.randomUUID(),
       });
       // The reactive getCurrentInvoice picks up the new xendit_invoice_id, which
@@ -392,9 +457,13 @@ export default function SaleCharge() {
   };
 
   const handleMethodChange = (value: string) => {
-    if (value === "QRIS" || value === "BCA_VA") {
+    if (value === "QRIS" || value === "MANUAL_BCA") {
       setSelectedMethod(value);
       setElapsedMs(0);
+      // Re-attestation is required each time the manual tab is entered — clear
+      // any stale checkbox/error so the confirm button can't carry over enabled.
+      setAttested(false);
+      setManualError(undefined);
     }
   };
 
@@ -459,7 +528,109 @@ export default function SaleCharge() {
             />
           </div>
         )}
-        {phase.kind === "loading" ? (
+        {/* Shared method switcher — rendered ABOVE the phase machine so staff
+            can reach the manual tab even while QRIS is still "loading" (its
+            invoice hasn't minted yet). Only shown when the manual option exists;
+            with QRIS-only there's nothing to switch between. */}
+        {manualBca?.enabled && (
+          <Tabs
+            value={selectedMethod}
+            onValueChange={handleMethodChange}
+            className="w-full max-w-sm"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="QRIS" disabled={offlineLocked}>QRIS</TabsTrigger>
+              <TabsTrigger value="MANUAL_BCA" disabled={offlineLocked}>
+                Bank transfer
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+        {/* C1: the manual bank-transfer tab is rendered BEFORE/OUTSIDE the
+            phase machine. It never mints an invoice, so phase.kind is stuck on
+            "loading" — gating it behind the phase switch would pin it on the
+            spinner forever. Navigation happens on the AWAITED confirm result,
+            not via a reactive phase.kind==="paid" effect (which can't fire). */}
+        {selectedMethod === "MANUAL_BCA" ? (
+          <div className="flex w-full max-w-sm flex-1 flex-col items-center gap-4">
+            {/* Offline banner — confirming a sale requires connectivity (ADR-025) */}
+            {offlineLocked && (
+              <div
+                role="alert"
+                className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+              >
+                Offline — konfirmasi pembayaran menunggu koneksi.
+              </div>
+            )}
+
+            {/* Amount due */}
+            {txn != null && (
+              <div className="flex flex-col items-center">
+                <span className="text-xs tracking-widest text-muted-foreground">
+                  AMOUNT DUE
+                </span>
+                <span className="text-2xl font-semibold tabular-nums">
+                  {rp(txn.total)}
+                </span>
+              </div>
+            )}
+
+            {/* Transfer-to account details */}
+            <Card className="flex w-full flex-col gap-2 p-5">
+              <p className="text-xs font-medium tracking-widest text-muted-foreground">
+                TRANSFER TO
+              </p>
+              <p className="text-sm">
+                {manualBca?.bank_name} · {manualBca?.account_name}
+              </p>
+              <p className="select-all text-2xl font-semibold tabular-nums tracking-wider">
+                {manualBca?.account_number ?? "—"}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Transfer the exact amount, then send proof to the Block M staff
+                WhatsApp group.
+              </p>
+            </Card>
+
+            {/* Attestation gate */}
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={attested}
+                onChange={(e) => setAttested(e.target.checked)}
+                disabled={manualPending}
+                className="mt-1"
+              />
+              <span>
+                I confirm payment proof has been sent to the Block M staff
+                WhatsApp group
+              </span>
+            </label>
+
+            {manualError && <FieldMessage tone="error">{manualError}</FieldMessage>}
+
+            <Button
+              className="w-full"
+              disabled={!attested || manualPending || offlineLocked}
+              onClick={handleManualConfirm}
+            >
+              {manualPending ? "Confirming…" : "Confirm payment"}
+            </Button>
+
+            {/* Cancel affordance — without this the manual tab has no way to
+                abandon a sale except switching tabs (and both tabs disable
+                offline). Offline-disabled like the QRIS footer (cancel
+                invalidates the QR/VA, which needs connectivity, ADR-025). */}
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={handleCancel}
+              disabled={cancelling || offlineLocked}
+            >
+              {cancelling ? "Cancelling…" : "Cancel sale"}
+            </Button>
+          </div>
+        ) : phase.kind === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Preparing payment…</p>
@@ -504,28 +675,20 @@ export default function SaleCharge() {
               </div>
             )}
 
-            {/* Method tabs */}
-            <Tabs
-              value={selectedMethod}
-              onValueChange={handleMethodChange}
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="QRIS" disabled={offlineLocked}>QRIS</TabsTrigger>
-                <TabsTrigger value="BCA_VA" disabled={offlineLocked}>BCA VA</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            {/* Method tabs are rendered above the phase switch (shared switcher). */}
 
-            {/* Payment instrument */}
+            {/* Payment instrument — QRIS only (BCA VA retired, v1.2 #10). The
+                manual bank-transfer tender is rendered as a separate top-level
+                branch above, never via this invoice-driven path. */}
             <Card className="flex w-full flex-col items-center gap-3 p-5">
               {!invoiceMatches ? (
                 <div className="flex flex-col items-center gap-2 py-6">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">
-                    Generating {selectedMethod === "QRIS" ? "QR code" : "VA number"}…
+                    Generating QR code…
                   </p>
                 </div>
-              ) : selectedMethod === "QRIS" ? (
+              ) : (
                 <>
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
                     SCAN TO PAY
@@ -553,45 +716,26 @@ export default function SaleCharge() {
                     Scan with any QRIS-enabled wallet
                   </p>
                 </>
-              ) : (
-                // data-external-id exposes the Xendit FVA `external_id` so Playwright
-                // E2E specs can hit /callback_virtual_accounts/external_id={id}/simulate_payment.
-                // Prefers the persisted `invoice.reference_id` (the actual ref sent to
-                // Xendit at create time — `pos-${txnId}` on first mint, `pos-${txnId}-r-${uuid}`
-                // on retry) so this attribute survives retryWithFreshInvoice correctly.
-                // Falls back to the derived `pos-${txnId}` for invoices created before
-                // the field was persisted (pre-deploy rows have reference_id === undefined).
-                <>
-                  <p className="text-xs font-medium tracking-widest text-muted-foreground">
-                    BCA VIRTUAL ACCOUNT
-                  </p>
-                  <p
-                    className="select-all text-2xl font-semibold tabular-nums tracking-wider"
-                    {...(invoice?.reference_id
-                      ? { "data-external-id": invoice.reference_id }
-                      : txn?._id
-                        ? { "data-external-id": `pos-${txn._id}` }
-                        : {})}
-                  >
-                    {invoice?.va_number ?? "—"}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Transfer the exact amount to this account
-                  </p>
-                </>
               )}
             </Card>
+
+            {/* Inline auto-create error (ADR-048) — replaces the prior toast. */}
+            {chargeError && (
+              <div className="w-full">
+                <FieldMessage tone="error">{chargeError}</FieldMessage>
+              </div>
+            )}
 
             {/* Countdown timer — shown only when an invoice is active */}
             {invoiceMatches && (
               <div className="w-full" data-testid="countdown-panel">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{selectedMethod === "QRIS" ? "QR" : "VA"} expires in {mmss}</span>
+                  <span>QR expires in {mmss}</span>
                 </div>
                 <Progress value={Math.min(pctRemaining * 100, 100)} className="mt-1 h-1" />
                 {qrExpired && (
                   <p className="mt-2 text-sm text-warning" data-testid="countdown-expired-msg">
-                    {selectedMethod === "QRIS" ? "QR" : "VA"} expired — tap Retry for a fresh one.
+                    QR expired — tap Retry for a fresh one.
                   </p>
                 )}
               </div>

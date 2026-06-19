@@ -111,6 +111,7 @@ export default function SaleChargeSuccess() {
     webhook: "QRIS / BCA VA",
     polling: "QRIS / BCA VA",
     manual: "Manager override",
+    manual_bca: "Bank transfer (manual)",
   };
   const methodLabel = result.confirmed_via
     ? confirmLabel[result.confirmed_via]

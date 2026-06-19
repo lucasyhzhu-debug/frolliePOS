@@ -188,6 +188,87 @@ describe("payments/internal", () => {
     expect(inv?.xendit_invoice_id).toBe("xnd-active");
   });
 
+  // ── confirmManualBcaPayment ──────────────────────────────────────────────
+
+  it("confirmManualBcaPayment: pays the txn, stamps confirmed_via=manual_bca, returns receiptNumber", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    // Seed a live QRIS invoice so we can verify it gets cancelled.
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-bca-inv",
+      txnId: s.txn, xendit_invoice_id: "xnd-bca",
+      reference_id: `pos-${s.txn}`,
+      xendit_idempotency_key: "k-bca-inv", method: "QRIS",
+      qr_string: "qr-bca", status_at_create: "PENDING",
+    });
+    const r = await t.mutation(api.payments.public.confirmManualBcaPayment, {
+      idempotencyKey: "k-bca-1",
+      sessionId: s.session,
+      txnId: s.txn,
+    });
+    expect(r.confirmed).toBe(true);
+    expect(r.receiptNumber).toMatch(/^R-\d{4}-\d{4}$/);
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
+    expect(txn?.confirmed_via).toBe("manual_bca");
+    // No manager approver on this path — staff self-confirm.
+    expect(txn?.confirmed_mgr_approver_id).toBeUndefined();
+    await drainScheduled(t);
+  });
+
+  it("confirmManualBcaPayment: cancels the live QRIS invoice only when WE confirmed (race: webhook wins → invoice not cancelled again)", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    await t.mutation(internal.payments.internal._persistInvoiceCommit_internal, {
+      idempotencyKey: "k-race-inv",
+      txnId: s.txn, xendit_invoice_id: "xnd-race",
+      reference_id: `pos-${s.txn}`,
+      xendit_idempotency_key: "k-race-inv", method: "QRIS",
+      qr_string: "qr-race", status_at_create: "PENDING",
+    });
+    // Webhook fires first → txn is already paid before our mutation runs.
+    await t.mutation(internal.payments.internal._onPaidWebhook_internal, {
+      xendit_invoice_id: "xnd-race",
+    });
+    await drainScheduled(t);
+    // Now the staff taps "Confirm BCA". _confirmPaid no-ops (status guard).
+    // confirmed_via stays "webhook" — we must NOT overwrite it.
+    const r = await t.mutation(api.payments.public.confirmManualBcaPayment, {
+      idempotencyKey: "k-race-2",
+      sessionId: s.session,
+      txnId: s.txn,
+    });
+    // The mutation should succeed (idempotent — RECEIPT_UNCONFIRMED must NOT
+    // throw here because the txn IS paid, just via webhook). The txn's
+    // confirmed_via must stay "webhook".
+    expect(r.confirmed).toBe(true);
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.confirmed_via).toBe("webhook");
+    await drainScheduled(t);
+  });
+
+  it("confirmManualBcaPayment: idempotent — same key replays cached response", async () => {
+    const t = convexTest(schema);
+    const s = await seedAwaiting(t);
+    const key = "k-idem-bca";
+    const r1 = await t.mutation(api.payments.public.confirmManualBcaPayment, {
+      idempotencyKey: key,
+      sessionId: s.session,
+      txnId: s.txn,
+    });
+    await drainScheduled(t);
+    const r2 = await t.mutation(api.payments.public.confirmManualBcaPayment, {
+      idempotencyKey: key,
+      sessionId: s.session,
+      txnId: s.txn,
+    });
+    expect(r2.receiptNumber).toBe(r1.receiptNumber);
+    // Only 1 stock movement (dedup guard inside _confirmPaid).
+    const movements = await t.run((ctx) => ctx.db.query("pos_stock_movements").collect());
+    expect(movements.length).toBe(1);
+    await drainScheduled(t);
+  });
+
   it("webhook dedup: same xendit_invoice_id called twice — second is no-op (status guard inside _confirmPaid)", async () => {
     const t = convexTest(schema);
     const s = await seedAwaiting(t);

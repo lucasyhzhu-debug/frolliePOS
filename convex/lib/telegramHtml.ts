@@ -87,21 +87,41 @@ export function renderManualPaymentApproval(p: ManualPaymentApprovalPayload): Re
   return { text, inline_keyboard: [[{ text: "Open approval →", url: p.approve_url }]] };
 }
 
+// v1.2 #10: manual-BCA tally appended to the EOD founders summary.
+export type ManualBcaTally = {
+  count: number;
+  totalIdr: number;
+  items: Array<{ paidAt: number; total: number; staffName: string; receiptNumber: string }>;
+};
+
+export const MANUAL_BCA_EOD_MAX_LINES = 30;
+
 export type FoundersSummaryPayload = {
   dateLabel: string;
   totalSalesIdr: number;
   txnCount: number;
   flaggedCount: number;
+  manualBca?: ManualBcaTally; // v1.2 #10
 };
 
 export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessage {
-  return {
-    text:
-      `📊 <b>Frollie — ${escapeHtml(p.dateLabel)}</b>\n` +
-      `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}\n` +
-      `<b>Transactions:</b> ${p.txnCount}\n` +
-      `<b>Flagged for review:</b> ${p.flaggedCount}`,
-  };
+  const lines = [
+    `📊 <b>Frollie — ${escapeHtml(p.dateLabel)}</b>`,
+    `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}`,
+    `<b>Transactions:</b> ${p.txnCount}`,
+    `<b>Flagged for review:</b> ${p.flaggedCount}`,
+  ];
+  if (p.manualBca && p.manualBca.count > 0) {
+    lines.push("", `🏦 <b>Manual BCA:</b> ${p.manualBca.count} txn · Rp ${formatIdr(p.manualBca.totalIdr)}`);
+    const shown = p.manualBca.items.slice(0, MANUAL_BCA_EOD_MAX_LINES);
+    for (const it of shown) {
+      const when = escapeHtml(formatWibDateTime(it.paidAt));
+      lines.push(`• ${when} · Rp ${formatIdr(it.total)} · ${escapeHtml(it.staffName)} (${escapeHtml(it.receiptNumber)})`);
+    }
+    const overflow = p.manualBca.items.length - shown.length;
+    if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
+  }
+  return { text: lines.join("\n") };
 }
 
 export type StaffPinResetPayload = {
@@ -303,6 +323,8 @@ export type TxnTickerPayload = {
   staff_name: string;
   instrument: string;
   paid_at: number;
+  /** Set true for manual BCA transfers — appends a ⚠️ MANUAL check reminder. */
+  manual_bca?: boolean;
 };
 
 // v1.0.1: live sales ticker — informational, no inline keyboard, silent notification.
@@ -312,11 +334,17 @@ export function renderTxnTicker(p: TxnTickerPayload): RenderedMessage {
   const itemLines = shown.map((l) => `${l.qty}× ${escapeHtml(l.name)}`);
   if (overflow > 0) itemLines.push(`…+${overflow} more`);
   const wib = escapeHtml(formatWibDateTime(p.paid_at));
+  const tail: string[] = [
+    `${escapeHtml(p.staff_name)} · ${escapeHtml(p.instrument)} · ${wib}`,
+  ];
+  if (p.manual_bca) {
+    tail.push(`⚠️ <b>MANUAL</b> — check the BCA account before confirming stock.`);
+  }
   return {
     text: [
       `🧾 #${escapeHtml(p.receipt_number)} · Rp ${formatIdr(p.total)}`,
       ...itemLines,
-      `${escapeHtml(p.staff_name)} · ${escapeHtml(p.instrument)} · ${wib}`,
+      ...tail,
     ].join("\n"),
   };
 }

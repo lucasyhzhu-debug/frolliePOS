@@ -104,3 +104,49 @@ The `by_line_and_sku` movement-dedup index (ADR-026 §double-movement) still pro
 - **Adjusts [ADR-014](./014-single-xendit-invoice-per-transaction.md)** (2026-05-28): prior invoice is superseded locally (no Xendit cancel-API call for QR); `is_closed` + `is_single_use` on FVA prevent double-pay for BCA VA.
 - **Amends [ADR-026](./026-reconciliation-on-reload.md)** (2026-05-28): `useStartupReconciliation` poll body gutted; reconciliation-on-reload for QRIS/FVA is now manual-only recovery (manager-PIN override).
 - **Amends [strategic-foundations §8](./000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)** (2026-05-28): polling leg retired for QRIS and BCA VA; confirmation paths are webhook (primary) + manager-PIN manual override (fallback).
+- **Amended below** (2026-06-19, v1.2 #10): dynamic BCA VA hidden; Manual BCA added as a staff-self-confirm out-of-band tender; deviation from ADR-005 manager-PIN manual override documented with compensating controls.
+
+---
+
+## Amended 2026-06-19 — v1.2 #10: Manual BCA tender + dynamic BCA VA hidden
+
+### A — Payment method set as of v1.2 #10
+
+The live payment-method set is now:
+
+| Method | Provider | Confirmation path |
+|---|---|---|
+| **QRIS** | Xendit QR Codes API | Webhook (primary); manager-PIN manual override (fallback) |
+| **Manual BCA** | Out-of-band bank transfer | Staff self-confirm via attestation (`confirmManualBcaPayment`) |
+
+**Dynamic BCA VA (Xendit FVA) is hidden from the charge screen** — the BCA VA tab that previously appeared alongside QRIS has been removed from the FE. The feature was code-complete but not live-verified, and a pending decision to resolve FVA UX before enabling it produced an error-toast storm on the charge screen. Hiding the tab eliminates the storm while the decision is pending.
+
+**`createBcaVaCharge`, the FVA webhook parser, and the `BCA_VA` literal are RETAINED in the codebase** and must not be deleted:
+
+1. **Deploy-skew safety:** `confirmManualBcaPayment` is a net-new mutation; the FVA mutation (`createBcaVaCharge`) exists at the same path it always has. Removing it creates a function-type change at a known name — deploy-skew-fatal for any client still on the old FE during a rolling deploy.
+2. **Historical rows:** `pos_xendit_invoices` rows with `method="bca_va"` exist from pre-v1.2 #10 development and smoke-test sessions; the FVA parser in `webhook.ts` must remain to handle late-arriving callbacks on those rows.
+
+Re-enabling the dynamic BCA VA tab is a FE config change (un-hide the tab); the backend is unchanged.
+
+### B — Staff self-confirm: deviation from ADR-005 manager-PIN manual override
+
+The original manual override (Decision B, "fallback" path) required a **manager PIN** — only a manager could attest that a payment was received out-of-band. `confirmManualBcaPayment` deviates from this: **any authenticated staff member** can attest a Manual BCA transfer.
+
+**Rationale for the deviation:** the manual BCA flow targets a booth where the staff member physically holds the phone and can see the banking app. The transfer amount and sender name are visible on the merchant's BCA account before the confirm button is pressed. Requiring a manager PIN for every manual BCA sale would serialize every sale on manager availability — a prohibitive UX cost for a two-to-three person booth.
+
+**Compensating controls (replacing the manager-PIN gate).** Three ship in v1.2 #10; one is scheduled for #6:
+
+1. **EOD reconciliation itemization** *(shipped, v1.2 #10)* — every `confirmed_via="manual_bca"` sale is listed individually in the founders EOD summary with `{ paidAt, total, staffName, receiptNumber }` (`_manualBcaReconciliation_internal` → `foundersSummary.ts`), so managers can cross-check against the BCA statement the next morning.
+2. **Telegram ticker flag** *(shipped, v1.2 #10)* — the manager ticker marks manual-BCA sales with a `MANUAL` flag, so managers monitoring live can spot unexpected manual confirms immediately.
+3. **Audit log** *(shipped, v1.2 #10)* — `payment.confirmed` is emitted with `confirmed_via:"manual_bca"` and the attesting `staff_id`, providing a full audit trail.
+4. **Clock-out reconciliation** *(pending — lands with #6)* — the same `_manualBcaReconciliation_internal` itemization will appear on the shift hand-off / clock-out context, so discrepancies surface at shift end before the next person starts. Not wired in v1.2 #10 (the EOD cron is the only consumer of the query today); tracked as #6.
+
+Sales are marked `confirmed_via="manual_bca"` (distinct from `"manual"` which is the manager-PIN override path) so reporting can separate the two.
+
+### C — Live-QR double-pay residual (I1)
+
+When a staff member confirms a Manual BCA transfer, `confirmManualBcaPayment` **cancels the active QRIS invoice locally** (marks the `pos_xendit_invoices` row cancelled + `replaced_by_invoice_id=null`). However, it **cannot expire the QR code on Xendit's side** — the QR string remains scannable until Xendit's own 5-minute TTL expires.
+
+**Residual risk:** if a customer scans and pays the QRIS QR during the window between the staff self-confirm and the Xendit TTL expiry, `_confirmPaid_internal` will receive a second `qr.payment` webhook on an already-paid transaction. The existing `payment.confirmed_on_terminal` guard in `_confirmPaid_internal` detects this and logs a `payment.confirmed_on_terminal` audit row rather than double-committing stock or double-issuing a receipt number.
+
+**Backstop:** the EOD reconciliation (control 1 above) will surface the Xendit payout for the QR amount alongside the manual-BCA receipt, allowing the manager to identify and resolve any double-payment with the customer.

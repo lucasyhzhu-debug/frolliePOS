@@ -15,10 +15,15 @@ export const REFUND_BADGE = {
 /**
  * Confirmation-source label for the history detail card.
  * "polling" is a legacy literal for pre-ADR-036 rows; v0.4+ writers emit only
- * "webhook" / "manual" / null. Kept so archived v0.3 receipts render.
+ * "webhook" / "manual" / "manual_bca" / null. Kept so archived v0.3 receipts render.
+ * "manual_bca" = staff-confirmed manual bank transfer (v1.2 #10).
  */
-export const CONFIRMED_VIA_LABEL: Record<"webhook" | "polling" | "manual", string> = {
+export const CONFIRMED_VIA_LABEL: Record<
+  "webhook" | "polling" | "manual" | "manual_bca",
+  string
+> = {
   webhook: "Otomatis (webhook)",
   polling: "Otomatis (polling)",
   manual: "Manual (manajer)",
+  manual_bca: "Transfer bank (manual)",
 };

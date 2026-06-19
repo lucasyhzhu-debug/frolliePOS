@@ -106,11 +106,18 @@ export const sendFoundersSummary = internalAction({
     const now = Date.now();
     const { dayStartMs, dayEndMs, dateLabel } = wibDayWindow(now);
 
-    // Step 3: daily sales aggregate
-    const summary = await ctx.runQuery(
-      internal.transactions.internal._dailySalesSummary_internal,
-      { dayStartMs, dayEndMs },
-    );
+    // Step 3 + 3b: daily sales aggregate + manual-BCA tally (v1.2 #10) for the
+    // same WIB day window. Independent reads — fetch in parallel.
+    const [summary, manualBca] = await Promise.all([
+      ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
+        dayStartMs,
+        dayEndMs,
+      }),
+      ctx.runQuery(
+        internal.transactions.internal._manualBcaReconciliation_internal,
+        { dayStartMs, dayEndMs },
+      ),
+    ]);
 
     // Step 4: send via sendTemplate — pass chatIdOverride so sendTemplate skips
     // its own role-resolve (race window closed: chatId captured once above).
@@ -123,6 +130,7 @@ export const sendFoundersSummary = internalAction({
           totalSalesIdr: summary.totalSalesIdr,
           txnCount: summary.txnCount,
           flaggedCount: summary.flaggedCount,
+          manualBca,
         },
         idempotencyKey: `founders:${dateLabel}`,
         chatIdOverride: resolvedChatId,

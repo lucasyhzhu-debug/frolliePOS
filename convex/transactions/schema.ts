@@ -39,6 +39,7 @@ export const transactionsTables = {
       v.literal("webhook"),
       v.literal("polling"),
       v.literal("manual"),
+      v.literal("manual_bca"),   // v1.2 #10 — staff self-confirm manual bank transfer
     )),
     confirmed_mgr_approver_id: v.optional(v.id("staff")),
     confirmed_manual_reason: v.optional(v.string()),

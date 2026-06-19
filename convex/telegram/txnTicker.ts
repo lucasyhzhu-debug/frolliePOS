@@ -6,10 +6,11 @@ import { internal, api } from "../_generated/api";
 import { instrumentFromInvoice } from "../payments/internal";
 
 function instrumentLabel(
+  confirmedVia: "webhook" | "polling" | "manual" | "manual_bca" | null,
   method: "qris" | "bca_va" | "unknown",
-  isManual: boolean,
 ): string {
-  if (isManual) return "Manual";
+  if (confirmedVia === "manual_bca") return "Manual BCA";
+  if (confirmedVia === "manual") return "Manual";
   if (method === "qris") return "QRIS";
   if (method === "bca_va") return "BCA VA";
   return "—";
@@ -70,10 +71,8 @@ export const sendTxnTicker = internalAction({
     if (!txn) return { skipped: "not_found" };
 
     const staffName = names.find((s) => s._id === txn.staff_id)?.name ?? "Staff";
-    const instrument = instrumentLabel(
-      instrumentFromInvoice(inv),
-      txn.confirmed_via === "manual",
-    );
+    const isManualBca = txn.confirmed_via === "manual_bca";
+    const instrument = instrumentLabel(txn.confirmed_via, instrumentFromInvoice(inv));
 
     // 4. Send — disableNotification so it's a silent running feed. paid_at is the
     //    transaction's real settlement time (server-set in _confirmPaid), not the
@@ -88,6 +87,7 @@ export const sendTxnTicker = internalAction({
         staff_name: staffName,
         instrument,
         paid_at: txn.paid_at,
+        manual_bca: isManualBca,
       },
       idempotencyKey: `ticker:${args.txnId}`,
       chatIdOverride: chatId,

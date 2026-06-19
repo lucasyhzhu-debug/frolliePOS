@@ -10,6 +10,22 @@ export const RECEIPT_DEFAULTS = {
   footer_text: "Terima kasih! 💛",
 } as const;
 
+// v1.2 #10 manual-BCA account defaults — the live company account. Editable via
+// settings.public.updateManualBcaConfig; these are the fallback when the row /
+// field is absent.
+// POC tradeoff: a real money destination (account number) is hardcoded as the
+// read-time default so the booth works out-of-the-box with zero config, exactly
+// mirroring RECEIPT_DEFAULTS. Acceptable for a single-booth internal tool where
+// the account is the company's own and a manager can override via /mgr. If this
+// pattern ever serves multiple tenants, the default must move to per-tenant
+// config (a hardcoded payout account is a cross-tenant hazard).
+export const MANUAL_BCA_DEFAULTS = {
+  enabled: true,
+  bank_name: "BCA",
+  account_name: "PT Malo Group Bahagia",
+  account_number: "6044830994",
+} as const;
+
 export const _getSettings_internal = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -25,6 +41,12 @@ export const _getSettings_internal = internalQuery({
         instagram_handle: row?.receipt_instagram_handle ?? RECEIPT_DEFAULTS.instagram_handle,
         footer_text: row?.receipt_footer_text ?? RECEIPT_DEFAULTS.footer_text,
         logo_storage_id: row?.receipt_logo_storage_id ?? null,
+      },
+      manual_bca: {
+        enabled: row?.manual_bca_enabled ?? MANUAL_BCA_DEFAULTS.enabled,
+        bank_name: row?.manual_bca_bank_name ?? MANUAL_BCA_DEFAULTS.bank_name,
+        account_name: row?.manual_bca_account_name ?? MANUAL_BCA_DEFAULTS.account_name,
+        account_number: row?.manual_bca_account_number ?? MANUAL_BCA_DEFAULTS.account_number,
       },
     };
   },

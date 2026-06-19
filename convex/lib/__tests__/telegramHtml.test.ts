@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker } from "../telegramHtml";
+import { renderFoundersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker } from "../telegramHtml";
 
 describe("renderSystemError", () => {
   it("escapes HTML and has no buttons", () => {
@@ -24,6 +24,51 @@ describe("renderTxnTicker", () => {
     const lines = Array.from({ length: 9 }, (_, i) => ({ name: `P${i}`, qty: 1 }));
     const m = renderTxnTicker({ receipt_number: "R", total: 1, lines, staff_name: "X", instrument: "QRIS", paid_at: 0 });
     expect(m.text).toContain("…+3 more");
+  });
+  it("manual_bca: appends warning line when manual_bca=true", () => {
+    const m = renderTxnTicker({
+      receipt_number: "R-2026-0099", total: 150000,
+      lines: [{ name: "Dubai 3pcs", qty: 1 }], staff_name: "Sari",
+      instrument: "Manual BCA", paid_at: 0, manual_bca: true,
+    });
+    expect(m.text).toContain("MANUAL");
+    expect(m.text).toContain("check the BCA account");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+  it("manual_bca: NO warning line for normal QRIS ticker (no manual_bca field)", () => {
+    const m = renderTxnTicker({
+      receipt_number: "R-2026-0001", total: 50000,
+      lines: [{ name: "Dubai 1pcs", qty: 1 }], staff_name: "Bayu",
+      instrument: "QRIS", paid_at: 0,
+    });
+    expect(m.text).not.toContain("MANUAL");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+});
+
+describe("renderFoundersSummary manual-BCA section", () => {
+  it("appends an itemized manual-BCA section when count > 0", () => {
+    const m = renderFoundersSummary({
+      dateLabel: "19 Jun 2026", totalSalesIdr: 500000, txnCount: 10, flaggedCount: 0,
+      manualBca: {
+        count: 2, totalIdr: 80000,
+        items: [
+          { paidAt: 1_700_000_000_000, total: 50000, staffName: "Lucas", receiptNumber: "R-2026-0001" },
+          { paidAt: 1_700_000_100_000, total: 30000, staffName: "Mira", receiptNumber: "R-2026-0002" },
+        ],
+      },
+    });
+    expect(m.text).toContain("Manual BCA");
+    expect(m.text).toContain("R-2026-0001");
+    expect(m.text).toContain("Rp 80.000");
+  });
+
+  it("omits the manual-BCA section when count is 0", () => {
+    const m = renderFoundersSummary({
+      dateLabel: "19 Jun 2026", totalSalesIdr: 500000, txnCount: 10, flaggedCount: 0,
+      manualBca: { count: 0, totalIdr: 0, items: [] },
+    });
+    expect(m.text).not.toContain("Manual BCA");
   });
 });
 
