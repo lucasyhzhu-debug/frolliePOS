@@ -2164,8 +2164,8 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 1 (✅ shipped 2026-06-18):**
 - Phthalo-dark design system (#2) — **absorbed staff-home declutter (#4) + lock icon (#5)** (home laid out once; #4/#5 folded in here rather than re-churning home across 3 PRs). Gates #12. _Glare HARD GATE (real booth tablet) remains owner-owned._
 
-**In Phase 2 (📋 planned 2026-06-19):**
-- Inline messaging over toasts (#12) — slice 1: `FieldMessage` primitive + ADR-048 + ESLint fence + convert the 2 worst files (products, vouchers). Remaining bucket-A files = follow-up slices.
+**In Phase 2 (✅ shipped 2026-06-19, PR #90):**
+- Inline messaging over toasts (#12) — slice 1: `FieldMessage` primitive + ADR-048 + ESLint fence + convert the 2 worst files (products 26, vouchers 12). Remaining bucket-A files = follow-up slices.
 
 **Still not yet (later v1.2 phases):**
 - Receipt cleanup (#13), login PIN feedback (#11+#7), manual BCA transfer (#10), real Xendit refunds (#9, spike-gated), product photos (#3), handoff flow (#6), EN/ID toggle (#1)
@@ -2240,56 +2240,56 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **notes:**
     - 2026-06-18: Phase 1 shipped (PR pending). Triple-review (0 Critical) + `/simplify xhigh` applied; 326/326 tests green; 4 surfaces verified live on the emulated 800×1280 tablet. **Glare HARD GATE remains OPEN + owner-owned** — the real booth-tablet readability check under mall lighting is a manual gate; fallback if it washes out = remove `class="dark"` (one-attribute revert). Shared motion variants in `src/lib/motion.ts`; ~35 tokens pruned (added 8 semantic/role `*-bg` over the planned 27 via the simplify pass).
 
-**Phase 2 — #12 inline messaging over toasts (📋 PLANNED, planned 2026-06-19):** slice 1 of #12 — a first-class `FieldMessage` primitive + ADR-048 policy + ESLint fence, converting the 2 worst form-validation files (`mgr/products` 25 toasts, `mgr/vouchers` 12). Treatment-B lifted tones confirmed by Lucas. Login/PIN (bucket-B = #11/#7) and the other ~6 bucket-A files (later slices) stay out.
+**Phase 2 — #12 inline messaging over toasts (✅ SHIPPED 2026-06-19, squash 2b3d3ac / PR #90):** slice 1 of #12 — a first-class `FieldMessage` primitive + ADR-048 policy + ESLint fence, converting the 2 worst form-validation files (`mgr/products` 26 toasts, `mgr/vouchers` 12). Treatment-B lifted tones confirmed by Lucas. Login/PIN (bucket-B = #11/#7) and the other ~6 bucket-A files (later slices) stay out. Built via subagent-driven-development (6 tasks, per-task review) + `/triple-review` (0 Critical) + `/simplify xhigh` (extracted `useFieldErrors` hook + `parseIntStrict`→format.ts); 1129/1129 tests green.
 
-- 📋 **[v12-fe-msg-tokens]** `src/index.css` — dark-lift `--color-error`/`--color-success` via `@theme inline` var-indirection (red-400/emerald-400, AA body text on the phthalo card); badge error/success lift as a bonus (#12 T1)
+- ✅ **[v12-fe-msg-tokens]** `src/index.css` — dark-lift `--color-error`/`--color-success` via `@theme inline` var-indirection (red-400/emerald-400, AA body text on the phthalo card); badge error/success lift as a bonus (#12 T1) (2b3d3ac)
   - **agent:** `ui-component-builder`
   - **deps:** v12-fe-dark-tokens
   - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-phase2-inline-messaging-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md), [spec staffreview](./reviews/staffreview-v1.2-phase2-inline-messaging-spec-2026-06-19.md), [plan staffreview](./reviews/staffreview-v1.2-phase2-inline-messaging-plan-2026-06-19.md)
   - **subtasks:**
-    - [ ] Add `--error`/`--success` to `:root` + `.dark`; move `--color-*` into `@theme inline`; delete old static lines
-    - [ ] Build + grep verify placement; visual check badge tints survive opacity modifiers in dark
+    - [x] Add `--error`/`--success` to `:root` + `.dark`; move `--color-*` into `@theme inline`; delete old static lines
+    - [x] Build + grep verify placement; visual check badge tints survive opacity modifiers in dark
   - **notes:** _(empty)_
-- 📋 **[v12-fe-fieldmessage]** `src/components/ui/field-message.tsx` (+ `__tests__`) — cva `FieldMessage` + exported `fieldMessageVariants` (error/success), left-rule + icon + tone-dependent a11y role; variant-guard test mirrors badge.test.tsx (#12 T2)
+- ✅ **[v12-fe-fieldmessage]** `src/components/ui/field-message.tsx` (+ `__tests__`) — cva `FieldMessage` + exported `fieldMessageVariants` (error/success), left-rule + icon + tone-dependent a11y role; variant-guard test mirrors badge.test.tsx (#12 T2) (2b3d3ac)
   - **agent:** `ui-component-builder`
   - **deps:** v12-fe-msg-tokens
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Failing variant-guard test (tones + default + bad-tone `@ts-expect-error`)
-    - [ ] Implement primitive (AlertCircle/CheckCircle2, role=alert/status, bg-{tone}/10 tint); test + typecheck green
+    - [x] Failing variant-guard test (tones + default + bad-tone `@ts-expect-error`)
+    - [x] Implement primitive (AlertCircle/CheckCircle2, role=alert/status, bg-{tone}/10 tint); test + typecheck green
   - **notes:** _(empty)_
-- 📋 **[v12-fe-convert-products]** `src/routes/mgr/products.tsx` (+ new `__tests__/products.test.tsx`) — convert 25 sync-validation toasts → per-field `FieldMessage` (collect-all, aria-invalid/describedby, focus-first-error); keep success + dynamic server toasts (#12 T3)
+- ✅ **[v12-fe-convert-products]** `src/routes/mgr/products.tsx` (+ new `__tests__/products.test.tsx`) — convert 26 sync-validation toasts → per-field `FieldMessage` (collect-all, aria-invalid/describedby, focus-first-error); keep success + dynamic server toasts (#12 T3) (2b3d3ac)
   - **agent:** `frontend-integrator`
   - **deps:** v12-fe-fieldmessage
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Scaffolding + convert Add-product handler (worked example) + JSX FieldMessages
-    - [ ] Convert remaining 4 handlers (Add-SKU, edit-meta, edit-price, components) per the recipe tables
-    - [ ] Inline-behavior test (renderRoute harness); typecheck + lint green
+    - [x] Scaffolding + convert Add-product handler (worked example) + JSX FieldMessages
+    - [x] Convert remaining 4 handlers (Add-SKU, edit-meta, edit-price, components) per the recipe tables
+    - [x] Inline-behavior test (renderRoute harness); typecheck + lint green
   - **notes:** _(empty)_
-- 📋 **[v12-fe-convert-vouchers]** `src/routes/mgr/vouchers.tsx` (+ extend `__tests__/vouchers.test.tsx`) — convert 12 sync-validation toasts → per-field `FieldMessage`; keep success + dynamic toasts (#12 T4)
+- ✅ **[v12-fe-convert-vouchers]** `src/routes/mgr/vouchers.tsx` (+ extend `__tests__/vouchers.test.tsx`) — convert 12 sync-validation toasts → per-field `FieldMessage`; keep success + dynamic toasts (#12 T4) (2b3d3ac)
   - **agent:** `frontend-integrator`
   - **deps:** v12-fe-fieldmessage
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Convert Add-voucher handler + JSX FieldMessages
-    - [ ] Convert edit-meta handler (preserve changed-fields-only patch); extend vouchers test with inline-behavior assertion
+    - [x] Convert Add-voucher handler + JSX FieldMessages
+    - [x] Convert edit-meta handler (preserve changed-fields-only patch); extend vouchers test with inline-behavior assertion
   - **notes:** _(empty)_
-- 📋 **[v12-fe-lint-fence]** `eslint.config.js` — scoped `no-restricted-syntax` migration-registry block banning literal-arg `toast.error`/`toast.warning` in the migrated files (esquery selectors empirically pre-verified); smoke-test the guard fires (#12 T5)
+- ✅ **[v12-fe-lint-fence]** `eslint.config.js` — scoped `no-restricted-syntax` migration-registry block banning literal-arg `toast.error`/`toast.warning` in the migrated files (esquery selectors empirically pre-verified); smoke-test the guard fires (#12 T5) (2b3d3ac)
   - **agent:** `claude`
   - **deps:** v12-fe-convert-products, v12-fe-convert-vouchers
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Add scoped block (error+Literal, error+emptyTemplate, warning+Literal); lint green
-    - [ ] Smoke-test: scratch literal `toast.error("x")` fails; dynamic does not; remove scratch
+    - [x] Add scoped block (error+Literal, error+emptyTemplate, warning+Literal); lint green
+    - [x] Smoke-test: scratch literal `toast.error("x")` fails; dynamic does not; remove scratch
   - **notes:** _(empty)_
-- 📋 **[v12-fe-adr048-docs]** `docs/ADR/048-inline-messaging-policy.md` (new) + `CLAUDE.md:42` + `docs/CHANGELOG.md` — codify inline-for-sync / toast-for-async policy + heuristic + token amend; final full verification (#12 T6)
+- ✅ **[v12-fe-adr048-docs]** `docs/ADR/048-inline-messaging-policy.md` (new) + `CLAUDE.md:42` + `docs/CHANGELOG.md` — codify inline-for-sync / toast-for-async policy + heuristic + token amend; final full verification (#12 T6) (2b3d3ac)
   - **agent:** `—`
   - **deps:** v12-fe-lint-fence
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase2-inline-messaging.md)
   - **subtasks:**
-    - [ ] ADR-048 + CLAUDE.md note extension + CHANGELOG entry
-    - [ ] Final `typecheck && lint && vitest run && build` all green
+    - [x] ADR-048 + CLAUDE.md note extension + CHANGELOG entry
+    - [x] Final `typecheck && lint && vitest run && build` all green
   - **notes:** _(empty)_
 
 ---
