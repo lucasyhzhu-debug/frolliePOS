@@ -124,6 +124,7 @@ export const sendTemplate = action({
         receipt_number: v.string(), total: v.number(),
         lines: v.array(v.object({ name: v.string(), qty: v.number() })),
         staff_name: v.string(), instrument: v.string(), paid_at: v.number(),
+        manual_bca: v.optional(v.boolean()),
       }),
     ),
     idempotencyKey: v.string(),

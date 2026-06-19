@@ -25,6 +25,25 @@ describe("renderTxnTicker", () => {
     const m = renderTxnTicker({ receipt_number: "R", total: 1, lines, staff_name: "X", instrument: "QRIS", paid_at: 0 });
     expect(m.text).toContain("…+3 more");
   });
+  it("manual_bca: appends warning line when manual_bca=true", () => {
+    const m = renderTxnTicker({
+      receipt_number: "R-2026-0099", total: 150000,
+      lines: [{ name: "Dubai 3pcs", qty: 1 }], staff_name: "Sari",
+      instrument: "Manual BCA", paid_at: 0, manual_bca: true,
+    });
+    expect(m.text).toContain("MANUAL");
+    expect(m.text).toContain("check the BCA account");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
+  it("manual_bca: NO warning line for normal QRIS ticker (no manual_bca field)", () => {
+    const m = renderTxnTicker({
+      receipt_number: "R-2026-0001", total: 50000,
+      lines: [{ name: "Dubai 1pcs", qty: 1 }], staff_name: "Bayu",
+      instrument: "QRIS", paid_at: 0,
+    });
+    expect(m.text).not.toContain("MANUAL");
+    expect(m.inline_keyboard).toBeUndefined();
+  });
 });
 
 describe("telegramHtml v0.5.2 renderers", () => {

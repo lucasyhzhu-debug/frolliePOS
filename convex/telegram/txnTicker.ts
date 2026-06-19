@@ -8,7 +8,9 @@ import { instrumentFromInvoice } from "../payments/internal";
 function instrumentLabel(
   method: "qris" | "bca_va" | "unknown",
   isManual: boolean,
+  isManualBca: boolean,
 ): string {
+  if (isManualBca) return "Manual BCA";
   if (isManual) return "Manual";
   if (method === "qris") return "QRIS";
   if (method === "bca_va") return "BCA VA";
@@ -70,9 +72,11 @@ export const sendTxnTicker = internalAction({
     if (!txn) return { skipped: "not_found" };
 
     const staffName = names.find((s) => s._id === txn.staff_id)?.name ?? "Staff";
+    const isManualBca = txn.confirmed_via === "manual_bca";
     const instrument = instrumentLabel(
       instrumentFromInvoice(inv),
       txn.confirmed_via === "manual",
+      isManualBca,
     );
 
     // 4. Send — disableNotification so it's a silent running feed. paid_at is the
@@ -88,6 +92,7 @@ export const sendTxnTicker = internalAction({
         staff_name: staffName,
         instrument,
         paid_at: txn.paid_at,
+        manual_bca: isManualBca,
       },
       idempotencyKey: `ticker:${args.txnId}`,
       chatIdOverride: chatId,

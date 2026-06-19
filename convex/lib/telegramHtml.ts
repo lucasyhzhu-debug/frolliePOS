@@ -303,6 +303,8 @@ export type TxnTickerPayload = {
   staff_name: string;
   instrument: string;
   paid_at: number;
+  /** Set true for manual BCA transfers — appends a ⚠️ MANUAL check reminder. */
+  manual_bca?: boolean;
 };
 
 // v1.0.1: live sales ticker — informational, no inline keyboard, silent notification.
@@ -312,11 +314,17 @@ export function renderTxnTicker(p: TxnTickerPayload): RenderedMessage {
   const itemLines = shown.map((l) => `${l.qty}× ${escapeHtml(l.name)}`);
   if (overflow > 0) itemLines.push(`…+${overflow} more`);
   const wib = escapeHtml(formatWibDateTime(p.paid_at));
+  const tail: string[] = [
+    `${escapeHtml(p.staff_name)} · ${escapeHtml(p.instrument)} · ${wib}`,
+  ];
+  if (p.manual_bca) {
+    tail.push(`⚠️ <b>MANUAL</b> — check the BCA account before confirming stock.`);
+  }
   return {
     text: [
       `🧾 #${escapeHtml(p.receipt_number)} · Rp ${formatIdr(p.total)}`,
       ...itemLines,
-      `${escapeHtml(p.staff_name)} · ${escapeHtml(p.instrument)} · ${wib}`,
+      ...tail,
     ].join("\n"),
   };
 }
