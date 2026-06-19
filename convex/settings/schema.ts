@@ -21,6 +21,13 @@ export const settingsTables = {
     // (settings/internal._getSettings_internal) so the existing prod row needs
     // no migration. Same pattern as the receipt_* fields.
     txn_ticker_enabled: v.optional(v.boolean()),
+    // v1.2 #10 — static-account manual bank transfer. All optional + read-time
+    // defaults (settings/internal._getSettings_internal) so the existing prod
+    // row needs no migration. Same pattern as receipt_* / txn_ticker_enabled.
+    manual_bca_enabled: v.optional(v.boolean()),
+    manual_bca_bank_name: v.optional(v.string()),
+    manual_bca_account_name: v.optional(v.string()),
+    manual_bca_account_number: v.optional(v.string()),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
   }),

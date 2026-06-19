@@ -182,3 +182,12 @@ it("setFoundersSummaryEnabled replays the cached result for the same idempotency
   );
   expect(audits.length).toBe(1);
 });
+
+it("_getSettings_internal returns manual_bca defaults when row absent", async () => {
+  const t = convexTest(schema);
+  const s = await t.query(internal.settings.internal._getSettings_internal, {});
+  expect(s.manual_bca.enabled).toBe(true);
+  expect(s.manual_bca.bank_name).toBe("BCA");
+  expect(s.manual_bca.account_name).toBe("PT Malo Group Bahagia");
+  expect(s.manual_bca.account_number).toBe("6044830994");
+});
