@@ -53,6 +53,8 @@ export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardPro
   // whether the current count step has been submitted yet
   const [countReady, setCountReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  // flips to true after onComplete resolves so all steps show as done in the rail
+  const [completed, setCompleted] = useState(false);
 
   const currentStep = steps[currentIndex];
   const isLastStep = currentIndex === steps.length - 1;
@@ -69,17 +71,20 @@ export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardPro
       type: currentStep.type,
       confirmed_at: Date.now(),
     };
-    return [...confirmed, entry];
+    // Functional updater form avoids closing over stale confirmed
+    return entry;
   }
 
   async function handleNext() {
-    const next = bankCurrentStep();
-    setConfirmed(next);
+    const entry = bankCurrentStep();
+    const next = [...confirmed, entry];
+    setConfirmed((prev) => [...prev, entry]);
 
     if (isLastStep) {
       setBusy(true);
       try {
         await onComplete(next, lastCountChanged);
+        setCompleted(true);
       } finally {
         setBusy(false);
       }
@@ -104,7 +109,8 @@ export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardPro
     setCountReady(true);
   }
 
-  const doneCount = currentIndex; // steps before currentIndex are done
+  // After onComplete resolves, all steps are done; otherwise steps before currentIndex are done
+  const doneCount = completed ? steps.length : currentIndex;
 
   const variants = stepVariants(reduce);
   const trans = transition(reduce);
@@ -164,7 +170,7 @@ export default function ShiftWizard({ title, steps, onComplete }: ShiftWizardPro
         {/* For count steps: only show the advance button once countReady */}
         {canAdvance && (
           <Button disabled={busy} onClick={handleNext}>
-            {isLastStep ? "Selesai" : "Lanjut"}
+            {isLastStep ? steps[currentIndex].label : "Lanjut"}
           </Button>
         )}
       </div>

@@ -45,8 +45,9 @@ const STEPS: WizardStep[] = [
     body: <p>Read the briefing notes.</p>,
   },
   {
+    // The last step's label is used as the terminal button text (caller sets it)
     key: "count",
-    label: "Stock count",
+    label: "Selesai",
     type: "count",
   },
 ];
@@ -123,7 +124,7 @@ describe("ShiftWizard", () => {
 
   it("rail shows 2/2 done after completing all steps", async () => {
     const onComplete = vi.fn<[ConfirmedStep[], number | null], Promise<void>>().mockResolvedValue(undefined);
-    renderWizard(onComplete);
+    const { container } = renderWizard(onComplete);
 
     // Complete both steps
     fireEvent.click(screen.getByRole("button", { name: /next|confirm|lanjut/i }));
@@ -134,23 +135,26 @@ describe("ShiftWizard", () => {
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
 
-    // Both step labels should appear in the rail with done indicators
-    // The rail renders all step labels; after completion doneCount === 2
-    const stepLabels = screen.getAllByText("Briefing");
-    expect(stepLabels.length).toBeGreaterThanOrEqual(1);
+    // After completion doneCount === steps.length (2).
+    // StepRail renders one <polyline> SVG checkmark per done step.
+    await waitFor(() => {
+      const checkmarks = container.querySelectorAll("polyline");
+      expect(checkmarks).toHaveLength(2);
+    });
   });
 
   it("passes null countChanged when there are no count steps", async () => {
     const instructionOnly: WizardStep[] = [
-      { key: "info", label: "Info", type: "instruction", body: <p>Info body</p> },
+      // label is used as the terminal button text on the last step
+      { key: "info", label: "Selesai", type: "instruction", body: <p>Info body</p> },
     ];
     const onComplete = vi.fn<[ConfirmedStep[], number | null], Promise<void>>().mockResolvedValue(undefined);
     render(
       <ShiftWizard title="Test" steps={instructionOnly} onComplete={onComplete} />,
     );
 
-    // The only step is an instruction; clicking next on the final step calls onComplete
-    fireEvent.click(screen.getByRole("button", { name: /next|confirm|lanjut|selesai|complete|finish/i }));
+    // The only step is an instruction; clicking the terminal button calls onComplete
+    fireEvent.click(screen.getByRole("button", { name: /selesai|complete|finish/i }));
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     const [, countChanged] = onComplete.mock.calls[0];
@@ -168,6 +172,12 @@ describe("ShiftWizard", () => {
     ).not.toThrow();
 
     expect(screen.getByText("Shift Start")).toBeInTheDocument();
+
+    // Also exercise navigation while reduced-motion is active — must not crash
+    const nextBtn = screen.getByRole("button", { name: /next|confirm|lanjut/i });
+    expect(() => fireEvent.click(nextBtn)).not.toThrow();
+    // Count step renders after advancing
+    expect(await screen.findByText("MockCountStep")).toBeInTheDocument();
 
     // Reset to default for subsequent tests
     vi.mocked(useReducedMotion).mockReturnValue(false);
