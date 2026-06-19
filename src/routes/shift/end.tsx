@@ -236,7 +236,7 @@ export default function ShiftEnd() {
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
                 Total jam kerja
               </p>
-              <p className="text-3xl font-bold text-teal-500 mt-1">
+              <p className="text-3xl font-bold text-primary mt-1">
                 {fmtDuration(signOffDurationMs)}
               </p>
             </div>
