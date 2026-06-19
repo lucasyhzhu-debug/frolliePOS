@@ -797,6 +797,102 @@ export const _getTxnForTicker_internal = internalQuery({
 });
 
 // ---------------------------------------------------------------------------
+// v1.2 #10 — Manual BCA reconciliation control
+// ---------------------------------------------------------------------------
+
+/**
+ * Compensating control: list every manual_bca paid transaction in a WIB day
+ * window so operators can validate staff-confirmed BCA transfers against the
+ * real BCA account balance.
+ *
+ * Consumed by Task 7 (EOD cron that sends the reconciliation summary to
+ * Telegram) and later #6 (manager reconciliation UI).
+ *
+ * Query strategy: scan by_status_paid_at (status="paid", paid_at in
+ * [dayStartMs, dayEndMs)), then JS-filter confirmed_via === "manual_bca".
+ * DO NOT use q.eq on confirmed_via — it is an optional field and Convex
+ * optional-field index equality silently diverges in convex-test (MEMORY:
+ * convex-optional-field-filter-gotcha).
+ *
+ * Sort: chronological by paid_at (ascending) — operators read top-to-bottom
+ * to match bank statement order.
+ *
+ * Resilient: staff name lookup falls back to "Staff" when the row is missing
+ * (hard-delete or corruption). The EOD cron MUST NOT crash over a missing
+ * staff name — the Telegram alert is more valuable than strict accuracy here.
+ * (Compare _fetchDayWindow_internal which throws; that query is staff-session
+ * bounded and can afford strict invariants. Cron context cannot.)
+ */
+export const _manualBcaReconciliation_internal = internalQuery({
+  args: {
+    dayStartMs: v.number(),
+    dayEndMs: v.number(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    items: Array<{
+      paidAt: number;
+      total: number;
+      staffName: string;
+      receiptNumber: string;
+    }>;
+    count: number;
+    totalIdr: number;
+  }> => {
+    // 1. Fetch all paid txns in the WIB day window via the compound index.
+    //    paid_at is guaranteed present for status="paid" rows (_confirmPaid
+    //    sets it server-side, ADR-031) — the bang assertions below are
+    //    invariant-backed, not defensive.
+    const paid = await ctx.db
+      .query("pos_transactions")
+      .withIndex("by_status_paid_at", (q) =>
+        q
+          .eq("status", "paid")
+          .gte("paid_at", args.dayStartMs)
+          .lt("paid_at", args.dayEndMs),
+      )
+      .collect();
+
+    // 2. JS-filter to manual_bca only (optional-field filter gotcha — NEVER
+    //    q.eq on an optional field that can be absent for non-manual_bca rows).
+    const bcaOnly = paid.filter((t) => t.confirmed_via === "manual_bca");
+
+    if (bcaOnly.length === 0) {
+      return { items: [], count: 0, totalIdr: 0 };
+    }
+
+    // 3. Staff names up-front to avoid N+1 per txn. _listStaffNames_internal
+    //    returns all staff (active + inactive) so historical txns by a
+    //    deactivated staff member still resolve.
+    //    Cross-module read via auth internal (ADR-034).
+    const staffNames = await ctx.runQuery(
+      internal.auth.internal._listStaffNames_internal,
+      {},
+    );
+    const nameById = new Map(staffNames.map((s) => [String(s._id), s.name]));
+
+    // 4. Sort chronological by paid_at (ascending — match bank-statement order).
+    const sorted = bcaOnly.slice().sort((a, b) => a.paid_at! - b.paid_at!);
+
+    // 5. Project to the output shape. Resilient name lookup: fall back to
+    //    "Staff" when the staff row is missing (EOD cron must not crash).
+    const items = sorted.map((t) => ({
+      paidAt: t.paid_at!,
+      total: t.total,
+      staffName: nameById.get(String(t.staff_id)) ?? "Staff",
+      receiptNumber: t.receipt_number ?? "—",
+    }));
+
+    // 6. Reduce totalIdr (integer rupiah, ADR-015 — no floats).
+    const totalIdr = items.reduce((s, item) => s + item.total, 0);
+
+    return { items, count: items.length, totalIdr };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Public API v1 — refunds batch join resolver
 // ---------------------------------------------------------------------------
 
