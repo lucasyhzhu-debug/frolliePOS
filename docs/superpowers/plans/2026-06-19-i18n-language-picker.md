@@ -383,10 +383,13 @@ describe("getSession surfaces locale", () => {
     const t = convexTest(schema);
     const { sessionId, staffNoLocale } = await t.run(async (ctx) => {
       const staffNoLocale = await ctx.db.insert("staff", {
-        name: "A", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
+        // staff.code is REQUIRED (convex/auth/schema.ts:7, ADR-034); omit ⇒ insert fails.
+        name: "A", code: "S-0001", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
       });
       const sessionId = await ctx.db.insert("staff_sessions", {
+        // ended_at + end_reason are REQUIRED unions (schema.ts:26-32); pass null for active.
         staff_id: staffNoLocale, device_id: "d1", started_at: Date.now(),
+        ended_at: null, end_reason: null,
       });
       return { sessionId, staffNoLocale };
     });
@@ -477,17 +480,22 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 
+// staff.code is REQUIRED (schema.ts:7); staff_sessions needs ended_at + end_reason
+// (required null-unions, schema.ts:26-32). Mirrors convex/staff/__tests__/_helpers.ts.
 async function seed(t: ReturnType<typeof convexTest>) {
   return t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
-      name: "A", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
+      name: "A", code: "S-0002", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "d1", started_at: Date.now(),
+      ended_at: null, end_reason: null,
     });
     return { staffId, sessionId };
   });
 }
+// NOTE: setOwnLocale takes no staffId arg (self-derived from session), so "staffer A
+// cannot set B's locale" is structurally impossible — no cross-staff negative test needed.
 
 describe("setOwnLocale", () => {
   it("patches the caller's own staff row + writes an audit row", async () => {
@@ -764,13 +772,36 @@ Also convert in this file (English default values shown — Task 1 already seede
 
 - [ ] **Step 6: Run tests + typecheck**
 
+**REQUIRED `home.test.tsx` fix:** `Home` now calls `useT()` and renders `<LocaleToggle/>` (both need
+`LocaleProvider`), but `src/routes/__tests__/home.test.tsx:37-43` renders `<Home/>` inside only
+`<MemoryRouter>` → `useT` throws "must be used within LocaleProvider", failing all 5 home tests. Wrap it:
+
+```tsx
+import { LocaleProvider } from "@/lib/i18n";
+// ...
+function renderHome() {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <LocaleProvider>
+        <Home />
+      </LocaleProvider>
+    </MemoryRouter>,
+  );
+}
+```
+
+The existing `useSession` mock (`home.test.tsx:8-15`) returns staff without `locale` — runtime-safe
+(`savedLocale ?? "en"`). The mock starts session `status:"active"`, so the provider's seed effect sees
+`prevStatus==="active"` on mount (`became===false`) and leaves locale at the `"en"` default — group labels
+stay `"MANAGER"`/`"Manager home"`/`"Settlements"` (en), so all existing assertions still pass.
+
 Run: `npx vitest run src/components/pos/__tests__/LocaleToggle.test.tsx src/routes/__tests__/home.test.tsx && npm run typecheck`
-Expected: PASS. Update `home.test.tsx` if it asserts old literal strings (it may assert `"New sale"` — still correct since EN is default in tests where no active-ID session is mocked).
+Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/components/pos/flags src/components/pos/LocaleToggle.tsx src/routes/home.tsx src/components/pos/__tests__/LocaleToggle.test.tsx
+git add src/components/pos/flags src/components/pos/LocaleToggle.tsx src/routes/home.tsx src/components/pos/__tests__/LocaleToggle.test.tsx src/routes/__tests__/home.test.tsx
 git commit -m "feat(v1.2 #1): flag-backed LocaleToggle in home YOU group + convert home copy"
 ```
 
