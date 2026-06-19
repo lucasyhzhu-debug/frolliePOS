@@ -2,6 +2,9 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — chore: bump app version 1.0.0 → 1.2.0
+- `package.json` version had sat at `1.0.0` since launch while shipping through the v1.2 milestone. Bumped to `1.2.0` so the home-screen label (`__APP_VERSION__`) and ops error reports reflect the real release line. (Milestone phase IDs like "v1.2 #10" remain the planning handle; package semver tracks the shipped milestone.)
+
 ## 2026-06-19 — Public API v1: date filtering + dev token prefix
 - feat(api/v1): `GET /api/v1/transactions` and `/api/v1/refunds` accept optional
   `from`/`to` query params (epoch ms, inclusive-lower / exclusive-upper) that
@@ -20,7 +23,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 ## 2026-06-19 — v1.2 #10: Manual bank transfer + retire BCA VA
 - Hidden the broken BCA VA tab (QRIS is the sole Xendit method; the error-toast storm is gone).
 - Added a "Bank transfer (manual)" tender: staff self-confirm against the static company BCA account; sales are marked `manual_bca`, flagged in the manager ticker, and itemized in the EOD founders summary for reconciliation.
-- Manager-editable account config + enable/disable toggle (`/mgr` settings).
+- Account config (bank / name / number + enable toggle) ships with baked-in defaults (`MANUAL_BCA_DEFAULTS`); there is intentionally **no booth UI** to edit the settlement account — changes are server-side only (Convex dashboard / CLI), a deliberate security boundary so a frontend session can never redirect the payout account.
 
 ## v1.2 #12 slice 1 — Inline messaging over toasts
 - New `FieldMessage` design-system primitive (`src/components/ui/field-message.tsx`) for sync form-validation, AA-legible on the phthalo-dark canvas (error/success tokens dark-lifted).
