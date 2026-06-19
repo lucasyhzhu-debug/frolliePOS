@@ -180,6 +180,118 @@ test("managerTakeover: wrong PIN is rejected with INVALID_PIN", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Window bug regression: displaced-staff summary uses the lock event's window,
+// not [now, now]. Proves the anchor-post-insert race is fixed.
+// ---------------------------------------------------------------------------
+test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window (not now), non-zero sales", async () => {
+  const t = convexTest(schema);
+
+  // Seed displaced staff + manager
+  const staffA = await seedStaff(t, "Displaced", "1234", "staff");
+  const managerM = await seedStaff(t, "Manager", "9999", "manager");
+
+  // Record shift start time for the displaced staff (100 s ago)
+  const shiftStart = Date.now() - 100_000;
+
+  // Open the booth for staff A
+  const staffSession = await t.run(async (ctx) =>
+    ctx.db.insert("staff_sessions", {
+      staff_id: staffA,
+      device_id: "d2",
+      started_at: shiftStart,
+      ended_at: null,
+      end_reason: null,
+    }),
+  );
+  // Override completeStartOfDay to use a past start time by directly seeding the event
+  await t.run(async (ctx) => {
+    await ctx.db.insert("pos_shift_events", {
+      device_id: "d2",
+      type: "start_of_day",
+      staff_id: staffA,
+      shift_started_at: shiftStart,
+      shift_ended_at: null,
+      steps: [],
+      count_changed: null,
+      takeover: null,
+      outgoing_uncounted: null,
+      stale_autoclose: null,
+      linked_event_id: null,
+      summary: null,
+      created_at: shiftStart,
+    });
+  });
+
+  // Seed a PAID transaction during the displaced staff's shift window.
+  const paidAt = shiftStart + 30_000; // 30s into the shift
+  await t.run(async (ctx) => {
+    await ctx.db.insert("pos_transactions", {
+      status: "paid",
+      flags: 0,
+      subtotal: 50_000,
+      voucher_discount: 0,
+      total: 50_000,
+      staff_id: staffA,
+      paid_at: paidAt,
+      created_at: paidAt,
+    } as any);
+  });
+
+  // Lock the shift (staff A steps away)
+  await t.mutation(api.shifts.public.lockShift, {
+    idempotencyKey: "lock-window-test",
+    sessionId: staffSession,
+  });
+
+  // Record lock time (approximately now)
+  const lockTime = Date.now();
+
+  // Manager takeover
+  await t.action(api.shifts.actions.managerTakeover, {
+    idempotencyKey: "takeover-window-test",
+    deviceId: "d2",
+    managerStaffId: managerM,
+    managerPin: "9999",
+  });
+
+  // Inspect the scheduled _sendTakeoverSummary args from the system table.
+  // The fix ensures displacedShiftStartMs = shiftStart (from lock event), NOT now.
+  const scheduledJobs = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  const takeoverJob = scheduledJobs.find((j) =>
+    (j.name as string).includes("_sendTakeoverSummary"),
+  );
+  expect(takeoverJob).toBeDefined();
+
+  const jobArgs = takeoverJob!.args[0] as {
+    displacedShiftStartMs: number;
+    displacedShiftEndMs: number;
+    displacedStaffId: string | null;
+  };
+
+  // displacedShiftStartMs must be the real shift start, NOT near-now.
+  // The window [now, now] regression would produce displacedShiftStartMs ≈ lockTime.
+  expect(jobArgs.displacedShiftStartMs).toBeLessThan(lockTime - 50_000);
+  expect(jobArgs.displacedShiftStartMs).toBeGreaterThanOrEqual(shiftStart - 1000);
+
+  // displacedShiftEndMs should be around lock time (shift_ended_at on the lock event).
+  expect(jobArgs.displacedShiftEndMs).toBeGreaterThan(shiftStart);
+  expect(jobArgs.displacedShiftEndMs).toBeLessThanOrEqual(lockTime + 5_000);
+
+  // Verify that the window covers the paid transaction (sales query would return > 0).
+  const salesInWindow = await t.query(
+    internal.transactions.internal._dailySalesSummary_internal,
+    { dayStartMs: jobArgs.displacedShiftStartMs, dayEndMs: jobArgs.displacedShiftEndMs },
+  );
+  expect(salesInWindow.totalSalesIdr).toBe(50_000);
+  expect(salesInWindow.txnCount).toBe(1);
+
+  // Drain scheduled action (Telegram stub keeps it offline).
+  await drainScheduled(t);
+});
+
+// ---------------------------------------------------------------------------
 // Force-end any existing active session on the device
 // ---------------------------------------------------------------------------
 test("managerTakeover: force-ends any active session left on the device", async () => {

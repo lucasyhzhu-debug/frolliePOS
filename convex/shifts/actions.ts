@@ -169,7 +169,12 @@ export const _sendTakeoverSummary = internalAction({
     eventId: v.id("pos_shift_events"),
     displacedStaffId: v.union(v.id("staff"), v.null()),
     deviceId: v.string(),
-    takeoverAtMs: v.number(),
+    // Pre-computed from the lock event in _commitManagerTakeover_internal,
+    // captured BEFORE the manager_takeover event is inserted. Using the lock
+    // event's window avoids the [now, now] bug: after the insert the anchor walk
+    // would find the new manager_takeover event (shift_started_at = now).
+    displacedShiftStartMs: v.number(),
+    displacedShiftEndMs: v.number(),
     idempotencyKeySuffix: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
@@ -182,30 +187,21 @@ export const _sendTakeoverSummary = internalAction({
       ? (staffNames.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(args.displacedStaffId))?.name ?? "Unknown")
       : "Unknown";
 
-    // Recover shift start for the displaced staff from the most recent
-    // start_of_day / handover_in anchor BEFORE the takeover event.
-    // We pass deviceId; the query walks back through events to find it.
-    const anchor = await ctx.runQuery(
-      internal.shifts.internal._shiftStartAnchor_internal,
-      { deviceId: args.deviceId },
-    );
-    // If no anchor exists, the booth was never formally opened — use takeoverAtMs
-    // so duration = 0 (better than throwing).
-    const shiftStartMs = anchor?.shift_started_at ?? args.takeoverAtMs;
-
     // Build sales aggregate for the displaced staff's shift window.
+    // The window was pre-computed from the lock event in the mutation, so it
+    // correctly spans [displaced-staff-shift-start, lock-time].
     const [sales, manualBca] = await Promise.all([
       ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
-        dayStartMs: shiftStartMs,
-        dayEndMs: args.takeoverAtMs,
+        dayStartMs: args.displacedShiftStartMs,
+        dayEndMs: args.displacedShiftEndMs,
       }),
       ctx.runQuery(
         internal.transactions.internal._manualBcaReconciliation_internal,
-        { dayStartMs: shiftStartMs, dayEndMs: args.takeoverAtMs },
+        { dayStartMs: args.displacedShiftStartMs, dayEndMs: args.displacedShiftEndMs },
       ),
     ]);
 
-    const { dateLabel } = wibDayWindow(args.takeoverAtMs);
+    const { dateLabel } = wibDayWindow(args.displacedShiftEndMs);
 
     await ctx.runAction(api.telegram.send.sendTemplate, {
       role: "founders",
@@ -213,9 +209,9 @@ export const _sendTakeoverSummary = internalAction({
       payload: {
         dateLabel,
         staffName,
-        shiftStartMs,
-        shiftEndMs: args.takeoverAtMs,
-        durationMs: Math.max(0, args.takeoverAtMs - shiftStartMs),
+        shiftStartMs: args.displacedShiftStartMs,
+        shiftEndMs: args.displacedShiftEndMs,
+        durationMs: Math.max(0, args.displacedShiftEndMs - args.displacedShiftStartMs),
         totalSalesIdr: sales.totalSalesIdr,
         txnCount: sales.txnCount,
         manualBca: manualBca.count > 0

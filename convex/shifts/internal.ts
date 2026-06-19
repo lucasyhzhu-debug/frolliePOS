@@ -161,6 +161,33 @@ export const _commitManagerTakeover_internal = internalMutation({
     async (ctx, args) => {
       const now = Date.now();
 
+      // Step 0 (MUST come first): Read the lock event BEFORE any writes so the
+      // displaced-staff window is captured from the correct event. After the
+      // manager_takeover insert (Step 3) the same query would find that new event
+      // (shift_started_at = now) and produce a [now, now] window with 0 sales.
+      //
+      // The latest event at this point MUST be the `lock` that preceded the
+      // takeover flow. It carries:
+      //   lock.shift_started_at  = displaced staff's ORIGINAL shift start
+      //   lock.shift_ended_at    = the moment the booth was locked
+      const latestBeforeTakeover = await ctx.db
+        .query("pos_shift_events")
+        .withIndex("by_device_created", (q) => q.eq("device_id", args.deviceId))
+        .order("desc")
+        .first();
+
+      // Defensive fallback: if the latest event is not a `lock` (unexpected —
+      // takeover should only come from locked), fall back to whatever anchor we
+      // have so duration may be wrong but we never produce a [now,now] silent zero.
+      const displacedShiftStartMs =
+        latestBeforeTakeover?.type === "lock"
+          ? latestBeforeTakeover.shift_started_at
+          : (latestBeforeTakeover?.shift_started_at ?? now);
+      const displacedShiftEndMs =
+        latestBeforeTakeover?.type === "lock"
+          ? (latestBeforeTakeover.shift_ended_at ?? latestBeforeTakeover.created_at ?? now)
+          : now;
+
       // Step 1: Force-end any active sessions for the device.
       // Use the by_device_active index: compound on [device_id, ended_at].
       // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
@@ -231,7 +258,8 @@ export const _commitManagerTakeover_internal = internalMutation({
           eventId,
           displacedStaffId,
           deviceId: args.deviceId,
-          takeoverAtMs: now,
+          displacedShiftStartMs,
+          displacedShiftEndMs,
           idempotencyKeySuffix: eventId,
         },
       );
