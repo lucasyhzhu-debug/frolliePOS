@@ -7,6 +7,12 @@ import { router } from "@/router";
 import "@/index.css";
 import { reportOps } from "@/lib/reportOps";
 import { isChunkLoadError } from "@/lib/chunkLoadError";
+import { requestPersistentStorage } from "@/lib/persistStorage";
+
+// Ask the browser to keep our storage (device-id in IndexedDB + localStorage)
+// out of the evictable best-effort bucket. Without this, a desktop tab can lose
+// the device UUID between sessions and be forced to re-activate. Fire-and-forget.
+void requestPersistentStorage();
 
 // Global unhandled error reporters — registered once at startup.
 // Chunk-load errors (stale deploy / offline) are excluded: they are noise, not
