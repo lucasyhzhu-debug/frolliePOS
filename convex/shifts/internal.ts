@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import { stepValidator } from "./schema";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+import { wibDayWindow } from "../lib/time";
 
 const shiftEventFields = {
   device_id: v.string(),
@@ -56,19 +57,33 @@ export const _recordShiftEvent_internal = internalMutation({
 
 export const _shiftStartAnchor_internal = internalQuery({
   args: { deviceId: v.string() },
-  handler: async (ctx, { deviceId }) => {
-    // Walk back to the most recent shift-START event (open of the current shift).
-    const recent = await ctx.db
+  handler: async (
+    ctx,
+    { deviceId },
+  ): Promise<{ shift_started_at: number; staff_id: Id<"staff"> } | null> => {
+    // C4: bound the scan to TODAY's WIB window instead of an arbitrary .take(50)
+    // ceiling (a busy day could push the anchor past 50 rows → silent miss →
+    // ?? now → 0-duration/0-sales summary). Stale prior-day shifts are now
+    // auto-closed by completeStartOfDay, so the current shift's anchor always
+    // lives within today's WIB day; a day's event count is small enough to
+    // collect in full. Walk back to the most recent shift-START event.
+    const { dayStartMs } = wibDayWindow(Date.now());
+    const today = await ctx.db
       .query("pos_shift_events")
-      .withIndex("by_device_created", (q) => q.eq("device_id", deviceId))
+      .withIndex("by_device_created", (q) =>
+        q.eq("device_id", deviceId).gte("created_at", dayStartMs),
+      )
       .order("desc")
-      .take(50);
-    const anchor = recent.find(
+      .collect();
+    const anchor = today.find(
       (e) =>
         e.type === "start_of_day" ||
         e.type === "handover_in" ||
         e.type === "manager_takeover",
     );
+    // null is acceptable: with stale shifts auto-closed, a genuinely anchorless
+    // booth is the only remaining null case (unreachable in normal flow). The
+    // caller's `?? now` then applies only to that edge.
     return anchor
       ? { shift_started_at: anchor.shift_started_at, staff_id: anchor.staff_id }
       : null;
