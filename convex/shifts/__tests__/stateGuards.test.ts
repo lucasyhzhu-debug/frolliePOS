@@ -1,0 +1,122 @@
+/**
+ * Triple-review FIX 3 (C-2): write-side booth-state guards on the shift
+ * lifecycle mutations. Each mutation asserts (via the pure deriveBoothState) that
+ * the booth is in the allowed source state, throwing a stable error otherwise.
+ */
+
+import { convexTest } from "convex-test";
+import { expect, test } from "vitest";
+import schema from "../../schema";
+import { api } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+
+setupTelegramStub();
+
+async function seedSession(
+  t: ReturnType<typeof convexTest>,
+  device = "d1",
+): Promise<{ staffId: Id<"staff">; sessionId: Id<"staff_sessions"> }> {
+  return t.run(async (ctx) => {
+    const staffId = await ctx.db.insert("staff", {
+      name: "Budi",
+      code: "S-0002",
+      role: "staff",
+      pin_hash: "x",
+      active: true,
+      must_change_pin: false,
+      created_at: 0,
+    } as any);
+    const sessionId = await ctx.db.insert("staff_sessions", {
+      staff_id: staffId,
+      device_id: device,
+      started_at: Date.now(),
+      ended_at: null,
+      end_reason: null,
+    });
+    return { staffId, sessionId };
+  });
+}
+
+test("endOfDaySignOff on a CLOSED booth → BOOTH_NOT_OPEN", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedSession(t);
+  // Booth is fresh/closed — no start_of_day recorded.
+  await expect(
+    t.mutation(api.shifts.public.endOfDaySignOff, {
+      idempotencyKey: "k1",
+      sessionId,
+      steps: [],
+      countChanged: undefined,
+    }),
+  ).rejects.toThrow(/BOOTH_NOT_OPEN/);
+});
+
+test("completeStartOfDay on an already-OPEN same-day booth → BOOTH_NOT_CLOSED", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedSession(t);
+  // Open the booth.
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1",
+    sessionId,
+    steps: [],
+    countChanged: undefined,
+  });
+  // Second start-of-day same day → rejected.
+  await expect(
+    t.mutation(api.shifts.public.completeStartOfDay, {
+      idempotencyKey: "k2",
+      sessionId,
+      steps: [],
+      countChanged: undefined,
+    }),
+  ).rejects.toThrow(/BOOTH_NOT_CLOSED/);
+});
+
+test("recordResume on a non-LOCKED (open) booth → BOOTH_NOT_LOCKED", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedSession(t);
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1",
+    sessionId,
+    steps: [],
+    countChanged: undefined,
+  });
+  await expect(
+    t.mutation(api.shifts.public.recordResume, {
+      idempotencyKey: "k2",
+      sessionId,
+    }),
+  ).rejects.toThrow(/BOOTH_NOT_LOCKED/);
+});
+
+test("lockShift on a CLOSED booth → BOOTH_NOT_OPEN", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedSession(t);
+  await expect(
+    t.mutation(api.shifts.public.lockShift, {
+      idempotencyKey: "k1",
+      sessionId,
+    }),
+  ).rejects.toThrow(/BOOTH_NOT_OPEN/);
+});
+
+test("completeHandoverIn with no pending handover (open booth) → NO_HANDOVER_PENDING", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedSession(t);
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1",
+    sessionId,
+    steps: [],
+    countChanged: undefined,
+  });
+  await expect(
+    t.mutation(api.shifts.public.completeHandoverIn, {
+      idempotencyKey: "k2",
+      sessionId,
+      steps: [],
+      countChanged: undefined,
+    }),
+  ).rejects.toThrow(/NO_HANDOVER_PENDING/);
+  await drainScheduled(t);
+});

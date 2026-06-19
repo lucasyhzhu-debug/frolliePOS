@@ -2,12 +2,42 @@ import { v } from "convex/values";
 import { query, mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { deriveBoothState, BoothState } from "./lib";
 import { wibDayWindow } from "../lib/time";
 import { withIdempotency } from "../idempotency/internal";
 import { requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { stepValidator } from "./schema";
+
+/**
+ * Write-side booth-state guard (review C-2). Reads the latest shift event for
+ * the device, derives the current booth state via the pure `deriveBoothState`
+ * (NO duplicated state logic), and throws `errorCode` unless the booth is in the
+ * required source state. Called AFTER `requireSession` (auth first) and inside
+ * each lifecycle mutation's idempotency handler.
+ *
+ * Returns the derived state so callers (e.g. completeStartOfDay) can branch on
+ * the stale-autoclose flag without a second read.
+ *
+ * Error strings (stable, documented in ADR-050):
+ *   BOOTH_NOT_CLOSED · BOOTH_NOT_OPEN · BOOTH_NOT_LOCKED · NO_HANDOVER_PENDING
+ */
+async function assertBoothState(
+  ctx: MutationCtx,
+  deviceId: string,
+  required: BoothState,
+  errorCode: string,
+): Promise<ReturnType<typeof deriveBoothState>> {
+  const latest = await ctx.runQuery(
+    internal.shifts.internal._latestShiftEvent_internal,
+    { deviceId },
+  );
+  const { dayStartMs } = wibDayWindow(Date.now());
+  const derived = deriveBoothState(latest, dayStartMs);
+  if (derived.state !== required) throw new Error(errorCode);
+  return derived;
+}
 
 // Shared args type used by handoverOut and completeHandoverIn.
 type HandoverArgs = {
@@ -90,6 +120,93 @@ export const completeStartOfDay = mutation({
     async (ctx, args): Promise<CompleteStartOfDayResult> => {
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
+
+      // C-2 write-side guard: start-of-day is only valid from CLOSED.
+      // `deriveBoothState` returns state:"closed" (with staleAutoclose:true) for a
+      // non-closed event left over from a PRIOR WIB day, so the stale case PASSES
+      // this guard and is handled below. A still-open SAME-DAY booth is rejected.
+      const latest = await ctx.runQuery(
+        internal.shifts.internal._latestShiftEvent_internal,
+        { deviceId },
+      );
+      const { dayStartMs } = wibDayWindow(now);
+      const derived = deriveBoothState(latest, dayStartMs);
+      if (derived.state !== "closed") throw new Error("BOOTH_NOT_CLOSED");
+
+      // Spec §2 stale-shift edge: a non-closed event from a PRIOR WIB day means a
+      // shift was never closed. Auto-close the prior shift here (its summary still
+      // fires to Founders) BEFORE opening today's shift, so a forgotten close does
+      // not suppress the morning start-of-day record or silently drop the prior
+      // shift's sales summary.
+      if (derived.staleAutoclose && latest) {
+        // Stale shift window: start = the displaced shift-start anchor; end = the
+        // event's own shift_ended_at if it carried one (a `lock` left overnight
+        // carries its lock time), else the WIB end-of-day of the stale day.
+        const staleStart = latest.shift_started_at;
+        const staleEnd =
+          latest.shift_ended_at ??
+          wibDayWindow(latest.shift_started_at).dayEndMs;
+
+        // Build the prior shift's summary over its window (same flat shape as
+        // endOfDaySignOff stores on the event).
+        const summary = await ctx.runQuery(
+          internal.shifts.internal._buildSignoffSummary_internal,
+          { deviceId, shiftStartMs: staleStart, endMs: staleEnd },
+        );
+
+        const staleEventId: Id<"pos_shift_events"> = await ctx.runMutation(
+          internal.shifts.internal._recordShiftEvent_internal,
+          {
+            device_id: deviceId,
+            type: "signoff_close",
+            staff_id: latest.staff_id,
+            shift_started_at: staleStart,
+            shift_ended_at: staleEnd,
+            steps: [],
+            count_changed: null,
+            takeover: null,
+            outgoing_uncounted: null,
+            stale_autoclose: true,
+            linked_event_id: null,
+            summary: {
+              durationMs: summary.durationMs,
+              totalSalesIdr: summary.totalSalesIdr,
+              txnCount: summary.txnCount,
+              manualBcaCount: summary.manualBcaCount,
+              manualBcaTotalIdr: summary.manualBcaTotalIdr,
+            },
+          },
+        );
+
+        await logAudit(ctx, {
+          actor_id: latest.staff_id,
+          action: "shift.signoff",
+          entity_type: "pos_shift_events",
+          entity_id: staleEventId,
+          source: "booth_inline",
+          metadata: { stale_autoclose: true },
+        });
+
+        // Fire the DISPLACED staff's Founders summary (spec §2). Reuses the same
+        // deferred action endOfDaySignOff/handoverOut use, so payload shape +
+        // endedBy:"self" parity holds. Keyed on the stale event id for dedupe.
+        await ctx.scheduler.runAfter(
+          0,
+          internal.shifts.actions._sendSignoffSummary,
+          {
+            eventId: staleEventId,
+            staffId: latest.staff_id,
+            shiftStartMs: staleStart,
+            shiftEndMs: staleEnd,
+            totalSalesIdr: summary.totalSalesIdr,
+            txnCount: summary.txnCount,
+            manualBcaCount: summary.manualBcaCount,
+            manualBcaTotalIdr: summary.manualBcaTotalIdr,
+            idempotencyKeySuffix: staleEventId,
+          },
+        );
+      }
+
       const eventId: Id<"pos_shift_events"> = await ctx.runMutation(
         internal.shifts.internal._recordShiftEvent_internal,
         {
@@ -169,6 +286,9 @@ export const endOfDaySignOff = mutation({
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
+      // C-2 write-side guard: sign-off is only valid from an OPEN booth.
+      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
@@ -207,13 +327,12 @@ export const endOfDaySignOff = mutation({
         },
       );
 
-      // End the session (ADR-003). `requireSession` gates on `ended_at != null`;
-      // no additional index fields to clear. `end_reason` is a closed union —
-      // "force_logout" is the closest available literal for a signoff-initiated
-      // end; the intent is recorded on the pos_shift_events row.
-      await ctx.db.patch(args.sessionId, {
-        ended_at: now,
-        end_reason: "force_logout",
+      // End the session (ADR-003). Routed through auth._endShiftSession_internal
+      // (ADR-034: staff_sessions is owned by auth; shifts must not patch it
+      // directly). `end_reason: "force_logout"` is PLAN-mandated for signoff.
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId,
+        endReason: "force_logout",
       });
 
       await logAudit(ctx, {
@@ -278,6 +397,9 @@ export const handoverOut = mutation({
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
+      // C-2 write-side guard: handover-out is only valid from an OPEN booth.
+      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
@@ -316,10 +438,11 @@ export const handoverOut = mutation({
         },
       );
 
-      // End the outgoing session (ADR-003).
-      await ctx.db.patch(args.sessionId, {
-        ended_at: now,
-        end_reason: "force_logout",
+      // End the outgoing session (ADR-003). Routed through auth (ADR-034).
+      // `end_reason: "force_logout"` is PLAN-mandated for handover-out.
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId,
+        endReason: "force_logout",
       });
 
       await logAudit(ctx, {
@@ -388,6 +511,9 @@ export const lockShift = mutation({
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
+      // C-2 write-side guard: lock is only valid from an OPEN booth.
+      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+
       // Preserve the original shift start so accumulated hours survive the lock.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
@@ -414,10 +540,11 @@ export const lockShift = mutation({
       );
 
       // End the session (ADR-003). Lock still ends the session; "locked" is a
-      // booth-state layer derived from the shift event, not the session.
-      await ctx.db.patch(args.sessionId, {
-        ended_at: now,
-        end_reason: "manual_lock",
+      // booth-state layer derived from the shift event, not the session. Routed
+      // through auth (ADR-034). `end_reason: "manual_lock"` is PLAN-mandated.
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId,
+        endReason: "manual_lock",
       });
 
       await logAudit(ctx, {
@@ -471,6 +598,9 @@ export const recordResume = mutation({
     async (ctx, args): Promise<RecordResumeResult> => {
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
+
+      // C-2 write-side guard: resume is only valid from a LOCKED booth.
+      await assertBoothState(ctx, deviceId, "locked", "BOOTH_NOT_LOCKED");
 
       // Recover the original shift start — _shiftStartAnchor_internal skips
       // `lock` events and returns the most recent start_of_day / handover_in /
@@ -546,11 +676,21 @@ export const completeHandoverIn = mutation({
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
-      // Fetch the latest shift event to link to the pending handover_out (if any).
+      // Fetch the latest shift event to link to the pending handover_out.
       const pending = await ctx.runQuery(
         internal.shifts.internal._latestShiftEvent_internal,
         { deviceId },
       );
+
+      // C-2 write-side guard: handover-in is only valid from a HANDOVER_PENDING
+      // booth. Derived from the SAME `pending` read (no second query) via the pure
+      // deriveBoothState — upgrades the old soft `linked_event_id` fallback to a
+      // hard state assertion. A stale prior-day handover_out derives to "closed",
+      // so it is correctly rejected here.
+      const { dayStartMs } = wibDayWindow(now);
+      if (deriveBoothState(pending, dayStartMs).state !== "handover_pending") {
+        throw new Error("NO_HANDOVER_PENDING");
+      }
 
       // Record the handover_in shift event (transitions booth → "open").
       // shift_started_at = now: marks the beginning of the new staff's shift.

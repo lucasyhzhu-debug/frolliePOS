@@ -541,6 +541,34 @@ export const _listActiveManagers_internal = internalQuery({
 });
 
 /**
+ * End a single staff_sessions row (shift lifecycle session-end). Called by
+ * shifts.public lifecycle mutations (signoff / handover-out / lock) to cross the
+ * ADR-034 module boundary — `staff_sessions` is owned by auth; shifts must not
+ * patch it directly. Mirrors the patch shape used by _managerTakeoverSession_internal
+ * (`ended_at` + `end_reason`).
+ *
+ * `endReason` is constrained to the two literals the shift flow uses:
+ *   - "force_logout" — end-of-day sign-off + handover-out (the staff is done /
+ *     handed over; PLAN-mandated value).
+ *   - "manual_lock"  — lockShift (staff steps away; PLAN-mandated value).
+ *
+ * No withIdempotency wrapper — the calling public mutation owns the idempotency
+ * key; this is a single deterministic patch.
+ */
+export const _endShiftSession_internal = internalMutation({
+  args: {
+    sessionId: v.id("staff_sessions"),
+    endReason: v.union(v.literal("manual_lock"), v.literal("force_logout")),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    await ctx.db.patch(args.sessionId, {
+      ended_at: Date.now(),
+      end_reason: args.endReason,
+    });
+  },
+});
+
+/**
  * Force-end all active sessions on a device and create a new manager session.
  * Called by shifts._commitManagerTakeover_internal to cross the ADR-034 module
  * boundary — `staff_sessions` is owned by auth; shifts must not access it directly.
