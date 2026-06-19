@@ -188,33 +188,18 @@ export const _commitManagerTakeover_internal = internalMutation({
           ? (latestBeforeTakeover.shift_ended_at ?? latestBeforeTakeover.created_at ?? now)
           : now;
 
-      // Step 1: Force-end any active sessions for the device.
-      // Use the by_device_active index: compound on [device_id, ended_at].
-      // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
-      // filter on null in JS after collecting the index-narrowed set.
-      // Capture the displaced staff_id (first active session) for Task 9 summary.
-      const activeSessions = await ctx.db
-        .query("staff_sessions")
-        .withIndex("by_device_active", (q) =>
-          q.eq("device_id", args.deviceId).eq("ended_at", null),
-        )
-        .collect();
-      const displacedStaffId = activeSessions[0]?.staff_id ?? null;
-      for (const sess of activeSessions) {
-        await ctx.db.patch(sess._id, {
-          ended_at: now,
-          end_reason: "force_logout",
-        });
-      }
-
-      // Step 2: Create new manager session.
-      const sessionId: Id<"staff_sessions"> = await ctx.db.insert("staff_sessions", {
-        staff_id: args.managerStaffId,
-        device_id: args.deviceId,
-        started_at: now,
-        ended_at: null,
-        end_reason: null,
-      });
+      // Steps 1 + 2: Force-end active sessions and create the manager session.
+      // Routed through auth._managerTakeoverSession_internal (ADR-034: staff_sessions
+      // is owned by auth; shifts must not access it directly).
+      // Explicit type annotation breaks the Convex inference cycle (TS7022/7024).
+      const takeoverSession: {
+        sessionId: Id<"staff_sessions">;
+        displacedStaffId: Id<"staff"> | null;
+      } = await ctx.runMutation(
+        internal.auth.internal._managerTakeoverSession_internal,
+        { deviceId: args.deviceId, managerStaffId: args.managerStaffId },
+      );
+      const { sessionId, displacedStaffId } = takeoverSession;
 
       // Step 3: Record manager_takeover shift event.
       // shift_started_at = now (fresh shift for the manager).
