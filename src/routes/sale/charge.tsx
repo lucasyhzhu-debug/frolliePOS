@@ -132,7 +132,18 @@ export default function SaleCharge() {
   // ---- navigation guard ----
   // Block route transitions while the transaction is awaiting payment so staff
   // can explicitly cancel (invalidating the active QR/VA) before leaving.
-  const blocker = usePathChangeBlocker(txn?.status === "awaiting_payment");
+  // `allowWithin` whitelists this txn's own charge subtree (notably the paid
+  // `/success` receipt) as in-flow, so a post-confirm navigate is never tripped
+  // by the abandon guard. Without it, the manual-BCA confirm navigates the same
+  // synchronous tick it commits — before the reactive `txn` query flips to
+  // "paid" — so `when` is still armed and the guard blocks the in-flow hop to
+  // /success. Destination-prefix matching sidesteps that stale-state race
+  // (same pattern the /sale → /sale/charge hop uses). Leaving the charge to any
+  // path OUTSIDE this subtree (/sale, /, a shift gate) still raises the guard.
+  const blocker = usePathChangeBlocker(
+    txn?.status === "awaiting_payment",
+    txnId ? `/sale/charge/${txnId}` : undefined,
+  );
 
   // Cancel-payment handler used by the AbandonCartDialog payment variant.
   // Swallows TXN_NOT_AWAITING races — if the webhook confirmed while the dialog
