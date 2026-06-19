@@ -2,6 +2,18 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — fix: persist device identity (no more repeat re-activation)
+- fix(device): request `navigator.storage.persist()` at startup so the device-id
+  (IndexedDB + localStorage) is no longer kept in the browser's evictable
+  best-effort bucket. On a desktop browser tab the storage could be evicted
+  between sessions, minting a fresh device UUID that no longer matched the
+  `registered_devices` row and forcing a re-activation each visit. The
+  server-side registration never expired — only the client identity was being
+  dropped. Installed PWAs (booth Android) were already getting persistence
+  automatically, which is why only desktop tabs reactivated. New
+  `src/lib/persistStorage.ts` (feature-detected, fire-and-forget); no schema /
+  backend / deploy-skew surface.
+
 ## 2026-06-19 — v1.0.2 In-app sales-ticker toggle
 - Managers can now enable/disable the live sales ticker from /mgr/telegram-chats
   (next to the founders-summary toggle) — no Convex-dashboard edit needed.
