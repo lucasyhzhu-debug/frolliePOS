@@ -5,7 +5,7 @@
 ## Context
 
 The app-wide feedback channel is Sonner (`<Toaster>` mounted once in `src/main.tsx`).
-At the time this decision was made, **154 `toast.*` calls** exist across 23 files.
+At the time this decision was made, **~150 `toast.*` calls** exist across **~23 files** (at planning time).
 
 A large share of these are **synchronous client-side form-validation** errors — fired
 the instant a manager taps "Continue" or "Save" with an invalid field. The toast
@@ -36,7 +36,7 @@ From the roadmap spec (`docs/superpowers/specs/2026-06-18-pos-backlog-roadmap-de
 | **C** | ~70 global/async toasts (print, draft saved, cancelled, server-rejection, Telegram, low-stock) | **Keep as toasts** — correct affordance for transient global events |
 
 Slice 1 (this ADR) converts the 2 worst offenders:
-`src/routes/mgr/products.tsx` (**25** literal-arg `toast.error` calls) and
+`src/routes/mgr/products.tsx` (**26** literal-arg `toast.error` calls) and
 `src/routes/mgr/vouchers.tsx` (**12** literal-arg `toast.error` calls).
 
 ## Decision
@@ -148,7 +148,7 @@ By-file slices. Each slice:
    `scrollIntoView`).
 4. Appends the file to the `files:` array in the ESLint migration-registry block.
 
-**Slice 1 (this ADR):** `src/routes/mgr/products.tsx` (25 sites) +
+**Slice 1 (this ADR):** `src/routes/mgr/products.tsx` (26 sites) +
 `src/routes/mgr/vouchers.tsx` (12 sites).
 
 **Follow-up slices** (bucket-A, ~6 remaining files): settlements, `mgr/staff`,

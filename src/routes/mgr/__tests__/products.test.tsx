@@ -106,4 +106,40 @@ describe("MgrProducts route (/mgr/products)", () => {
     expect(msg.closest("[role='alert']")).not.toBeNull();
     expect(screen.getByLabelText(/^Price/i)).toHaveAttribute("aria-invalid", "true");
   });
+
+  it("shows an inline FieldMessage for invalid Name in the edit-meta dialog", () => {
+    mockListReturn = {
+      products: [
+        {
+          _id: "prod_1" as unknown as import("../../../convex/_generated/dataModel").Id<"pos_products">,
+          _creationTime: 1000,
+          sku_family: "dubai",
+          code: "DUBAI_8PC",
+          name: "Dubai 8pcs",
+          pack_label: "8pcs",
+          price_idr: 75000,
+          active: true,
+          sort_order: 0,
+          tax_rate: 0,
+          created_at: 1000,
+          updated_at: 1000,
+        },
+      ],
+      skus: [],
+      components: [],
+    };
+    renderRoute();
+    // Click the "Edit" button (metadata, not price)
+    const editBtn = screen.getByRole("button", { name: /^Edit$/i });
+    fireEvent.click(editBtn);
+    // Clear the Name field
+    const nameInput = screen.getByLabelText(/^Name$/i);
+    fireEvent.change(nameInput, { target: { value: "" } });
+    // Click Save
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    // Expect inline FieldMessage with required error
+    const msg = screen.getByText(/Name must be 1-80 characters/i);
+    expect(msg).toBeInTheDocument();
+    expect(msg.closest("[role='alert']")).not.toBeNull();
+  });
 });

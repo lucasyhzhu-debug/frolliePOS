@@ -115,6 +115,46 @@ function humanizeCatalogError(e: unknown): string {
 // the standalone Add-SKU validator and the bundled slug preview can't drift.
 const SKU_SLUG_RE = /^[a-z0-9-]{1,32}$/;
 
+// ─── Focus maps (module scope — no closure deps, recreating each render wastes memory) ──
+const SKU_FOCUS: Record<string, string> = {
+  "sku.slug": "new-sku-slug",
+  "sku.name": "new-sku-name",
+  "sku.threshold": "new-sku-threshold",
+  "sku.hue": "new-sku-hue",
+};
+const SKU_ORDER = Object.keys(SKU_FOCUS);
+
+const ADD_FOCUS: Record<string, string> = {
+  "add.code": "new-product-code",
+  "add.name": "new-product-name",
+  "add.packLabel": "new-pack-label",
+  "add.skuFamily": "new-sku-family",
+  "add.price": "new-price",
+  "add.tax": "new-tax",
+  "add.sortOrder": "new-sort",
+  "add.initials": "new-initials",
+  "add.hue": "new-hue",
+  "add.bundleQty": "bundle-qty",
+  "add.bundleThreshold": "bundle-threshold",
+};
+const ADD_ORDER = Object.keys(ADD_FOCUS);
+
+const META_FOCUS: Record<string, string> = {
+  "meta.name": "edit-name",
+  "meta.packLabel": "edit-pack-label",
+  "meta.skuFamily": "edit-sku-family",
+  "meta.sortOrder": "edit-sort",
+  "meta.initials": "edit-initials",
+  "meta.hue": "edit-hue",
+};
+const META_ORDER = Object.keys(META_FOCUS);
+
+const PRICE_FOCUS: Record<string, string> = {
+  "price.price": "price-buf",
+  "price.tax": "price-tax",
+};
+const PRICE_ORDER = Object.keys(PRICE_FOCUS);
+
 function parseIntStrict(s: string): number | null {
   // Integer-only — reject decimals/scientific/negative input. price_idr is
   // integer rupiah (ADR-015). tax_rate accepts the same integer parser since
@@ -240,14 +280,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddSkuOpen(true);
   }
 
-  // Focus map for Add SKU dialog
-  const SKU_FOCUS: Record<string, string> = {
-    "sku.slug": "new-sku-slug",
-    "sku.name": "new-sku-name",
-    "sku.threshold": "new-sku-threshold",
-    "sku.hue": "new-sku-hue",
-  };
-  const SKU_ORDER = Object.keys(SKU_FOCUS);
+  // Focus map for Add SKU dialog → SKU_FOCUS / SKU_ORDER at module scope.
 
   function submitAddSkuOpenPin() {
     const next: Record<string, string> = {};
@@ -311,21 +344,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       (parseIntStrict(addSkuComponentQty) ?? 0) >= 1 &&
       parseIntStrict(addBundleThreshold) !== null);
 
-  // Focus map for Add product dialog
-  const ADD_FOCUS: Record<string, string> = {
-    "add.code": "new-product-code",
-    "add.name": "new-product-name",
-    "add.packLabel": "new-pack-label",
-    "add.skuFamily": "new-sku-family",
-    "add.price": "new-price",
-    "add.tax": "new-tax",
-    "add.sortOrder": "new-sort",
-    "add.initials": "new-initials",
-    "add.hue": "new-hue",
-    "add.bundleQty": "bundle-qty",
-    "add.bundleThreshold": "bundle-threshold",
-  };
-  const ADD_ORDER = Object.keys(ADD_FOCUS);
+  // Focus map for Add product dialog → ADD_FOCUS / ADD_ORDER at module scope.
 
   function submitAddOpenPin() {
     const next: Record<string, string> = {};
@@ -356,7 +375,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     let inventorySkuLowThreshold: number | undefined = undefined;
     let inventorySkuComponentQty: number | undefined = undefined;
     if (addWithSku) {
-      if (!bundleSlugValid) next["add.skuFamily"] = "SKU family must be lowercase letters, numbers, or hyphens (max 32) when creating a matching SKU.";
+      if (sku_family.length > 0 && !bundleSlugValid) next["add.skuFamily"] = "SKU family must be lowercase letters, numbers, or hyphens (max 32) when creating a matching SKU.";
       const qty = parseIntStrict(addSkuComponentQty);
       if (qty === null || qty < 1) next["add.bundleQty"] = "Component qty must be a positive integer.";
       const threshold = parseIntStrict(addBundleThreshold);
@@ -405,16 +424,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaHue, setMetaHue] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
 
-  // Focus map for Edit metadata dialog
-  const META_FOCUS: Record<string, string> = {
-    "meta.name": "edit-name",
-    "meta.packLabel": "edit-pack-label",
-    "meta.skuFamily": "edit-sku-family",
-    "meta.sortOrder": "edit-sort",
-    "meta.initials": "edit-initials",
-    "meta.hue": "edit-hue",
-  };
-  const META_ORDER = Object.keys(META_FOCUS);
+  // Focus map for Edit metadata dialog → META_FOCUS / META_ORDER at module scope.
 
   function openMetaEdit(p: Product) {
     setMetaTarget(p);
@@ -488,12 +498,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [priceBuf, setPriceBuf] = useState("");
   const [priceTaxBuf, setPriceTaxBuf] = useState("");
 
-  // Focus map for Edit price dialog
-  const PRICE_FOCUS: Record<string, string> = {
-    "price.price": "price-buf",
-    "price.tax": "price-tax",
-  };
-  const PRICE_ORDER = Object.keys(PRICE_FOCUS);
+  // Focus map for Edit price dialog → PRICE_FOCUS / PRICE_ORDER at module scope.
 
   function openPriceEdit(p: Product) {
     setPriceTarget(p);
@@ -584,6 +589,12 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     });
     setErrors((e) => ({ ...Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith("comp."))), ...next }));
     if (Object.keys(next).length > 0) {
+      const firstErrIdx = compRows.findIndex((_, i) => next[`comp.row${i}`] !== undefined);
+      if (firstErrIdx !== -1) {
+        const el = document.getElementById(`comp-row-qty-${firstErrIdx}`);
+        el?.focus();
+        el?.scrollIntoView?.({ block: "nearest" });
+      }
       return;
     }
     setCompBusy(true);
@@ -1516,7 +1527,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         }}
                         disabled={compBusy}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger aria-invalid={!!errors[`comp.row${idx}`]}>
                           <SelectValue placeholder="Pick SKU" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1531,6 +1542,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                     <div className="w-20 space-y-1">
                       <Label className="text-xs">Qty</Label>
                       <Input
+                        id={`comp-row-qty-${idx}`}
                         value={String(row.qty)}
                         onChange={(e) => {
                           const n = parseIntStrict(
@@ -1540,6 +1552,8 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         }}
                         inputMode="numeric"
                         disabled={compBusy}
+                        aria-invalid={!!errors[`comp.row${idx}`]}
+                        aria-describedby={errors[`comp.row${idx}`] ? `comp.row${idx}-error` : undefined}
                       />
                     </div>
                     <Button

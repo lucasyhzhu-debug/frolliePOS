@@ -6,6 +6,12 @@ import { cn } from "@/lib/utils";
 // Inline form-validation message. Sanctioned primitive for sync validation
 // (ADR-048) — anchored under the field, AA-legible on the phthalo canvas.
 // Tone color rides the dark-lifted --color-error/--color-success tokens.
+//
+// NOTE ON DOTTED IDS: consumer ids follow the shape "prefix.field-error"
+// (e.g. "add.code-error", "comp.row0-error"). A dot is valid HTML but MUST be
+// referenced via document.getElementById("add.code-error") — never via
+// querySelector("#add.code-error") because the CSS selector parser treats the
+// dot as a class separator and will throw/return null.
 const fieldMessageVariants = cva(
   "flex items-start gap-1.5 rounded-r-sm border-l-2 py-0.5 pl-2 text-sm leading-snug",
   {

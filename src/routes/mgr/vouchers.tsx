@@ -90,6 +90,23 @@ function parseIntStrict(s: string): number | null {
   return n;
 }
 
+// ─── Focus maps (module scope — no closure deps, recreating each render wastes memory) ──
+const ADD_FOCUS: Record<string, string> = {
+  "add.code": "new-voucher-code",
+  "add.value": "new-voucher-value",
+  "add.minCart": "new-voucher-min",
+  "add.maxRedemptions": "new-voucher-max",
+  "add.expires": "new-voucher-expires",
+};
+const ADD_ORDER = Object.keys(ADD_FOCUS);
+
+const META_FOCUS: Record<string, string> = {
+  "meta.minCart": "edit-min",
+  "meta.maxRedemptions": "edit-max",
+  "meta.expires": "edit-expires",
+};
+const META_ORDER = Object.keys(META_FOCUS);
+
 /**
  * Convert a date input value (YYYY-MM-DD, local-naive) to an end-of-day WIB
  * epoch ms. So `2026-12-31` → 2026-12-31T23:59:59+07:00 → epoch ms. Matches the
@@ -185,15 +202,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddOpen(true);
   }
 
-  // Focus map for Add voucher dialog
-  const ADD_FOCUS: Record<string, string> = {
-    "add.code": "new-voucher-code",
-    "add.value": "new-voucher-value",
-    "add.minCart": "new-voucher-min",
-    "add.maxRedemptions": "new-voucher-max",
-    "add.expires": "new-voucher-expires",
-  };
-  const ADD_ORDER = Object.keys(ADD_FOCUS);
+  // Focus map for Add voucher dialog → ADD_FOCUS / ADD_ORDER at module scope.
 
   function submitAddOpenPin() {
     const next: Record<string, string> = {};
@@ -268,13 +277,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaExpires, setMetaExpires] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
 
-  // Focus map for Edit meta dialog
-  const META_FOCUS: Record<string, string> = {
-    "meta.minCart": "edit-min",
-    "meta.maxRedemptions": "edit-max",
-    "meta.expires": "edit-expires",
-  };
-  const META_ORDER = Object.keys(META_FOCUS);
+  // Focus map for Edit meta dialog → META_FOCUS / META_ORDER at module scope.
 
   function openMetaEdit(v: Voucher) {
     setMetaTarget(v);
