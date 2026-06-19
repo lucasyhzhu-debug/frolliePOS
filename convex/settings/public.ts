@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "../_generated/server";
+import type { QueryCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireManagerSession, requireSession } from "../auth/sessions";
@@ -302,16 +303,22 @@ type ManualBcaView = {
   account_number: string;
 };
 
+// Both reads return the same view (defaults single-sourced in _getSettings_internal);
+// they differ only in the auth gate, so share the read body.
+async function readManualBca(ctx: QueryCtx): Promise<ManualBcaView> {
+  const s = await ctx.runQuery(
+    internal.settings.internal._getSettings_internal,
+    {},
+  );
+  return { ...s.manual_bca };
+}
+
 /** Manager-only read — settings screen. */
 export const getManualBcaConfig = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
     await requireManagerSession(ctx, args.sessionId);
-    const s = await ctx.runQuery(
-      internal.settings.internal._getSettings_internal,
-      {},
-    );
-    return { ...s.manual_bca };
+    return readManualBca(ctx);
   },
 });
 
@@ -320,11 +327,7 @@ export const getManualBcaAccount = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
     await requireSession(ctx, args.sessionId);
-    const s = await ctx.runQuery(
-      internal.settings.internal._getSettings_internal,
-      {},
-    );
-    return { ...s.manual_bca };
+    return readManualBca(ctx);
   },
 });
 

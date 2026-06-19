@@ -460,6 +460,10 @@ export default function SaleCharge() {
     if (value === "QRIS" || value === "MANUAL_BCA") {
       setSelectedMethod(value);
       setElapsedMs(0);
+      // Re-attestation is required each time the manual tab is entered — clear
+      // any stale checkbox/error so the confirm button can't carry over enabled.
+      setAttested(false);
+      setManualError(undefined);
     }
   };
 

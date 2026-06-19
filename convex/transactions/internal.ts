@@ -160,6 +160,20 @@ export const _confirmPaid_internal = internalMutation({
   handler: async (ctx, args) => {
     const txn = await ctx.db.get(args.txnId);
     if (!txn) throw new Error("TXN_NOT_FOUND");
+    // Audit attribution, resolved once for both emit sites below:
+    //   manual_bca → the attesting cashier (confirm_staff_id), booth_inline.
+    //   manual     → the manager approver, origin threaded by the caller.
+    //   webhook/polling → system.
+    const auditActorId =
+      args.source === "manual_bca"
+        ? (args.confirm_staff_id ?? "system")
+        : (args.mgr_approver_id ?? "system");
+    const auditSource =
+      args.source === "manual"
+        ? (args.approvalSource ?? "booth_inline")
+        : args.source === "manual_bca"
+          ? "booth_inline"
+          : "system";
     // 0. Status guard.
     //   paid → idempotent re-fire (a second confirmation path arriving after the
     //   first wins); silent no-op.
@@ -171,19 +185,11 @@ export const _confirmPaid_internal = internalMutation({
       // Money may have moved with no sale record. Do NOT auto-flip (a manager
       // reconciles), but emit an alert so it isn't silently swallowed.
       await logAudit(ctx, {
-        actor_id:
-          args.source === "manual_bca"
-            ? (args.confirm_staff_id ?? "system")
-            : (args.mgr_approver_id ?? "system"),
+        actor_id: auditActorId,
         action: "payment.confirmed_on_terminal",
         entity_type: "pos_transactions",
         entity_id: args.txnId,
-        source:
-          args.source === "manual"
-            ? args.approvalSource ?? "booth_inline"
-            : args.source === "manual_bca"
-              ? "booth_inline"
-              : "system",
+        source: auditSource,
         reason: args.manual_reason,
         metadata: { source: args.source, txn_status: txn.status },
       });
@@ -287,29 +293,18 @@ export const _confirmPaid_internal = internalMutation({
       flags,
     });
 
-    // 8. Audit (logAudit accepts mgr_approver_id, reason, device_id as top-level fields)
+    // 8. Audit (logAudit accepts mgr_approver_id, reason, device_id as top-level fields).
+    // actor_id/source resolved once at the top of the handler (auditActorId/auditSource):
+    //   manual → approvalSource (booth_inline default, telegram_approval off-booth);
+    //   manual_bca → always booth_inline (staff self-confirm at the booth);
+    //   webhook/polling → system.
     await logAudit(ctx, {
-      actor_id:
-        args.source === "manual_bca"
-          ? (args.confirm_staff_id ?? "system")
-          : (args.mgr_approver_id ?? "system"),
+      actor_id: auditActorId,
       action: "payment.confirmed",
       entity_type: "pos_transactions",
       entity_id: args.txnId,
       mgr_approver_id: args.mgr_approver_id,
-      // v0.4 (Task 21): manual override may now originate off-booth. The caller
-      // (payments._onPaidManual_internal) threads approvalSource so the audit
-      // row reflects where the action actually happened: booth_inline at the
-      // booth (default), telegram_approval via the off-booth approve link.
-      // v1.2 #10: manual_bca is always booth_inline (staff self-confirm at
-      // the booth — no off-booth path for this tender).
-      // Non-manual paths (webhook/polling) keep source="system".
-      source:
-        args.source === "manual"
-          ? args.approvalSource ?? "booth_inline"
-          : args.source === "manual_bca"
-            ? "booth_inline"
-            : "system",
+      source: auditSource,
       reason: args.manual_reason,
       metadata: { source: args.source, receipt_number: receiptNumber },
     });
@@ -878,7 +873,8 @@ export const _manualBcaReconciliation_internal = internalQuery({
     const nameById = new Map(staffNames.map((s) => [String(s._id), s.name]));
 
     // 4. Sort chronological by paid_at (ascending — match bank-statement order).
-    const sorted = bcaOnly.slice().sort((a, b) => a.paid_at! - b.paid_at!);
+    //    bcaOnly is a fresh array from .filter() above, so sort it in place.
+    const sorted = bcaOnly.sort((a, b) => a.paid_at! - b.paid_at!);
 
     // 5. Project to the output shape. Resilient name lookup: fall back to
     //    "Staff" when the staff row is missing (EOD cron must not crash).
