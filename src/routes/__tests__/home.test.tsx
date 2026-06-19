@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import { LocaleProvider } from "@/lib/i18n";
 
 let mockRecovery: { count: number; latest: { _id: string; created_at: number } | null };
 let mockRole: "manager" | "staff" = "staff";
@@ -37,7 +38,9 @@ import Home from "../home";
 function renderHome() {
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <Home />
+      <LocaleProvider>
+        <Home />
+      </LocaleProvider>
     </MemoryRouter>,
   );
 }
