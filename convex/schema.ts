@@ -15,6 +15,7 @@ import { vouchersTables } from "./vouchers/schema";
 import { approvalsTables } from "./approvals/schema";
 import { settingsTables } from "./settings/schema";
 import { settlementsTables } from "./settlements/schema";
+import { shiftsTables } from "./shifts/schema";
 
 export default defineSchema({
   ...apiTables,
@@ -33,4 +34,5 @@ export default defineSchema({
   ...approvalsTables,
   ...settingsTables,
   ...settlementsTables,
+  ...shiftsTables,
 });
