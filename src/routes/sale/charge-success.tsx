@@ -12,6 +12,7 @@ import { useSession } from "@/hooks/useSession";
 import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt } from "@/lib/escpos";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 /**
  * Charge-success screen — shown after a transaction reaches "paid" status.
@@ -25,6 +26,7 @@ import { toast } from "sonner";
  * charge is strictly online. No queue interaction needed here.
  */
 export default function SaleChargeSuccess() {
+  const t = useT();
   const navigate = useNavigate();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
   const txnId = txnIdParam as Id<"pos_transactions"> | undefined;
@@ -56,9 +58,9 @@ export default function SaleChargeSuccess() {
       // needed. The /r/<token> digital receipt is still reachable via history share.
       const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
       await print(bytes);
-      toast.success("Struk dicetak");
+      toast.success(t("chargeSuccess.printSuccess"));
     } catch {
-      toast.error("Gagal mencetak struk");
+      toast.error(t("chargeSuccess.printError"));
     }
   };
 
@@ -67,11 +69,11 @@ export default function SaleChargeSuccess() {
   // otherwise spin indefinitely instead of showing this error.
   if (!txnId) {
     return (
-      <SpokeLayout title="Sale complete" hideBack>
+      <SpokeLayout title={t("chargeSuccess.title")} hideBack>
         <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-          <p className="text-sm text-destructive">No transaction specified.</p>
+          <p className="text-sm text-destructive">{t("chargeSuccess.noTxn")}</p>
           <Button variant="outline" onClick={() => navigate("/sale")}>
-            New sale
+            {t("chargeSuccess.newSale")}
           </Button>
         </main>
       </SpokeLayout>
@@ -81,10 +83,10 @@ export default function SaleChargeSuccess() {
   // Loading: query not yet resolved (undefined means in-flight).
   if (result === undefined) {
     return (
-      <SpokeLayout title="Sale complete" hideBack>
+      <SpokeLayout title={t("chargeSuccess.title")} hideBack>
         <main className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading receipt…</p>
+          <p className="text-sm text-muted-foreground">{t("chargeSuccess.loadingReceipt")}</p>
         </main>
       </SpokeLayout>
     );
@@ -93,13 +95,13 @@ export default function SaleChargeSuccess() {
   // Not found (result === null) or not paid yet.
   if (result === null || result.status !== "paid") {
     return (
-      <SpokeLayout title="Sale complete" hideBack>
+      <SpokeLayout title={t("chargeSuccess.title")} hideBack>
         <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
           <p className="text-sm text-muted-foreground">
-            {result === null ? "Transaction not found." : "Payment not yet confirmed."}
+            {result === null ? t("chargeSuccess.txnNotFound") : t("chargeSuccess.notYetPaid")}
           </p>
           <Button variant="outline" onClick={() => navigate("/sale")}>
-            New sale
+            {t("chargeSuccess.newSale")}
           </Button>
         </main>
       </SpokeLayout>
@@ -108,17 +110,17 @@ export default function SaleChargeSuccess() {
 
   // Paid — render receipt.
   const confirmLabel: Record<NonNullable<typeof result.confirmed_via>, string> = {
-    webhook: "QRIS / BCA VA",
-    polling: "QRIS / BCA VA",
-    manual: "Manager override",
-    manual_bca: "Bank transfer (manual)",
+    webhook: t("chargeSuccess.methodQris"),
+    polling: t("chargeSuccess.methodQris"),
+    manual: t("chargeSuccess.methodManagerOverride"),
+    manual_bca: t("chargeSuccess.methodBankTransfer"),
   };
   const methodLabel = result.confirmed_via
     ? confirmLabel[result.confirmed_via]
-    : "Paid";
+    : t("chargeSuccess.methodPaid");
 
   return (
-    <SpokeLayout title="Sale complete" hideBack>
+    <SpokeLayout title={t("chargeSuccess.title")} hideBack>
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
       {/* Success mark — animated circle scale-in + checkmark draw */}
       <div className="flex flex-col items-center gap-2">
@@ -147,7 +149,7 @@ export default function SaleChargeSuccess() {
             />
           </motion.svg>
         </motion.div>
-        <p className="text-lg font-semibold text-primary">Payment confirmed</p>
+        <p className="text-lg font-semibold text-primary">{t("chargeSuccess.paymentConfirmed")}</p>
       </div>
 
       {/* Receipt card */}
@@ -155,7 +157,7 @@ export default function SaleChargeSuccess() {
         {/* Receipt number — hero element */}
         <div className="mb-4 flex flex-col items-center gap-1">
           <span className="text-[11px] font-medium tracking-widest text-muted-foreground">
-            RECEIPT
+            {t("chargeSuccess.receiptLabel")}
           </span>
           <span className="text-3xl font-bold tabular-nums tracking-wide">
             {result.receipt_number ?? "—"}
@@ -166,16 +168,16 @@ export default function SaleChargeSuccess() {
 
         <dl className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">Total</dt>
+            <dt className="text-muted-foreground">{t("chargeSuccess.total")}</dt>
             <dd className="font-semibold tabular-nums">{rp(result.total)}</dd>
           </div>
           <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">Method</dt>
+            <dt className="text-muted-foreground">{t("chargeSuccess.method")}</dt>
             <dd className="font-medium">{methodLabel}</dd>
           </div>
           {result.voucher_discount > 0 && (
             <div className="flex items-center justify-between text-primary">
-              <dt>Voucher</dt>
+              <dt>{t("chargeSuccess.voucher")}</dt>
               <dd className="tabular-nums">−{rp(result.voucher_discount)}</dd>
             </div>
           )}
@@ -190,14 +192,14 @@ export default function SaleChargeSuccess() {
         onClick={printerStatus === "connected" ? onPrint : connect}
         disabled={printerStatus === "printing" || printerStatus === "unsupported" || !printData}
       >
-        {printerStatus === "connected" || printerStatus === "printing" ? "Cetak struk" : "Hubungkan & cetak"}
+        {printerStatus === "connected" || printerStatus === "printing" ? t("chargeSuccess.printReceipt") : t("chargeSuccess.connectAndPrint")}
       </Button>
       <Button
         className="w-full max-w-xs"
         size="lg"
         onClick={() => navigate("/sale")}
       >
-        New sale
+        {t("chargeSuccess.newSale")}
       </Button>
     </main>
     </SpokeLayout>

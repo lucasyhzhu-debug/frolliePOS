@@ -9,8 +9,10 @@ import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 export default function SkuDetailScreen() {
+  const t = useT();
   const { skuId } = useParams();
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : null;
@@ -34,20 +36,20 @@ export default function SkuDetailScreen() {
         lowThreshold: Number(lt),
       });
       await clearIntent(intent);
-      toast.success("Ambang stok disimpan");
+      toast.success(t("stockDetail.thresholdSaved"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("MANAGER_ONLY")) toast.error("Hanya manajer");
+      if (msg.includes("MANAGER_ONLY")) toast.error(t("stockDetail.errManagerOnly"));
       else if (msg.includes("NEGATIVE_THRESHOLD") || msg.includes("NON_INTEGER_THRESHOLD"))
-        toast.error("Nilai tidak valid");
-      else toast.error("Gagal menyimpan");
+        toast.error(t("stockDetail.errInvalidValue"));
+      else toast.error(t("stockDetail.errSaveFailed"));
     }
   }
 
   if (detail === undefined) {
     return (
-      <SpokeLayout title="Stok" backTo="/stock">
-        <p className="p-4 text-muted-foreground">Memuat…</p>
+      <SpokeLayout title={t("stock.title")} backTo="/stock">
+        <p className="p-4 text-muted-foreground">{t("common.loading")}</p>
       </SpokeLayout>
     );
   }
@@ -56,9 +58,9 @@ export default function SkuDetailScreen() {
     <SpokeLayout title={detail.name} backTo="/stock">
       <div className="space-y-1 p-4">
         <p>
-          Sisa: <b>{detail.on_hand}</b> pcs
+          {t("stockDetail.remaining")}: <b>{detail.on_hand}</b> {t("stockDetail.pcs")}
         </p>
-        <p>Ambang stok rendah: {detail.low_threshold}</p>
+        <p>{t("stockDetail.lowThreshold")}: {detail.low_threshold}</p>
       </div>
       {role === "manager" && (
         <div className="flex gap-2 p-4">
@@ -67,10 +69,10 @@ export default function SkuDetailScreen() {
             value={lt}
             onChange={(e) => setLt(e.target.value.replace(/[^0-9]/g, ""))}
             className="w-24"
-            placeholder="cth. 20"
+            placeholder={t("stockDetail.thresholdPlaceholder")}
           />
           <Button disabled={lt === "" || !key} onClick={save}>
-            Simpan
+            {t("common.save")}
           </Button>
         </div>
       )}

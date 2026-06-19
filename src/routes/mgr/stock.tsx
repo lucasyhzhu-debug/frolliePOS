@@ -24,6 +24,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -48,11 +49,12 @@ function humanizeDriftError(e: unknown): string {
 
 export default function MgrStock() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -66,35 +68,35 @@ export default function MgrStock() {
 
 function MgrStockInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [includeResolved, setIncludeResolved] = useState(false);
+  const t = useT();
   const drifts = useQuery(api.inventory.public.listStockDrift, {
     sessionId,
     includeResolved,
   });
 
   return (
-    <SpokeLayout title="Stock drift" backTo="/mgr">
+    <SpokeLayout title={t("mgrStock.title")} backTo="/mgr">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            Nightly cron at 02:00 WIB compares the stock-movement ledger to the
-            cached on_hand. Investigate before manually patching the cache.
+            {t("mgrStock.description")}
           </p>
           <Button
             size="sm"
             variant={includeResolved ? "default" : "outline"}
             onClick={() => setIncludeResolved((s) => !s)}
           >
-            {includeResolved ? "Hide resolved" : "Show resolved"}
+            {includeResolved ? t("mgrStock.hideResolved") : t("mgrStock.showResolved")}
           </Button>
         </div>
 
         {drifts === undefined && (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         )}
 
         {drifts !== undefined && drifts.length === 0 && (
           <Card className="p-4 text-sm text-muted-foreground">
-            {includeResolved ? "No drift entries." : "No unresolved drifts."}
+            {includeResolved ? t("mgrStock.emptyAll") : t("mgrStock.emptyUnresolved")}
           </Card>
         )}
 
@@ -118,6 +120,7 @@ function DriftRow({
   const [showResolve, setShowResolve] = useState(false);
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
+  const t = useT();
 
   const resolveDrift = useMutation(api.inventory.public.resolveDrift);
   // One idempotency intent per drift row so a failed resolve on row A never
@@ -142,7 +145,7 @@ function DriftRow({
         driftId: drift._id,
         note: trimmed,
       });
-      toast.success("Drift resolved");
+      toast.success(t("mgrStock.resolvedSuccess"));
       await clearIntent(intent);
       setShowResolve(false);
       setNote("");
@@ -164,8 +167,8 @@ function DriftRow({
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right text-xs text-muted-foreground">
-            <div>cache {drift.cached_on_hand}</div>
-            <div>ledger {drift.reconstructed_on_hand}</div>
+            <div>{t("mgrStock.cache")} {drift.cached_on_hand}</div>
+            <div>{t("mgrStock.ledger")} {drift.reconstructed_on_hand}</div>
           </div>
           <Badge variant={isResolved ? "secondary" : "destructive"}>
             Δ {deltaLabel}
@@ -177,7 +180,7 @@ function DriftRow({
               onClick={() => setShowResolve((s) => !s)}
               disabled={pending}
             >
-              {showResolve ? "Cancel" : "Mark resolved"}
+              {showResolve ? t("common.cancel") : t("mgrStock.markResolved")}
             </Button>
           )}
         </div>
@@ -185,7 +188,7 @@ function DriftRow({
 
       {isResolved && drift.resolution_note && (
         <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-          Resolved:{" "}
+          {t("mgrStock.resolvedLabel")}{" "}
           <span className="italic">{drift.resolution_note}</span>
         </p>
       )}
@@ -195,7 +198,7 @@ function DriftRow({
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="What was the cause? (max 500 chars)"
+            placeholder={t("mgrStock.notePlaceholder")}
             maxLength={NOTE_MAX}
             rows={3}
             disabled={pending}
@@ -210,7 +213,7 @@ function DriftRow({
               onClick={handleResolve}
               disabled={pending || !note.trim() || !key}
             >
-              {pending ? "Saving…" : "Confirm"}
+              {pending ? t("mgrStock.saving") : t("common.confirm")}
             </Button>
           </div>
         </div>

@@ -20,6 +20,7 @@ import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,11 +85,12 @@ function humanizeAuthError(e: unknown): string {
 export default function MgrStaff() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -113,6 +115,7 @@ function MgrStaffInner({
   sessionId: Id<"staff_sessions">;
   selfStaffId: Id<"staff">;
 }) {
+  const t = useT();
   const staff = useQuery(api.staff.public.listStaff, { sessionId }) as
     | StaffRow[]
     | undefined;
@@ -199,7 +202,7 @@ function MgrStaffInner({
     setRenameBusy(true);
     try {
       await updateName({ idempotencyKey: renameKey, sessionId, staffId, name });
-      toast.success("Saved");
+      toast.success(t("mgrStaff.savedSuccess"));
       cancelRename();
       await clearIntent("staff.updateName");
     } catch (err) {
@@ -225,7 +228,7 @@ function MgrStaffInner({
   // ─── Deactivate ─────────────────────────────────────────────────────────────
 
   function openDeactivate(s: StaffRow) {
-    if (!window.confirm(`Deactivate ${s.name}?`)) return;
+    if (!window.confirm(t("mgrStaff.confirmDeactivate", { name: s.name }))) return;
     setPinAction({ kind: "deactivate", staffId: s._id, staffName: s.name });
     setPinError(undefined);
   }
@@ -281,7 +284,7 @@ function MgrStaffInner({
             pin: pinAction.pin,
             managerPin,
           });
-          toast.success(`${pinAction.name} added`);
+          toast.success(t("mgrStaff.addedSuccess", { name: pinAction.name }));
           setAddOpen(false);
           await clearIntent("staff.createStaff");
           break;
@@ -297,8 +300,8 @@ function MgrStaffInner({
           });
           toast.success(
             pinAction.role === "manager"
-              ? `${pinAction.staffName} is now a manager`
-              : `${pinAction.staffName} is now staff`,
+              ? t("mgrStaff.roleSetManager", { name: pinAction.staffName })
+              : t("mgrStaff.roleSetStaff", { name: pinAction.staffName }),
           );
           await clearIntent("staff.setRole");
           break;
@@ -311,7 +314,7 @@ function MgrStaffInner({
             staffId: pinAction.staffId,
             managerPin,
           });
-          toast.success(`${pinAction.staffName} deactivated`);
+          toast.success(t("mgrStaff.deactivatedSuccess", { name: pinAction.staffName }));
           await clearIntent("staff.deactivate");
           break;
         }
@@ -324,7 +327,7 @@ function MgrStaffInner({
             newPin: pinAction.newPin,
             managerPin,
           });
-          toast.success(`PIN reset for ${pinAction.staffName}`);
+          toast.success(t("mgrStaff.pinResetSuccess", { name: pinAction.staffName }));
           await clearIntent("auth.resetPin");
           break;
         }
@@ -349,37 +352,37 @@ function MgrStaffInner({
 
   const pinTitle =
     pinAction?.kind === "createStaff"
-      ? "Add staff"
+      ? t("mgrStaff.pinTitleAdd")
       : pinAction?.kind === "setRole"
-        ? "Change role"
+        ? t("mgrStaff.pinTitleRole")
         : pinAction?.kind === "deactivate"
-          ? "Deactivate staff"
+          ? t("mgrStaff.pinTitleDeactivate")
           : pinAction?.kind === "resetPin"
-            ? "Reset PIN"
-            : "Manager PIN";
+            ? t("mgrStaff.pinTitleResetPin")
+            : t("mgrStaff.pinTitleDefault");
 
   const pinLabel =
     pinAction?.kind === "createStaff"
-      ? `Confirm with your manager PIN to add ${pinAction.name}.`
+      ? t("mgrStaff.pinLabelAdd", { name: pinAction.name })
       : pinAction?.kind === "setRole"
-        ? `Confirm with your manager PIN to make ${pinAction.staffName} a ${pinAction.role}.`
+        ? t("mgrStaff.pinLabelRole", { name: pinAction.staffName, role: pinAction.role })
         : pinAction?.kind === "deactivate"
-          ? `Confirm with your manager PIN to deactivate ${pinAction.staffName}.`
+          ? t("mgrStaff.pinLabelDeactivate", { name: pinAction.staffName })
           : pinAction?.kind === "resetPin"
-            ? `Confirm with your manager PIN to reset ${pinAction.staffName}'s PIN.`
-            : "Enter manager PIN.";
+            ? t("mgrStaff.pinLabelResetPin", { name: pinAction.staffName })
+            : t("mgrStaff.pinLabelDefault");
 
   return (
-    <SpokeLayout title="Staff" backTo="/">
+    <SpokeLayout title={t("mgrStaff.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-muted-foreground">
-              Add, rename, change role, deactivate, reset PIN.
+              {t("mgrStaff.description")}
             </p>
           </div>
           <Button size="sm" onClick={openAdd}>
-            Add staff
+            {t("mgrStaff.addStaff")}
           </Button>
         </div>
 
@@ -395,7 +398,7 @@ function MgrStaffInner({
         ) : staff.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              No staff yet — add one above
+              {t("mgrStaff.empty")}
             </p>
           </div>
         ) : (
@@ -422,14 +425,14 @@ function MgrStaffInner({
                             maxLength={60}
                             autoFocus
                             className="h-8"
-                            aria-label="staff name"
+                            aria-label={t("mgrStaff.ariaStaffName")}
                           />
                           <Button
                             size="sm"
                             onClick={() => commitRename(s._id)}
                             disabled={renameBusy || !renameKey}
                           >
-                            Save
+                            {t("common.save")}
                           </Button>
                           <Button
                             size="sm"
@@ -437,7 +440,7 @@ function MgrStaffInner({
                             onClick={cancelRename}
                             disabled={renameBusy}
                           >
-                            Cancel
+                            {t("common.cancel")}
                           </Button>
                         </div>
                       ) : (
@@ -446,14 +449,14 @@ function MgrStaffInner({
                           onClick={() => s.active && startRename(s)}
                           disabled={!s.active}
                           className="block max-w-full truncate text-left text-sm font-medium leading-tight hover:underline disabled:cursor-not-allowed disabled:no-underline"
-                          title={s.active ? "Click to rename" : undefined}
+                          title={s.active ? t("mgrStaff.clickToRename") : undefined}
                         >
                           {s.name}
                         </button>
                       )}
                       <p className="mt-0.5 font-mono text-xs text-muted-foreground">
                         {s.code ?? "—"}
-                        {isSelf && " · you"}
+                        {isSelf && ` · ${t("mgrStaff.you")}`}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -461,11 +464,11 @@ function MgrStaffInner({
                         variant={s.role === "manager" ? "default" : "secondary"}
                         className="text-[10px]"
                       >
-                        {s.role}
+                        {s.role === "manager" ? t("mgrStaff.roleManager") : t("mgrStaff.roleStaff")}
                       </Badge>
                       {!s.active && (
                         <Badge variant="outline" className="text-[10px]">
-                          Inactive
+                          {t("mgrStaff.inactive")}
                         </Badge>
                       )}
                     </div>
@@ -484,11 +487,11 @@ function MgrStaffInner({
                         }
                         title={
                           s.role === "manager" && isLastActiveManager
-                            ? "At least one active manager is required."
+                            ? t("mgrStaff.lastManagerGuard")
                             : undefined
                         }
                       >
-                        {s.role === "manager" ? "Make staff" : "Make manager"}
+                        {s.role === "manager" ? t("mgrStaff.makeStaff") : t("mgrStaff.makeManager")}
                       </Button>
                       <Button
                         variant="outline"
@@ -496,7 +499,7 @@ function MgrStaffInner({
                         className="text-xs"
                         onClick={() => openResetPin(s)}
                       >
-                        Reset PIN
+                        {t("mgrStaff.resetPin")}
                       </Button>
                       <Button
                         variant="outline"
@@ -506,13 +509,13 @@ function MgrStaffInner({
                         disabled={isSelf || isLastActiveManager}
                         title={
                           isSelf
-                            ? "You can't deactivate yourself."
+                            ? t("mgrStaff.cantDeactivateSelf")
                             : isLastActiveManager
-                              ? "At least one active manager is required."
+                              ? t("mgrStaff.lastManagerGuard")
                               : undefined
                         }
                       >
-                        Deactivate
+                        {t("mgrStaff.deactivate")}
                       </Button>
                     </div>
                   )}
@@ -532,37 +535,37 @@ function MgrStaffInner({
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Add staff</DialogTitle>
+            <DialogTitle>{t("mgrStaff.addStaff")}</DialogTitle>
             <DialogDescription>
-              Set a name, role, and initial 4-digit PIN.
+              {t("mgrStaff.addDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="new-staff-name">Name</Label>
+              <Label htmlFor="new-staff-name">{t("mgrStaff.labelName")}</Label>
               <Input
                 id="new-staff-name"
                 value={addName}
                 onChange={(e) => setAddName(e.target.value)}
                 maxLength={60}
-                placeholder="e.g. Rika"
+                placeholder={t("mgrStaff.namePlaceholder")}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Role</Label>
+              <Label>{t("mgrStaff.labelRole")}</Label>
               <Select value={addRole} onValueChange={(v) => setAddRole(v as Role)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="staff">Staff</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="staff">{t("mgrStaff.roleStaff")}</SelectItem>
+                  <SelectItem value="manager">{t("mgrStaff.roleManager")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Initial PIN</Label>
+              <Label>{t("mgrStaff.labelInitialPin")}</Label>
               <div className="flex justify-center gap-3 py-1">
                 {[0, 1, 2, 3].map((i) => (
                   <span
@@ -595,7 +598,7 @@ function MgrStaffInner({
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitAddOpenPin}
@@ -605,7 +608,7 @@ function MgrStaffInner({
                 !/^\d{4}$/.test(addPin)
               }
             >
-              Continue
+              {t("mgrStaff.continue")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -623,9 +626,9 @@ function MgrStaffInner({
       >
         <DialogContent className="max-w-xs px-4 pb-4">
           <DialogHeader>
-            <DialogTitle>Reset PIN</DialogTitle>
+            <DialogTitle>{t("mgrStaff.resetPin")}</DialogTitle>
             <DialogDescription>
-              Enter a new 4-digit PIN for {resetTarget?.name ?? ""}.
+              {t("mgrStaff.resetPinDescription", { name: resetTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-center gap-3 py-1">
@@ -652,7 +655,7 @@ function MgrStaffInner({
                 setResetPinBuf("");
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>

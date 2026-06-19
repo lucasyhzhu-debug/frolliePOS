@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -158,7 +158,7 @@ describe("MgrDashboard route (/mgr/dashboard)", () => {
       staff: { _id: "staff_1", name: "Andi", role: "staff" },
     };
     renderRoute();
-    expect(screen.getByText(/Hanya manajer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Only managers can view the dashboard/i)).toBeInTheDocument();
     expect(screen.queryByTestId("dashboard-grid")).toBeNull();
     expect(screen.queryByTestId("dashboard-skeleton")).toBeNull();
     // Confirm the dashboardSummary query was skipped (no args captured).
@@ -169,7 +169,7 @@ describe("MgrDashboard route (/mgr/dashboard)", () => {
     mockSummaryReturn = POPULATED_SUMMARY;
     renderRoute();
     const btn = screen.getByRole("button", {
-      name: /Lihat transaksi bermasalah/i,
+      name: /View flagged transactions/i,
     });
     fireEvent.click(btn);
     expect(screen.getByText("HISTORY_PAGE")).toBeInTheDocument();

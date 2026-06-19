@@ -1,5 +1,9 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { AbandonCartDialog } from "../AbandonCartDialog";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 describe("AbandonCartDialog", () => {
   // --- cart variant ---

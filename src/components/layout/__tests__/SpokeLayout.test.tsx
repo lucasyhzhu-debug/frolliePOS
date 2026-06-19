@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithLocale as render, screen } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 import { SpokeLayout } from "../SpokeLayout";
 

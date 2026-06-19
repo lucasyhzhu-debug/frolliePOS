@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DayPicker } from "@/components/pos/DayPicker";
 import { INSTRUMENT_LABEL, REFUND_BADGE } from "@/lib/pos-labels";
+import { useT } from "@/lib/i18n";
 
 /**
  * v0.5.3a T9 — transaction history list.
@@ -24,6 +25,7 @@ import { INSTRUMENT_LABEL, REFUND_BADGE } from "@/lib/pos-labels";
  */
 
 export default function HistoryIndex() {
+  const t = useT();
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : null;
   const role = session.status === "active" ? session.staff.role : "staff";
@@ -42,9 +44,9 @@ export default function HistoryIndex() {
   // ---- render guards ----
   if (session.status === "loading") {
     return (
-      <SpokeLayout title="Riwayat">
+      <SpokeLayout title={t("history.title")}>
         <main className="flex flex-1 flex-col p-4">
-          <div className="text-sm text-muted-foreground">Memuat…</div>
+          <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
         </main>
       </SpokeLayout>
     );
@@ -58,11 +60,11 @@ export default function HistoryIndex() {
   // navigated rather than landing on it.
   const emptyCopy =
     role === "manager" && day !== undefined
-      ? "Belum ada transaksi"
-      : "Belum ada transaksi hari ini";
+      ? t("history.noTransactions")
+      : t("history.noTransactionsToday");
 
   return (
-    <SpokeLayout title="Riwayat" backTo="/">
+    <SpokeLayout title={t("history.title")} backTo="/">
       <section className="flex-1 overflow-y-auto p-4">
         {role === "manager" ? (
           <div className="mb-4">
@@ -95,26 +97,26 @@ export default function HistoryIndex() {
           </div>
         ) : (
           <ul className="space-y-3" data-testid="history-list">
-            {rows.map((t) => {
+            {rows.map((t_row) => {
               // refundStatus is pre-computed by the BE day-window aggregator —
               // single derivation matches the receipt template + detail badge.
-              const badge = REFUND_BADGE[t.refundStatus];
-              const instrumentLabel = INSTRUMENT_LABEL[t.instrument];
+              const badge = REFUND_BADGE[t_row.refundStatus];
+              const instrumentLabel = INSTRUMENT_LABEL[t_row.instrument];
               return (
-                <li key={t._id}>
+                <li key={t_row._id}>
                   <Link
-                    to={`/history/${t._id}`}
+                    to={`/history/${t_row._id}`}
                     className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
                   >
                     <Card className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium tabular-nums">
-                          {rp(t.total)}
+                          {rp(t_row.total)}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {fmtTime(t.created_at)} · {t.staff_name}
-                          {t.voucher_code_snapshot
-                            ? ` · ${t.voucher_code_snapshot}`
+                          {fmtTime(t_row.created_at)} · {t_row.staff_name}
+                          {t_row.voucher_code_snapshot
+                            ? ` · ${t_row.voucher_code_snapshot}`
                             : null}
                         </p>
                       </div>

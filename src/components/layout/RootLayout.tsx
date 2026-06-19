@@ -7,6 +7,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
 import { useBoothState } from "@/hooks/useBoothState";
+import { useT } from "@/lib/i18n";
 
 // SEC-03: session IDs already shown the forced-rotation prompt this app session.
 // Soft enforcement — we surface the "Change your PIN" step ONCE after login, then
@@ -111,9 +112,10 @@ export function RootLayout() {
 }
 
 function RouteFallback() {
+  const t = useT();
   return (
     <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
-      <span>Loading…</span>
+      <span>{t("common.loading")}</span>
     </div>
   );
 }

@@ -1,5 +1,9 @@
-import { render, screen, act } from "@testing-library/react";
+import { renderWithLocale as render, screen, act } from "@/test-utils";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 vi.mock("../../hooks/useApproval", () => ({ useApproval: vi.fn() }));
 import { useApproval } from "../../hooks/useApproval";

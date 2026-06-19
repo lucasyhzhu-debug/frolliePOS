@@ -12,6 +12,7 @@ import { StaffListItem } from "@/components/auth/StaffListItem";
 import { PinEntry } from "@/components/auth/PinEntry";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 type Stage =
   | { kind: "list" }
@@ -21,6 +22,7 @@ export default function LoginRoute() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
   const boothState = useBoothState();
+  const t = useT();
   const staff = useQuery(api.auth.public.getActiveStaff, {});
   const login = useAction(api.auth.actions.loginWithPin);
   const recordResume = useMutation(api.shifts.public.recordResume);
@@ -85,21 +87,21 @@ export default function LoginRoute() {
     if (!recentPinReset || recentPinReset.status !== "denied") return;
     if (shownDenialRef.current.has(recentPinReset.requestId)) return;
     shownDenialRef.current.add(recentPinReset.requestId);
-    const name = recentPinReset.denied_by_manager_name ?? "manager";
+    const name = recentPinReset.denied_by_manager_name ?? t("login.managerFallback");
     const code = recentPinReset.denied_by_manager_code;
     const denierLabel = code ? `${name} (${code})` : name;
     const reason = recentPinReset.deny_reason;
     toast.error(
       reason
-        ? `PIN reset declined by ${denierLabel} — "${reason}". Wait for the 60-second lockout to expire and try again.`
-        : `PIN reset declined by ${denierLabel}. Wait for the 60-second lockout to expire and try again.`,
+        ? t("login.pinResetDeniedWithReason", { denier: denierLabel, reason })
+        : t("login.pinResetDenied", { denier: denierLabel }),
       { duration: 10_000 },
     );
   }, [recentPinReset]);
 
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
-    if (!deviceId) { toast.error("Device not ready — please wait"); return; }
+    if (!deviceId) { toast.error(t("login.deviceNotReady")); return; }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
     try {
       const { sessionId } = await login({
@@ -123,12 +125,12 @@ export default function LoginRoute() {
         navigate("/", { replace: true });
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Login failed";
+      const msg = err instanceof Error ? err.message : t("login.errorGeneric");
       const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
       const friendly =
         lockedMatch
-          ? `Locked out. A manager has been notified to reset your PIN. Wait ${lockedMatch[1]}s to retry, or use the new PIN once it lands.`
-          : msg.includes("INVALID_PIN") ? "Wrong PIN." :
+          ? t("login.errorLockedOut", { seconds: lockedMatch[1] })
+          : msg.includes("INVALID_PIN") ? t("login.errorWrongPin") :
             msg;
       toast.error(friendly);
       setPinReset((n) => n + 1);
@@ -139,7 +141,7 @@ export default function LoginRoute() {
   if (deviceId === null) {
     return (
       <main className="flex flex-1 flex-col p-6">
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       </main>
     );
   }
@@ -148,15 +150,15 @@ export default function LoginRoute() {
     <main className="flex flex-1 flex-col p-6">
       {/* Brand mark */}
       <div className="mb-8 flex flex-col items-center gap-1 pt-6">
-        <span className="text-2xl font-bold tracking-tight text-primary">frollie</span>
+        <span className="text-2xl font-bold tracking-tight text-primary">{"frollie"}</span>
         <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Point of Sale
+          {t("login.appSubtitle")}
         </span>
       </div>
 
       <header className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-foreground">
-          {stage.kind === "list" ? "Who's working?" : stage.staff.name}
+          {stage.kind === "list" ? t("login.whoIsWorking") : stage.staff.name}
         </h1>
         <ConnDot />
       </header>
@@ -164,10 +166,10 @@ export default function LoginRoute() {
       {stage.kind === "list" ? (
         <div className="flex flex-col gap-2">
           {staff === undefined ? (
-            <div className="text-sm text-muted-foreground">Loading…</div>
+            <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
           ) : staff.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No staff yet. A manager needs to create staff records.
+              {t("login.noStaff")}
             </div>
           ) : (
             staff.map((s) => (
@@ -186,7 +188,7 @@ export default function LoginRoute() {
             onClick={() => setStage({ kind: "list" })}
             className="text-sm text-muted-foreground underline-offset-4 hover:underline"
           >
-            ← back
+            {t("login.back")}
           </button>
         </div>
       )}

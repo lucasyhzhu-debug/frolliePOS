@@ -20,8 +20,10 @@ import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { reportOps } from "@/lib/reportOps";
+import { useT } from "@/lib/i18n";
 
 export default function Sale() {
+  const t = useT();
   const navigate = useNavigate();
   const session = useSession();
 
@@ -90,10 +92,10 @@ export default function Sale() {
       // result on every subsequent sale in the shift (server dedupe, ADR-013).
       await clearIntent(`draft:${session.sessionId}`);
       clear();
-      toast.success("Draft saved");
+      toast.success(t("sale.toastDraftSaved"));
       navigate("/sale/drafts");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not save draft";
+      const msg = err instanceof Error ? err.message : t("sale.errorSaveDraftFailed");
       toast.error(msg);
     }
   };
@@ -115,9 +117,9 @@ export default function Sale() {
       });
       await clearIntent(`draft:${session.sessionId}`);
       clear();
-      toast.success("Draft saved");
+      toast.success(t("sale.toastDraftSaved"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not save draft";
+      const msg = err instanceof Error ? err.message : t("sale.errorSaveDraftFailed");
       toast.error(msg);
       // Re-throw so the dialog doesn't call onProceed on failure.
       throw err;
@@ -141,7 +143,7 @@ export default function Sale() {
         voucherCode,
       });
       if (hasFlag(result.flags, NEG_STOCK)) {
-        toast.warning("Low stock — sale flagged for manager review");
+        toast.warning(t("sale.toastLowStock"));
       }
       // Close out this sale's idempotency intent (see handleSaveDraft) so the
       // next charge mints a fresh key instead of replaying this transaction.
@@ -152,7 +154,7 @@ export default function Sale() {
       });
     } catch (err) {
       reportOps({ kind: "mutation", error: err });
-      const msg = err instanceof Error ? err.message : "Could not start charge";
+      const msg = err instanceof Error ? err.message : t("sale.errorChargeFailed");
       toast.error(msg);
     }
   };
@@ -161,7 +163,7 @@ export default function Sale() {
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 flex-col p-4">
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       </main>
     );
   }
@@ -172,16 +174,16 @@ export default function Sale() {
   const itemV = gridItemVariants(reduce);
 
   return (
-    <SpokeLayout title="New sale">
+    <SpokeLayout title={t("sale.title")}>
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* ---- Product grid ---- */}
         <section className="flex-1 overflow-y-auto p-4">
           <h2 className="mb-3 text-xs font-medium tracking-widest text-muted-foreground">
-            PRODUCTS
+            {t("sale.productsHeading")}
           </h2>
           {products.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              {catalog == null ? "Loading products…" : "No active products."}
+              {catalog == null ? t("sale.loadingProducts") : t("sale.noProducts")}
             </div>
           ) : (
             <motion.div
@@ -232,14 +234,14 @@ export default function Sale() {
         {/* ---- Cart panel ---- */}
         <aside className="flex w-full flex-col border-t bg-card lg:w-72 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between border-b px-4 py-3">
-            <h2 className="text-xs font-medium tracking-widest text-muted-foreground">CART</h2>
+            <h2 className="text-xs font-medium tracking-widest text-muted-foreground">{t("sale.cartHeading")}</h2>
             {!isEmpty && (
               <button
                 type="button"
                 className="text-xs text-destructive underline-offset-2 hover:underline"
                 onClick={() => clear()}
               >
-                Clear
+                {t("sale.clearCart")}
               </button>
             )}
           </div>
@@ -248,7 +250,7 @@ export default function Sale() {
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {isEmpty ? (
               <p className="py-4 text-center text-xs text-muted-foreground">
-                Tap a product to add it
+                {t("sale.emptyCartHint")}
               </p>
             ) : (
               <ul className="space-y-2">
@@ -269,7 +271,7 @@ export default function Sale() {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            aria-label={`Decrease qty for ${name}`}
+                            aria-label={t("sale.decreaseQty", { name })}
                             className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
                             onClick={() => setQty(line.productId, line.qty - 1)}
                           >
@@ -278,7 +280,7 @@ export default function Sale() {
                           <span className="w-6 text-center text-sm tabular-nums">{line.qty}</span>
                           <button
                             type="button"
-                            aria-label={`Increase qty for ${name}`}
+                            aria-label={t("sale.increaseQty", { name })}
                             className="flex h-6 w-6 items-center justify-center rounded border text-sm leading-none transition-colors hover:bg-accent"
                             onClick={() => setQty(line.productId, line.qty + 1)}
                           >
@@ -304,11 +306,11 @@ export default function Sale() {
               className="mb-3 flex w-full items-center justify-between text-xs text-muted-foreground underline-offset-2 hover:underline"
               onClick={() => navigate("/sale/voucher")}
             >
-              <span>Voucher</span>
+              <span>{t("sale.voucherLabel")}</span>
               {voucherCode ? (
                 <span className="font-medium text-primary">{voucherCode}</span>
               ) : (
-                <span className="opacity-50">+ add code</span>
+                <span className="opacity-50">{t("sale.voucherAdd")}</span>
               )}
             </button>
 
@@ -317,7 +319,7 @@ export default function Sale() {
             {/* Subtotal */}
             <div className="mb-4 flex items-baseline justify-between">
               <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                Subtotal
+                {t("sale.subtotal")}
               </span>
               <span className="text-xl font-bold tabular-nums">{rp(subtotal)}</span>
             </div>
@@ -330,14 +332,14 @@ export default function Sale() {
                 disabled={isEmpty || !idKeyDraft}
                 onClick={handleSaveDraft}
               >
-                Save draft
+                {t("sale.saveDraft")}
               </Button>
               <Button
                 className="flex-[2]"
                 disabled={isEmpty || !idKeyCharge}
                 onClick={handleCharge}
               >
-                Charge
+                {t("sale.charge")}
               </Button>
             </div>
           </div>

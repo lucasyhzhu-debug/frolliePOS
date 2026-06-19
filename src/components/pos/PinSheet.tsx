@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { NumericKeypad } from "@/components/pos/NumericKeypad";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 interface PinSheetProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function PinSheet({
   onCancel,
   extraField,
 }: PinSheetProps) {
+  const t = useT();
   const [pin, setPin] = useState("");
 
   // Clear pin buffer whenever error changes (failed attempt)
@@ -100,7 +102,7 @@ export function PinSheet({
         {pending && (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Verifying…</span>
+            <span>{t("pinSheet.verifying")}</span>
           </div>
         )}
 
@@ -117,7 +119,7 @@ export function PinSheet({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
         </DialogFooter>
       </DialogContent>

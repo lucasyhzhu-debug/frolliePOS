@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, vi, type Mock } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import Lock from "./lock";
@@ -220,21 +220,21 @@ describe("Lock route — lockShift + manager-unlock", () => {
     await waitFor(() => expect(screen.getByTestId("login-page")).toBeInTheDocument());
   });
 
-  test("'Manajer buka kunci' button is visible when session is active", () => {
+  test("'Manager unlock' button is visible when session is active", () => {
     renderLock();
     expect(
-      screen.getByRole("button", { name: /manajer buka kunci/i }),
+      screen.getByRole("button", { name: /manager unlock/i }),
     ).toBeInTheDocument();
   });
 
-  test("'Manajer buka kunci' opens PinSheet", async () => {
+  test("'Manager unlock' opens PinSheet", async () => {
     // Need a manager in the query result for the picker
     const convexReact = await import("convex/react");
     (convexReact.useQuery as Mock).mockReturnValue([{ _id: "kn7lucas000000000000000000000", name: "Lucas", role: "manager" }]);
     (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
 
     renderLock();
-    fireEvent.click(screen.getByRole("button", { name: /manajer buka kunci/i }));
+    fireEvent.click(screen.getByRole("button", { name: /manager unlock/i }));
 
     // PinSheet dialog title should appear
     await waitFor(() =>
@@ -252,7 +252,7 @@ describe("Lock route — lockShift + manager-unlock", () => {
     (convexReact.useAction as Mock).mockReturnValue(mockManagerTakeover);
 
     renderLock();
-    fireEvent.click(screen.getByRole("button", { name: /manajer buka kunci/i }));
+    fireEvent.click(screen.getByRole("button", { name: /manager unlock/i }));
 
     // Wait for dialog to open
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());

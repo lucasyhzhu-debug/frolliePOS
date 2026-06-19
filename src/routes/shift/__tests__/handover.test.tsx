@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +43,9 @@ vi.mock("@/hooks/useIdempotency", () => ({
   clearIntent: vi.fn(),
 }));
 
-// storeSession — spy only.
+// storeSession — spy only. useSession needed by LocaleProvider.
 vi.mock("@/hooks/useSession", () => ({
+  useSession: vi.fn(() => ({ status: "none", sessionId: null, staff: null })),
   storeSession: mockStoreSession,
 }));
 

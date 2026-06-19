@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -91,7 +91,7 @@ describe("AccountRoute (/account change-PIN)", () => {
     typePin("1111");
     typePin("2222");
     typePin("3333"); // confirm != new
-    expect(await screen.findByTestId("account-error")).toHaveTextContent(/tidak cocok/i);
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/don't match/i);
     expect(mockChangePin).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe("AccountRoute (/account change-PIN)", () => {
     mockChangePin.mockRejectedValue(new Error("Server Error: INVALID_PIN"));
     renderRoute();
     typePin("9999"); typePin("2222"); typePin("2222");
-    expect(await screen.findByTestId("account-error")).toHaveTextContent(/PIN lama salah/i);
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/Wrong current PIN/i);
   });
 
   it("maps LOCKED_OUT:30 to a lockout message with the seconds", async () => {
@@ -120,13 +120,13 @@ describe("AccountRoute (/account change-PIN)", () => {
     mockChangePin.mockRejectedValue(new Error("Server Error: SAME_PIN"));
     renderRoute();
     typePin("1111"); typePin("1111"); typePin("1111");
-    expect(await screen.findByTestId("account-error")).toHaveTextContent(/berbeda dari PIN lama/i);
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/differ from old PIN/i);
   });
 
   it("maps NEW_PIN_INVALID to friendly copy", async () => {
     mockChangePin.mockRejectedValue(new Error("Server Error: NEW_PIN_INVALID"));
     renderRoute();
     typePin("1111"); typePin("2222"); typePin("2222");
-    expect(await screen.findByTestId("account-error")).toHaveTextContent(/4 angka/i);
+    expect(await screen.findByTestId("account-error")).toHaveTextContent(/4 digits/i);
   });
 });

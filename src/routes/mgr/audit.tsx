@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 
 /**
  * /mgr/audit — manager-only append-only activity trail (ADR-007: read-only,
@@ -24,11 +25,12 @@ const MAX = 500; // server clamps limit to 500 (auditListHandler).
 
 export default function MgrAudit() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -43,9 +45,10 @@ function MgrAuditInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [filter, setFilter] = useState("");
   const action = filter.trim() || undefined;
   const rows = useQuery(api.audit.public.list, { sessionId, limit, action });
+  const t = useT();
 
   return (
-    <SpokeLayout title="Audit log" backTo="/mgr">
+    <SpokeLayout title={t("mgrAudit.title")} backTo="/mgr">
       <div className="flex flex-1 flex-col gap-3 p-4">
         <Input
           value={filter}
@@ -53,15 +56,15 @@ function MgrAuditInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             setFilter(e.target.value);
             setLimit(PAGE);
           }}
-          placeholder="Exact action filter (e.g. refund.committed)"
+          placeholder={t("mgrAudit.filterPlaceholder")}
           data-testid="audit-filter"
         />
         {rows === undefined ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
         ) : rows.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              {action ? `No entries for action “${action}”.` : "No audit entries."}
+              {action ? t("mgrAudit.noEntriesFiltered", { action }) : t("mgrAudit.noEntries")}
             </p>
           </div>
         ) : (
@@ -77,7 +80,7 @@ function MgrAuditInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 onClick={() => setLimit((n) => Math.min(n + PAGE, MAX))}
                 data-testid="audit-load-more"
               >
-                Load more
+                {t("mgrAudit.loadMore")}
               </Button>
             )}
           </>

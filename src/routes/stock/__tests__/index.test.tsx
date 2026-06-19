@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithLocale as render, screen } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 
@@ -33,7 +33,7 @@ describe("StockScreen", () => {
   it("shows a friendly empty state when no SKUs exist", () => {
     vi.mocked(useQuery).mockReturnValue([]);
     renderStock();
-    expect(screen.getByText(/belum ada sku/i)).toBeInTheDocument();
+    expect(screen.getByText(/no skus yet/i)).toBeInTheDocument();
   });
 
   it("renders rows when SKUs exist", () => {

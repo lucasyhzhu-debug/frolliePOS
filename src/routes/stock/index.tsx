@@ -3,19 +3,21 @@ import { Link } from "react-router";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { useT } from "@/lib/i18n";
 
 export default function StockScreen() {
+  const t = useT();
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : null;
   const rows = useQuery(api.inventory.public.listInventory, sessionId ? { sessionId } : "skip");
 
   return (
-    <SpokeLayout title="Stok">
+    <SpokeLayout title={t("stock.title")}>
       {rows === undefined ? (
-        <p className="p-4 text-muted-foreground">Memuat…</p>
+        <p className="p-4 text-muted-foreground">{t("common.loading")}</p>
       ) : rows.length === 0 ? (
         <div className="m-4 rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Belum ada SKU. Manajer menambahkan SKU lewat halaman Kelola Produk.
+          {t("stock.noSkus")}
         </div>
       ) : (
         <ul className="divide-y">
@@ -24,7 +26,7 @@ export default function StockScreen() {
               <Link to={`/stock/${r.skuId}`} className="flex items-center justify-between p-4">
                 <span className="font-medium">{r.name}</span>
                 <span className={r.status === "negative" ? "text-error font-semibold" : r.status === "low" ? "text-warning font-semibold" : ""}>
-                  {r.on_hand} pcs
+                  {t("stock.onHandPcs", { qty: String(r.on_hand) })}
                 </span>
               </Link>
             </li>
@@ -33,7 +35,7 @@ export default function StockScreen() {
       )}
       <div className="p-4">
         <Link to="/stock/recount" className="block w-full rounded-md bg-primary py-3 text-center text-primary-foreground">
-          Hitung ulang stok
+          {t("stock.recountButton")}
         </Link>
       </div>
     </SpokeLayout>

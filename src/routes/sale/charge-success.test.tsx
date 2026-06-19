@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
+import { LocaleProvider } from "@/lib/i18n";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import SaleChargeSuccess from "./charge-success";
@@ -24,14 +25,16 @@ describe("SaleChargeSuccess route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     return render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={[`/sale/charge/${txnId}/success`]}>
-          <Routes>
-            <Route
-              path="/sale/charge/:txnId/success"
-              element={<SaleChargeSuccess />}
-            />
-          </Routes>
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={[`/sale/charge/${txnId}/success`]}>
+            <Routes>
+              <Route
+                path="/sale/charge/:txnId/success"
+                element={<SaleChargeSuccess />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
   }

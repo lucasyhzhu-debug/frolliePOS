@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 
 // ---------------------------------------------------------------------------
@@ -81,24 +81,24 @@ function renderRoute() {
 
 /**
  * Walk one wizard step forward:
- * - Count step: first click count-step-submit (unlocks the Lanjut/terminal btn),
- *   then click Lanjut or the terminal button.
- * - Instruction step: click Lanjut (or the terminal button if last).
+ * - Count step: first click count-step-submit (unlocks the Next/terminal btn),
+ *   then click Next or the terminal button.
+ * - Instruction step: click Next (or the terminal button if last).
  */
 async function advanceStep(isCount: boolean, isLast: boolean) {
   if (isCount) {
     fireEvent.click(screen.getByTestId("count-step-submit"));
-    // Wait for ShiftWizard to set countReady=true → Lanjut becomes visible.
+    // Wait for ShiftWizard to set countReady=true → Next becomes visible.
     await waitFor(() => {
       expect(
-        screen.queryByRole("button", { name: /lanjut|mulai hari/i }),
+        screen.queryByRole("button", { name: /next|start of day/i }),
       ).toBeInTheDocument();
     });
   }
   if (isLast) {
-    fireEvent.click(screen.getByRole("button", { name: /mulai hari/i }));
+    fireEvent.click(screen.getByRole("button", { name: /start of day/i }));
   } else {
-    fireEvent.click(screen.getByRole("button", { name: /lanjut/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
   }
 }
 
@@ -115,22 +115,20 @@ describe("ShiftStart route (/shift/start)", () => {
 
   it("renders the wizard title", () => {
     renderRoute();
-    expect(screen.getByRole("heading", { name: /mulai hari/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /start of day/i })).toBeInTheDocument();
   });
 
   it("renders the 4 step labels in the rail", () => {
     renderRoute();
     // Step 1
-    expect(screen.getByText(/hitung stok/i)).toBeInTheDocument();
+    expect(screen.getByText(/count stock/i)).toBeInTheDocument();
     // Step 2
-    expect(screen.getByText(/hidupkan perangkat/i)).toBeInTheDocument();
+    expect(screen.getByText(/power on devices/i)).toBeInTheDocument();
     // Step 3
-    expect(screen.getByText(/isi display/i)).toBeInTheDocument();
-    // Step 4 — label is "Mulai hari" (doubles as terminal button text per ShiftWizard)
-    // There will be two: one in the rail (span) and one on the button once countReady.
-    // At initial render we're on step 1 (count), so the button is hidden.
-    // Just check the rail span.
-    const railItems = screen.getAllByText(/mulai hari/i);
+    expect(screen.getByText(/fill display/i)).toBeInTheDocument();
+    // Step 4 — label is "Start of day" (doubles as terminal button text per ShiftWizard)
+    // There will be at least one: the rail span.
+    const railItems = screen.getAllByText(/start of day/i);
     expect(railItems.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -188,7 +186,7 @@ describe("ShiftStart route (/shift/start)", () => {
 
   it("Back button is disabled on the first step", () => {
     renderRoute();
-    const backBtn = screen.getByRole("button", { name: /kembali/i });
+    const backBtn = screen.getByRole("button", { name: /^back$/i });
     expect(backBtn).toBeDisabled();
   });
 
@@ -196,7 +194,7 @@ describe("ShiftStart route (/shift/start)", () => {
     renderRoute();
     await advanceStep(true, false);
     await waitFor(() => expect(screen.queryByTestId("count-step-stub")).toBeNull());
-    const backBtn = screen.getByRole("button", { name: /kembali/i });
+    const backBtn = screen.getByRole("button", { name: /^back$/i });
     expect(backBtn).not.toBeDisabled();
     fireEvent.click(backBtn);
     await waitFor(() => {

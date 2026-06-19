@@ -1,5 +1,6 @@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 interface CartProps {
   variant: "cart";
@@ -21,14 +22,16 @@ interface PaymentProps {
 type Props = CartProps | PaymentProps;
 
 export function AbandonCartDialog(props: Props) {
+  const t = useT();
+
   if (props.variant === "cart") {
     return (
       <Dialog open={props.open} onOpenChange={(o) => !o && props.onCancel()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Leave this sale?</DialogTitle>
+            <DialogTitle>{t("abandonCart.leaveTitle")}</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">Your cart has items.</p>
+          <p className="text-sm text-muted-foreground">{t("abandonCart.cartBody")}</p>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button
               variant="default"
@@ -37,7 +40,7 @@ export function AbandonCartDialog(props: Props) {
                 props.onProceed();
               }}
             >
-              Save as draft
+              {t("abandonCart.saveDraft")}
             </Button>
             <Button
               variant="destructive"
@@ -46,10 +49,10 @@ export function AbandonCartDialog(props: Props) {
                 props.onProceed();
               }}
             >
-              Discard
+              {t("abandonCart.discard")}
             </Button>
             <Button variant="outline" onClick={props.onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -61,10 +64,10 @@ export function AbandonCartDialog(props: Props) {
     <Dialog open={props.open} onOpenChange={(o) => !o && props.onCancel()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Cancel this payment?</DialogTitle>
+          <DialogTitle>{t("abandonCart.cancelPaymentTitle")}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          The active QR / VA will be invalidated.
+          {t("abandonCart.cancelPaymentBody")}
         </p>
         <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button
@@ -74,10 +77,10 @@ export function AbandonCartDialog(props: Props) {
               props.onProceed();
             }}
           >
-            Cancel payment
+            {t("abandonCart.cancelPaymentAction")}
           </Button>
           <Button variant="outline" onClick={props.onCancel}>
-            Keep waiting
+            {t("abandonCart.keepWaiting")}
           </Button>
         </DialogFooter>
       </DialogContent>

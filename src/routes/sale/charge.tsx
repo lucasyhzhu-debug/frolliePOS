@@ -26,6 +26,7 @@ import { ManagerPickerOverlay } from "@/components/pos/ManagerPickerOverlay";
 import { VoucherRejectBanner } from "./voucher-reject-banner";
 import { toast } from "sonner";
 import { reportOps } from "@/lib/reportOps";
+import { useT } from "@/lib/i18n";
 
 type VoucherRejected = {
   code: string;
@@ -56,6 +57,7 @@ type Method = "QRIS" | "MANUAL_BCA";
  *     reports kind === "showing" and the route decides when the ceiling hits.
  */
 export default function SaleCharge() {
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const session = useSession();
@@ -259,7 +261,7 @@ export default function SaleCharge() {
         requestedMethods.current.delete(method);
         reportOps({ kind: "payment", error: err, route: "useXenditPayment" });
         const msg =
-          err instanceof Error ? err.message : "Could not start payment";
+          err instanceof Error ? err.message : t("charge.errorCouldNotStart");
         // Inline on the QRIS card (ADR-048) instead of a toast.
         setChargeError(msg);
       }
@@ -307,11 +309,11 @@ export default function SaleCharge() {
     if (session.status !== "active" || !txnId) return;
     const reason = overrideReason.trim();
     if (!reason) {
-      setOverrideError("Reason is required");
+      setOverrideError(t("charge.errorReasonRequired"));
       return;
     }
     if (!pickedManager) {
-      setOverrideError("Select a manager first");
+      setOverrideError(t("charge.errorSelectManager"));
       return;
     }
     setOverridePending(true);
@@ -333,9 +335,9 @@ export default function SaleCharge() {
       // Surface on the sheet so it shows + clears the pin buffer.
       setOverrideError(
         msg.includes("INVALID_PIN")
-          ? "Wrong PIN"
+          ? t("charge.errorWrongPin")
           : msg.includes("MANAGER_NOT_FOUND")
-            ? "Manager not found or not active"
+            ? t("charge.errorManagerNotFound")
             : msg,
       );
     } finally {
@@ -359,7 +361,7 @@ export default function SaleCharge() {
     if (session.status !== "active" || !txnId) return;
     const reason = approvalReason.trim();
     if (!reason) {
-      setApprovalReasonError("Reason is required");
+      setApprovalReasonError(t("charge.errorReasonRequired"));
       return;
     }
     setApprovalSubmitting(true);
@@ -376,11 +378,11 @@ export default function SaleCharge() {
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Request failed";
       const msg = raw.includes("TXN_NOT_AWAITING")
-        ? "This sale is no longer awaiting payment"
+        ? t("charge.errorTxnNotAwaiting")
         : raw.includes("NO_SESSION")
-          ? "Session expired — please sign in again"
+          ? t("charge.errorSessionExpiredSignIn")
           : raw.includes("POS_BASE_URL not set")
-            ? "Server config missing: POS_BASE_URL not set (contact dev)"
+            ? t("charge.errorServerConfig")
             : raw;
       setApprovalReasonError(msg);
     } finally {
@@ -410,9 +412,9 @@ export default function SaleCharge() {
       // message so an unexpected code is still surfaced (not swallowed).
       const raw = err instanceof Error ? err.message : "Could not confirm payment";
       const msg = raw.includes("RECEIPT_UNCONFIRMED")
-        ? "This sale is no longer waiting for payment"
+        ? t("charge.errorTxnNotWaiting")
         : raw.includes("NO_SESSION")
-          ? "Session expired — please log in again"
+          ? t("charge.errorSessionExpiredLogIn")
           : raw;
       setManualError(msg);
     } finally {
@@ -438,7 +440,7 @@ export default function SaleCharge() {
       // resets the ceiling timer via the [showingId] effect.
       setElapsedMs(0);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Retry failed";
+      const msg = err instanceof Error ? err.message : t("charge.errorRetryFailed");
       toast.error(msg);
     } finally {
       setRetrying(false);
@@ -457,10 +459,10 @@ export default function SaleCharge() {
         reason: "staff cancelled at charge",
         idempotencyKey: crypto.randomUUID(),
       });
-      toast.success("Sale cancelled");
+      toast.success(t("charge.toastSaleCancelled"));
       navigate("/sale");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Cancel failed";
+      const msg = err instanceof Error ? err.message : t("charge.errorCancelFailed");
       toast.error(msg);
     } finally {
       setCancelling(false);
@@ -482,13 +484,13 @@ export default function SaleCharge() {
   if (!txnId) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center p-4">
-        <p className="text-sm text-destructive">No transaction specified.</p>
+        <p className="text-sm text-destructive">{t("charge.noTxn")}</p>
         <Button
           variant="outline"
           className="mt-4"
           onClick={() => navigate("/sale")}
         >
-          Back to sale
+          {t("charge.backToSale")}
         </Button>
       </main>
     );
@@ -529,7 +531,7 @@ export default function SaleCharge() {
   };
 
   return (
-    <SpokeLayout title="Payment">
+    <SpokeLayout title={t("charge.title")}>
       <section className="flex flex-1 flex-col items-center gap-4 overflow-y-auto p-4">
         {voucherRejected && (
           <div className="w-full max-w-sm">
@@ -550,9 +552,9 @@ export default function SaleCharge() {
             className="w-full max-w-sm"
           >
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="QRIS" disabled={offlineLocked}>QRIS</TabsTrigger>
+              <TabsTrigger value="QRIS" disabled={offlineLocked}>{"QRIS"}</TabsTrigger>
               <TabsTrigger value="MANUAL_BCA" disabled={offlineLocked}>
-                Bank transfer
+                {t("charge.tabBankTransfer")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -570,7 +572,7 @@ export default function SaleCharge() {
                 role="alert"
                 className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
               >
-                Offline — konfirmasi pembayaran menunggu koneksi.
+                {t("charge.offlineManual")}
               </div>
             )}
 
@@ -578,7 +580,7 @@ export default function SaleCharge() {
             {txn != null && (
               <div className="flex flex-col items-center">
                 <span className="text-xs tracking-widest text-muted-foreground">
-                  AMOUNT DUE
+                  {t("charge.amountDue")}
                 </span>
                 <span className="text-2xl font-semibold tabular-nums">
                   {rp(txn.total)}
@@ -589,7 +591,7 @@ export default function SaleCharge() {
             {/* Transfer-to account details */}
             <Card className="flex w-full flex-col gap-2 p-5">
               <p className="text-xs font-medium tracking-widest text-muted-foreground">
-                TRANSFER TO
+                {t("charge.transferTo")}
               </p>
               <p className="text-sm">
                 {manualBca?.bank_name} · {manualBca?.account_name}
@@ -598,8 +600,7 @@ export default function SaleCharge() {
                 {manualBca?.account_number ?? "—"}
               </p>
               <p className="text-[11px] text-muted-foreground">
-                Transfer the exact amount, then send proof to the Block M staff
-                WhatsApp group.
+                {t("charge.transferInstruction")}
               </p>
             </Card>
 
@@ -613,8 +614,7 @@ export default function SaleCharge() {
                 className="mt-1"
               />
               <span>
-                I confirm payment proof has been sent to the Block M staff
-                WhatsApp group
+                {t("charge.attestationLabel")}
               </span>
             </label>
 
@@ -625,7 +625,7 @@ export default function SaleCharge() {
               disabled={!attested || manualPending || offlineLocked}
               onClick={handleManualConfirm}
             >
-              {manualPending ? "Confirming…" : "Confirm payment"}
+              {manualPending ? t("charge.confirming") : t("charge.confirmPayment")}
             </Button>
 
             {/* Cancel affordance — without this the manual tab has no way to
@@ -638,27 +638,27 @@ export default function SaleCharge() {
               onClick={handleCancel}
               disabled={cancelling || offlineLocked}
             >
-              {cancelling ? "Cancelling…" : "Cancel sale"}
+              {cancelling ? t("charge.cancelling") : t("charge.cancelSale")}
             </Button>
           </div>
         ) : phase.kind === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Preparing payment…</p>
+            <p className="text-sm text-muted-foreground">{t("charge.preparingPayment")}</p>
           </div>
         ) : phase.kind === "cancelled" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3">
             <p className="text-sm text-muted-foreground">
-              This sale was cancelled.
+              {t("charge.saleCancelled")}
             </p>
             <Button variant="outline" onClick={() => navigate("/sale")}>
-              New sale
+              {t("charge.newSale")}
             </Button>
           </div>
         ) : phase.kind === "paid" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Payment received…</p>
+            <p className="text-sm text-muted-foreground">{t("charge.paymentReceived")}</p>
           </div>
         ) : (
           // phase.kind === "showing"
@@ -669,8 +669,7 @@ export default function SaleCharge() {
                 role="alert"
                 className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
               >
-                Offline — konfirmasi pembayaran menunggu koneksi. QR yang sudah discan
-                pelanggan tetap diproses otomatis begitu koneksi kembali.
+                {t("charge.offlineQris")}
               </div>
             )}
 
@@ -678,7 +677,7 @@ export default function SaleCharge() {
             {txn != null && (
               <div className="flex flex-col items-center">
                 <span className="text-xs tracking-widest text-muted-foreground">
-                  AMOUNT DUE
+                  {t("charge.amountDue")}
                 </span>
                 <span className="text-2xl font-semibold tabular-nums">
                   {rp(txn.total)}
@@ -696,13 +695,13 @@ export default function SaleCharge() {
                 <div className="flex flex-col items-center gap-2 py-6">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">
-                    Generating QR code…
+                    {t("charge.generatingQr")}
                   </p>
                 </div>
               ) : (
                 <>
                   <p className="text-xs font-medium tracking-widest text-muted-foreground">
-                    SCAN TO PAY
+                    {t("charge.scanToPay")}
                   </p>
                   {invoice?.qr_string ? (
                     // data-qr-id exposes the Xendit QR Codes API `id` (stored as
@@ -713,7 +712,7 @@ export default function SaleCharge() {
                     <div
                       className="rounded-lg bg-white p-3"
                       role="img"
-                      aria-label="QRIS payment QR code"
+                      aria-label={t("charge.qrAriaLabel")}
                       {...(invoice.xendit_invoice_id
                         ? { "data-qr-id": invoice.xendit_invoice_id }
                         : {})}
@@ -721,10 +720,10 @@ export default function SaleCharge() {
                       <QRCodeSVG value={invoice.qr_string} size={220} marginSize={0} />
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">No QR payload.</p>
+                    <p className="text-sm text-muted-foreground">{t("charge.noQrPayload")}</p>
                   )}
                   <p className="text-[11px] text-muted-foreground">
-                    Scan with any QRIS-enabled wallet
+                    {t("charge.scanHint")}
                   </p>
                 </>
               )}
@@ -741,12 +740,12 @@ export default function SaleCharge() {
             {invoiceMatches && (
               <div className="w-full" data-testid="countdown-panel">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>QR expires in {mmss}</span>
+                  <span>{t("charge.qrExpiresIn", { mmss })}</span>
                 </div>
                 <Progress value={Math.min(pctRemaining * 100, 100)} className="mt-1 h-1" />
                 {qrExpired && (
                   <p className="mt-2 text-sm text-warning" data-testid="countdown-expired-msg">
-                    QR expired — tap Retry for a fresh one.
+                    {t("charge.qrExpired")}
                   </p>
                 )}
               </div>
@@ -783,23 +782,23 @@ export default function SaleCharge() {
             ) : !ceilingReached ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Waiting for payment…</span>
+                <span>{t("charge.waitingForPayment")}</span>
               </div>
             ) : (
               <div className="flex w-full flex-col gap-3">
                 <Separator />
                 <p className="text-center text-sm text-muted-foreground">
-                  Still waiting. Choose how to proceed:
+                  {t("charge.stillWaiting")}
                 </p>
                 <Button onClick={handleRetry} disabled={retrying || offlineLocked}>
-                  {retrying ? "Generating…" : "Retry (fresh QR)"}
+                  {retrying ? t("charge.generating") : t("charge.retryFreshQr")}
                 </Button>
                 <Button
                   variant="secondary"
                   disabled={session.staff.role !== "manager" || offlineLocked}
                   title={
                     session.staff.role !== "manager"
-                      ? "Sign in as a manager to use this, or use 'Request manager approval' below"
+                      ? t("charge.managerOverrideTip")
                       : undefined
                   }
                   onClick={() => {
@@ -809,7 +808,7 @@ export default function SaleCharge() {
                     setOverrideOpen(true);
                   }}
                 >
-                  Manager override
+                  {t("charge.managerOverride")}
                 </Button>
                 {/* Off-booth path: request sent to managers' Telegram group. */}
                 {!approvalReasonOpen ? (
@@ -822,7 +821,7 @@ export default function SaleCharge() {
                       setApprovalReasonOpen(true);
                     }}
                   >
-                    Request manager approval
+                    {t("charge.requestManagerApproval")}
                   </Button>
                 ) : (
                   <div className="flex flex-col gap-2">
@@ -833,7 +832,7 @@ export default function SaleCharge() {
                         setApprovalReason(e.target.value);
                         if (approvalReasonError) setApprovalReasonError(undefined);
                       }}
-                      placeholder="Why are you requesting manager approval?"
+                      placeholder={t("charge.approvalReasonPlaceholder")}
                       rows={2}
                       disabled={approvalSubmitting}
                       className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -847,7 +846,7 @@ export default function SaleCharge() {
                         onClick={handleRequestApproval}
                         disabled={approvalSubmitting || !approvalReason.trim() || offlineLocked}
                       >
-                        {approvalSubmitting ? "Sending…" : "Send request"}
+                        {approvalSubmitting ? t("charge.sending") : t("charge.sendRequest")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -857,7 +856,7 @@ export default function SaleCharge() {
                         }}
                         disabled={approvalSubmitting}
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                     </div>
                   </div>
@@ -871,7 +870,7 @@ export default function SaleCharge() {
                   onClick={handleCancel}
                   disabled={cancelling || offlineLocked}
                 >
-                  {cancelling ? "Cancelling…" : "Cancel sale"}
+                  {cancelling ? t("charge.cancelling") : t("charge.cancelSale")}
                 </Button>
               </div>
             )}
@@ -908,8 +907,8 @@ export default function SaleCharge() {
           Reason is REQUIRED before the PIN confirm fires. */}
       <PinSheet
         open={overrideOpen && pickedManager !== null}
-        title="Manager override"
-        label={`Enter ${pickedManager?.name ?? "manager"}'s PIN to confirm payment`}
+        title={t("charge.managerOverride")}
+        label={t("charge.pinSheetLabel", { name: pickedManager?.name ?? t("charge.managerFallback") })}
         pending={overridePending}
         error={overrideError}
         onSubmit={handleOverrideSubmit}
@@ -932,7 +931,7 @@ export default function SaleCharge() {
                 htmlFor="override-reason"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Reason (required)
+                {t("charge.reasonRequired")}
               </label>
               <textarea
                 id="override-reason"
@@ -940,11 +939,11 @@ export default function SaleCharge() {
                 value={overrideReason}
                 onChange={(e) => {
                   setOverrideReason(e.target.value);
-                  if (overrideError === "Reason is required") {
+                  if (overrideError === t("charge.errorReasonRequired")) {
                     setOverrideError(undefined);
                   }
                 }}
-                placeholder="Why is a manual override needed?"
+                placeholder={t("charge.overrideReasonPlaceholder")}
                 rows={2}
                 disabled={overridePending}
                 className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"

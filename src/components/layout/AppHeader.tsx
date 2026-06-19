@@ -4,6 +4,7 @@ import { ConnDot } from "@/components/layout/ConnDot";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 export interface AppHeaderProps {
   title: string;
@@ -16,6 +17,7 @@ export interface AppHeaderProps {
 export function AppHeader({ title, backTo = "/", onBack, rightSlot, hideBack }: AppHeaderProps) {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   const handleBack = async () => {
     if (onBack) await onBack();
@@ -27,8 +29,8 @@ export function AppHeader({ title, backTo = "/", onBack, rightSlot, hideBack }: 
       {hideBack ? (
         <div className="w-16" />
       ) : (
-        <Button variant="ghost" size="sm" onClick={handleBack} aria-label="Home">
-          <ChevronLeft className="size-4" /> Home
+        <Button variant="ghost" size="sm" onClick={handleBack} aria-label={t("appHeader.backHome")}>
+          <ChevronLeft className="size-4" /> {t("appHeader.backHome")}
         </Button>
       )}
       <h1 className="text-sm font-medium">{title}</h1>

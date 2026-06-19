@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 type PinAction = {
   kind: "enterSettlement";
@@ -31,28 +32,29 @@ type PinAction = {
   bcaAccountLast4: string;
 };
 
-function humanizeSettlementError(e: unknown): string {
+function humanizeSettlementError(e: unknown, t: ReturnType<typeof useT>): string {
   const m = String((e as Error)?.message ?? e);
-  if (m.includes("NET_INVALID")) return "Biaya melebihi bruto — net tidak boleh negatif.";
-  if (m.includes("DATE_INVALID")) return "Tanggal tidak valid.";
-  if (m.includes("LAST4_INVALID")) return "Masukkan 4 digit terakhir rekening BCA.";
-  if (m.includes("AMOUNT_INVALID")) return "Bruto & jumlah transaksi harus angka bulat ≥ 1.";
-  if (m.includes("INVALID_PIN")) return "PIN manajer salah.";
-  if (m.includes("LOCKED_OUT")) return "Terlalu banyak percobaan — terkunci 60 detik.";
-  if (m.includes("SESSION_INVALID")) return "Sesi berakhir. Kunci dan masuk lagi.";
+  if (m.includes("NET_INVALID")) return t("settlements.errorNetInvalid");
+  if (m.includes("DATE_INVALID")) return t("settlements.errorDateInvalid");
+  if (m.includes("LAST4_INVALID")) return t("settlements.errorLast4Invalid");
+  if (m.includes("AMOUNT_INVALID")) return t("settlements.errorAmountInvalid");
+  if (m.includes("INVALID_PIN")) return t("settlements.errorInvalidPin");
+  if (m.includes("LOCKED_OUT")) return t("settlements.errorLockedOut");
+  if (m.includes("SESSION_INVALID")) return t("settlements.errorSessionInvalid");
   if (m.includes("NOT_MANAGER") || m.includes("MANAGER_SESSION_REQUIRED"))
-    return "Hanya manajer yang bisa mencatat settlement.";
-  return "Terjadi kesalahan.";
+    return t("settlements.errorNotManager");
+  return t("settlements.errorGeneric");
 }
 
 
 export default function Settlements() {
   const session = useSession();
+  const t = useT();
   if (session.status === "loading") {
     return (
-      <SpokeLayout title="Settlements" backTo="/">
+      <SpokeLayout title={t("settlements.title")} backTo="/">
         <main className="flex flex-1 items-center justify-center p-8">
-          <p className="text-sm text-muted-foreground">Memuat…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         </main>
       </SpokeLayout>
     );
@@ -73,6 +75,7 @@ function SettlementsInner({
   sessionId: Id<"staff_sessions">;
   isManager: boolean;
 }) {
+  const t = useT();
   const rows = useQuery(api.settlements.public.listSettlements, { sessionId }) as
     | Doc<"pos_settlements">[]
     | undefined;
@@ -117,27 +120,27 @@ function SettlementsInner({
     const mdr = parseIntStrict(fMdr);
     const count = parseIntStrict(fCount);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fDate)) {
-      toast.error("Tanggal tidak valid.");
+      toast.error(t("settlements.errorDateInvalid"));
       return;
     }
     if (gross === null || gross < 1) {
-      toast.error("Bruto harus angka bulat ≥ 1.");
+      toast.error(t("settlements.errorGrossInvalid"));
       return;
     }
     if (mdr === null) {
-      toast.error("Biaya harus angka bulat ≥ 0.");
+      toast.error(t("settlements.errorMdrInvalid"));
       return;
     }
     if (count === null || count < 1) {
-      toast.error("Jumlah transaksi harus ≥ 1.");
+      toast.error(t("settlements.errorCountInvalid"));
       return;
     }
     if (!/^\d{4}$/.test(fLast4)) {
-      toast.error("Masukkan 4 digit terakhir rekening BCA.");
+      toast.error(t("settlements.errorLast4Invalid"));
       return;
     }
     if (gross - mdr < 0) {
-      toast.error("Biaya melebihi bruto — net tidak boleh negatif.");
+      toast.error(t("settlements.errorNetInvalid"));
       return;
     }
     setPinAction({
@@ -154,7 +157,7 @@ function SettlementsInner({
   async function handlePinSubmit(managerPin: string) {
     if (!pinAction) return;
     if (!entryKey) {
-      toast.error("Coba lagi sebentar.");
+      toast.error(t("settlements.errorTryAgain"));
       return;
     }
     setPinPending(true);
@@ -170,12 +173,12 @@ function SettlementsInner({
         transactionCount: pinAction.transactionCount,
         bcaAccountLast4: pinAction.bcaAccountLast4,
       });
-      toast.success("Settlement dicatat");
+      toast.success(t("settlements.successRecorded"));
       await clearIntent("settlements.enterManual");
       setPinAction(null);
       setFormOpen(false);
     } catch (err) {
-      const msg = humanizeSettlementError(err);
+      const msg = humanizeSettlementError(err, t);
       setPinError(msg);
       toast.error(msg);
     } finally {
@@ -190,15 +193,15 @@ function SettlementsInner({
   }
 
   return (
-    <SpokeLayout title="Settlements" backTo="/">
+    <SpokeLayout title={t("settlements.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Ini adalah dana yang sudah dibayarkan Xendit ke rekening BCA.
+          {t("settlements.description")}
         </p>
 
         {isManager && (
           <Button size="sm" onClick={openForm} className="self-start">
-            Catat settlement
+            {t("settlements.recordButton")}
           </Button>
         )}
 
@@ -213,7 +216,7 @@ function SettlementsInner({
           </div>
         ) : rows.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
-            <p className="text-sm text-muted-foreground">Belum ada settlement</p>
+            <p className="text-sm text-muted-foreground">{t("settlements.empty")}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -222,27 +225,27 @@ function SettlementsInner({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium">{r.settlement_date}</p>
-                    <p className="text-xs text-muted-foreground">{r.transaction_count} transaksi</p>
+                    <p className="text-xs text-muted-foreground">{t("settlements.txnCount", { count: r.transaction_count })}</p>
                   </div>
                   <Badge variant="outline" className="text-[10px]">
-                    {r.source === "manual" ? "Manual" : "Otomatis"}
+                    {r.source === "manual" ? t("settlements.sourceManual") : t("settlements.sourceAuto")}
                   </Badge>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-muted-foreground">Masuk ke BCA</span>
+                  <span className="text-xs text-muted-foreground">{t("settlements.labelNet")}</span>
                   <span className="font-mono text-base font-semibold">{rp(r.net_amount)}</span>
                 </div>
                 <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-                  <span>Bruto</span>
+                  <span>{t("settlements.labelGross")}</span>
                   <span className="font-mono">{rp(r.gross_amount)}</span>
                 </div>
                 <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-                  <span>Biaya Xendit</span>
+                  <span>{t("settlements.labelMdr")}</span>
                   <span className="font-mono">{rp(r.mdr_amount)}</span>
                 </div>
                 {r.bca_account_destination && (
                   <p className="text-xs text-muted-foreground">
-                    Rekening ••••{r.bca_account_destination}
+                    {t("settlements.bcaAccount", { last4: r.bca_account_destination })}
                   </p>
                 )}
               </Card>
@@ -254,14 +257,14 @@ function SettlementsInner({
       <Dialog open={formOpen} onOpenChange={(o) => { if (!o) setFormOpen(false); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Catat settlement</DialogTitle>
+            <DialogTitle>{t("settlements.formTitle")}</DialogTitle>
             <DialogDescription>
-              Dari angka di dashboard Xendit. PIN manajer diperlukan.
+              {t("settlements.formDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="s-date">Tanggal settlement</Label>
+              <Label htmlFor="s-date">{t("settlements.fieldDate")}</Label>
               <Input
                 id="s-date"
                 type="date"
@@ -270,59 +273,59 @@ function SettlementsInner({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-gross">Bruto (Rp)</Label>
+              <Label htmlFor="s-gross">{t("settlements.fieldGross")}</Label>
               <Input
                 id="s-gross"
                 value={fGross}
                 inputMode="numeric"
                 onChange={(e) => setFGross(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="mis. 135000"
+                placeholder={t("settlements.placeholderGross")}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-mdr">Biaya Xendit (Rp)</Label>
+              <Label htmlFor="s-mdr">{t("settlements.fieldMdr")}</Label>
               <Input
                 id="s-mdr"
                 value={fMdr}
                 inputMode="numeric"
                 onChange={(e) => setFMdr(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="mis. 945"
+                placeholder={t("settlements.placeholderMdr")}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-count">Jumlah transaksi</Label>
+              <Label htmlFor="s-count">{t("settlements.fieldCount")}</Label>
               <Input
                 id="s-count"
                 value={fCount}
                 inputMode="numeric"
                 onChange={(e) => setFCount(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="mis. 12"
+                placeholder={t("settlements.placeholderCount")}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-last4">4 digit rekening BCA</Label>
+              <Label htmlFor="s-last4">{t("settlements.fieldLast4")}</Label>
               <Input
                 id="s-last4"
                 value={fLast4}
                 inputMode="numeric"
                 maxLength={4}
                 onChange={(e) => setFLast4(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-                placeholder="1234"
+                placeholder={t("settlements.placeholderLast4")}
               />
             </div>
             <div className="flex items-baseline justify-between rounded-md bg-muted/40 px-3 py-2">
-              <span className="text-xs text-muted-foreground">Masuk ke BCA (net)</span>
+              <span className="text-xs text-muted-foreground">{t("settlements.labelNetPreview")}</span>
               <span className="font-mono text-sm font-semibold">
-                {netPreview === null ? "—" : netPreview < 0 ? "negatif!" : rp(netPreview)}
+                {netPreview === null ? "—" : netPreview < 0 ? t("settlements.netNegative") : rp(netPreview)}
               </span>
             </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setFormOpen(false)}>
-              Batal
+              {t("common.cancel")}
             </Button>
             <Button onClick={submitFormOpenPin} disabled={!entryKey || !formValid}>
-              Lanjut
+              {t("settlements.next")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -330,8 +333,8 @@ function SettlementsInner({
 
       <PinSheet
         open={pinAction !== null}
-        title="Catat settlement"
-        label="Konfirmasi dengan PIN manajer Anda."
+        title={t("settlements.pinSheetTitle")}
+        label={t("settlements.pinSheetLabel")}
         pending={pinPending}
         error={pinError}
         onSubmit={handlePinSubmit}

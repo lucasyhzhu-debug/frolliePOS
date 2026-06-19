@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
 import { PinEntry } from "./PinEntry";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 describe("PinEntry", () => {
   it("calls onSubmit on the 4th digit", () => {

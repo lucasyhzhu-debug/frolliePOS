@@ -7,15 +7,18 @@ import { type PrinterStatus } from "@/hooks/useThermalPrinter";
 import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt, SAMPLE_RECEIPT } from "@/lib/escpos";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
-const LABEL: Record<PrinterStatus, string> = {
-  unsupported: "Tidak didukung",
-  disconnected: "Terputus",
-  connecting: "Menghubungkan…",
-  connected: "Terhubung",
-  printing: "Mencetak…",
-  error: "Error",
-};
+function usePrinterLabels(t: ReturnType<typeof useT>): Record<PrinterStatus, string> {
+  return {
+    unsupported: t("printerSheet.statusUnsupported"),
+    disconnected: t("printerSheet.statusDisconnected"),
+    connecting: t("printerSheet.statusConnecting"),
+    connected: t("printerSheet.statusConnected"),
+    printing: t("printerSheet.statusPrinting"),
+    error: t("printerSheet.statusError"),
+  };
+}
 
 // Glanceable status dot on the header chip — green = linked, amber pulse =
 // working, grey = not linked, red = error (mirrors ConnDot's palette).
@@ -29,6 +32,8 @@ const DOT: Record<PrinterStatus, string> = {
 };
 
 export function PrinterSheet() {
+  const t = useT();
+  const LABEL = usePrinterLabels(t);
   const [open, setOpen] = useState(false);
   const { status, connect, disconnect, print } = usePrinter();
 
@@ -41,9 +46,9 @@ export function PrinterSheet() {
           SAMPLE_RECEIPT.statusLabel,
         ),
       );
-      toast.success("Tes cetak terkirim");
+      toast.success(t("printerSheet.testSuccess"));
     } catch {
-      toast.error("Gagal mencetak — periksa printer");
+      toast.error(t("printerSheet.testError"));
     }
   };
 
@@ -52,8 +57,8 @@ export function PrinterSheet() {
       <Button
         variant="ghost"
         size="icon"
-        aria-label={`Printer: ${LABEL[status]}`}
-        title={`Printer: ${LABEL[status]}`}
+        aria-label={t("printerSheet.ariaLabel", { status: LABEL[status] })}
+        title={t("printerSheet.ariaLabel", { status: LABEL[status] })}
         className="relative"
         onClick={() => setOpen(true)}
       >
@@ -75,24 +80,24 @@ export function PrinterSheet() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Printer struk</DialogTitle>
+            <DialogTitle>{t("printerSheet.title")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="text-sm text-muted-foreground">Status: {LABEL[status]}</div>
+            <div className="text-sm text-muted-foreground">{t("printerSheet.statusRow", { status: LABEL[status] })}</div>
             {status === "unsupported" ? (
-              <p className="text-sm text-destructive">Browser ini tidak mendukung Bluetooth.</p>
+              <p className="text-sm text-destructive">{t("printerSheet.unsupported")}</p>
             ) : status === "connected" || status === "printing" ? (
               <>
                 <Button className="w-full" onClick={onTest} disabled={status === "printing"}>
-                  Tes cetak
+                  {t("printerSheet.testPrint")}
                 </Button>
                 <Button className="w-full" variant="outline" onClick={disconnect}>
-                  Putuskan
+                  {t("printerSheet.disconnect")}
                 </Button>
               </>
             ) : (
               <Button className="w-full" onClick={connect} disabled={status === "connecting"}>
-                Hubungkan printer
+                {t("printerSheet.connect")}
               </Button>
             )}
           </div>

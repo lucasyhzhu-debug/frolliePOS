@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { AppHeader } from "../AppHeader";
 

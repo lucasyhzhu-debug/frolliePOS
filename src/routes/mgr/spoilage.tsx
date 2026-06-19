@@ -19,6 +19,7 @@ import { useQuery, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { useCatalogCache } from "@/hooks/useCatalogCache";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { Button } from "@/components/ui/button";
@@ -67,11 +68,12 @@ function humanizeSpoilageError(e: unknown): string {
 
 export default function MgrSpoilage() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -180,7 +182,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         reason: reasonTrim,
         managerPin,
       });
-      toast.success(`Logged spoilage (${totalQty} pcs)`);
+      toast.success(t("mgrSpoilage.loggedSuccess", { count: totalQty }));
       await clearIntent("spoilage.log");
       setPinOpen(false);
       resetForm();
@@ -210,7 +212,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         })),
         reason: reasonTrim,
       });
-      toast.success("Sent to managers via Telegram");
+      toast.success(t("mgrSpoilage.requestSent"));
       await clearIntent("spoilage.request");
       resetForm();
     } catch (err) {
@@ -220,13 +222,13 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     }
   }
 
+  const t = useT();
+
   return (
-    <SpokeLayout title="Spoilage" backTo="/mgr">
+    <SpokeLayout title={t("mgrSpoilage.title")} backTo="/mgr">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Log spoiled / damaged stock. Pick the SKU and qty for each line, add
-          a reason, then either confirm inline with your manager PIN or send to
-          another manager via Telegram for approval.
+          {t("mgrSpoilage.description")}
         </p>
 
         <Card className="space-y-3 p-4">
@@ -234,7 +236,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             {lines.map((line, i) => (
               <div key={i} className="flex items-end gap-2">
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <Label className="text-xs">SKU</Label>
+                  <Label className="text-xs">{t("mgrSpoilage.labelSku")}</Label>
                   <Select
                     value={line.skuId === "" ? undefined : (line.skuId as string)}
                     onValueChange={(v) =>
@@ -243,12 +245,12 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                     disabled={pinPending || requestPending}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Pick SKU" />
+                      <SelectValue placeholder={t("mgrSpoilage.pickSku")} />
                     </SelectTrigger>
                     <SelectContent>
                       {activeSkus.length === 0 ? (
                         <SelectItem value="__none__" disabled>
-                          No active SKUs
+                          {t("mgrSpoilage.noActiveSkus")}
                         </SelectItem>
                       ) : (
                         activeSkus.map((s) => (
@@ -261,7 +263,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   </Select>
                 </div>
                 <div className="w-24 space-y-1.5">
-                  <Label className="text-xs" htmlFor={`spoilage-qty-${i}`}>Qty</Label>
+                  <Label className="text-xs" htmlFor={`spoilage-qty-${i}`}>{t("mgrSpoilage.labelQty")}</Label>
                   <Input
                     id={`spoilage-qty-${i}`}
                     inputMode="numeric"
@@ -282,7 +284,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                     variant="outline"
                     onClick={() => removeRow(i)}
                     disabled={pinPending || requestPending}
-                    aria-label={`Remove line ${i + 1}`}
+                    aria-label={t("mgrSpoilage.removeLine", { n: i + 1 })}
                   >
                     ✕
                   </Button>
@@ -298,11 +300,11 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             onClick={addRow}
             disabled={pinPending || requestPending}
           >
-            Add line
+            {t("mgrSpoilage.addLine")}
           </Button>
 
           <div className="space-y-1.5">
-            <Label htmlFor="spoilage-reason">Reason</Label>
+            <Label htmlFor="spoilage-reason">{t("mgrSpoilage.labelReason")}</Label>
             <textarea
               id="spoilage-reason"
               value={reason}
@@ -310,7 +312,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               maxLength={REASON_MAX}
               rows={3}
               disabled={pinPending || requestPending}
-              placeholder="What happened? (max 200 chars)"
+              placeholder={t("mgrSpoilage.reasonPlaceholder")}
               className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
             <p className="text-[10px] text-muted-foreground">
@@ -320,8 +322,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
           {validatedLines.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {validatedLines.length} line
-              {validatedLines.length === 1 ? "" : "s"} · {totalQty} pcs total
+              {t(validatedLines.length === 1 ? "mgrSpoilage.linesSummary_one" : "mgrSpoilage.linesSummary_other", { count: validatedLines.length, total: totalQty })}
             </p>
           )}
 
@@ -331,7 +332,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={openPin}
               disabled={!canSubmit || !logKey}
             >
-              Log spoilage now
+              {t("mgrSpoilage.logNow")}
             </Button>
             <Button
               type="button"
@@ -339,7 +340,7 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={handleRequest}
               disabled={!canSubmit || !reqKey}
             >
-              {requestPending ? "Sending…" : "Request via Telegram"}
+              {requestPending ? t("mgrSpoilage.sending") : t("mgrSpoilage.requestViaTelegram")}
             </Button>
           </div>
         </Card>
@@ -347,8 +348,8 @@ function MgrSpoilageInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
       <PinSheet
         open={pinOpen}
-        title="Log spoilage"
-        label={`Confirm with your manager PIN to log ${totalQty} pcs of spoilage.`}
+        title={t("mgrSpoilage.pinTitle")}
+        label={t("mgrSpoilage.pinLabel", { count: totalQty })}
         pending={pinPending}
         error={pinError}
         onSubmit={handlePinSubmit}

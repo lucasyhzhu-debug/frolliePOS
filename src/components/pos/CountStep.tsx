@@ -7,6 +7,7 @@ import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FieldMessage } from "@/components/ui/field-message";
+import { useT } from "@/lib/i18n";
 
 /**
  * CountStep — shared SKU-recount UI (ADR-048, v1.2 Task 10).
@@ -24,8 +25,10 @@ export interface CountStepProps {
 
 export default function CountStep({
   onSubmitted,
-  submitLabel = "Simpan hitungan",
+  submitLabel,
 }: CountStepProps) {
+  const t = useT();
+  const resolvedSubmitLabel = submitLabel ?? t("countStep.submitDefault");
   const session = useSession();
   const sessionId = session.status === "active" ? session.sessionId : null;
   const rows = useQuery(
@@ -49,7 +52,7 @@ export default function CountStep({
         entered: Number(v),
       }));
     if (payload.length === 0) {
-      setError("Belum ada hitungan");
+      setError(t("countStep.errorNoCounts"));
       return;
     }
     setBusy(true);
@@ -59,10 +62,10 @@ export default function CountStep({
       onSubmitted(res.changed);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("DUPLICATE_SKU")) setError("SKU duplikat dalam satu hitungan");
+      if (msg.includes("DUPLICATE_SKU")) setError(t("countStep.errorDuplicateSku"));
       else if (msg.includes("NEGATIVE_COUNT") || msg.includes("NON_INTEGER_COUNT"))
-        setError("Hitungan harus bilangan bulat ≥ 0");
-      else setError("Gagal menyimpan hitungan");
+        setError(t("countStep.errorInvalidCount"));
+      else setError(t("countStep.errorSaveFailed"));
     } finally {
       setBusy(false);
     }
@@ -78,7 +81,7 @@ export default function CountStep({
             <li key={r.skuId} className="flex items-center justify-between p-4">
               <div>
                 <p className="font-medium">{r.name}</p>
-                <p className="text-sm text-muted-foreground">Sistem: {r.on_hand}</p>
+                <p className="text-sm text-muted-foreground">{t("countStep.systemStock", { count: r.on_hand })}</p>
               </div>
               <div className="flex items-center gap-2">
                 <Input
@@ -117,7 +120,7 @@ export default function CountStep({
           size="lg"
           className="w-full"
         >
-          {busy ? "Menyimpan…" : submitLabel}
+          {busy ? t("countStep.saving") : resolvedSubmitLabel}
         </Button>
       </div>
     </div>

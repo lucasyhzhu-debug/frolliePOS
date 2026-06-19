@@ -15,6 +15,7 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { KNOWN_TELEGRAM_ROLES } from "../../../convex/telegram/config";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -74,6 +75,7 @@ function FoundersSummaryToggle({ sessionId }: { sessionId: string }) {
   const settings = useQuery(api.settings.public.getSettings, {});
   const setEnabled = useMutation(api.settings.public.setFoundersSummaryEnabled);
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   const enabled = settings?.founders_summary_enabled ?? true;
 
@@ -85,7 +87,7 @@ function FoundersSummaryToggle({ sessionId }: { sessionId: string }) {
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         enabled: next,
       });
-      toast.success(next ? "Founders summary enabled" : "Founders summary disabled");
+      toast.success(next ? t("mgrTelegram.foundersSummaryEnabled") : t("mgrTelegram.foundersSummaryDisabled"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -100,11 +102,11 @@ function FoundersSummaryToggle({ sessionId }: { sessionId: string }) {
         checked={enabled}
         onCheckedChange={handleToggle}
         disabled={busy || settings === undefined}
-        aria-label="founders summary toggle"
+        aria-label={t("mgrTelegram.ariaFoundersToggle")}
       />
       <Label htmlFor="founders-summary-toggle" className="cursor-pointer text-sm">
-        Auto-send the daily summary at 22:00 WIB
-        <span className="ml-1 text-xs text-muted-foreground">(Founders channel)</span>
+        {t("mgrTelegram.foundersSummaryLabel")}
+        <span className="ml-1 text-xs text-muted-foreground">{t("mgrTelegram.foundersChannel")}</span>
       </Label>
     </div>
   );
@@ -116,6 +118,7 @@ function TxnTickerToggle({ sessionId }: { sessionId: string }) {
   const settings = useQuery(api.settings.public.getSettings, {});
   const setEnabled = useMutation(api.settings.public.setTxnTickerEnabled);
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   const enabled = settings?.txn_ticker_enabled ?? true;
 
@@ -127,7 +130,7 @@ function TxnTickerToggle({ sessionId }: { sessionId: string }) {
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         enabled: next,
       });
-      toast.success(next ? "Sales ticker enabled" : "Sales ticker disabled");
+      toast.success(next ? t("mgrTelegram.tickerEnabled") : t("mgrTelegram.tickerDisabled"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -142,11 +145,11 @@ function TxnTickerToggle({ sessionId }: { sessionId: string }) {
         checked={enabled}
         onCheckedChange={handleToggle}
         disabled={busy || settings === undefined}
-        aria-label="sales ticker toggle"
+        aria-label={t("mgrTelegram.ariaTickerToggle")}
       />
       <Label htmlFor="txn-ticker-toggle" className="cursor-pointer text-sm">
-        Post each paid sale to the Managers channel
-        <span className="ml-1 text-xs text-muted-foreground">(silent)</span>
+        {t("mgrTelegram.tickerLabel")}
+        <span className="ml-1 text-xs text-muted-foreground">{t("mgrTelegram.tickerSilent")}</span>
       </Label>
     </div>
   );
@@ -165,6 +168,7 @@ function ChatCard({
   const archiveChat = useMutation(api.telegram.chatRegistry.public.mgrArchiveChat);
   const restoreChat = useMutation(api.telegram.chatRegistry.public.mgrRestoreChat);
   const sendTest = useAction(api.telegram.chatRegistry.public.mgrSendTest);
+  const t = useT();
 
   const [busy, setBusy] = useState(false);
   const archived = chat.archivedAt !== undefined;
@@ -182,12 +186,12 @@ function ChatCard({
         chatId: chat.chatId,
         role,
       });
-      toast.success(role ? `Role set to "${role}"` : "Role cleared");
+      toast.success(role ? t("mgrTelegram.roleSet", { role }) : t("mgrTelegram.roleCleared"));
     } catch (err) {
       const msg = errorMessage(err);
       // role already held by another chat
       if (msg.toLowerCase().includes("already held")) {
-        const confirmed = window.confirm("Reassign role from the other chat?");
+        const confirmed = window.confirm(t("mgrTelegram.confirmReassign"));
         if (confirmed) {
           try {
             await assignRole({
@@ -197,13 +201,13 @@ function ChatCard({
               role,
               forceReassign: true,
             });
-            toast.success(`Reassigned role "${role}"`);
+            toast.success(t("mgrTelegram.roleReassigned", { role: role ?? "" }));
           } catch (err2) {
             toast.error(errorMessage(err2));
           }
         }
       } else if (msg.toLowerCase().includes("archived")) {
-        const confirmed = window.confirm("Restore this chat and assign the role?");
+        const confirmed = window.confirm(t("mgrTelegram.confirmRestoreAndAssign"));
         if (confirmed) {
           try {
             await assignRole({
@@ -213,7 +217,7 @@ function ChatCard({
               role,
               restoreIfArchived: true,
             });
-            toast.success(`Restored and assigned role "${role}"`);
+            toast.success(t("mgrTelegram.roleRestoredAssigned", { role: role ?? "" }));
           } catch (err2) {
             toast.error(errorMessage(err2));
           }
@@ -229,7 +233,7 @@ function ChatCard({
   // ---- archive / restore ----
 
   async function handleArchive() {
-    if (!window.confirm("Archive this chat? It will stop receiving messages.")) return;
+    if (!window.confirm(t("mgrTelegram.confirmArchive"))) return;
     setBusy(true);
     try {
       await archiveChat({
@@ -237,7 +241,7 @@ function ChatCard({
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         chatId: chat.chatId,
       });
-      toast.success("Chat archived");
+      toast.success(t("mgrTelegram.chatArchived"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -246,7 +250,7 @@ function ChatCard({
   }
 
   async function handleRestore() {
-    if (!window.confirm("Restore this chat?")) return;
+    if (!window.confirm(t("mgrTelegram.confirmRestore"))) return;
     setBusy(true);
     try {
       await restoreChat({
@@ -254,7 +258,7 @@ function ChatCard({
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         chatId: chat.chatId,
       });
-      toast.success("Chat restored");
+      toast.success(t("mgrTelegram.chatRestored"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -271,7 +275,7 @@ function ChatCard({
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         chatId: chat.chatId,
       });
-      toast.success("Test message sent");
+      toast.success(t("mgrTelegram.testSent"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -297,28 +301,28 @@ function ChatCard({
 
       {/* meta row */}
       <p className="text-xs text-muted-foreground">
-        Last seen{" "}
+        {t("mgrTelegram.lastSeen")}{" "}
         <span title={new Date(chat.lastSeenAt).toLocaleString()}>
           {relativeTime(chat.lastSeenAt)}
         </span>
         {archived && chat.archivedAt && (
-          <> · Archived {relativeTime(chat.archivedAt)}</>
+          <> · {t("mgrTelegram.archivedAt")} {relativeTime(chat.archivedAt)}</>
         )}
       </p>
 
       {/* role select */}
       <div className="flex items-center gap-2">
-        <Label className="text-xs text-muted-foreground shrink-0">Role</Label>
+        <Label className="text-xs text-muted-foreground shrink-0">{t("mgrTelegram.labelRole")}</Label>
         <Select
           value={chat.role ?? NONE_VALUE}
           onValueChange={handleRoleChange}
           disabled={busy}
         >
-          <SelectTrigger className="h-8 text-xs flex-1" aria-label="role select">
+          <SelectTrigger className="h-8 text-xs flex-1" aria-label={t("mgrTelegram.ariaRoleSelect")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE_VALUE}>Unassigned</SelectItem>
+            <SelectItem value={NONE_VALUE}>{t("mgrTelegram.unassigned")}</SelectItem>
             {KNOWN_TELEGRAM_ROLES.map((r) => (
               <SelectItem key={r} value={r}>
                 {r}
@@ -327,7 +331,7 @@ function ChatCard({
             {/* preserve out-of-allowlist role so it shows rather than silently reverting */}
             {chat.role &&
               !(KNOWN_TELEGRAM_ROLES as readonly string[]).includes(chat.role) && (
-                <SelectItem value={chat.role}>{chat.role} (unknown)</SelectItem>
+                <SelectItem value={chat.role}>{t("mgrTelegram.roleUnknown", { role: chat.role })}</SelectItem>
               )}
           </SelectContent>
         </Select>
@@ -342,7 +346,7 @@ function ChatCard({
           disabled={busy}
           className="text-xs"
         >
-          Send test
+          {t("mgrTelegram.sendTest")}
         </Button>
         {archived ? (
           <Button
@@ -352,7 +356,7 @@ function ChatCard({
             disabled={busy}
             className="text-xs"
           >
-            Restore
+            {t("mgrTelegram.restore")}
           </Button>
         ) : (
           <Button
@@ -362,7 +366,7 @@ function ChatCard({
             disabled={busy}
             className="text-xs"
           >
-            Archive
+            {t("mgrTelegram.archive")}
           </Button>
         )}
       </div>
@@ -375,6 +379,7 @@ function ChatCard({
 export default function MgrTelegramChats() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   const [includeArchived, setIncludeArchived] = useState(false);
 
@@ -382,7 +387,7 @@ export default function MgrTelegramChats() {
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -410,13 +415,14 @@ function MgrTelegramChatsInner({
   includeArchived: boolean;
   setIncludeArchived: (v: boolean) => void;
 }) {
+  const t = useT();
   const chats = useQuery(api.telegram.chatRegistry.public.mgrListChats, {
     sessionId: sessionId as Doc<"staff_sessions">["_id"],
     includeArchived,
   });
 
   return (
-    <SpokeLayout title="Telegram chats">
+    <SpokeLayout title={t("mgrTelegram.title")}>
       <div className="flex flex-1 flex-col gap-4 p-4">
       {/* founders summary toggle */}
       <FoundersSummaryToggle sessionId={sessionId} />
@@ -432,19 +438,19 @@ function MgrTelegramChatsInner({
           onCheckedChange={setIncludeArchived}
         />
         <Label htmlFor="show-archived" className="text-xs cursor-pointer">
-          Show archived
+          {t("mgrTelegram.showArchived")}
         </Label>
       </div>
 
       {/* chat list */}
       {chats === undefined ? (
-        <p className="text-sm text-muted-foreground py-4 text-center">Loading chats…</p>
+        <p className="text-sm text-muted-foreground py-4 text-center">{t("mgrTelegram.loadingChats")}</p>
       ) : chats.length === 0 ? (
         <div className="rounded-md border border-dashed p-6 text-center space-y-1">
-          <p className="text-sm text-muted-foreground">No registered Telegram chats yet</p>
+          <p className="text-sm text-muted-foreground">{t("mgrTelegram.noChats")}</p>
           <p className="text-xs text-muted-foreground">
-            Invite the bot to a group and send{" "}
-            <code className="text-xs bg-muted px-1 rounded">/register</code> from the chat
+            {t("mgrTelegram.noChatsHint")}{" "}
+            <code className="text-xs bg-muted px-1 rounded">{"/register"}</code> {t("mgrTelegram.noChatsHintSuffix")}
           </p>
         </div>
       ) : (
