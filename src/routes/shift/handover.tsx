@@ -42,9 +42,13 @@ export default function ShiftHandover() {
   const [pinError, setPinError] = useState<string | undefined>();
   const [pinPending, setPinPending] = useState(false);
 
-  // Idempotency key — stable per handover session, reset not needed
-  // (each handover is a single login attempt per incoming staff).
-  const idempotencyKey = useIdempotency("shift:handover:in");
+  // Two distinct idempotency keys — MUST NOT share a root.
+  // loginWithPin and completeHandoverIn write to the same pos_idempotency cache
+  // keyed by string alone; sharing one key would cause completeHandoverIn to
+  // replay loginWithPin's cached {sessionId,role} blob → booth stuck in
+  // handover_pending. Pattern mirrors lock.tsx (lockKey vs takeoverKey).
+  const loginKey = useIdempotency("shift:handover:in:login");
+  const completeKey = useIdempotency("shift:handover:in:complete");
 
   // Outgoing staff to exclude from picker.
   const outgoingStaffId = boothState?.staffId ?? null;
@@ -61,7 +65,7 @@ export default function ShiftHandover() {
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
     if (!deviceId) { setPinError("Device not ready — please wait"); return; }
-    if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
+    if (!loginKey) return; // IDB not yet resolved — guard ADR-013
 
     setPinPending(true);
     setPinError(undefined);
@@ -70,7 +74,7 @@ export default function ShiftHandover() {
         staffId: stage.staff._id,
         pin,
         deviceId,
-        idempotencyKey,
+        idempotencyKey: loginKey,
       });
       // Store the NEW incoming session before advancing — session hook will
       // reactively propagate this to the rest of the app.
@@ -93,9 +97,9 @@ export default function ShiftHandover() {
   // -------------------------------------------------------------------------
   const onCountSubmitted = async (countChanged: number) => {
     if (stage.kind !== "count") return;
-    if (!idempotencyKey) return;
+    if (!completeKey) return;
     await completeHandoverIn({
-      idempotencyKey,
+      idempotencyKey: completeKey,
       sessionId: stage.sessionId,
       steps: [
         { key: "count", label: "Hitung stok", type: "count", confirmed_at: Date.now() },

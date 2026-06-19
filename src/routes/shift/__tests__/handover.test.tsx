@@ -10,11 +10,13 @@ const {
   mockCompleteHandoverIn,
   mockNavigate,
   mockStoreSession,
+  mockUseIdempotency,
 } = vi.hoisted(() => ({
   mockLoginWithPin: vi.fn(),
   mockCompleteHandoverIn: vi.fn(),
   mockNavigate: vi.fn(),
   mockStoreSession: vi.fn(),
+  mockUseIdempotency: vi.fn((intent: string) => `idem-key:${intent}`),
 }));
 
 // Outgoing staff id — used in both booth state + staff list to test exclusion.
@@ -37,7 +39,7 @@ vi.mock("@/hooks/useDeviceId", () => ({
 
 // useIdempotency returns a stable string immediately (no async IDB in tests).
 vi.mock("@/hooks/useIdempotency", () => ({
-  useIdempotency: () => "idem-key-handover",
+  useIdempotency: mockUseIdempotency,
   clearIntent: vi.fn(),
 }));
 
@@ -151,6 +153,8 @@ describe("ShiftHandover route (/shift/handover)", () => {
     mockCompleteHandoverIn.mockResolvedValue({ ok: true, eventId: "evt_handover_1" });
     mockNavigate.mockReset();
     mockStoreSession.mockReset();
+    mockUseIdempotency.mockReset();
+    mockUseIdempotency.mockImplementation((intent: string) => `idem-key:${intent}`);
   });
 
   // -------------------------------------------------------------------------
@@ -209,7 +213,7 @@ describe("ShiftHandover route (/shift/handover)", () => {
         staffId: "staff_incoming",
         pin: "1234",
         deviceId: "device-001",
-        idempotencyKey: "idem-key-handover",
+        idempotencyKey: "idem-key:shift:handover:in:login",
       });
     });
   });
@@ -261,7 +265,7 @@ describe("ShiftHandover route (/shift/handover)", () => {
       steps: Array<{ key: string; label: string; type: string; confirmed_at: number }>;
       countChanged: number;
     };
-    expect(call.idempotencyKey).toBe("idem-key-handover");
+    expect(call.idempotencyKey).toBe("idem-key:shift:handover:in:complete");
     expect(call.sessionId).toBe("session_new_123");
     expect(call.steps).toHaveLength(1);
     expect(call.steps[0].key).toBe("count");
@@ -288,5 +292,39 @@ describe("ShiftHandover route (/shift/handover)", () => {
     });
     // PinSheet should still be visible after error
     expect(screen.getByTestId("pin-sheet")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Idempotency key isolation — regression guard
+  // -------------------------------------------------------------------------
+
+  it("passes DIFFERENT idempotency keys to loginWithPin vs completeHandoverIn (collision guard)", async () => {
+    renderRoute();
+    // pick → pin
+    fireEvent.click(screen.getByRole("button", { name: /budi \(incoming\)/i }));
+    // submit PIN → triggers loginWithPin
+    fireEvent.click(screen.getByTestId("pin-sheet-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("count-step-stub")).toBeInTheDocument();
+    });
+
+    // submit count → triggers completeHandoverIn
+    fireEvent.click(screen.getByTestId("count-step-submit"));
+
+    await waitFor(() => {
+      expect(mockLoginWithPin).toHaveBeenCalledOnce();
+      expect(mockCompleteHandoverIn).toHaveBeenCalledOnce();
+    });
+
+    const loginCallKey = mockLoginWithPin.mock.calls[0][0].idempotencyKey as string;
+    const completeCallKey = mockCompleteHandoverIn.mock.calls[0][0].idempotencyKey as string;
+
+    // Keys must be distinct — same key would replay the wrong cached result.
+    expect(loginCallKey).not.toBe(completeCallKey);
+
+    // Verify both are non-empty strings (not undefined / null).
+    expect(loginCallKey).toBeTruthy();
+    expect(completeCallKey).toBeTruthy();
   });
 });
