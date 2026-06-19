@@ -106,7 +106,6 @@ export const _shiftStartAnchor_internal = internalQuery({
  */
 export const _buildSignoffSummary_internal = internalQuery({
   args: {
-    deviceId: v.string(),
     shiftStartMs: v.number(),
     endMs: v.number(),
   },

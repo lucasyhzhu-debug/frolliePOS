@@ -7,6 +7,7 @@ import { useIdempotency } from "@/hooks/useIdempotency";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { fmtShiftDuration } from "@/lib/format";
 
 /**
  * /shift/end — choice screen + close/handover-out wizards.
@@ -141,17 +142,6 @@ const HANDOVER_STEPS: WizardStep[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Duration formatter: durationMs → "Xj Ym"
-// ---------------------------------------------------------------------------
-
-function fmtDuration(ms: number): string {
-  const totalMinutes = Math.floor(ms / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}j ${minutes}m`;
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -237,7 +227,7 @@ export default function ShiftEnd() {
                 Total jam kerja
               </p>
               <p className="text-3xl font-bold text-primary mt-1">
-                {fmtDuration(signOffDurationMs)}
+                {fmtShiftDuration(signOffDurationMs)}
               </p>
             </div>
             {signOffCountChanged != null && (

@@ -213,10 +213,10 @@ describe("ShiftEnd route (/shift/end)", () => {
       // countChanged from the count step (stub returns 5)
       expect(call.countChanged).toBe(5);
 
-      // Summary screen appears with hours (2h = "2j 0m") — NO money amounts
+      // Summary screen appears with hours (2h exact -> "2j", canonical 3-branch logic)
       await waitFor(() => {
-        // duration should show on screen; "2j 0m" or similar
-        expect(screen.getByText(/2j\s*0m/i)).toBeInTheDocument();
+        // exact 2h -> no minutes part: "2j" (canonical: hours>0 && minutes==0 -> "Xj")
+        expect(screen.getByText("2j")).toBeInTheDocument();
       });
 
       // Sign off button (final logout)

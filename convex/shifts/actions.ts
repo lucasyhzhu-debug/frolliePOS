@@ -7,6 +7,7 @@ import type { Id } from "../_generated/dataModel";
 import { verifyPinOrThrow } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 import { wibDayWindow } from "../lib/time";
+import { resolveStaffName } from "./lib";
 
 /**
  * Manager takeover: a manager proves their PIN at the locked booth to take over
@@ -116,20 +117,15 @@ export const _sendSignoffSummary = internalAction({
     idempotencyKeySuffix: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
-    // Resolve staff display name.
-    const staffNames = await ctx.runQuery(
-      internal.auth.internal._listStaffNames_internal,
-      {},
-    );
-    const staffName =
-      staffNames.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(args.staffId))?.name ??
-      "Unknown";
-
-    // Fetch manual-BCA items for the full itemized list (summary has only count+total).
-    const manualBca = await ctx.runQuery(
-      internal.transactions.internal._manualBcaReconciliation_internal,
-      { dayStartMs: args.shiftStartMs, dayEndMs: args.shiftEndMs },
-    );
+    // Resolve staff display name and fetch manual-BCA items in parallel.
+    const [staffNames, manualBca] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
+      ctx.runQuery(internal.transactions.internal._manualBcaReconciliation_internal, {
+        dayStartMs: args.shiftStartMs,
+        dayEndMs: args.shiftEndMs,
+      }),
+    ]);
+    const staffName = resolveStaffName(staffNames, args.staffId);
 
     const { dateLabel } = wibDayWindow(args.shiftEndMs);
 
@@ -178,28 +174,22 @@ export const _sendTakeoverSummary = internalAction({
     idempotencyKeySuffix: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
-    // Resolve displaced staff name (may be null if no one was on shift).
-    const staffNames = await ctx.runQuery(
-      internal.auth.internal._listStaffNames_internal,
-      {},
-    );
-    const staffName = args.displacedStaffId
-      ? (staffNames.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(args.displacedStaffId))?.name ?? "Unknown")
-      : "Unknown";
-
-    // Build sales aggregate for the displaced staff's shift window.
+    // Resolve displaced staff name + build sales aggregate in parallel.
     // The window was pre-computed from the lock event in the mutation, so it
     // correctly spans [displaced-staff-shift-start, lock-time].
-    const [sales, manualBca] = await Promise.all([
+    const [staffNames, sales, manualBca] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
       ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
         dayStartMs: args.displacedShiftStartMs,
         dayEndMs: args.displacedShiftEndMs,
       }),
-      ctx.runQuery(
-        internal.transactions.internal._manualBcaReconciliation_internal,
-        { dayStartMs: args.displacedShiftStartMs, dayEndMs: args.displacedShiftEndMs },
-      ),
+      ctx.runQuery(internal.transactions.internal._manualBcaReconciliation_internal, {
+        dayStartMs: args.displacedShiftStartMs,
+        dayEndMs: args.displacedShiftEndMs,
+      }),
     ]);
+    // Displaced staff name (may be null if no one was on shift).
+    const staffName = resolveStaffName(staffNames, args.displacedStaffId);
 
     const { dateLabel } = wibDayWindow(args.displacedShiftEndMs);
 

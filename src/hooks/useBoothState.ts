@@ -30,5 +30,5 @@ export function useBoothState(): BoothStateResult | undefined {
     deviceId !== null ? { deviceId } : "skip",
   );
 
-  return result ?? undefined;
+  return result;
 }

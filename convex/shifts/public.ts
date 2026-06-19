@@ -3,7 +3,7 @@ import { query, mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { deriveBoothState, BoothState } from "./lib";
+import { deriveBoothState, BoothState, resolveStaffName } from "./lib";
 import { wibDayWindow } from "../lib/time";
 import { withIdempotency } from "../idempotency/internal";
 import { requireSession } from "../auth/sessions";
@@ -75,9 +75,7 @@ export const boothState = query({
         internal.auth.internal._listStaffNames_internal,
         {},
       );
-      staffName =
-        names.find((s: { _id: Id<"staff">; name: string }) => String(s._id) === String(derived.staffId))?.name ??
-        null;
+      staffName = resolveStaffName(names, derived.staffId, "") || null;
     }
     return { ...derived, staffName };
   },
@@ -151,7 +149,7 @@ export const completeStartOfDay = mutation({
         // endOfDaySignOff stores on the event).
         const summary = await ctx.runQuery(
           internal.shifts.internal._buildSignoffSummary_internal,
-          { deviceId, shiftStartMs: staleStart, endMs: staleEnd },
+          { shiftStartMs: staleStart, endMs: staleEnd },
         );
 
         const staleEventId: Id<"pos_shift_events"> = await ctx.runMutation(
@@ -299,7 +297,7 @@ export const endOfDaySignOff = mutation({
       // Build the shift summary (sales aggregate + manual-BCA totals).
       const summary = await ctx.runQuery(
         internal.shifts.internal._buildSignoffSummary_internal,
-        { deviceId, shiftStartMs, endMs: now },
+        { shiftStartMs, endMs: now },
       );
 
       // Record the signoff_close shift event (transitions booth → "closed").
@@ -410,7 +408,7 @@ export const handoverOut = mutation({
       // Build the shift summary (sales aggregate + manual-BCA totals).
       const summary = await ctx.runQuery(
         internal.shifts.internal._buildSignoffSummary_internal,
-        { deviceId, shiftStartMs, endMs: now },
+        { shiftStartMs, endMs: now },
       );
 
       // Record the handover_out shift event (transitions booth → "handover_pending").
@@ -692,6 +690,9 @@ export const completeHandoverIn = mutation({
         throw new Error("NO_HANDOVER_PENDING");
       }
 
+      // Extract once: evaluated twice (linked_event_id + audit metadata).
+      const linkedEventId = pending?.type === "handover_out" ? pending._id : null;
+
       // Record the handover_in shift event (transitions booth → "open").
       // shift_started_at = now: marks the beginning of the new staff's shift.
       const eventId: Id<"pos_shift_events"> = await ctx.runMutation(
@@ -707,8 +708,7 @@ export const completeHandoverIn = mutation({
           takeover: null,
           outgoing_uncounted: null,
           stale_autoclose: null,
-          linked_event_id:
-            pending?.type === "handover_out" ? pending._id : null,
+          linked_event_id: linkedEventId,
           summary: null,
         },
       );
@@ -719,7 +719,7 @@ export const completeHandoverIn = mutation({
         entity_type: "pos_shift_events",
         entity_id: eventId,
         source: "booth_inline",
-        metadata: { linked_event_id: pending?.type === "handover_out" ? pending._id : null },
+        metadata: { linked_event_id: linkedEventId },
       });
 
       return { ok: true as const, eventId };

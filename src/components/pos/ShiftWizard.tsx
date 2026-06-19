@@ -73,13 +73,13 @@ export default function ShiftWizard({ title, steps, onComplete, terminalLabel }:
       type: currentStep.type,
       confirmed_at: Date.now(),
     };
-    // Functional updater form avoids closing over stale confirmed
     return entry;
   }
 
   async function handleNext() {
     const entry = bankCurrentStep();
     const next = [...confirmed, entry];
+    // Functional updater form avoids closing over stale confirmed.
     setConfirmed((prev) => [...prev, entry]);
 
     if (isLastStep) {
