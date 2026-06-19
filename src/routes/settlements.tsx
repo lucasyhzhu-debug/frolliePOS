@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { rp } from "@/lib/format";
+import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 
 type PinAction = {
@@ -45,12 +45,6 @@ function humanizeSettlementError(e: unknown): string {
   return "Terjadi kesalahan.";
 }
 
-function parseIntStrict(s: string): number | null {
-  if (!/^\d+$/.test(s)) return null;
-  const n = Number(s);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return n;
-}
 
 export default function Settlements() {
   const session = useSession();

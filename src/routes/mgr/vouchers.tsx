@@ -45,7 +45,9 @@ import {
 } from "@/components/ui/select";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinSheet } from "@/components/pos/PinSheet";
-import { rp, fmtDate } from "@/lib/format";
+import { FieldMessage } from "@/components/ui/field-message";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
+import { rp, fmtDate, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 
 type Voucher = Doc<"pos_vouchers">;
@@ -82,12 +84,20 @@ function humanizeVoucherError(e: unknown): string {
   return "Something went wrong. Try again.";
 }
 
-function parseIntStrict(s: string): number | null {
-  if (!/^\d+$/.test(s)) return null;
-  const n = Number(s);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return n;
-}
+// ─── Focus maps (module scope — no closure deps, recreating each render wastes memory) ──
+const ADD_FOCUS: Record<string, string> = {
+  "add.code": "new-voucher-code",
+  "add.value": "new-voucher-value",
+  "add.minCart": "new-voucher-min",
+  "add.maxRedemptions": "new-voucher-max",
+  "add.expires": "new-voucher-expires",
+};
+
+const META_FOCUS: Record<string, string> = {
+  "meta.minCart": "edit-min",
+  "meta.maxRedemptions": "edit-max",
+  "meta.expires": "edit-expires",
+};
 
 /**
  * Convert a date input value (YYYY-MM-DD, local-naive) to an end-of-day WIB
@@ -133,6 +143,9 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const updateVoucherMeta = useMutation(api.vouchers.public.updateVoucherMeta);
   const archiveVoucher = useMutation(api.vouchers.public.archiveVoucher);
 
+  // ─── Per-field inline error state ───────────────────────────────────────────
+  const { errors, clearFieldError, clearErrors, applyErrors } = useFieldErrors();
+
   // ─── Sorted view: active first, then by code ────────────────────────────────
   const sortedVouchers = useMemo(() => {
     if (!vouchers) return undefined;
@@ -163,63 +176,61 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setAddMinCart("");
     setAddMaxRedemptions("");
     setAddExpires("");
+    clearErrors("add.");
     setAddOpen(true);
   }
 
+  // Focus map for Add voucher dialog → ADD_FOCUS at module scope.
+
   function submitAddOpenPin() {
+    const next: Record<string, string> = {};
     const code = addCode.trim().toUpperCase();
     if (code.length < 3 || code.length > 32 || !/^[A-Z0-9_-]+$/.test(code)) {
-      toast.error(
-        "Code must be A–Z, 0–9, underscore or dash (3–32 chars).",
-      );
-      return;
+      next["add.code"] = "Code must be A–Z, 0–9, underscore or dash (3–32 chars).";
     }
     const value = parseIntStrict(addValue);
     if (value === null || value <= 0) {
-      toast.error("Value must be a positive integer.");
-      return;
-    }
-    if (addType === "percentage" && value > 100) {
-      toast.error("Percentage must be between 1 and 100.");
-      return;
+      next["add.value"] = "Value must be a positive integer.";
+    } else if (addType === "percentage" && value > 100) {
+      next["add.value"] = "Percentage must be between 1 and 100.";
     }
     let min_cart_value: number | undefined = undefined;
     if (addMinCart.trim().length > 0) {
       const m = parseIntStrict(addMinCart);
       if (m === null) {
-        toast.error("Minimum cart value must be a non-negative integer.");
-        return;
+        next["add.minCart"] = "Minimum cart value must be a non-negative integer.";
+      } else {
+        min_cart_value = m;
       }
-      min_cart_value = m;
     }
     let max_redemptions: number | undefined = undefined;
     if (addMaxRedemptions.trim().length > 0) {
       const r = parseIntStrict(addMaxRedemptions);
       if (r === null || r < 1) {
-        toast.error("Max redemptions must be a positive integer.");
-        return;
+        next["add.maxRedemptions"] = "Max redemptions must be a positive integer.";
+      } else {
+        max_redemptions = r;
       }
-      max_redemptions = r;
     }
     let expires_at: number | undefined = undefined;
     if (addExpires.trim().length > 0) {
       const ms = endOfDayWibToEpochMs(addExpires.trim());
       if (ms === null) {
-        toast.error("Invalid expiry date.");
-        return;
+        next["add.expires"] = "Invalid expiry date.";
+      } else if (ms <= Date.now()) {
+        next["add.expires"] = "Expiry must be in the future.";
+      } else {
+        expires_at = ms;
       }
-      if (ms <= Date.now()) {
-        toast.error("Expiry must be in the future.");
-        return;
-      }
-      expires_at = ms;
     }
+
+    if (applyErrors("add.", next, ADD_FOCUS)) return;
 
     setPinAction({
       kind: "createVoucher",
       code,
       type: addType,
-      value,
+      value: value as number,
       min_cart_value,
       max_redemptions,
       expires_at,
@@ -234,6 +245,8 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaMaxRedemptions, setMetaMaxRedemptions] = useState("");
   const [metaExpires, setMetaExpires] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
+
+  // Focus map for Edit meta dialog → META_FOCUS at module scope.
 
   function openMetaEdit(v: Voucher) {
     setMetaTarget(v);
@@ -256,6 +269,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     } else {
       setMetaExpires("");
     }
+    clearErrors("meta.");
   }
 
   function closeMetaEdit() {
@@ -264,6 +278,50 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   async function commitMetaEdit() {
     if (!metaTarget || !metaKey) return;
+
+    // Accumulate validation errors first, then assemble patch only if no errors.
+    const next: Record<string, string> = {};
+
+    const minTrim = metaMinCart.trim();
+    let min_cart_value_parsed: number | undefined = undefined;
+    if (minTrim.length > 0) {
+      const m = parseIntStrict(minTrim);
+      if (m === null) {
+        next["meta.minCart"] = "Minimum cart value must be a non-negative integer.";
+      } else {
+        min_cart_value_parsed = m;
+      }
+    }
+
+    const maxTrim = metaMaxRedemptions.trim();
+    let max_redemptions_parsed: number | undefined = undefined;
+    if (maxTrim.length > 0) {
+      const r = parseIntStrict(maxTrim);
+      if (r === null || r < 1) {
+        next["meta.maxRedemptions"] = "Max redemptions must be a positive integer.";
+      } else if (r < metaTarget.used_count) {
+        next["meta.maxRedemptions"] = "Cap cannot be below already-used count.";
+      } else {
+        max_redemptions_parsed = r;
+      }
+    }
+
+    const expTrim = metaExpires.trim();
+    let expires_at_parsed: number | undefined = undefined;
+    if (expTrim.length > 0) {
+      const ms = endOfDayWibToEpochMs(expTrim);
+      if (ms === null) {
+        next["meta.expires"] = "Invalid expiry date.";
+      } else if (ms <= Date.now()) {
+        next["meta.expires"] = "Expiry must be in the future.";
+      } else {
+        expires_at_parsed = ms;
+      }
+    }
+
+    if (applyErrors("meta.", next, META_FOCUS)) return;
+
+    // Assemble patch — only include changed fields (preserve existing logic).
     const patch: {
       idempotencyKey: string;
       sessionId: Id<"staff_sessions">;
@@ -281,43 +339,14 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     if (metaActive !== metaTarget.active) {
       patch.active = metaActive;
     }
-
-    const minTrim = metaMinCart.trim();
-    if (minTrim.length > 0) {
-      const m = parseIntStrict(minTrim);
-      if (m === null) {
-        toast.error("Minimum cart value must be a non-negative integer.");
-        return;
-      }
-      if (m !== metaTarget.min_cart_value) patch.min_cart_value = m;
+    if (min_cart_value_parsed !== undefined && min_cart_value_parsed !== metaTarget.min_cart_value) {
+      patch.min_cart_value = min_cart_value_parsed;
     }
-
-    const maxTrim = metaMaxRedemptions.trim();
-    if (maxTrim.length > 0) {
-      const r = parseIntStrict(maxTrim);
-      if (r === null || r < 1) {
-        toast.error("Max redemptions must be a positive integer.");
-        return;
-      }
-      if (r < metaTarget.used_count) {
-        toast.error("Cap cannot be below already-used count.");
-        return;
-      }
-      if (r !== metaTarget.max_redemptions) patch.max_redemptions = r;
+    if (max_redemptions_parsed !== undefined && max_redemptions_parsed !== metaTarget.max_redemptions) {
+      patch.max_redemptions = max_redemptions_parsed;
     }
-
-    const expTrim = metaExpires.trim();
-    if (expTrim.length > 0) {
-      const ms = endOfDayWibToEpochMs(expTrim);
-      if (ms === null) {
-        toast.error("Invalid expiry date.");
-        return;
-      }
-      if (ms <= Date.now()) {
-        toast.error("Expiry must be in the future.");
-        return;
-      }
-      if (ms !== metaTarget.expires_at) patch.expires_at = ms;
+    if (expires_at_parsed !== undefined && expires_at_parsed !== metaTarget.expires_at) {
+      patch.expires_at = expires_at_parsed;
     }
 
     setMetaBusy(true);
@@ -588,12 +617,20 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               <Input
                 id="new-voucher-code"
                 value={addCode}
-                onChange={(e) => setAddCode(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setAddCode(e.target.value.toUpperCase());
+                  clearFieldError("add.code");
+                }}
                 maxLength={32}
                 placeholder="e.g. WELCOME10"
                 inputMode="text"
                 autoCapitalize="characters"
+                aria-invalid={!!errors["add.code"]}
+                aria-describedby={errors["add.code"] ? "add.code-error" : undefined}
               />
+              {errors["add.code"] && (
+                <FieldMessage id="add.code-error">{errors["add.code"]}</FieldMessage>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-voucher-type">Type</Label>
@@ -617,12 +654,18 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               <Input
                 id="new-voucher-value"
                 value={addValue}
-                onChange={(e) =>
-                  setAddValue(e.target.value.replace(/[^\d]/g, ""))
-                }
+                onChange={(e) => {
+                  setAddValue(e.target.value.replace(/[^\d]/g, ""));
+                  clearFieldError("add.value");
+                }}
                 inputMode="numeric"
                 placeholder={addType === "percentage" ? "1-100" : "e.g. 5000"}
+                aria-invalid={!!errors["add.value"]}
+                aria-describedby={errors["add.value"] ? "add.value-error" : undefined}
               />
+              {errors["add.value"] && (
+                <FieldMessage id="add.value-error">{errors["add.value"]}</FieldMessage>
+              )}
               {addType === "amount" && parseIntStrict(addValue) !== null && (
                 <p className="text-xs text-muted-foreground">
                   {rp(parseIntStrict(addValue) as number)}
@@ -634,24 +677,36 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               <Input
                 id="new-voucher-min"
                 value={addMinCart}
-                onChange={(e) =>
-                  setAddMinCart(e.target.value.replace(/[^\d]/g, ""))
-                }
+                onChange={(e) => {
+                  setAddMinCart(e.target.value.replace(/[^\d]/g, ""));
+                  clearFieldError("add.minCart");
+                }}
                 inputMode="numeric"
                 placeholder="e.g. 50000"
+                aria-invalid={!!errors["add.minCart"]}
+                aria-describedby={errors["add.minCart"] ? "add.minCart-error" : undefined}
               />
+              {errors["add.minCart"] && (
+                <FieldMessage id="add.minCart-error">{errors["add.minCart"]}</FieldMessage>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-voucher-max">Max redemptions (opt)</Label>
               <Input
                 id="new-voucher-max"
                 value={addMaxRedemptions}
-                onChange={(e) =>
-                  setAddMaxRedemptions(e.target.value.replace(/[^\d]/g, ""))
-                }
+                onChange={(e) => {
+                  setAddMaxRedemptions(e.target.value.replace(/[^\d]/g, ""));
+                  clearFieldError("add.maxRedemptions");
+                }}
                 inputMode="numeric"
                 placeholder="e.g. 100"
+                aria-invalid={!!errors["add.maxRedemptions"]}
+                aria-describedby={errors["add.maxRedemptions"] ? "add.maxRedemptions-error" : undefined}
               />
+              {errors["add.maxRedemptions"] && (
+                <FieldMessage id="add.maxRedemptions-error">{errors["add.maxRedemptions"]}</FieldMessage>
+              )}
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label htmlFor="new-voucher-expires">Expires (opt)</Label>
@@ -659,8 +714,16 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 id="new-voucher-expires"
                 type="date"
                 value={addExpires}
-                onChange={(e) => setAddExpires(e.target.value)}
+                onChange={(e) => {
+                  setAddExpires(e.target.value);
+                  clearFieldError("add.expires");
+                }}
+                aria-invalid={!!errors["add.expires"]}
+                aria-describedby={errors["add.expires"] ? "add.expires-error" : undefined}
               />
+              {errors["add.expires"] && (
+                <FieldMessage id="add.expires-error">{errors["add.expires"]}</FieldMessage>
+              )}
               <p className="text-[10px] text-muted-foreground">
                 Treated as end-of-day WIB.
               </p>
@@ -719,24 +782,36 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               <Input
                 id="edit-min"
                 value={metaMinCart}
-                onChange={(e) =>
-                  setMetaMinCart(e.target.value.replace(/[^\d]/g, ""))
-                }
+                onChange={(e) => {
+                  setMetaMinCart(e.target.value.replace(/[^\d]/g, ""));
+                  clearFieldError("meta.minCart");
+                }}
                 inputMode="numeric"
                 disabled={metaBusy}
+                aria-invalid={!!errors["meta.minCart"]}
+                aria-describedby={errors["meta.minCart"] ? "meta.minCart-error" : undefined}
               />
+              {errors["meta.minCart"] && (
+                <FieldMessage id="meta.minCart-error">{errors["meta.minCart"]}</FieldMessage>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-max">Max redemptions</Label>
               <Input
                 id="edit-max"
                 value={metaMaxRedemptions}
-                onChange={(e) =>
-                  setMetaMaxRedemptions(e.target.value.replace(/[^\d]/g, ""))
-                }
+                onChange={(e) => {
+                  setMetaMaxRedemptions(e.target.value.replace(/[^\d]/g, ""));
+                  clearFieldError("meta.maxRedemptions");
+                }}
                 inputMode="numeric"
                 disabled={metaBusy}
+                aria-invalid={!!errors["meta.maxRedemptions"]}
+                aria-describedby={errors["meta.maxRedemptions"] ? "meta.maxRedemptions-error" : undefined}
               />
+              {errors["meta.maxRedemptions"] && (
+                <FieldMessage id="meta.maxRedemptions-error">{errors["meta.maxRedemptions"]}</FieldMessage>
+              )}
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label htmlFor="edit-expires">Expires</Label>
@@ -744,9 +819,17 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 id="edit-expires"
                 type="date"
                 value={metaExpires}
-                onChange={(e) => setMetaExpires(e.target.value)}
+                onChange={(e) => {
+                  setMetaExpires(e.target.value);
+                  clearFieldError("meta.expires");
+                }}
                 disabled={metaBusy}
+                aria-invalid={!!errors["meta.expires"]}
+                aria-describedby={errors["meta.expires"] ? "meta.expires-error" : undefined}
               />
+              {errors["meta.expires"] && (
+                <FieldMessage id="meta.expires-error">{errors["meta.expires"]}</FieldMessage>
+              )}
               <p className="text-[10px] text-muted-foreground">
                 Treated as end-of-day WIB. Leave blank to keep the existing
                 value (clearing the field does not unset expiry).

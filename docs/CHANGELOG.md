@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## v1.2 #12 slice 1 — Inline messaging over toasts
+- New `FieldMessage` design-system primitive (`src/components/ui/field-message.tsx`) for sync form-validation, AA-legible on the phthalo-dark canvas (error/success tokens dark-lifted).
+- Converted `mgr/products.tsx` (26) and `mgr/vouchers.tsx` (12) sync-validation toasts to per-field inline messages with `aria-invalid`/`aria-describedby` + focus-first-error.
+- ESLint `no-restricted-syntax` fence prevents migrated files regressing to literal-arg `toast.error`/`toast.warning`.
+- Policy: ADR-048 (inline for sync validation; toasts for global/async; PIN flows owned by #11/#7).
+
 ## 2026-06-19 — fix: persist device identity (no more repeat re-activation)
 - fix(device): request `navigator.storage.persist()` at startup so the device-id
   (IndexedDB + localStorage) is no longer kept in the browser's evictable

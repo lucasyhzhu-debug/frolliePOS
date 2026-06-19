@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -46,6 +46,11 @@ vi.mock("convex/react", async (importOriginal) => {
     useAction: () => vi.fn().mockResolvedValue({}),
   };
 });
+
+vi.mock("@/hooks/useIdempotency", () => ({
+  useIdempotency: () => "key1",
+  clearIntent: vi.fn(),
+}));
 
 import MgrVouchers from "../vouchers";
 
@@ -121,5 +126,17 @@ describe("MgrVouchers route (/mgr/vouchers)", () => {
     };
     renderRoute();
     expect(screen.getByText("HOME_PAGE")).toBeInTheDocument();
+  });
+
+  it("shows an inline FieldMessage for an invalid value on submit", () => {
+    // beforeEach already sets a manager mockSessionReturn + empty mockListReturn.
+    renderRoute();
+    fireEvent.click(screen.getByRole("button", { name: /add voucher/i }));
+    fireEvent.change(screen.getByLabelText(/Code/i), { target: { value: "SAVE10" } });
+    // leave value empty → invalid
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    const msg = screen.getByText(/Value must be a positive integer/i);
+    expect(msg).toBeInTheDocument();
+    expect(msg.closest("[role='alert']")).not.toBeNull();
   });
 });

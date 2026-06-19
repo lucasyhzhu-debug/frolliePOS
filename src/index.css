@@ -29,9 +29,7 @@
   /* Semantic + role colors. The *-bg companions were dropped in v1.2 — the
      badge variants now use opacity modifiers (bg-success/15) on these bases,
      so the light-mode *-bg fills had zero consumers (ADR-047 prune). */
-  --color-success: #059669;
   --color-warning: #D97706;
-  --color-error:   #DC2626;
   --color-info:    #2563EB;
 
   --color-role-admin:   #7C3AED;
@@ -69,6 +67,8 @@
   --accent-foreground: #1B1B1F;
   --destructive: #DC2626;
   --destructive-foreground: #FFFFFF;
+  --error:   #DC2626;
+  --success: #059669;
   --border: rgba(27, 27, 31, 0.12);
   --input: rgba(27, 27, 31, 0.14);
   --ring: #0D9488;
@@ -94,6 +94,8 @@
   --accent-foreground: #F1E9D8;
   --destructive: #E5484D;
   --destructive-foreground: #F1E9D8;
+  --error:   #F87171;   /* red-400 — AA body text on phthalo card (4.7:1) */
+  --success: #34D399;   /* emerald-400 — AA body text on phthalo card (6.8:1) */
   --border: rgba(241, 233, 216, 0.10);
   --input: rgba(241, 233, 216, 0.14);
   --ring: #14B8A6;
@@ -118,6 +120,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-error:   var(--error);
+  --color-success: var(--success);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
