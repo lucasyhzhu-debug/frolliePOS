@@ -57,6 +57,7 @@ Booth employees and managers.
 | `created_at` | `number` | ms epoch |
 | `last_login_at` | `number?` | |
 | `must_change_pin` | `boolean?` | SEC-03 (v1.1). `true` on the bootstrap-seeded manager → FE forces a one-time rotation prompt after login. Cleared (`false`) by `_changePinCommit_internal` on any successful PIN change. Absent on existing rows = falsy. |
+| `locale` | `"en" \| "id"` `?` | v1.2 #1 (i18n). Per-staff UI language preference. Absent ⇒ `"en"` English default (no migration; set by `setOwnLocale` mutation, Task 4). Projected by `getSession` → flows through `useSession` → consumed by `LocaleProvider`. |
 
 Indexes: `by_active` on `active`, `by_role` on `role`.
 

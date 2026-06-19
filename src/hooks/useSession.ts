@@ -23,6 +23,7 @@ export type SessionState =
         name: string;
         role: "staff" | "manager";
         must_change_pin: boolean; // SEC-03: forced-rotation prompt flag
+        locale: "en" | "id"; // v1.2 #1: UI language (absent on server ⇒ "en" default)
       };
     };
 
