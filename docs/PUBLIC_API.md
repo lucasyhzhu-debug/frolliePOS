@@ -21,11 +21,12 @@ httpActions serve from `.convex.site` (NOT `.convex.cloud`). `GET` only, HTTPS o
 
 Every request needs a bearer token:
 ```
-Authorization: Bearer frpos_live_xxxxxxxx…    (all deployments — dev and prod alike)
+Authorization: Bearer frpos_live_xxxxxxxx…    (prod)
+Authorization: Bearer frpos_test_xxxxxxxx…    (dev)
 ```
-- All v1 tokens carry the `frpos_live_<base64url>` prefix on **every** deployment
-  (dev and prod alike). A `frpos_test_` variant is **reserved** for a future
-  test/live split but is **not issued in v1**.
+- Tokens carry an environment prefix: `frpos_live_<base64url>` on **prod**,
+  `frpos_test_<base64url>` on **dev**. The prefix is an ops-hygiene discriminator
+  to keep dev/prod credentials visually distinct.
 - **Treat the token as an opaque secret.** Do NOT validate or branch on the
   prefix — the server identifies the token by hash lookup, not by prefix.
 - Tokens are issued by POS ops (see "Getting a token" below) and shown **once**.
@@ -34,8 +35,13 @@ Authorization: Bearer frpos_live_xxxxxxxx…    (all deployments — dev and pro
 - Revocable + rotatable server-side. On rotation you get a new token valid
   alongside the old for 7 days — swap at your leisure within the window.
 
-**Getting a token:** ask a POS operator to run
-`npx convex run api/v1/internal:_issueApiToken_internal '{"label":"frollie-pro-prod","endpointAllowList":["/api/v1/transactions","/api/v1/refunds"],"rateLimitRpm":120}'`
+**Getting a token:** ask a POS operator to run, on the target deployment:
+```bash
+# prod (frpos_live_)
+npx convex run --prod api/v1/internal:_issueApiToken_internal '{"label":"frollie-pro-prod","endpointAllowList":["/api/v1/transactions","/api/v1/refunds"],"rateLimitRpm":120}'
+# dev (frpos_test_) — note isTest:true
+npx convex run api/v1/internal:_issueApiToken_internal '{"label":"frollie-pro-dev","endpointAllowList":["/api/v1/transactions","/api/v1/refunds"],"rateLimitRpm":120,"isTest":true}'
+```
 and hand you the `rawToken` over a secure channel.
 
 ## 3. Endpoints
@@ -86,6 +92,41 @@ async function drain(base: string, token: string, path: string, startCursor?: st
 `null`. If a page mid-drain throws, leave the stored cursor where it was — the
 next run resumes with no gaps (re-pulling a few rows is safe; see §6).
 
+## 4a. Date filtering (optional window bounds)
+
+Both endpoints accept two **optional** query params that clamp the result to a
+time window, filtering on the same key the cursor orders by (`paidAt` for
+transactions, `createdAt` for refunds):
+
+| Param | Meaning |
+|-------|---------|
+| `from` | **Inclusive** lower bound, epoch ms. Rows with key `>= from`. |
+| `to`   | **Exclusive** upper bound, epoch ms. Rows with key `< to`. |
+
+- **Omitting both = the default drain-from-beginning behaviour** (unchanged). The
+  steady-state incremental sync (cursor only, no `from`/`to`) is unaffected.
+- **Composes with the cursor.** Within a window you still page via `nextCursor`;
+  the effective lower bound is `max(cursor watermark, from)`. Pattern: pin the
+  window with `from`/`to` on every page of that drain, and page until `null`.
+- Use it to **reconcile a specific day** (`?from=<dayStartMs>&to=<dayEndMs>`),
+  **re-pull a range** after a bug, or **backfill** without resetting your cursor
+  and re-draining all history.
+- Bounds are validated: a non-integer/negative bound, or `from > to`, returns
+  `400 BAD_RANGE` (see §5). `from === to` is a valid empty window (zero rows).
+- Days are POS-local **WIB (UTC+7)**: a calendar day `D` spans
+  `[D 00:00 WIB, D+1 00:00 WIB)` = `[D−07:00 UTC, …)`. Compute the ms bounds in
+  WIB to align with the POS dashboard's day-summary.
+
+```ts
+// reconcile one WIB calendar day
+const dayStartMs = Date.UTC(y, m, d, -7, 0, 0); // 00:00 WIB
+const dayEndMs   = Date.UTC(y, m, d + 1, -7, 0, 0);
+const url = new URL(base + "/api/v1/transactions");
+url.searchParams.set("from", String(dayStartMs));
+url.searchParams.set("to", String(dayEndMs));
+// then page with ?cursor= as usual until nextCursor === null
+```
+
 ## 5. Errors
 
 `{ "error": { "code": "...", "message": "...", "details"?: {} } }` + HTTP status:
@@ -93,6 +134,7 @@ next run resumes with no gaps (re-pulling a few rows is safe; see §6).
 | HTTP | code | Meaning / what to do |
 |------|------|----------------------|
 | 400 | `BAD_CURSOR` | You sent a malformed cursor. Don't hand-craft cursors. |
+| 400 | `BAD_RANGE` | `from`/`to` is non-integer/negative, or `from > to`. Send epoch-ms integers with `from <= to`. |
 | 401 | `UNAUTHENTICATED` | Missing/unknown/expired/revoked token. Re-check the secret. |
 | 403 | `ENDPOINT_NOT_ALLOWED` | Token isn't allow-listed for this path. Ask ops to re-issue. |
 | 429 | `RATE_LIMITED` | Per-token RPM exceeded. Honor `Retry-After` (seconds), then retry. |
@@ -116,6 +158,8 @@ sit far under it; a `429` means slow down, not stop — honor `Retry-After`.
 
 ## 8. Versioning
 
-Additive fields are non-breaking — ignore unknown fields (validate with a
-`.passthrough()` schema). Removals/renames/ordering changes ⟹ `/api/v2/` with a
-≥14-day deprecation window agreed in writing.
+Additive fields and **new optional query params** (e.g. the §4a `from`/`to`
+window bounds) are non-breaking — ignore unknown fields (validate with a
+`.passthrough()` schema), and absent params preserve prior behaviour. Removals/
+renames/ordering changes ⟹ `/api/v2/` with a ≥14-day deprecation window agreed
+in writing.

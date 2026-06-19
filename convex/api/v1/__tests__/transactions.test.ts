@@ -33,4 +33,47 @@ describe("GET /api/v1/transactions", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("BAD_CURSOR");
   });
+
+  // CONTRACT §6a — optional from/to window bounds.
+  async function seed3(t: any) {
+    await t.run(async (ctx: any) => {
+      const s = await ctx.db.insert("staff", { name: "L", code: "S-0001", role: "staff", active: true, pin_hash: "x", created_at: 0 });
+      const mk = async (rn: string, paidAt: number) =>
+        ctx.db.insert("pos_transactions", { status: "paid", subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: s, created_at: 0, paid_at: paidAt, receipt_number: rn });
+      await mk("R-2026-0001", 100);
+      await mk("R-2026-0002", 200);
+      await mk("R-2026-0003", 300);
+    });
+  }
+
+  it("from/to clamps to a [from, to) window — inclusive lower, exclusive upper", async () => {
+    const t = convexTest(schema);
+    await seed3(t);
+    const res = await t.fetch("/api/v1/transactions?from=200&to=300", { method: "GET", headers: { Authorization: `Bearer ${await token(t)}` } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.map((r: any) => r.receiptNumber)).toEqual(["R-2026-0002"]);
+  });
+
+  it("from alone returns rows at or after the bound", async () => {
+    const t = convexTest(schema);
+    await seed3(t);
+    const res = await t.fetch("/api/v1/transactions?from=200", { method: "GET", headers: { Authorization: `Bearer ${await token(t)}` } });
+    const body = await res.json();
+    expect(body.data.map((r: any) => r.receiptNumber)).toEqual(["R-2026-0002", "R-2026-0003"]);
+  });
+
+  it("400 BAD_RANGE when from > to", async () => {
+    const t = convexTest(schema);
+    const res = await t.fetch("/api/v1/transactions?from=500&to=100", { method: "GET", headers: { Authorization: `Bearer ${await token(t)}` } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("BAD_RANGE");
+  });
+
+  it("400 BAD_RANGE on a non-integer bound", async () => {
+    const t = convexTest(schema);
+    const res = await t.fetch("/api/v1/transactions?from=notanumber", { method: "GET", headers: { Authorization: `Bearer ${await token(t)}` } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("BAD_RANGE");
+  });
 });

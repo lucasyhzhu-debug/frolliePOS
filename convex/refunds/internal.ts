@@ -370,15 +370,28 @@ export const _listRefundsForApi_internal = internalQuery({
   args: {
     afterCreatedAtMs: v.optional(v.number()),
     afterCreationTime: v.optional(v.number()),
+    // CONTRACT §6a date filtering: inclusive-lower / exclusive-upper created_at
+    // bounds (same shape as the transactions feed). Composes with the cursor.
+    fromMs: v.optional(v.number()),
+    toMs: v.optional(v.number()),
     limit: v.number(),
   },
   handler: async (ctx, args): Promise<{ rows: ApiRefundRow[]; nextCursor: string | null }> => {
     const limit = Math.min(Math.max(args.limit, 1), 500);
     const after = args.afterCreatedAtMs;
 
+    const lo = Math.max(after ?? -Infinity, args.fromMs ?? -Infinity);
+    const hasLo = after !== undefined || args.fromMs !== undefined;
+    const hi = args.toMs;
+
     const candidates = await ctx.db
       .query("pos_refunds")
-      .withIndex("by_created_at", (q) => after === undefined ? q : q.gte("created_at", after))
+      .withIndex("by_created_at", (q) => {
+        if (hasLo && hi !== undefined) return q.gte("created_at", lo).lt("created_at", hi);
+        if (hasLo) return q.gte("created_at", lo);
+        if (hi !== undefined) return q.lt("created_at", hi);
+        return q;
+      })
       .order("asc")
       .take(limit * 2 + 1);
 
