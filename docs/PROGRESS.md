@@ -2298,7 +2298,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **Phase 3 — #10 retire BCA VA + static-account manual transfer (📋 PLANNED 2026-06-19):** hide the broken BCA VA tab (kills the error-toast storm by construction — QRIS becomes the sole Xendit method) and add a staff-self-confirm manual bank-transfer tender. Sales mark `confirmed_via:"manual_bca"`, flag MANUAL in the manager ticker, and itemize in the founders EOD summary (the compensating control replacing a photo gate). Manager-editable account config + enable toggle. Backend-heavy (funnel reuse, no manager-PIN), one atomic squash PR. Spec→2× staffreview→plan→staffreview pipeline; spec C1 (manual-tab render) + I1 (live-QR cancel) folded; plan APPROVED (assumptions verified vs main).
 
 ### Backend (`convex/`) — Phase 3
-- 📋 **[v12-be-mbca-settings]** `settings/{schema,internal}.ts` — 4 optional `manual_bca_*` fields (enabled + bank/name/number) + `MANUAL_BCA_DEFAULTS` + `manual_bca` sub-object in `_getSettings_internal` (Task 1)
+- ✅ **[v12-be-mbca-settings]** `settings/{schema,internal}.ts` — 4 optional `manual_bca_*` fields (enabled + bank/name/number) + `MANUAL_BCA_DEFAULTS` + `manual_bca` sub-object in `_getSettings_internal` (Task 1) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-phase3-manual-bca-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md), [spec staffreview](./reviews/staffreview-v1.2-phase3-manual-bca-spec-2026-06-19.md), [plan staffreview](./reviews/staffreview-v1.2-phase3-manual-bca-plan-2026-06-19.md)
@@ -2307,7 +2307,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Add schema fields + MANUAL_BCA_DEFAULTS + sub-object
     - [ ] typecheck + test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-funnel]** `transactions/{schema,internal}.ts` — `confirmed_via` union += `"manual_bca"`; `_confirmPaid_internal` source union + `confirm_staff_id` + audit-attribution branch; widen `_getTxnForTicker_internal` type (Task 2)
+- ✅ **[v12-be-mbca-funnel]** `transactions/{schema,internal}.ts` — `confirmed_via` union += `"manual_bca"`; `_confirmPaid_internal` source union + `confirm_staff_id` + audit-attribution branch; widen `_getTxnForTicker_internal` type (Task 2) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2316,7 +2316,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Widen schema + `_confirmPaid` args + both audit emits
     - [ ] Full payments+transactions suite green (no manual/webhook regression); commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-confirm]** `payments/public.ts` — `confirmManualBcaPayment` staff-session mutation (withIdempotency + requireSession, funnel → manual_bca, cancel live QRIS invoice I1, RECEIPT_UNCONFIRMED guard) (Task 3)
+- ✅ **[v12-be-mbca-confirm]** `payments/public.ts` — `confirmManualBcaPayment` staff-session mutation (withIdempotency + requireSession, funnel → manual_bca, cancel live QRIS invoice I1, RECEIPT_UNCONFIRMED guard) (Task 3) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** v12-be-mbca-funnel
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2325,7 +2325,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Implement mutation (cancel gated on `confirmed_via==="manual_bca"`)
     - [ ] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-crud]** `settings/public.ts` — `getManualBcaConfig`/`updateManualBcaConfig` (manager) + `getManualBcaAccount` (staff read) + `settings.manual_bca_updated` audit (Task 4)
+- ✅ **[v12-be-mbca-crud]** `settings/public.ts` — `getManualBcaConfig`/`updateManualBcaConfig` (manager) + `getManualBcaAccount` (staff read) + `settings.manual_bca_updated` audit (Task 4) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** v12-be-mbca-settings
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2334,7 +2334,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Implement 3 fns (mirror receipt-config), 120-char bounds
     - [ ] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-ticker]** `telegram/{txnTicker,send}.ts` + `lib/telegramHtml.ts` — flag manual_bca sales: "Manual BCA" label + "⚠️ MANUAL — check the BCA account" line; payload flag (Task 5)
+- ✅ **[v12-be-mbca-ticker]** `telegram/{txnTicker,send}.ts` + `lib/telegramHtml.ts` — flag manual_bca sales: "Manual BCA" label + "⚠️ MANUAL — check the BCA account" line; payload flag (Task 5) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** v12-be-mbca-funnel
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2343,7 +2343,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] `instrumentLabel` opts object + renderer alert line + payload validator + action flag
     - [ ] telegram suite green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-reconcile]** `transactions/internal.ts` — `_manualBcaReconciliation_internal({dayStartMs,dayEndMs})` → itemized `{items,count,totalIdr}` (by_status_paid_at + JS filter) (Task 6)
+- ✅ **[v12-be-mbca-reconcile]** `transactions/internal.ts` — `_manualBcaReconciliation_internal({dayStartMs,dayEndMs})` → itemized `{items,count,totalIdr}` (by_status_paid_at + JS filter) (Task 6) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** v12-be-mbca-funnel
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2352,7 +2352,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Implement query (resilient staff-name join)
     - [ ] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-be-mbca-eod]** `telegram/{foundersSummary,send}.ts` + `lib/telegramHtml.ts` — founders EOD summary gains an itemized manual-BCA section (cap 30 + overflow note; omit when 0) (Task 7)
+- ✅ **[v12-be-mbca-eod]** `telegram/{foundersSummary,send}.ts` + `lib/telegramHtml.ts` — founders EOD summary gains an itemized manual-BCA section (cap 30 + overflow note; omit when 0) (Task 7) (e156fd0)
   - **agent:** `convex-expert`
   - **deps:** v12-be-mbca-reconcile
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2363,7 +2363,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **notes:** _(empty)_
 
 ### Frontend (`src/`) — Phase 3
-- 📋 **[v12-fe-mbca-charge]** `routes/sale/charge.tsx` — drop BCA VA tab, add "Bank transfer (manual)" tender (account + attestation checkbox + confirm); render independent of `phase` (C1); inline FieldMessage on the QRIS catch (L7) (Task 8)
+- ✅ **[v12-fe-mbca-charge]** `routes/sale/charge.tsx` — drop BCA VA tab, add "Bank transfer (manual)" tender (account + attestation checkbox + confirm); render independent of `phase` (C1); inline FieldMessage on the QRIS catch (L7) (Task 8) (e156fd0)
   - **agent:** `frontend-integrator`
   - **deps:** v12-be-mbca-confirm, v12-be-mbca-crud
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
@@ -2374,7 +2374,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **notes:** _(empty)_
 
 ### Cross-cutting — Phase 3
-- 📋 **[v12-xc-mbca-docs]** `docs/ADR/036-…md` + `docs/SCHEMA.md` + `CHANGELOG.md` — ADR-036 amendment (method set + staff-confirm deviation + live-QR residual), schema fields + `settings.manual_bca_updated`, changelog (Task 9)
+- ✅ **[v12-xc-mbca-docs]** `docs/ADR/036-…md` + `docs/SCHEMA.md` + `CHANGELOG.md` — ADR-036 amendment (method set + staff-confirm deviation + live-QR residual), schema fields + `settings.manual_bca_updated`, changelog (Task 9) (e156fd0)
   - **agent:** `claude`
   - **deps:** v12-be-mbca-eod, v12-fe-mbca-charge
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-phase3-manual-bca.md)
