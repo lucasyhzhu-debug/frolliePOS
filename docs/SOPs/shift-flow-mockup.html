@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frollie POS — Shift Flow Mockup</title>
+<style>
+  :root{
+    --paper:#102821; --paper-2:#0c2019; --card:#16352c; --card-2:#1a3d31;
+    --ink:#F1E9D8; --muted:#9db3a8; --line:#244438;
+    --teal:#2dd4bf; --teal-deep:#0d9488; --citrus:#f4b942;
+    --green:#34d399; --red:#f87171;
+    --r:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:radial-gradient(1200px 600px at 30% -10%, #163a2e 0%, var(--paper) 55%);
+    color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif;
+    padding:36px;min-height:100vh;
+  }
+  h1{font-size:22px;font-weight:800;margin-bottom:2px;letter-spacing:-.01em;}
+  .lede{color:var(--muted);font-size:14px;margin-bottom:28px;max-width:720px;line-height:1.5;}
+  .strip{display:flex;gap:28px;overflow-x:auto;padding-bottom:24px;align-items:flex-start;}
+  .frame{flex:0 0 auto;}
+  .cap{font-size:12px;color:var(--citrus);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+  .cap small{display:block;color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;margin-top:3px;font-size:11px;}
+  .tab{
+    width:330px;height:600px;background:var(--paper);border:1px solid var(--line);
+    border-radius:26px;padding:18px;display:flex;flex-direction:column;
+    box-shadow:0 24px 60px rgba(0,0,0,.4);position:relative;overflow:hidden;
+  }
+  .bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .bar .ttl{font-size:15px;font-weight:700;}
+  .pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 9px;}
+  .btn{
+    width:100%;border:none;border-radius:13px;padding:15px;font-size:15px;font-weight:700;
+    font-family:inherit;cursor:pointer;color:#06231c;background:var(--teal);margin-top:auto;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:600;margin-top:10px;}
+  .btn.warm{background:var(--citrus);}
+  .row2{display:flex;gap:10px;margin-top:auto;}
+  .row2 .btn{margin-top:0;}
+
+  /* entry choice cards */
+  .choice{flex:1;display:flex;flex-direction:column;gap:14px;justify-content:center;}
+  .ccard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;}
+  .ccard:hover{border-color:var(--teal);}
+  .ccard .ic{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;flex:0 0 auto;}
+  .ccard h3{font-size:16px;margin-bottom:3px;}
+  .ccard p{font-size:12.5px;color:var(--muted);line-height:1.45;}
+
+  /* step rail */
+  .wiz{display:flex;gap:14px;flex:1;min-height:0;}
+  .rail{display:flex;flex-direction:column;align-items:center;gap:0;padding-top:4px;}
+  .node{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid var(--line);color:var(--muted);background:var(--paper);z-index:1;}
+  .node.done{background:var(--teal);border-color:var(--teal);color:#06231c;}
+  .node.cur{border-color:var(--citrus);color:var(--citrus);box-shadow:0 0 0 4px rgba(244,185,66,.15);}
+  .seg{width:2px;flex:1;background:var(--line);min-height:24px;}
+  .seg.done{background:var(--teal);}
+  .content{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .stepno{font-size:11px;color:var(--citrus);font-weight:700;letter-spacing:.06em;text-transform:uppercase;}
+  .stepttl{font-size:19px;font-weight:800;line-height:1.2;margin:6px 0 12px;letter-spacing:-.01em;}
+  .instr{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;font-size:14px;color:var(--ink);line-height:1.55;}
+  .instr .lab{color:var(--muted);font-size:12px;margin-top:10px;}
+  .hugeic{font-size:34px;display:block;margin-bottom:10px;}
+
+  /* count rows */
+  .crow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line);}
+  .crow:first-child{border-top:none;}
+  .crow .nm{font-size:14px;font-weight:600;}
+  .crow .sys{font-size:11.5px;color:var(--muted);}
+  .cinput{width:62px;text-align:right;background:var(--card-2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:9px;font-size:15px;font-family:inherit;}
+  .delta{font-size:12px;font-weight:700;margin-left:8px;}
+  .delta.neg{color:var(--red);} .delta.pos{color:var(--green);}
+
+  /* summary */
+  .sum{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
+  .sline{display:flex;justify-content:space-between;padding:13px 15px;border-top:1px solid var(--line);font-size:13.5px;}
+  .sline:first-child{border-top:none;}
+  .sline .k{color:var(--muted);} .sline .v{font-weight:700;}
+  .sline .v.big{font-size:16px;}
+  .mbca{background:rgba(244,185,66,.08);}
+  .mbca .v{color:var(--citrus);}
+  .sent{font-size:11.5px;color:var(--muted);text-align:center;margin:12px 0;display:flex;gap:6px;align-items:center;justify-content:center;}
+
+  /* lock */
+  .lockwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;}
+  .avatar{width:64px;height:64px;border-radius:50%;background:var(--teal-deep);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:var(--ink);margin-bottom:8px;}
+  .dots{display:flex;gap:12px;margin:18px 0;}
+  .dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);}
+  .dot.on{background:var(--teal);border-color:var(--teal);}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;margin-top:8px;}
+  .key{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:18px;font-weight:700;color:var(--ink);text-align:center;}
+  .picker{display:flex;flex-direction:column;gap:10px;flex:1;}
+  .pstaff{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px;}
+  .pstaff .av{width:36px;height:36px;border-radius:50%;background:var(--teal-deep);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+  .pstaff .ro{margin-left:auto;font-size:11px;color:var(--citrus);border:1px solid var(--line);border-radius:999px;padding:2px 8px;}
+</style>
+</head>
+<body>
+  <h1>Frollie POS — Shift SOP flow</h1>
+  <p class="lede">Mockup of the new shift-in / end-shift / handover journeys in the phthalo-dark system. Signature = the teal step-rail that fills as each SOP step is confirmed. Copy in Bahasa (staff-facing). Scroll right →</p>
+
+  <div class="strip">
+
+    <!-- 1. END SHIFT CHOICE -->
+    <div class="frame">
+      <div class="cap">1 · Tombol "Akhiri shift"<small>Close vs handover — the only branch</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Akhiri shift</span><span class="pill">Budi · 14:32</span></div>
+        <div class="choice">
+          <div class="ccard">
+            <div class="ic" style="background:rgba(45,212,191,.15)">🌙</div>
+            <div><h3>Tutup booth (akhir hari)</h3><p>Hitung stok, cek perlengkapan, matikan alat, kunci loker. Booth tutup.</p></div>
+          </div>
+          <div class="ccard">
+            <div class="ic" style="background:rgba(244,185,66,.15)">🔄</div>
+            <div><h3>Serah terima ke staff lain</h3><p>Hitung stok, lalu staff berikutnya login & hitung sendiri. Booth tetap buka.</p></div>
+          </div>
+        </div>
+        <button class="btn ghost">Batal</button>
+      </div>
+    </div>
+
+    <!-- 2. WIZARD INSTRUCTION STEP -->
+    <div class="frame">
+      <div class="cap">2 · Langkah instruksi<small>Next = "sudah saya lakukan" → centang hijau</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Tutup booth</span><span class="pill">4 dari 5</span></div>
+        <div class="wiz">
+          <div class="rail">
+            <div class="node done">✓</div><div class="seg done"></div>
+            <div class="node done">✓</div><div class="seg done"></div>
+            <div class="node done">✓</div><div class="seg done"></div>
+            <div class="node cur">4</div><div class="seg"></div>
+            <div class="node">5</div>
+          </div>
+          <div class="content">
+            <span class="stepno">Langkah 4 · perlengkapan</span>
+            <span class="stepttl">Cek stok perlengkapan</span>
+            <div class="instr">
+              <span class="hugeic">📦</span>
+              Cek: stiker gratis · stiker seal · paperbag · plastik bawang · kabel tis.
+              <div class="lab">Jika sisa &lt; 3 hari, lapor di grup WA "Frollie Blok M".</div>
+            </div>
+          </div>
+        </div>
+        <div class="row2">
+          <button class="btn ghost" style="flex:0 0 96px">Kembali</button>
+          <button class="btn">Sudah · lanjut →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. WIZARD COUNT STEP -->
+    <div class="frame">
+      <div class="cap">3 · Langkah hitung stok<small>Embeds the recount UI → writes to inventory</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Tutup booth</span><span class="pill">2 dari 5</span></div>
+        <div class="wiz">
+          <div class="rail">
+            <div class="node done">✓</div><div class="seg done"></div>
+            <div class="node cur">2</div><div class="seg"></div>
+            <div class="node">3</div><div class="seg"></div>
+            <div class="node">4</div><div class="seg"></div>
+            <div class="node">5</div>
+          </div>
+          <div class="content">
+            <span class="stepno">Langkah 2 · stok</span>
+            <span class="stepttl">Hitung stok akhir</span>
+            <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:4px 14px;">
+              <div class="crow"><div><div class="nm">Dubai Chewy</div><div class="sys">Sistem: 18</div></div><div><input class="cinput" value="16"><span class="delta neg">−2</span></div></div>
+              <div class="crow"><div><div class="nm">Mixed Box</div><div class="sys">Sistem: 7</div></div><div><input class="cinput" value="7"></div></div>
+              <div class="crow"><div><div class="nm">Pistachio 3pcs</div><div class="sys">Sistem: 12</div></div><div><input class="cinput" value=""></div></div>
+            </div>
+            <div class="lab" style="color:var(--muted);font-size:12px;margin-top:10px;">Tersimpan ke inventaris saat lanjut.</div>
+          </div>
+        </div>
+        <div class="row2">
+          <button class="btn ghost" style="flex:0 0 96px">Kembali</button>
+          <button class="btn">Simpan · lanjut →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. SIGN-OFF SUMMARY (STAFF — hours only) -->
+    <div class="frame">
+      <div class="cap">4 · Sign-off staff (akhir hari)<small>Hours + stok saja — TANPA angka penjualan</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Ringkasan shift</span><span class="pill">✓ 5 dari 5</span></div>
+        <div style="overflow:auto;flex:1;">
+          <div style="text-align:center;padding:14px 0 18px;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Durasi shift kamu</div>
+            <div style="font-size:46px;font-weight:800;letter-spacing:-.02em;margin-top:4px;">11<span style="font-size:24px;color:var(--muted);">j</span> 32<span style="font-size:24px;color:var(--muted);">m</span></div>
+          </div>
+          <div class="sum">
+            <div class="sline"><span class="k">Staff</span><span class="v">Budi</span></div>
+            <div class="sline"><span class="k">Shift</span><span class="v">10:02 → 21:34</span></div>
+            <div class="sline"><span class="k">Stok dihitung</span><span class="v">Dubai −2 · lainnya cocok</span></div>
+          </div>
+          <div class="sent">📨 Ringkasan lengkap dikirim ke grup Founders</div>
+        </div>
+        <button class="btn warm">Sign off — selesai hari ini</button>
+      </div>
+    </div>
+
+    <!-- 7. FOUNDERS TELEGRAM SUMMARY (full financials) -->
+    <div class="frame">
+      <div class="cap">7 · Ringkasan ke Founders (Telegram)<small>Full picture — manajer/founder only</small></div>
+      <div class="tab" style="background:#0e1621;border-color:#22303f;">
+        <div class="bar"><span class="ttl">Frollie · Founders</span><span class="pill" style="border-color:#22303f;">Telegram</span></div>
+        <div style="background:#17212b;border-radius:14px;padding:16px;font-size:13.5px;line-height:1.7;">
+          <div style="font-weight:800;margin-bottom:6px;">🏁 Shift selesai — Budi</div>
+          <div style="color:#9db3a8;">10:02 → 21:34 · <b style="color:#F1E9D8;">11j 32m</b></div>
+          <hr style="border:none;border-top:1px solid #22303f;margin:10px 0;">
+          <div>💰 Penjualan: <b>Rp 2.480.000</b> · 38 transaksi</div>
+          <div style="margin-top:8px;background:rgba(244,185,66,.1);border-radius:8px;padding:8px 10px;">
+            <div style="color:var(--citrus);font-weight:700;">⚠️ Transfer manual BCA — cek rekening</div>
+            <div style="font-size:12px;margin-top:3px;">4 transfer · Rp 360.000</div>
+            <div style="font-size:11.5px;color:#9db3a8;margin-top:2px;">14:02 · 16:30 · 18:11 · 20:05</div>
+          </div>
+          <div style="margin-top:8px;">📦 Stok: Dubai −2 · lainnya cocok</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:14px;text-align:center;">Cron harian 22:00 tetap jadi rollup EOD</div>
+      </div>
+    </div>
+
+    <!-- 5. LOCK SCREEN -->
+    <div class="frame">
+      <div class="cap">5 · Layar kunci<small>Resume = staff yang sama saja + manager unlock</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Terkunci</span><span class="pill">🔒</span></div>
+        <div class="lockwrap">
+          <div class="avatar">B</div>
+          <div style="font-size:16px;font-weight:700;">Budi</div>
+          <div style="font-size:12.5px;color:var(--muted);">Masukkan PIN untuk lanjut</div>
+          <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="keypad">
+            <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+            <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+            <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+          </div>
+        </div>
+        <button class="btn ghost">Ganti staff? Manajer buka kunci →</button>
+      </div>
+    </div>
+
+    <!-- 6. HANDOVER: incoming -->
+    <div class="frame">
+      <div class="cap">6 · Serah terima — staff masuk<small>Pilih staff → langsung hitung (tanpa konfirmasi)</small></div>
+      <div class="tab">
+        <div class="bar"><span class="ttl">Staff berikutnya</span><span class="pill">🔄 serah terima</span></div>
+        <div class="picker">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:2px;">Budi menyerahkan. Siapa yang melanjutkan?</div>
+          <div class="pstaff"><div class="av">S</div><div>Sari</div><span class="ro">staff</span></div>
+          <div class="pstaff" style="border-color:var(--teal);"><div class="av">D</div><div>Dewi</div><span class="ro">staff</span></div>
+          <div class="pstaff"><div class="av">A</div><div>Agus</div><span class="ro">manajer</span></div>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);text-align:center;margin:12px 0;">Setelah login, staff masuk langsung menghitung stok sendiri.</div>
+        <button class="btn">Lanjut — login & hitung</button>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

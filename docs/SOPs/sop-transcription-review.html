@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frollie SOP — Transcription Review</title>
+<style>
+  :root {
+    --paper: #102821; --ink: #F1E9D8; --muted: #9db3a8;
+    --card: #16352c; --line: #244438; --teal: #2dd4bf; --citrus: #f4b942;
+    --edit: #1d4034;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: var(--paper); color: var(--ink);
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+  }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .sop {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 20px;
+  }
+  .sop h2 { margin: 0 0 12px; font-size: 18px; color: var(--citrus); }
+  .photo {
+    width: 100%; border-radius: 10px; border: 1px solid var(--line);
+    margin-bottom: 16px; cursor: zoom-in; background: #000;
+  }
+  .photo.zoom { cursor: zoom-out; position: fixed; inset: 16px; width: auto;
+    height: calc(100vh - 32px); z-index: 50; object-fit: contain; background: rgba(0,0,0,.95); }
+  .row {
+    display: grid; grid-template-columns: 28px 1fr 1fr; gap: 10px;
+    align-items: start; padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .row:first-of-type { border-top: none; }
+  .num {
+    font-weight: 700; color: var(--teal); text-align: center;
+    padding-top: 8px;
+  }
+  .field label {
+    display: block; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 3px;
+  }
+  textarea {
+    width: 100%; background: var(--edit); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font-family: inherit; font-size: 13.5px;
+    line-height: 1.4; resize: vertical; min-height: 52px;
+  }
+  textarea:focus { outline: 2px solid var(--teal); border-color: var(--teal); }
+  .bar {
+    position: sticky; bottom: 0; margin-top: 24px; padding: 16px 0 0;
+    display: flex; gap: 12px; align-items: center;
+  }
+  button {
+    background: var(--teal); color: #06201a; border: none;
+    border-radius: 10px; padding: 12px 20px; font-weight: 700;
+    font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  button:hover { filter: brightness(1.08); }
+  .hint { color: var(--muted); font-size: 13px; }
+  #out {
+    margin-top: 16px; width: 100%; min-height: 280px;
+    background: #0a1f19; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 12.5px; display: none;
+  }
+  .meta-row { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .meta-row .field { }
+</style>
+</head>
+<body>
+  <h1>Frollie SOP — Transcription Review</h1>
+  <p class="sub">Edit any cell to correct it. Click a photo to zoom. When done, hit <b>Generate corrected markdown</b> at the bottom and paste it back to me.</p>
+
+  <div class="grid">
+    <!-- OPENING -->
+    <div class="sop">
+      <h2>📋 Opening SOP — "SOP Buka Booth"</h2>
+      <img class="photo" src="./openbooth SOP.jpeg" alt="Opening SOP photo" onclick="this.classList.toggle('zoom')">
+      <div class="meta-row">
+        <div class="num">⏰</div>
+        <div class="field">
+          <label>Booth opens (time)</label>
+          <textarea data-sop="open" data-meta="time">10:00 (10 PAGI) every day</textarea>
+        </div>
+      </div>
+      <div id="open-rows"></div>
+    </div>
+
+    <!-- CLOSING -->
+    <div class="sop">
+      <h2>📋 Closing SOP — "SOP Closing Booth"</h2>
+      <img class="photo" src="./close booth SOP.jpeg" alt="Closing SOP photo" onclick="this.classList.toggle('zoom')">
+      <div class="meta-row">
+        <div class="num">⏰</div>
+        <div class="field">
+          <label>Booth closes (time)</label>
+          <textarea data-sop="close" data-meta="time">21:30 (9.30 MALAM) every day</textarea>
+        </div>
+      </div>
+      <div id="close-rows"></div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button onclick="generate()">Generate corrected markdown</button>
+    <span class="hint">…then copy the box below and paste it back in chat.</span>
+  </div>
+  <textarea id="out" readonly></textarea>
+
+<script>
+// Pre-filled with current transcription. Step 1 (booth time) pulled into the meta row above.
+const OPEN = [
+  { id: "Collect stock", bahasa: "Ambil stok dari Lalamove / Gosend (jika ada instruksi di grup WA)", english: "Collect stock from Lalamove / Gosend (if instructed in the WA group)" },
+  { id: "Login / attendance", bahasa: "Login website FROLLIE POS (untuk catatan kehadiran)", english: "Log in to the Frollie POS site (for the attendance record)" },
+  { id: "Count stock", bahasa: "Hitung stok Dubai Chewy Cookies, lapor di grup WA \"Frollie Blok M\" DAN website FROLLIE POS", english: "Count Dubai Chewy Cookies stock, report in WA group \"Frollie Blok M\" AND in Frollie POS" },
+  { id: "Power on", bahasa: "Hubungkan kabel bulat ke stop kontak, nyalakan WiFi, printer, HP Frollie, pastikan Gofood sudah BUKA", english: "Plug the round cable into the socket; turn on WiFi, printer, Frollie phone; confirm GoFood is OPEN" },
+  { id: "Stock display", bahasa: "Masukan 5 buah Dubai Chewy Cookies ke display", english: "Put 5 Dubai Chewy Cookies into the display" },
+  { id: "Tidy + photo", bahasa: "Pastikan booth rapih, banner Frollie terlihat & jelas dari eskalator, foto booth dari depan & dalam & kirim ke grup WA", english: "Tidy the booth; banner clear from the escalator; photo the booth (front & inside) → send to WA group" },
+];
+const CLOSE = [
+  { id: "Lock all items", bahasa: "Pastikan SEMUA BARANG dikunci ke dalam loker — jika ada kehilangan akan jadi tanggung jawab staff yang menutup booth", english: "Lock ALL items in the locker — any loss is the responsibility of the closing staff" },
+  { id: "Count final stock", bahasa: "Hitung stok akhir Dubai Chewy Cookies & lapor di grup WA \"FROLLIE BLOK M\" DAN website FROLLIE POS", english: "Count final Dubai Chewy Cookies stock; report in WA group AND in Frollie POS" },
+  { id: "Check supplies", bahasa: "Cek stok STIKER GRATIS, STIKER SEAL, PAPERBAG, PLASTIK BAWANG, KABEL TIS — jika stok menipis (sisa untuk <3 hari) laporkan di grup WA \"FROLLIE BLOK M\"", english: "Check supplies: free stickers, seal stickers, paperbags, onion-bags, cable ties — if low (<3 days left) report in WA group" },
+  { id: "Power off + store", bahasa: "Gulung kabel-kabel dengan rapih, WiFi dimatikan, printer dimatikan → seluruh perangkat listrik taruh di rak paling bawah loker. Tutup loker dgn kain.", english: "Coil cables neatly; turn off WiFi & printer; put all electrical devices on the locker's bottom shelf; cover the locker with cloth" },
+  { id: "Lock lockers + keys", bahasa: "Pastikan kedua loker dikunci, kunci bawa pulang masing-masing staff", english: "Lock both lockers; each staff takes their key home" },
+];
+
+function buildRows(containerId, data, sop) {
+  const c = document.getElementById(containerId);
+  data.forEach((step, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <div class="num">${i + 2}</div>
+      <div class="field">
+        <label>Bahasa</label>
+        <textarea data-sop="${sop}" data-i="${i}" data-lang="bahasa">${step.bahasa.replace(/</g,"&lt;")}</textarea>
+      </div>
+      <div class="field">
+        <label>English</label>
+        <textarea data-sop="${sop}" data-i="${i}" data-lang="english">${step.english.replace(/</g,"&lt;")}</textarea>
+      </div>`;
+    c.appendChild(row);
+  });
+}
+buildRows("open-rows", OPEN, "open");
+buildRows("close-rows", CLOSE, "close");
+
+function collect(sop, len) {
+  const out = [];
+  for (let i = 0; i < len; i++) {
+    const b = document.querySelector(`textarea[data-sop="${sop}"][data-i="${i}"][data-lang="bahasa"]`).value.trim();
+    const e = document.querySelector(`textarea[data-sop="${sop}"][data-i="${i}"][data-lang="english"]`).value.trim();
+    out.push({ b, e });
+  }
+  return out;
+}
+
+function generate() {
+  const openTime = document.querySelector('textarea[data-sop="open"][data-meta="time"]').value.trim();
+  const closeTime = document.querySelector('textarea[data-sop="close"][data-meta="time"]').value.trim();
+  const o = collect("open", OPEN.length);
+  const cl = collect("close", CLOSE.length);
+  let md = "## Opening SOP\n";
+  md += `1. Booth opens: ${openTime}\n`;
+  o.forEach((s, i) => { md += `${i + 2}. **BAHASA:** ${s.b}\n   **EN:** ${s.e}\n`; });
+  md += "\n## Closing SOP\n";
+  md += `1. Booth closes: ${closeTime}\n`;
+  cl.forEach((s, i) => { md += `${i + 2}. **BAHASA:** ${s.b}\n   **EN:** ${s.e}\n`; });
+  const out = document.getElementById("out");
+  out.style.display = "block";
+  out.value = md;
+  out.scrollIntoView({ behavior: "smooth" });
+  out.select();
+}
+</script>
+</body>
+</html>
