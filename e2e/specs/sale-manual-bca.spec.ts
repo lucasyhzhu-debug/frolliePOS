@@ -13,6 +13,10 @@ test("Manual BCA sale: cart → charge → Bank transfer tab → attest → conf
   // The "Bank transfer" tab renders only when manual-BCA is enabled (default true).
   await page.getByRole("tab", { name: /Bank transfer/i }).click();
 
+  // Wait for the account to render (getManualBcaAccount resolved) before attesting,
+  // so we don't race the query — the default account number is "6044830994".
+  await expect(page.getByText(/6044830994/)).toBeVisible({ timeout: 10_000 });
+
   // The static account is shown; attestation gates the confirm button.
   const confirm = page.getByRole("button", { name: /Confirm payment/i });
   await expect(confirm).toBeDisabled();
@@ -21,6 +25,7 @@ test("Manual BCA sale: cart → charge → Bank transfer tab → attest → conf
 
   // Staff self-confirm → confirmManualBcaPayment commits + navigates to the receipt.
   await confirm.click();
+  await page.waitForURL(/\/success$/, { timeout: 15_000 });
   await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/Payment confirmed/i)).toBeVisible();
   await expect(page.getByText(/Bank transfer \(manual\)/i)).toBeVisible();

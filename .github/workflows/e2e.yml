@@ -3,12 +3,27 @@ name: e2e
 on:
   push:
     branches: [main]
+    # Docs/planning-only changes can't affect e2e behaviour — skip the run to
+    # save CI minutes (and avoid needlessly queueing on the shared-dev lock below).
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
 
+# Serialize ALL e2e runs onto one global lock — every run reseeds the SHARED dev
+# Convex deployment (fixture `seed:reset`), so two overlapping runs (e.g. a PR run
+# and its post-merge main run firing seconds apart) wipe each other's data
+# mid-test and flake. A ref-keyed group did NOT prevent that (different refs =
+# different groups). Global group + no-cancel = runs queue and never overlap.
 concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: e2e-shared-dev
+  cancel-in-progress: false
 
 jobs:
   e2e:

@@ -331,74 +331,7 @@ export const getManualBcaAccount = query({
   },
 });
 
-type UpdateManualBcaConfigResult = { ok: true };
-
-export const updateManualBcaConfig = mutation({
-  args: {
-    idempotencyKey: v.string(),
-    sessionId: v.id("staff_sessions"),
-    enabled: v.boolean(),
-    bank_name: v.string(),
-    account_name: v.string(),
-    account_number: v.string(),
-  },
-  handler: withIdempotency<
-    {
-      idempotencyKey: string;
-      sessionId: Id<"staff_sessions">;
-      enabled: boolean;
-      bank_name: string;
-      account_name: string;
-      account_number: string;
-    },
-    UpdateManualBcaConfigResult
-  >(
-    "settings.updateManualBcaConfig",
-    async (ctx, args) => {
-      const { staffId: mgrId } = await requireManagerSession(ctx, args.sessionId);
-      // Bound each user-supplied string at 120 chars — keeps account details
-      // visually sane; UI mirrors this bound client-side (same rule as receipt).
-      // Also reject blank/whitespace-only values: an empty account would render
-      // as "—" on the charge screen (a broken transfer target), so a fat-finger
-      // empty must fail loudly rather than silently disable the tender.
-      for (const [k, val] of Object.entries({
-        bank_name: args.bank_name,
-        account_name: args.account_name,
-        account_number: args.account_number,
-      })) {
-        if (val.length > 120) throw new Error(`FIELD_TOO_LONG:${k}`);
-        if (val.trim().length === 0) throw new Error(`FIELD_REQUIRED:${k}`);
-      }
-      const patch = {
-        manual_bca_enabled: args.enabled,
-        manual_bca_bank_name: args.bank_name,
-        manual_bca_account_name: args.account_name,
-        manual_bca_account_number: args.account_number,
-        updated_at: Date.now(),
-        updated_by: mgrId,
-      };
-      const row = await ctx.db.query("pos_settings").first();
-      if (row) {
-        await ctx.db.patch(row._id, patch);
-      } else {
-        await ctx.db.insert("pos_settings", {
-          founders_summary_enabled: true,
-          ...patch,
-        });
-      }
-      await logAudit(ctx, {
-        actor_id: mgrId,
-        action: "settings.manual_bca_updated",
-        entity_type: "pos_settings",
-        source: "booth_inline",
-        metadata: { enabled: args.enabled },
-      });
-      return { ok: true as const };
-    },
-    {
-      authCheck: async (ctx, args) => {
-        await requireManagerSession(ctx, args.sessionId);
-      },
-    },
-  ),
-});
+// NOTE: there is intentionally NO public mutation to WRITE the manual-BCA account
+// — it is a money destination and must not be editable from any client surface.
+// The writer is `settings.internal._updateManualBcaConfig_internal` (internalMutation,
+// dashboard/CLI/ops only). Managers may VIEW via getManualBcaConfig above.

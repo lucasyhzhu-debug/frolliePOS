@@ -238,14 +238,13 @@ describe("manual-BCA", () => {
     expect(cfgStaff.account_number).toBe("6044830994");
   });
 
-  it("updateManualBcaConfig persists and emits audit; staff is rejected; FIELD_TOO_LONG enforced", async () => {
+  it("_updateManualBcaConfig_internal persists + audits as system; validates fields", async () => {
     const t = convexTest(schema);
-    const { mgr, staff } = await seedSessions(t);
+    const { mgr } = await seedSessions(t);
 
-    // manager can update
-    await t.mutation(api.settings.public.updateManualBcaConfig, {
-      idempotencyKey: "bca-1",
-      sessionId: mgr,
+    // The account is written ONLY via the internal mutation (ops/dashboard) — no
+    // session, no public writer (a money destination must not be client-editable).
+    await t.mutation(internal.settings.internal._updateManualBcaConfig_internal, {
       enabled: false,
       bank_name: "BNI",
       account_name: "PT Test",
@@ -256,48 +255,27 @@ describe("manual-BCA", () => {
     expect(cfg.bank_name).toBe("BNI");
     expect(cfg.account_number).toBe("1234567890");
 
-    // audit row emitted
+    // audit row emitted with the system actor + backend marker
     const audits = await t.run((ctx) =>
       ctx.db.query("audit_log")
         .filter((q) => q.eq(q.field("action"), "settings.manual_bca_updated"))
         .collect(),
     );
     expect(audits.length).toBe(1);
-    expect(JSON.parse(audits[0].metadata as string)).toEqual({ enabled: false });
-
-    // staff is rejected
-    await expect(
-      t.mutation(api.settings.public.updateManualBcaConfig, {
-        idempotencyKey: "bca-2",
-        sessionId: staff,
-        enabled: true,
-        bank_name: "X",
-        account_name: "Y",
-        account_number: "Z",
-      }),
-    ).rejects.toThrow("MANAGER_ONLY");
+    expect(audits[0].actor_id).toBe("system");
+    expect(JSON.parse(audits[0].metadata as string)).toEqual({ enabled: false, via: "backend" });
 
     // FIELD_TOO_LONG enforced for account_name > 120 chars
     await expect(
-      t.mutation(api.settings.public.updateManualBcaConfig, {
-        idempotencyKey: "bca-3",
-        sessionId: mgr,
-        enabled: true,
-        bank_name: "B",
-        account_name: "x".repeat(121),
-        account_number: "0",
+      t.mutation(internal.settings.internal._updateManualBcaConfig_internal, {
+        enabled: true, bank_name: "B", account_name: "x".repeat(121), account_number: "0",
       }),
     ).rejects.toThrow(/FIELD_TOO_LONG/);
 
     // FIELD_REQUIRED enforced for a blank/whitespace-only account_number
     await expect(
-      t.mutation(api.settings.public.updateManualBcaConfig, {
-        idempotencyKey: "bca-4",
-        sessionId: mgr,
-        enabled: true,
-        bank_name: "BCA",
-        account_name: "PT Malo Group Bahagia",
-        account_number: "   ",
+      t.mutation(internal.settings.internal._updateManualBcaConfig_internal, {
+        enabled: true, bank_name: "BCA", account_name: "PT Malo Group Bahagia", account_number: "   ",
       }),
     ).rejects.toThrow(/FIELD_REQUIRED:account_number/);
   });
