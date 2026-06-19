@@ -288,5 +288,17 @@ describe("manual-BCA", () => {
         account_number: "0",
       }),
     ).rejects.toThrow(/FIELD_TOO_LONG/);
+
+    // FIELD_REQUIRED enforced for a blank/whitespace-only account_number
+    await expect(
+      t.mutation(api.settings.public.updateManualBcaConfig, {
+        idempotencyKey: "bca-4",
+        sessionId: mgr,
+        enabled: true,
+        bank_name: "BCA",
+        account_name: "PT Malo Group Bahagia",
+        account_number: "   ",
+      }),
+    ).rejects.toThrow(/FIELD_REQUIRED:account_number/);
   });
 });

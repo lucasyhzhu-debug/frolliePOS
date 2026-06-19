@@ -355,12 +355,16 @@ export const updateManualBcaConfig = mutation({
       const { staffId: mgrId } = await requireManagerSession(ctx, args.sessionId);
       // Bound each user-supplied string at 120 chars — keeps account details
       // visually sane; UI mirrors this bound client-side (same rule as receipt).
+      // Also reject blank/whitespace-only values: an empty account would render
+      // as "—" on the charge screen (a broken transfer target), so a fat-finger
+      // empty must fail loudly rather than silently disable the tender.
       for (const [k, val] of Object.entries({
         bank_name: args.bank_name,
         account_name: args.account_name,
         account_number: args.account_number,
       })) {
         if (val.length > 120) throw new Error(`FIELD_TOO_LONG:${k}`);
+        if (val.trim().length === 0) throw new Error(`FIELD_REQUIRED:${k}`);
       }
       const patch = {
         manual_bca_enabled: args.enabled,

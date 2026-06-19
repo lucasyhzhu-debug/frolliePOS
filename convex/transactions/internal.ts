@@ -818,10 +818,14 @@ export const _getTxnForTicker_internal = internalQuery({
  * to match bank statement order.
  *
  * Resilient: staff name lookup falls back to "Staff" when the row is missing
- * (hard-delete or corruption). The EOD cron MUST NOT crash over a missing
- * staff name — the Telegram alert is more valuable than strict accuracy here.
- * (Compare _fetchDayWindow_internal which throws; that query is staff-session
- * bounded and can afford strict invariants. Cron context cannot.)
+ * (hard-delete or corruption), and receipt_number to "—". The EOD cron MUST NOT
+ * crash over a missing field — the Telegram alert is more valuable than strict
+ * accuracy here. This is why receipt_number is read defensively (`?? "—"`)
+ * even though it is invariant-set on a paid row: the `paid_at!` bang below
+ * asserts the invariant (a non-null index key), but the cron consumer cannot
+ * afford to throw if a future code path ever leaves it null. (Compare
+ * _fetchDayWindow_internal which throws; that query is staff-session bounded and
+ * can afford strict invariants. Cron context cannot.)
  */
 export const _manualBcaReconciliation_internal = internalQuery({
   args: {

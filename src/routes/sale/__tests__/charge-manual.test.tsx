@@ -245,9 +245,11 @@ describe("SaleCharge — manual bank-transfer tender", () => {
     );
   });
 
-  it("surfaces an inline error when confirmManualBcaPayment throws", async () => {
+  it("maps a raw server error to friendly inline copy when confirmManualBcaPayment throws", async () => {
     const user = userEvent.setup();
-    const failing = vi.fn().mockRejectedValue(new Error("TXN_NOT_AWAITING"));
+    // Backend throws RECEIPT_UNCONFIRMED when the txn is no longer awaiting
+    // (cancelled/expired race) — the FE must surface friendly copy, not the code.
+    const failing = vi.fn().mockRejectedValue(new Error("RECEIPT_UNCONFIRMED"));
     setupManualTab(failing);
     renderAt("txn-test-123");
 
@@ -256,8 +258,12 @@ describe("SaleCharge — manual bank-transfer tender", () => {
     fireEvent.click(await screen.findByRole("button", { name: /confirm payment/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/TXN_NOT_AWAITING/)).toBeTruthy(),
+      expect(
+        screen.getByText("This sale is no longer waiting for payment"),
+      ).toBeTruthy(),
     );
+    // Raw code never leaks to the cashier.
+    expect(screen.queryByText(/RECEIPT_UNCONFIRMED/)).toBeNull();
     // Did NOT navigate to success.
     expect(screen.queryByTestId("charge-success")).toBeNull();
   });

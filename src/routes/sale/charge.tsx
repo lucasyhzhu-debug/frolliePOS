@@ -393,9 +393,17 @@ export default function SaleCharge() {
       });
       navigate(`/sale/charge/${txnId}/success`, { replace: true });
     } catch (err) {
-      setManualError(
-        err instanceof Error ? err.message : "Could not confirm payment",
-      );
+      // Map raw server codes to friendly copy (mirrors handleOverrideSubmit).
+      // RECEIPT_UNCONFIRMED = txn no longer awaiting (cancelled/expired race) or
+      // no receipt minted; NO_SESSION = session lapsed. Fallback keeps the raw
+      // message so an unexpected code is still surfaced (not swallowed).
+      const raw = err instanceof Error ? err.message : "Could not confirm payment";
+      const msg = raw.includes("RECEIPT_UNCONFIRMED")
+        ? "This sale is no longer waiting for payment"
+        : raw.includes("NO_SESSION")
+          ? "Session expired — please log in again"
+          : raw;
+      setManualError(msg);
     } finally {
       setManualPending(false);
     }
@@ -603,6 +611,19 @@ export default function SaleCharge() {
               onClick={handleManualConfirm}
             >
               {manualPending ? "Confirming…" : "Confirm payment"}
+            </Button>
+
+            {/* Cancel affordance — without this the manual tab has no way to
+                abandon a sale except switching tabs (and both tabs disable
+                offline). Offline-disabled like the QRIS footer (cancel
+                invalidates the QR/VA, which needs connectivity, ADR-025). */}
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={handleCancel}
+              disabled={cancelling || offlineLocked}
+            >
+              {cancelling ? "Cancelling…" : "Cancel sale"}
             </Button>
           </div>
         ) : phase.kind === "loading" ? (

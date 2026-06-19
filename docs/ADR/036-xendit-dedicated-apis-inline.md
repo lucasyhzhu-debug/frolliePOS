@@ -134,12 +134,12 @@ The original manual override (Decision B, "fallback" path) required a **manager 
 
 **Rationale for the deviation:** the manual BCA flow targets a booth where the staff member physically holds the phone and can see the banking app. The transfer amount and sender name are visible on the merchant's BCA account before the confirm button is pressed. Requiring a manager PIN for every manual BCA sale would serialize every sale on manager availability — a prohibitive UX cost for a two-to-three person booth.
 
-**Compensating controls (replacing the manager-PIN gate):**
+**Compensating controls (replacing the manager-PIN gate).** Three ship in v1.2 #10; one is scheduled for #6:
 
-1. **EOD reconciliation itemization** — every `confirmed_via="manual_bca"` sale is listed individually in the founders EOD summary with `{ paidAt, total, staffName, receiptNumber }`, so managers can cross-check against the BCA statement the next morning.
-2. **Clock-out reconciliation** — the same itemization appears on the shift hand-off context, so discrepancies surface at shift end before the next person starts.
-3. **Telegram ticker flag** — the manager ticker marks manual-BCA sales with a `MANUAL` flag, so managers monitoring live can spot unexpected manual confirms immediately.
-4. **Audit log** — `payment.confirmed` is emitted with `confirmed_via:"manual_bca"` and `staff_id`, providing a full audit trail.
+1. **EOD reconciliation itemization** *(shipped, v1.2 #10)* — every `confirmed_via="manual_bca"` sale is listed individually in the founders EOD summary with `{ paidAt, total, staffName, receiptNumber }` (`_manualBcaReconciliation_internal` → `foundersSummary.ts`), so managers can cross-check against the BCA statement the next morning.
+2. **Telegram ticker flag** *(shipped, v1.2 #10)* — the manager ticker marks manual-BCA sales with a `MANUAL` flag, so managers monitoring live can spot unexpected manual confirms immediately.
+3. **Audit log** *(shipped, v1.2 #10)* — `payment.confirmed` is emitted with `confirmed_via:"manual_bca"` and the attesting `staff_id`, providing a full audit trail.
+4. **Clock-out reconciliation** *(pending — lands with #6)* — the same `_manualBcaReconciliation_internal` itemization will appear on the shift hand-off / clock-out context, so discrepancies surface at shift end before the next person starts. Not wired in v1.2 #10 (the EOD cron is the only consumer of the query today); tracked as #6.
 
 Sales are marked `confirmed_via="manual_bca"` (distinct from `"manual"` which is the manager-PIN override path) so reporting can separate the two.
 

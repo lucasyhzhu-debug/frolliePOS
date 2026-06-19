@@ -13,6 +13,12 @@ export const RECEIPT_DEFAULTS = {
 // v1.2 #10 manual-BCA account defaults — the live company account. Editable via
 // settings.public.updateManualBcaConfig; these are the fallback when the row /
 // field is absent.
+// POC tradeoff: a real money destination (account number) is hardcoded as the
+// read-time default so the booth works out-of-the-box with zero config, exactly
+// mirroring RECEIPT_DEFAULTS. Acceptable for a single-booth internal tool where
+// the account is the company's own and a manager can override via /mgr. If this
+// pattern ever serves multiple tenants, the default must move to per-tenant
+// config (a hardcoded payout account is a cross-tenant hazard).
 export const MANUAL_BCA_DEFAULTS = {
   enabled: true,
   bank_name: "BCA",
