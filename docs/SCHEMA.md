@@ -219,7 +219,7 @@ Core sale record. The v0.3 shape below is what ships in `convex/transactions/sch
 | `paid_at` | `number?` | Set at `_confirmPaid` |
 | `cancelled_at` | `number?` | |
 | `cancelled_reason` | `string?` | |
-| `confirmed_via` | `"webhook" \| "polling" \| "manual" \| null` | Confirmation provenance ([strategic foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)) |
+| `confirmed_via` | `"webhook" \| "polling" \| "manual" \| "manual_bca" \| null` | Confirmation provenance ([strategic foundations §8](./ADR/000-strategic-foundations.md#8-three-path-payment-confirmation-operational-pattern)). `"manual_bca"` added v1.2 #10 — staff self-confirm of an out-of-band bank transfer (distinct from `"manual"` which is manager-PIN override). |
 | `confirmed_mgr_approver_id` | `Id<"staff">?` | Manager who approved a `manual` confirm |
 | `confirmed_manual_reason` | `string?` | Required for `manual` confirm |
 | `receipt_token` | `string?` | *(v0.5.1 PR A)* 32-byte URL-safe base64url; unique-by-mint-entropy. Minted in `_confirmPaid` via `mintUrlSafeToken()` ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)). Immutable once set; powers `/r/<token>` |
@@ -561,6 +561,10 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `receipt_footer_text` | `string?` | *(v0.5.3b)* Free-text footer line on the receipt (e.g. "Terima kasih") |
 | `receipt_logo_storage_id` | `Id<"_storage">?` | *(v0.5.3b)* Optional uploaded logo (Convex storage). Rendered as `<img>` above the header text when present. Set via `generateLogoUploadUrl` → `updateReceiptConfig` |
 | `txn_ticker_enabled` | `boolean?` | *(v1.0.2)* Writable via the manager-session toggle on `/mgr/telegram-chats` (`settings.setTxnTickerEnabled`). Read-time default `true` when absent. Dashboard edit remains a break-glass kill-switch. |
+| `manual_bca_enabled` | `boolean?` | *(v1.2 #10)* Shows/hides the "Bank transfer (manual)" tender on the charge screen. Read-time default `true` when absent (`MANUAL_BCA_DEFAULTS`, `settings/internal.ts`). |
+| `manual_bca_bank_name` | `string?` | *(v1.2 #10)* Display label for the bank. Read-time default `"BCA"` when absent. |
+| `manual_bca_account_name` | `string?` | *(v1.2 #10)* Account holder name shown to staff for verification. Read-time default `"PT Malo Group Bahagia"` when absent. |
+| `manual_bca_account_number` | `string?` | *(v1.2 #10)* Account number shown to staff — stored as a **string** (leading-zero safe, never coerced). Read-time default `"6044830994"` when absent. |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
@@ -765,6 +769,7 @@ product.archived            # archiveProduct — manager-session; soft-delete vi
 settings.founders_summary_toggled  # (v0.4) setFoundersSummaryEnabled — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.txn_ticker_toggled        # setTxnTickerEnabled (v1.0.2) — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
+settings.manual_bca_updated # (v1.2 #10) updateManualBcaConfig — manager-session; metadata={ enabled: boolean }; source=booth_inline
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
 voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
 voucher.edited              # updateVoucher — metadata captures changed fields

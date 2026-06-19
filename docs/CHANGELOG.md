@@ -17,6 +17,11 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
   consumer contract §7. Token stays opaque — prefix is ops hygiene only.
 - Shared `convex/api/v1/_request.ts::parseRange`; `docs/PUBLIC_API.md` §2/§4a/§5/§8 updated.
 
+## 2026-06-19 — v1.2 #10: Manual bank transfer + retire BCA VA
+- Hidden the broken BCA VA tab (QRIS is the sole Xendit method; the error-toast storm is gone).
+- Added a "Bank transfer (manual)" tender: staff self-confirm against the static company BCA account; sales are marked `manual_bca`, flagged in the manager ticker, and itemized in the EOD founders summary for reconciliation.
+- Manager-editable account config + enable/disable toggle (`/mgr` settings).
+
 ## v1.2 #12 slice 1 — Inline messaging over toasts
 - New `FieldMessage` design-system primitive (`src/components/ui/field-message.tsx`) for sync form-validation, AA-legible on the phthalo-dark canvas (error/success tokens dark-lifted).
 - Converted `mgr/products.tsx` (26) and `mgr/vouchers.tsx` (12) sync-validation toasts to per-field inline messages with `aria-invalid`/`aria-describedby` + focus-first-error.
