@@ -2545,7 +2545,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **Phase 6 — #11+#7 login PIN feedback (📋 PLANNED 2026-06-19):** make booth PIN entry responsive + legible — pressed keys, a "Verifying…" spinner with the keypad locked, inline red wrong-PIN / persistent locked-out banner (replacing toasts), a 200ms green success tick — and fix the spurious "PIN reset declined" toast that re-fired on remount (evidence-first per the #44 rule). FE-only, one squash PR; deps #2 + #12 (both shipped). Spec→2× staffreview→plan→staffreview pipeline; spec folded 5 improvements, plan folded 3 (success-path test, success-tick input lock, login→#12 lint fence).
 
 ### Frontend (`src/`) — Phase 6
-- 📋 **[v12-fe-pin-keypad]** `components/pos/NumericKeypad.tsx` — `disabled` prop (native attr + keydown guard) + `active:bg-accent` pressed cue (scale reused from Button base) (#7 T1)
+- ✅ **[v12-fe-pin-keypad]** `components/pos/NumericKeypad.tsx` — `disabled` prop (native attr + keydown guard) + `active:bg-accent` pressed cue (scale reused from Button base) (#7 T1) (485f451)
   - **agent:** `claude`
   - **deps:** none
   - **docs:** [Spec](./superpowers/specs/2026-06-19-v1.2-login-pin-feedback-design.md), [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md), [spec staffreview](./reviews/staffreview-v1.2-login-pin-feedback-spec-2026-06-19.md), [plan staffreview](./reviews/staffreview-v1.2-login-pin-feedback-plan-2026-06-19.md)
@@ -2554,7 +2554,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Add `disabled` prop + keydown early-return + `active:bg-accent`
     - [ ] vitest + typecheck green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-pin-denials]** `lib/storage-keys.ts` + new `lib/pinResetDenials.ts` — remount-safe localStorage denial-dedup helper (#11 T2)
+- ✅ **[v12-fe-pin-denials]** `lib/storage-keys.ts` + new `lib/pinResetDenials.ts` — remount-safe localStorage denial-dedup helper (#11 T2) (776cc3c)
   - **agent:** `claude`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
@@ -2563,7 +2563,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Add `SHOWN_PIN_RESET_DENIALS_KEY` constant + helper module
     - [ ] vitest + typecheck green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-pin-entry]** `components/auth/PinEntry.tsx` — presentational rewrite: pending spinner, phase-tinted dots, inline `FieldMessage`, `persist` clear-rule, success input-lock (#7/#11 T3)
+- ✅ **[v12-fe-pin-entry]** `components/auth/PinEntry.tsx` — presentational rewrite: pending spinner, phase-tinted dots, inline `FieldMessage`, `persist` clear-rule, success input-lock (#7/#11 T3) (3db81ce)
   - **agent:** `ui-component-builder`
   - **deps:** v12-fe-pin-keypad
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
@@ -2572,7 +2572,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Rewrite with pending/phase/message/persist props
     - [ ] vitest (2 existing + 5 new) + typecheck green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-pin-login]** `routes/login.tsx` (+ `eslint.config.js`) — phase state machine, error→channel mapping (drop INVALID_PIN toast, LOCKED_OUT inline banner, 200ms green→navigate), register login in #12 lint fence (#7/#11 T4)
+- ✅ **[v12-fe-pin-login]** `routes/login.tsx` (+ `eslint.config.js`) — phase state machine, error→channel mapping (drop INVALID_PIN toast, LOCKED_OUT inline banner, 200ms green→navigate), register login in #12 lint fence (#7/#11 T4) (3d6a56e)
   - **agent:** `frontend-integrator`
   - **deps:** v12-fe-pin-entry
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
@@ -2581,7 +2581,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Phase machine + onPinSubmit mapping + PinEntry wiring + success-timer cleanup
     - [ ] Add login.tsx to ESLint #12 fence; lint + vitest + typecheck green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-pin-denialfix]** `routes/login.tsx` — EVIDENCE-FIRST fix: regression test RED on current code, then localStorage dedup so the denial toast fires once across remount (#11 T5)
+- ✅ **[v12-fe-pin-denialfix]** `routes/login.tsx` — EVIDENCE-FIRST fix: regression test RED on current code, then localStorage dedup so the denial toast fires once across remount (#11 T5) (86f814a)
   - **agent:** `frontend-integrator`
   - **deps:** v12-fe-pin-denials, v12-fe-pin-login
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md), [#44 postmortem](./postmortems/2026-06-issue-44-misdiagnosis.md)
@@ -2590,7 +2590,7 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Swap useRef guard → hasShownDenial/markDenialShown; test GREEN
     - [ ] Full login suite + typecheck green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-pin-stafflist]** `components/auth/StaffListItem.tsx` + `docs/CHANGELOG.md` — touch pressed-state (`active:bg-accent` + motion-safe scale) + changelog (#7 T6)
+- ✅ **[v12-fe-pin-stafflist]** `components/auth/StaffListItem.tsx` + `docs/CHANGELOG.md` — touch pressed-state (`active:bg-accent` + motion-safe scale) + changelog (#7 T6) (8534be9)
   - **agent:** `claude`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-19-v1.2-login-pin-feedback.md)
