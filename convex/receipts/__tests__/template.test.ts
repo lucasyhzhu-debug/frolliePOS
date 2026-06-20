@@ -28,11 +28,25 @@ function baseVm(): ReceiptViewModel {
 }
 
 describe("renderReceipt — paid-only (PR A)", () => {
-  it("renders LUNAS status badge for no-refund sale", () => {
+  it("suppresses the LUNAS badge on a paid (no-refund) sale", () => {
     const html = renderReceipt(baseVm());
-    expect(html).toContain("LUNAS");
+    expect(html).not.toContain("LUNAS");
     expect(html).not.toContain("SEBAGIAN DIKEMBALIKAN");
     expect(html).not.toContain("DIKEMBALIKAN");
+  });
+
+  it("still renders the SEBAGIAN DIKEMBALIKAN badge for a partial refund", () => {
+    const vm = baseVm();
+    vm.lines[0].refunded_qty = 1;
+    vm.refunds = [{ refund_amount: 50000, refunded_at: Date.parse("2026-05-31T08:00:00Z") }];
+    expect(renderReceipt(vm)).toContain("SEBAGIAN DIKEMBALIKAN");
+  });
+
+  it("still renders the DIKEMBALIKAN badge for a full refund", () => {
+    const vm = baseVm();
+    vm.lines[0].refunded_qty = 3;
+    vm.refunds = [{ refund_amount: 150000, refunded_at: Date.parse("2026-05-31T08:00:00Z") }];
+    expect(renderReceipt(vm)).toContain("DIKEMBALIKAN");
   });
 
   it("renders receipt number + WIB datetime", () => {
@@ -89,6 +103,25 @@ describe("renderReceipt — paid-only (PR A)", () => {
     expect(html).toContain("Dubai 1pc");
     expect(html).toContain("Mixed Box 4pcs");
     expect(html).toContain("Rp 230.000");
+  });
+
+  it("renders payment method + RRN as one middot line, dropping 'Dibayar via'/'RRN:' labels", () => {
+    const html = renderReceipt({ ...baseVm(), payment_method: "QRIS", rrn: "RRN123" });
+    expect(html).toContain("QRIS · RRN123");
+    expect(html).not.toContain("Dibayar via");
+    expect(html).not.toContain("RRN:");
+  });
+
+  it("renders method only when no RRN (no trailing middot)", () => {
+    const html = renderReceipt({ ...baseVm(), payment_method: "Transfer Bank (manual)", rrn: undefined });
+    expect(html).toContain("Transfer Bank (manual)");
+    expect(html).not.toContain("Transfer Bank (manual) ·");
+  });
+
+  it("renders the em-dash method placeholder when no invoice resolved", () => {
+    const html = renderReceipt({ ...baseVm(), payment_method: "—", rrn: undefined });
+    expect(html).toContain("—");
+    expect(html).not.toContain("Dibayar via");
   });
 
   it("includes Instagram CTA in footer", () => {

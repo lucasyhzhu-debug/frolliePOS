@@ -90,6 +90,12 @@ export function renderReceipt(vm: ReceiptViewModel): string {
   const status = computeReceiptStatus(vm);
   const statusStyle = STATUS_LABELS[status];
 
+  // v1.2 #13: paid receipts carry no status badge (a handed receipt is paid by
+  // definition). Refund states keep their badge — it carries real signal.
+  const statusBadge = status === "paid"
+    ? ""
+    : `<div style="text-align:center;background:${statusStyle.bg};color:${statusStyle.fg};padding:6px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:14px">${statusStyle.label}</div>`;
+
   const linesHtml = vm.lines
     .map((l) => {
       const annotation = l.refunded_qty > 0
@@ -154,7 +160,7 @@ body { margin:0; padding:24px; background:#f3f4f6; font-family:system-ui,-apple-
       : "🍪"} ${escapeHtml(vm.settings.business_name)}</div>
     <div style="font-size:11px;color:#6b7280;line-height:1.4">${escapeHtml(vm.settings.address)}<br>${escapeHtml(vm.settings.contact)}</div>
   </div>
-  <div style="text-align:center;background:${statusStyle.bg};color:${statusStyle.fg};padding:6px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:14px">${statusStyle.label}</div>
+  ${statusBadge}
   <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-bottom:14px">
     <span>${escapeHtml(vm.receipt_number)}</span>
     <span>${formatWibDateTime(vm.paid_at)}</span>
@@ -167,8 +173,7 @@ body { margin:0; padding:24px; background:#f3f4f6; font-family:system-ui,-apple-
   </div>
   ${refundsBlock}
   <div style="margin-top:12px;font-size:12px;color:#6b7280;text-align:center;padding-top:10px;border-top:1px dashed #d1d5db">
-    Dibayar via ${escapeHtml(vm.payment_method)}
-    ${vm.rrn ? `<br><span style="font-size:10px">RRN: ${escapeHtml(vm.rrn)}</span>` : ""}
+    ${escapeHtml(vm.payment_method)}${vm.rrn ? ` · ${escapeHtml(vm.rrn)}` : ""}
   </div>
   <div style="margin-top:14px;font-size:11px;color:#6b7280;text-align:center;line-height:1.5">
     ${escapeHtml(vm.settings.footer_text)}<br>
