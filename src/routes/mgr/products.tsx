@@ -43,13 +43,15 @@ import {
 } from "@/components/ui/select";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinSheet } from "@/components/pos/PinSheet";
+import { ProductThumb } from "@/components/pos/ProductThumb";
+import { downscaleToWebp } from "@/lib/imageDownscale";
 import { FieldMessage } from "@/components/ui/field-message";
 import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
 
-type Product = Doc<"pos_products">;
+type Product = Doc<"pos_products"> & { photo_url: string | null };
 type Sku = Doc<"pos_inventory_skus">;
 type Component = Doc<"pos_product_components">;
 
@@ -381,6 +383,44 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const [metaHue, setMetaHue] = useState("");
   const [metaBusy, setMetaBusy] = useState(false);
 
+  // ─── Photo upload state (meta-edit dialog) ──────────────────────────────────
+  const [metaPhotoId, setMetaPhotoId] = useState<Id<"_storage"> | undefined>(undefined);
+  const [metaPhotoPreview, setMetaPhotoPreview] = useState<string | null>(null);
+  const [metaRemovePhoto, setMetaRemovePhoto] = useState(false);
+  const [metaPhotoBusy, setMetaPhotoBusy] = useState(false);
+  const photoUploadKey = useIdempotency("catalog.photoUploadUrl");
+  const generatePhotoUrl = useMutation(api.catalog.public.generateProductPhotoUploadUrl);
+
+  async function handlePhotoPick(file: File) {
+    if (!photoUploadKey) return;
+    setMetaPhotoBusy(true);
+    try {
+      const blob = await downscaleToWebp(file, 400);
+      const { uploadUrl } = await generatePhotoUrl({ idempotencyKey: photoUploadKey, sessionId });
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": blob.type },
+        body: blob,
+      });
+      if (!res.ok) throw new Error("UPLOAD_FAILED");
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      await clearIntent("catalog.photoUploadUrl"); // rotate so the next upload mints a fresh URL
+      // revoke a prior object-url preview before replacing
+      if (metaPhotoPreview?.startsWith("blob:")) URL.revokeObjectURL(metaPhotoPreview);
+      setMetaPhotoId(storageId);
+      setMetaRemovePhoto(false);
+      setMetaPhotoPreview(URL.createObjectURL(blob));
+    } catch (err) {
+      // Rotate the intent on failure too: the minted upload URL may already be
+      // consumed/expired, so a retry on the same key must mint a fresh one
+      // (mirrors the receipt-logo handler — clears on both success and error).
+      await clearIntent("catalog.photoUploadUrl");
+      toast.error(humanizeCatalogError(err));
+    } finally {
+      setMetaPhotoBusy(false);
+    }
+  }
+
   // Focus map for Edit metadata dialog → META_FOCUS at module scope.
 
   function openMetaEdit(p: Product) {
@@ -391,10 +431,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setMetaSortOrder(String(p.sort_order));
     setMetaInitials(p.initials ?? "");
     setMetaHue(p.hue !== undefined ? String(p.hue) : "");
+    setMetaPhotoId(undefined);
+    setMetaRemovePhoto(false);
+    setMetaPhotoPreview(p.photo_url);
     clearErrors("meta.");
   }
 
   function closeMetaEdit() {
+    if (metaPhotoPreview?.startsWith("blob:")) URL.revokeObjectURL(metaPhotoPreview);
+    setMetaPhotoPreview(null);
     setMetaTarget(null);
   }
 
@@ -430,6 +475,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         sku_family,
         initials: initialsRaw.length > 0 ? initialsRaw : undefined,
         hue,
+        photo_storage_id: metaRemovePhoto ? null : (metaPhotoId ?? undefined),
       });
       toast.success("Saved");
       await clearIntent("catalog.updateMeta");
@@ -744,19 +790,28 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   className={`space-y-3 p-4 ${p.active ? "" : "opacity-60"}`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium leading-tight">
-                        {p.name}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {t("mgrProducts.skuInfoLine", { packLabel: p.pack_label, skuFamily: p.sku_family, sortOrder: p.sort_order })}
-                      </p>
-                      <p className="mt-1 text-sm font-mono">
-                        {rp(p.price_idr)}
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {t("mgrProducts.taxDisplay", { rate: p.tax_rate })}
-                        </span>
-                      </p>
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <div className="w-10 shrink-0">
+                        <ProductThumb
+                          photoUrl={p.photo_url}
+                          initials={p.initials}
+                          hue={p.hue}
+                          name={p.name}
+                          code={p.code}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium leading-tight">{p.name}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("mgrProducts.skuInfoLine", { packLabel: p.pack_label, skuFamily: p.sku_family, sortOrder: p.sort_order })}
+                        </p>
+                        <p className="mt-1 text-sm font-mono">
+                          {rp(p.price_idr)}
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {t("mgrProducts.taxDisplay", { rate: p.tax_rate })}
+                          </span>
+                        </p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {!p.active && (
@@ -1217,7 +1272,9 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       <Dialog
         open={metaTarget !== null}
         onOpenChange={(o) => {
-          if (!o) closeMetaEdit();
+          // Don't let ESC / backdrop close the dialog mid-upload — closing would
+          // strand the in-flight handlePhotoPick (leaked object URL + orphan blob).
+          if (!o && !metaPhotoBusy) closeMetaEdit();
         }}
       >
         <DialogContent className="max-w-md">
@@ -1246,6 +1303,62 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               {errors["meta.name"] && (
                 <FieldMessage id="meta.name-error">{errors["meta.name"]}</FieldMessage>
               )}
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>{t("mgrProducts.photoLabel")}</Label>
+              <div className="flex items-center gap-3">
+                <div className="w-16 shrink-0">
+                  <ProductThumb
+                    photoUrl={metaRemovePhoto ? null : metaPhotoPreview}
+                    initials={metaInitials.trim() || undefined}
+                    hue={metaHue.trim() ? Number(metaHue) : undefined}
+                    name={metaName || metaTarget?.name || ""}
+                    code={metaTarget?.code ?? ""}
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <input
+                    id="edit-photo-input"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={metaBusy || metaPhotoBusy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handlePhotoPick(f);
+                      e.target.value = ""; // allow re-pick of the same file
+                    }}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={metaBusy || metaPhotoBusy}
+                      onClick={() => document.getElementById("edit-photo-input")?.click()}
+                    >
+                      {metaPhotoBusy ? t("mgrProducts.photoUploading") : t("mgrProducts.uploadPhoto")}
+                    </Button>
+                    {metaPhotoPreview && !metaRemovePhoto && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={metaBusy || metaPhotoBusy}
+                        onClick={() => {
+                          if (metaPhotoPreview?.startsWith("blob:")) URL.revokeObjectURL(metaPhotoPreview);
+                          setMetaPhotoPreview(null);
+                          setMetaPhotoId(undefined);
+                          setMetaRemovePhoto(true);
+                        }}
+                      >
+                        {t("mgrProducts.removePhoto")}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("mgrProducts.photoHint")}</p>
+                </div>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-pack-label">{t("mgrProducts.fieldPackLabel")}</Label>
@@ -1341,13 +1454,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             <Button
               variant="ghost"
               onClick={closeMetaEdit}
-              disabled={metaBusy}
+              disabled={metaBusy || metaPhotoBusy}
             >
               {t("common.cancel")}
             </Button>
             <Button
               onClick={commitMetaEdit}
-              disabled={metaBusy || !metaKey}
+              disabled={metaBusy || metaPhotoBusy || !metaKey}
             >
               {t("common.save")}
             </Button>

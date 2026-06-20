@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { AbandonCartDialog } from "@/components/pos/AbandonCartDialog";
+import { ProductThumb } from "@/components/pos/ProductThumb";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { reportOps } from "@/lib/reportOps";
@@ -190,7 +191,7 @@ export default function Sale() {
               variants={gridV}
               initial="hidden"
               animate="show"
-              className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+              className="grid grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 gap-2 items-stretch"
             >
               {products.map((p) => {
                 const line = lines.find((l) => l.productId === p._id);
@@ -199,6 +200,7 @@ export default function Sale() {
                     key={p._id}
                     variants={itemV}
                     whileTap={reduce ? undefined : { scale: 0.96 }}
+                    className="h-full"
                   >
                     <Card
                       role="button"
@@ -212,11 +214,21 @@ export default function Sale() {
                         }
                       }}
                       className={cn(
-                        "relative cursor-pointer select-none p-3 transition-colors hover:bg-accent",
+                        "relative flex h-full cursor-pointer select-none flex-col p-3 transition-colors hover:bg-accent",
                         line && "ring-2 ring-primary",
                       )}
                     >
-                      <p className="truncate text-sm font-medium leading-tight">{p.name}</p>
+                      <ProductThumb
+                        photoUrl={p.photo_url}
+                        initials={p.initials}
+                        hue={p.hue}
+                        name={p.name}
+                        code={p.code}
+                        className="max-h-40"
+                      />
+                      <p className="mt-2 line-clamp-2 text-sm font-medium leading-tight">
+                        {p.name}
+                      </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{rp(p.price_idr)}</p>
                       {line && (
                         <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-citrus text-[11px] font-semibold text-citrus-foreground">

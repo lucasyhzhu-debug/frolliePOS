@@ -29,7 +29,7 @@ export const catalog = query({
   handler: async (
     ctx,
   ): Promise<{
-    products: Doc<"pos_products">[];
+    products: (Doc<"pos_products"> & { photo_url: string | null })[];
     skus: Doc<"pos_inventory_skus">[];
     components: Doc<"pos_product_components">[];
     stockLevels: Array<{ inventory_sku_id: string; on_hand: number }>;
@@ -61,7 +61,19 @@ export const catalog = query({
       on_hand,
     }));
 
-    return { products, skus, components, stockLevels, vouchers };
+    // photo_url resolved server-side so the client renders without a 2nd round-trip.
+    // getUrl is a metadata lookup, not a blob fetch; negligible at booth scale.
+    // It returns a signed, expiring URL, so this per-tick resolution is load-bearing
+    // (it refreshes the URL) — don't memoize/hoist it. A stale URL cached in the IDB
+    // catalog snapshot degrades gracefully (ProductThumb onError → chip).
+    const productsWithPhoto = await Promise.all(
+      products.map(async (p) => ({
+        ...p,
+        photo_url: p.photo_storage_id ? await ctx.storage.getUrl(p.photo_storage_id) : null,
+      })),
+    );
+
+    return { products: productsWithPhoto, skus, components, stockLevels, vouchers };
   },
 });
 
@@ -80,7 +92,7 @@ export const listAllProducts = query({
     ctx,
     args,
   ): Promise<{
-    products: Doc<"pos_products">[];
+    products: (Doc<"pos_products"> & { photo_url: string | null })[];
     skus: Doc<"pos_inventory_skus">[];
     components: Doc<"pos_product_components">[];
   }> => {
@@ -93,7 +105,15 @@ export const listAllProducts = query({
         .collect(),
       ctx.db.query("pos_product_components").collect(),
     ]);
-    return { products, skus, components };
+    // photo_url resolved server-side (mirror `catalog`); getUrl is a metadata
+    // lookup, negligible at booth scale.
+    const productsWithPhoto = await Promise.all(
+      products.map(async (p) => ({
+        ...p,
+        photo_url: p.photo_storage_id ? await ctx.storage.getUrl(p.photo_storage_id) : null,
+      })),
+    );
+    return { products: productsWithPhoto, skus, components };
   },
 });
 
@@ -118,6 +138,7 @@ export const updateProductMeta = mutation({
     sku_family: v.optional(v.string()),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
+    photo_storage_id: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: withIdempotency<
     {
@@ -130,6 +151,7 @@ export const updateProductMeta = mutation({
       sku_family?: string;
       initials?: string;
       hue?: number;
+      photo_storage_id?: Id<"_storage"> | null;
     },
     { ok: true }
   >(
@@ -140,6 +162,7 @@ export const updateProductMeta = mutation({
       if (name.length === 0 || name.length > 80) throw new Error("NAME_INVALID");
       const before = await ctx.db.get(args.productId);
       if (!before) throw new Error("PRODUCT_NOT_FOUND");
+      const photoChanged = args.photo_storage_id !== undefined;
       await ctx.db.patch(args.productId, {
         name,
         pack_label: args.pack_label,
@@ -147,6 +170,11 @@ export const updateProductMeta = mutation({
         ...(args.sku_family !== undefined ? { sku_family: args.sku_family } : {}),
         ...(args.initials !== undefined ? { initials: args.initials } : {}),
         ...(args.hue !== undefined ? { hue: args.hue } : {}),
+        // undefined = keep (omitted); null = remove (patch undefined deletes the
+        // field); an id = set. No superseded-blob delete (mirror receipt-logo).
+        ...(args.photo_storage_id !== undefined
+          ? { photo_storage_id: args.photo_storage_id ?? undefined }
+          : {}),
         updated_at: Date.now(),
       });
       await logAudit(ctx, {
@@ -156,10 +184,34 @@ export const updateProductMeta = mutation({
         entity_id: args.productId,
         source: "booth_inline",
         device_id: deviceId,
-        metadata: { field: "meta" },
+        metadata: { field: "meta", photo_changed: photoChanged },
       });
       return { ok: true as const };
     },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
+type GenerateProductPhotoUploadUrlResult = { uploadUrl: string };
+
+/**
+ * Manager-session: mint a Convex storage upload URL for a product photo
+ * (v1.2 #3). Mirrors settings.generateLogoUploadUrl. The client POSTs a
+ * downscaled webp to this URL, gets a storageId, and folds it into
+ * updateProductMeta. ADR-013: idempotency + authCheck-before-cache.
+ */
+export const generateProductPhotoUploadUrl = mutation({
+  args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
+  handler: withIdempotency<
+    { idempotencyKey: string; sessionId: Id<"staff_sessions"> },
+    GenerateProductPhotoUploadUrlResult
+  >(
+    "catalog.generateProductPhotoUploadUrl",
+    async (ctx) => ({ uploadUrl: await ctx.storage.generateUploadUrl() }),
     {
       authCheck: async (ctx, args) => {
         await requireManagerSession(ctx, args.sessionId);

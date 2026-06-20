@@ -45,6 +45,20 @@ describe("catalog", () => {
     expect(c.vouchers[0].code).toBe("WELCOME10");
   });
 
+  it("catalog projects photo_url (null when no photo)", async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pos_products", {
+        sku_family: "dubai", code: "DUBAI_3PC", name: "Dubai", pack_label: "3 pcs", price_idr: 125000,
+        active: true, sort_order: 1, tax_rate: 0,
+        created_at: Date.now(), updated_at: Date.now(),
+      });
+    });
+    const c = await t.query(api.catalog.public.catalog, {});
+    expect(c.products[0]).toHaveProperty("photo_url");
+    expect(c.products[0].photo_url).toBeNull(); // seeded product has no photo
+  });
+
   it("excludes inactive products + skus", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
