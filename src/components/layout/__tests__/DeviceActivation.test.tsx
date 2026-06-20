@@ -23,7 +23,7 @@ vi.mock("convex/react", async (importOriginal) => {
 
 import { DeviceActivation } from "@/components/layout/DeviceActivation";
 
-const client = new ConvexReactClient("https://x.convex.cloud");
+const client = new ConvexReactClient("https://example.convex.cloud");
 function renderComp() {
   return render(
     <ConvexProvider client={client}>

@@ -29,7 +29,7 @@ vi.mock("convex/react", async (importOriginal) => {
 });
 
 import Settlements from "@/routes/settlements";
-const client = new ConvexReactClient("https://x.convex.cloud");
+const client = new ConvexReactClient("https://example.convex.cloud");
 function renderRoute() {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ sessionId: "s1" }));
   return render(
