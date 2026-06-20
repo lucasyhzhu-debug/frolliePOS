@@ -70,11 +70,12 @@ describe("receipt refund-projection (ADR-039)", () => {
       unit_price: 50000,
     });
 
-    // Step 1: pre-refund render → status "LUNAS".
+    // Step 1: pre-refund render → paid state (v1.2 #13: no LUNAS badge on paid receipts).
     const r1 = await t.fetch(`/r/${token}`, { method: "GET" });
     expect(r1.status).toBe(200);
     const body1 = await r1.text();
-    expect(body1).toContain("LUNAS");
+    // v1.2 #13: paid receipts carry no status badge.
+    expect(body1).not.toContain("LUNAS");
     expect(body1).not.toContain("SEBAGIAN DIKEMBALIKAN");
 
     // Step 2: commit a partial refund (1 of 3 units).
@@ -134,7 +135,8 @@ describe("receipt refund-projection (ADR-039)", () => {
     // Pre-render to seed cache.
     const r1 = await t.fetch(`/r/${token}`, { method: "GET" });
     expect(r1.status).toBe(200);
-    expect(await r1.text()).toContain("LUNAS");
+    // v1.2 #13: paid receipts carry no status badge.
+    expect(await r1.text()).not.toContain("LUNAS");
 
     // Full refund: both units.
     await t.mutation(internal.refunds.internal._commitRefund_internal, {
