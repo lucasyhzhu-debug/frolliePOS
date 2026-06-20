@@ -2312,63 +2312,63 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 
 **Phase 2 (slice 2) — #12 inline messaging, remaining bucket-A (📋 PLANNED 2026-06-20):** convert the rest of the sync form-validation toasts to inline `FieldMessage` (reuse-only — `FieldMessage`/`useFieldErrors`/ADR-048, no new primitive/token). The #1 i18n work rewrote these files after slice 1, so the literal-only fence is now blind to `toast.error(t(...))`; this slice repairs the fence (ban `t()`-arg in registered files; server/async toasts use the humanizer/variable idiom). Settlements + staff-add drop their all-fields disabled-submit gates so inline errors are reachable. Spec→staffreview→plan→staffreview pipeline; both gates passed (spec: fence/keep contradiction + humanizer-location; plan: disabled-gate-vs-validator Critical + label/copy accuracy). One squash PR.
 
-- 📋 **[v12-fe-msg2-settlements]** `routes/settlements.tsx` — 6 sync validations → inline `FieldMessage` (collect-all + focus-first), net<0 under the fee field, drop the `!formValid` submit gate (T1)
+- ✅ **[v12-fe-msg2-settlements]** `routes/settlements.tsx` — 6 sync validations → inline `FieldMessage` (collect-all + focus-first), net<0 under the fee field, drop the `!formValid` submit gate (T1) (2e4f0bc)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md), [Spec](./superpowers/specs/2026-06-20-v1.2-phase2-slice2-inline-messaging-design.md), [ADR-048](./ADR/048-inline-messaging-policy.md)
   - **subtasks:**
-    - [ ] Failing test: invalid submit → inline messages, no toast; net<0 under fee field
-    - [ ] Convert `submitFormOpenPin` to collect-all; reword `errorNetInvalid`→"Fee can't exceed gross" (en/id); drop `!formValid` gate
-    - [ ] Wire inputs + `FieldMessage`; var-idiom the line-160 guard; test green; commit
+    - [x] Failing test: invalid submit → inline messages, no toast; net<0 under fee field
+    - [x] Convert `submitFormOpenPin` to collect-all; reword `errorNetInvalid`→"Fee can't exceed gross" (en/id); drop `!formValid` gate
+    - [x] Wire inputs + `FieldMessage`; var-idiom the line-160 guard; test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-msg2-staff]** `routes/mgr/staff.tsx` — 3 raw-literal validations → inline `FieldMessage` (closes an i18n gap), drop the add-dialog name/pin submit gate (T2)
+- ✅ **[v12-fe-msg2-staff]** `routes/mgr/staff.tsx` — 3 raw-literal validations → inline `FieldMessage` (closes an i18n gap), drop the add-dialog name/pin submit gate (T2) (2e4f0bc)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Add `mgrStaff.errorNameLength`/`errorPinDigits` keys (en/id); failing test
-    - [ ] Convert add + rename handlers; drop `disabled` name/pin gate → `!createKey`
-    - [ ] Wire JSX + `FieldMessage`; test green; commit
+    - [x] Add `mgrStaff.errorNameLength`/`errorPinDigits` keys (en/id); failing test
+    - [x] Convert add + rename handlers; drop `disabled` name/pin gate → `!createKey`
+    - [x] Wire JSX + `FieldMessage`; test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-msg2-device]** `components/layout/DeviceActivation.tsx` — 2 field validations → inline `FieldMessage`, var-idiom the device-not-ready guard (T3)
+- ✅ **[v12-fe-msg2-device]** `components/layout/DeviceActivation.tsx` — 2 field validations → inline `FieldMessage`, var-idiom the device-not-ready guard (T3) (2e4f0bc)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Failing test (named-export import); convert `submit` collect-all
-    - [ ] Wire code/label inputs + `FieldMessage`; var-idiom line-43 guard; test green; commit
+    - [x] Failing test (named-export import); convert `submit` collect-all
+    - [x] Wire code/label inputs + `FieldMessage`; var-idiom line-43 guard; test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-msg2-receipt]** `routes/mgr/receipt.tsx` — 3 logo-file validations → inline `FieldMessage` under the upload control, var-idiom the async upload-failed catch (T4)
+- ✅ **[v12-fe-msg2-receipt]** `routes/mgr/receipt.tsx` — 3 logo-file validations → inline `FieldMessage` under the upload control, var-idiom the async upload-failed catch (T4) (2e4f0bc)
   - **agent:** `frontend-integrator`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Failing test (file-input change); convert `onPickLogo` sync checks → `logo.file`
-    - [ ] `FieldMessage` under logo control; var-idiom line-193 catch; test green; commit
+    - [x] Failing test (file-input change); convert `onPickLogo` sync checks → `logo.file`
+    - [x] `FieldMessage` under logo control; var-idiom line-193 catch; test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-fe-msg2-stock]** `routes/stock/$skuId.tsx` — extract module-local `humanizeThresholdError(err,t)` so server-error toasts pass the new fence (fence prep, no inline) (T5)
+- ✅ **[v12-fe-msg2-stock]** `routes/stock/$skuId.tsx` — extract module-local `humanizeThresholdError(err,t)` so server-error toasts pass the new fence (fence prep, no inline) (T5) (2e4f0bc)
   - **agent:** `claude`
   - **deps:** none
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md)
   - **subtasks:**
-    - [ ] Failing pure unit test (3 error-code branches)
-    - [ ] Add local humanizer + rewire catch; test green; commit
+    - [x] Failing pure unit test (3 error-code branches)
+    - [x] Add local humanizer + rewire catch; test green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-xc-msg2-fence]** `eslint.config.js` — register the 6 files + ban `toast.error/warning(t(...))` in registered files (T6)
+- ✅ **[v12-xc-msg2-fence]** `eslint.config.js` — register the 6 files + ban `toast.error/warning(t(...))` in registered files (T6) (2e4f0bc)
   - **agent:** `claude`
   - **deps:** v12-fe-msg2-settlements, v12-fe-msg2-staff, v12-fe-msg2-device, v12-fe-msg2-receipt, v12-fe-msg2-stock
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md), [ADR-048](./ADR/048-inline-messaging-policy.md)
   - **subtasks:**
-    - [ ] Extend `files:` (+6) + 2 `t()`-arg selectors; lint green
-    - [ ] Fence smoke (scratch `toast.error(t("x"))` fails; variable passes); commit
+    - [x] Extend `files:` (+6) + 2 `t()`-arg selectors; lint green
+    - [x] Fence smoke (scratch `toast.error(t("x"))` fails; variable passes); commit
   - **notes:** _(empty)_
-- 📋 **[v12-xc-msg2-docs]** `docs/ADR/048-…md` + `docs/CHANGELOG.md` — ADR-048 slice-2 amendment (i18n collision + `t()`-ban + humanizer/variable convention) + changelog + final full verification (T7)
+- ✅ **[v12-xc-msg2-docs]** `docs/ADR/048-…md` + `docs/CHANGELOG.md` — ADR-048 slice-2 amendment (i18n collision + `t()`-ban + humanizer/variable convention) + changelog + final full verification (T7) (2e4f0bc)
   - **agent:** `claude`
   - **deps:** v12-xc-msg2-fence
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-phase2-slice2-inline-messaging.md)
   - **subtasks:**
-    - [ ] ADR-048 amendment + CHANGELOG entry
-    - [ ] `typecheck && lint && vitest run src/ && build:fe` green; commit
+    - [x] ADR-048 amendment + CHANGELOG entry
+    - [x] `typecheck && lint && vitest run src/ && build:fe` green; commit
   - **notes:** _(empty)_
 
 **Phase 3 — #10 retire BCA VA + static-account manual transfer (📋 PLANNED 2026-06-19):** hide the broken BCA VA tab (kills the error-toast storm by construction — QRIS becomes the sole Xendit method) and add a staff-self-confirm manual bank-transfer tender. Sales mark `confirmed_via:"manual_bca"`, flag MANUAL in the manager ticker, and itemize in the founders EOD summary (the compensating control replacing a photo gate). Manager-editable account config + enable toggle. Backend-heavy (funnel reuse, no manager-PIN), one atomic squash PR. Spec→2× staffreview→plan→staffreview pipeline; spec C1 (manual-tab render) + I1 (live-QR cancel) folded; plan APPROVED (assumptions verified vs main).
