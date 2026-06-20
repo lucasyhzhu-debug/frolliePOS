@@ -49,6 +49,18 @@ export function RootLayout() {
 
   const isLogin = location.pathname === "/login";
 
+  // /shift/handover must be reachable WITHOUT an active session: handoverOut ends
+  // the outgoing session, so during handover_pending the device has no session and
+  // the INCOMING staff authenticates inside that screen (loginWithPin). Exempt it
+  // from the no-session redirect (mirrors /login). Without this, the session gate
+  // sends /shift/handover → /login while login.tsx sends handover_pending → /shift/handover,
+  // deadlock-bouncing forever (getActiveStaff re-fires on every remount — prod
+  // incident 2026-06-20). Gated on the live booth state so a stale or manual visit
+  // with no pending handover still correctly redirects to /login.
+  const isHandoverIn =
+    location.pathname === "/shift/handover" &&
+    boothState?.state === "handover_pending";
+
   // Show loading while: deviceId hasn't resolved, device-registration query is
   // in-flight, or session is still validating against Convex.
   if (deviceId === null || deviceRegistered === undefined || session.status === "loading") {
@@ -59,7 +71,7 @@ export function RootLayout() {
     return <Navigate to="/activate" replace />;
   }
 
-  if (!isLogin && session.status === "none") {
+  if (!isLogin && !isHandoverIn && session.status === "none") {
     return <Navigate to="/login" replace />;
   }
 

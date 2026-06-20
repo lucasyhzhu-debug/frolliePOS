@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — Hotfix: handover-in no-session deadlock
+
+- **Booth stuck in `handover_pending` after handover-out (prod incident).** `handoverOut` ends the outgoing session, so during `handover_pending` the device has no active session. `RootLayout`'s session gate redirected the session-less `/shift/handover` → `/login`, while `login.tsx` redirected `handover_pending` → `/shift/handover` — an infinite redirect bounce that re-fired `getActiveStaff` on every remount ("login screen refreshing crazily"). The incoming staff could never log in.
+- **Fix:** `/shift/handover` is now exempt from the no-session redirect *when the booth is genuinely `handover_pending`* — the screen where the incoming staff authenticates (`loginWithPin`) must be reachable session-less. Mirrors how `/login` is already exempt. A stale or manual visit with no pending handover still correctly redirects to `/login`. The outgoing session still ends at handover-out (ADR-003/ADR-050 upheld — no departed-staff session lingers). One-file routing change + 2 RootLayout regression tests.
+- **Ops:** the live stuck device was reset by recording a corrective `signoff_close` (booth → `closed`); its shift summary had already been captured by the `handover_out` row, so no double-count.
+
 ## 2026-06-20 — Hotfix: login navigation + refund e2e i18n
 
 - **Login regression (from #7):** post-login navigation was deferred behind a 200ms "Welcome" timer that got cancelled when `storeSession()` briefly flipped the session to `loading` and RootLayout unmounted the login route — stranding staff on the PIN screen. Now navigates synchronously on success (the success tint still paints for the render before unmount). Fixed every e2e sign-in (7 specs were timing out on the home heading).

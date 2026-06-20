@@ -140,4 +140,31 @@ describe("RootLayout — booth-state gate", () => {
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
+
+  // ---------------------------------------------------------------------------
+  // Handover-in no-session exemption (prod deadlock fix 2026-06-20).
+  //
+  // handoverOut ENDS the outgoing session, so during handover_pending the device
+  // has NO active session. The incoming staff authenticates INSIDE /shift/handover
+  // (loginWithPin). If the session gate redirects /shift/handover → /login, and
+  // /login redirects handover_pending → /shift/handover, the two bounce forever
+  // (getActiveStaff re-fires on every remount). /shift/handover must therefore be
+  // reachable session-less WHEN the booth is genuinely handover_pending.
+  // ---------------------------------------------------------------------------
+
+  it("renders /shift/handover session-less when boothState is 'handover_pending' (incoming-staff login lives inside this screen)", () => {
+    mockUseSession.mockReturnValue(NO_SESSION);
+    mockUseBoothState.mockReturnValue({ state: "handover_pending", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
+    renderAt("/shift/handover");
+    expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("login-page")).toBeNull();
+  });
+
+  it("still redirects /shift/handover → /login session-less when booth is NOT handover_pending (stale/manual visit)", () => {
+    mockUseSession.mockReturnValue(NO_SESSION);
+    mockUseBoothState.mockReturnValue({ state: "open", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
+    renderAt("/shift/handover");
+    expect(screen.getByTestId("login-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("shift-handover-page")).toBeNull();
+  });
 });
