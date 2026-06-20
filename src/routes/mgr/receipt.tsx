@@ -164,7 +164,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       // URL → silent re-failure. The catch below clearIntent's the key before
       // toasting so the next attempt mints a fresh URL.
       const { uploadUrl } = await generateLogoUploadUrl({
-        idempotencyKey: uploadKey,
+        idempotencyKey: uploadKey!, // guarded above: if (!uploadKey) applyErrors → return
         sessionId,
       });
       // Convex upload URLs accept POST with the file body and return {storageId}.

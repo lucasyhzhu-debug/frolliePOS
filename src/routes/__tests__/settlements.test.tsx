@@ -7,7 +7,7 @@ import { SESSION_KEY } from "@/lib/storage-keys";
 
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 
-let mockSessionReturn: unknown = { sessionId: "s1", staff: { _id: "m1", name: "Lucy", role: "manager" } };
+const mockSessionReturn: unknown = { sessionId: "s1", staff: { _id: "m1", name: "Lucy", role: "manager" } };
 let mockRows: unknown = [];
 
 vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
