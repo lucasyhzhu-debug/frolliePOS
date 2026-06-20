@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
 import { useBlocker, type Blocker } from "react-router";
 
 /**
@@ -13,13 +13,24 @@ import { useBlocker, type Blocker } from "react-router";
  * render and is still `true` at navigate time, so a pure `when` check would
  * block a legitimate charge. Matching on the destination prefix sidesteps that
  * stale-state race entirely.
+ *
+ * `bypass` is the same stale-state escape for *deliberate exit* hops that leave
+ * the allowWithin subtree (e.g. "Cancel sale" → /sale, voucher-reject →
+ * /sale/voucher). After an explicit cancel commits, the reactive txn is still
+ * stale `awaiting_payment` at navigate time, so `when` stays armed and the
+ * blocker would pop the "Cancel payment?" dialog AFTER the user already
+ * cancelled — firing a redundant second cancel (TXN_NOT_AWAITING /
+ * INVALID_STATE_FOR_CANCEL). A bypass flag set right before navigating
+ * short-circuits the guard for that one deliberate hop.
  */
 export function shouldBlockNavigation(
   when: boolean,
   current: string,
   next: string,
   allowWithin?: string,
+  bypass?: boolean,
 ): boolean {
+  if (bypass) return false;
   if (!when || current === next) return false;
   if (allowWithin != null && next.startsWith(allowWithin)) return false;
   return true;
@@ -38,8 +49,19 @@ export function shouldBlockNavigation(
  *
  * Returns the raw Blocker so callers can drive their abandon-confirmation UI
  * (proceed / reset).
+ *
+ * `bypassRef` (optional): a ref the caller sets to `true` immediately before a
+ * deliberate-exit navigate (e.g. "Cancel sale"). The predicate reads
+ * `bypassRef.current` LIVE at navigation time — so even though `when` is still
+ * stale-armed from the prior render, the deliberate hop isn't treated as
+ * accidental. The ref (not a state-derived `when`) is what dodges the
+ * same-tick stale-state race.
  */
-export function usePathChangeBlocker(when: boolean, allowWithin?: string): Blocker {
+export function usePathChangeBlocker(
+  when: boolean,
+  allowWithin?: string,
+  bypassRef?: RefObject<boolean>,
+): Blocker {
   const predicate = useCallback(
     ({
       currentLocation,
@@ -48,8 +70,14 @@ export function usePathChangeBlocker(when: boolean, allowWithin?: string): Block
       currentLocation: { pathname: string };
       nextLocation: { pathname: string };
     }) =>
-      shouldBlockNavigation(when, currentLocation.pathname, nextLocation.pathname, allowWithin),
-    [when, allowWithin],
+      shouldBlockNavigation(
+        when,
+        currentLocation.pathname,
+        nextLocation.pathname,
+        allowWithin,
+        bypassRef?.current ?? false,
+      ),
+    [when, allowWithin, bypassRef],
   );
   return useBlocker(predicate);
 }

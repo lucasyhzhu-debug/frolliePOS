@@ -45,4 +45,19 @@ describe("shouldBlockNavigation", () => {
     expect(shouldBlockNavigation(true, "/sale/charge/x", "/sale/charge/x/success")).toBe(true);
     expect(shouldBlockNavigation(true, "/sale/charge/x", "/sale")).toBe(true);
   });
+
+  it("bypass short-circuits the block for a deliberate cancel exit (the double-cancel fix)", () => {
+    // Explicit "Cancel sale" cancels the txn then navigates to /sale. The
+    // reactive txn is still stale `awaiting_payment` at navigate time, so `when`
+    // is armed and /sale is outside allowWithin — without a bypass the blocker
+    // pops the "Cancel payment?" dialog AFTER the user already cancelled, firing
+    // a redundant second cancel (TXN_NOT_AWAITING / INVALID_STATE_FOR_CANCEL).
+    expect(shouldBlockNavigation(true, "/sale/charge/x", "/sale", "/sale/charge/x", true)).toBe(false);
+    expect(shouldBlockNavigation(true, "/sale/charge/x", "/sale/voucher", "/sale/charge/x", true)).toBe(false);
+  });
+
+  it("bypass=false leaves blocking behavior unchanged (no accidental disarm)", () => {
+    expect(shouldBlockNavigation(true, "/sale/charge/x", "/sale", undefined, false)).toBe(true);
+    expect(shouldBlockNavigation(true, "/sale", "/history", "/sale/", false)).toBe(true);
+  });
 });

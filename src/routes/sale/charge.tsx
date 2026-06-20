@@ -142,9 +142,17 @@ export default function SaleCharge() {
   // /success. Destination-prefix matching sidesteps that stale-state race
   // (same pattern the /sale → /sale/charge hop uses). Leaving the charge to any
   // path OUTSIDE this subtree (/sale, /, a shift gate) still raises the guard.
+  // Set true right before a deliberate-exit navigate (Cancel sale / pick another
+  // voucher). After an explicit cancel commits, the reactive `txn` is still stale
+  // `awaiting_payment` at navigate time, so `when` stays armed and the blocker
+  // would pop the "Cancel payment?" dialog AFTER the user already cancelled —
+  // firing a redundant second cancel (TXN_NOT_AWAITING / INVALID_STATE_FOR_CANCEL).
+  // The ref is read live inside the predicate, sidestepping that same-tick race.
+  const leavingRef = useRef(false);
   const blocker = usePathChangeBlocker(
     txn?.status === "awaiting_payment",
     txnId ? `/sale/charge/${txnId}` : undefined,
+    leavingRef,
   );
 
   // Cancel-payment handler used by the AbandonCartDialog payment variant.
@@ -460,6 +468,9 @@ export default function SaleCharge() {
         idempotencyKey: crypto.randomUUID(),
       });
       toast.success(t("charge.toastSaleCancelled"));
+      // Deliberate exit — disarm the awaiting_payment blocker so the stale
+      // reactive txn doesn't pop a redundant "Cancel payment?" dialog.
+      leavingRef.current = true;
       navigate("/sale");
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("charge.errorCancelFailed");
@@ -523,6 +534,8 @@ export default function SaleCharge() {
         idempotencyKey: crypto.randomUUID(),
       });
       setVoucherRejected(undefined);
+      // Deliberate exit — disarm the blocker (see leavingRef note above).
+      leavingRef.current = true;
       navigate("/sale/voucher");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not cancel; try again";
