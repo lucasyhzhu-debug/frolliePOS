@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -47,6 +47,11 @@ vi.mock("sonner", () => ({
   },
 }));
 
+// Per-test override for generateLogoUploadUrl; default resolves normally.
+// Reassign in a test to simulate async upload failure.
+let mockGenerateLogoUploadUrl: () => Promise<unknown> = () =>
+  Promise.resolve({ uploadUrl: "https://example.convex.cloud/upload/test" });
+
 vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   const { getFunctionName } = await import("convex/server");
@@ -66,7 +71,19 @@ vi.mock("convex/react", async (importOriginal) => {
       if (name.includes("getSession")) return mockSessionReturn;
       return undefined;
     },
-    useMutation: () => vi.fn().mockResolvedValue({}),
+    useMutation: (ref: unknown) => {
+      let name = "";
+      try {
+        const { getFunctionName: gfn } = require("convex/server") as typeof import("convex/server");
+        name = gfn(ref as Parameters<typeof gfn>[0]);
+      } catch {
+        name = "";
+      }
+      if (name.includes("generateLogoUploadUrl")) {
+        return (...args: unknown[]) => mockGenerateLogoUploadUrl(...args as []);
+      }
+      return vi.fn().mockResolvedValue({});
+    },
     useAction: () => vi.fn().mockResolvedValue({}),
   };
 });
@@ -93,6 +110,9 @@ describe("MgrReceipt route (/mgr/receipt)", () => {
     sessionStorage.clear();
     toastError.mockClear();
     toastSuccess.mockClear();
+    // Reset upload mock to the default (success) path before each test.
+    mockGenerateLogoUploadUrl = () =>
+      Promise.resolve({ uploadUrl: "https://example.convex.cloud/upload/test" });
     mockSessionReturn = {
       sessionId: FAKE_SESSION_ID,
       staff: { _id: "staff_1", name: "Lucy", role: "manager" },
@@ -126,5 +146,26 @@ describe("MgrReceipt route (/mgr/receipt)", () => {
 
     // toast.error must NOT be called — validation is inline
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("fires toast.error (not inline FieldMessage) when the async upload rejects", async () => {
+    // Make generateLogoUploadUrl throw so control lands in the catch block.
+    mockGenerateLogoUploadUrl = () => Promise.reject(new Error("network error"));
+
+    renderRoute();
+
+    const input = document.getElementById("logo-input") as HTMLInputElement;
+    expect(input).not.toBeNull();
+
+    // Valid image under MAX_LOGO_BYTES — passes all 3 sync guards.
+    const validImage = new File(["x"], "logo.png", { type: "image/png" });
+    fireEvent.change(input, { target: { files: [validImage] } });
+
+    // The catch is async — wait for toast.error to be called.
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+
+    // Must use toast (async path), NOT inline FieldMessage.
+    expect(toastError).toHaveBeenCalledWith("Logo upload failed. Try again.");
+    expect(document.getElementById("logo.file-error")).toBeNull();
   });
 });
