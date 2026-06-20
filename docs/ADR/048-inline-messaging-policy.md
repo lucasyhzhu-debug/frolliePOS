@@ -189,10 +189,10 @@ shape — it indicates the call should be a `FieldMessage` instead.
 with last-matching-config-wins. The v1.2 #12 fence block was originally positioned
 *before* the v1.2 #1 i18n block. Because all #12-registered files are also in the #1
 registry, the i18n block (placed last) overrode the fence block — making the fence
-**completely dead** for all nine registered files, including slice 1's original two. The
+**completely dead** for all nine registered files, including slice 1's original three. The
 fix moves the #12 block *after* the #1 block, and duplicates the two i18n selectors
-(`JSXText` and `JSXText` brand-name fence) into the #12 block so that files appearing in
-both registries carry both fences simultaneously.
+(the `JSXText` literal fence and the `JSXAttribute` text-prop fence) into the #12 block so
+that files appearing in both registries carry both fences simultaneously.
 
 **Files converted in slice 2:**
 - `src/routes/settlements.tsx` — "entry key required" / "amount required" validation
