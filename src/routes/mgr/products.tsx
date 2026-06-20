@@ -1339,7 +1339,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                     >
                       {metaPhotoBusy ? t("mgrProducts.photoUploading") : t("mgrProducts.uploadPhoto")}
                     </Button>
-                    {(metaPhotoPreview || metaTarget?.photo_url) && !metaRemovePhoto && (
+                    {metaPhotoPreview && !metaRemovePhoto && (
                       <Button
                         type="button"
                         variant="ghost"

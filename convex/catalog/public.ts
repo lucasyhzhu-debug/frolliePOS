@@ -63,6 +63,9 @@ export const catalog = query({
 
     // photo_url resolved server-side so the client renders without a 2nd round-trip.
     // getUrl is a metadata lookup, not a blob fetch; negligible at booth scale.
+    // It returns a signed, expiring URL, so this per-tick resolution is load-bearing
+    // (it refreshes the URL) — don't memoize/hoist it. A stale URL cached in the IDB
+    // catalog snapshot degrades gracefully (ProductThumb onError → chip).
     const productsWithPhoto = await Promise.all(
       products.map(async (p) => ({
         ...p,
