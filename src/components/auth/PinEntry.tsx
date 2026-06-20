@@ -5,6 +5,13 @@ import { FieldMessage } from "@/components/ui/field-message";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 
+// Dot border + fill classes per phase — one source of truth keyed by phase.
+const DOT_CLASSES = {
+  idle: { border: "border-foreground", fill: "bg-foreground" },
+  error: { border: "border-error", fill: "bg-error" },
+  success: { border: "border-success", fill: "bg-success" },
+} as const;
+
 interface PinEntryProps {
   onSubmit: (pin: string) => void;
   reset?: number; // increment to clear the buffer externally (e.g. on error)
@@ -58,14 +65,7 @@ export function PinEntry({
   const showMessage =
     !pending && !!message && (phase !== "error" || persist || buffer.length === 0);
 
-  const dotBorder =
-    phase === "error" ? "border-error"
-    : phase === "success" ? "border-success"
-    : "border-foreground";
-  const dotFill =
-    phase === "error" ? "bg-error"
-    : phase === "success" ? "bg-success"
-    : "bg-foreground";
+  const { border: dotBorder, fill: dotFill } = DOT_CLASSES[phase];
 
   return (
     <div className="flex flex-col items-center gap-6">

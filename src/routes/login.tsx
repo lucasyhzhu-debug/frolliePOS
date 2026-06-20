@@ -14,6 +14,7 @@ import { ConnDot } from "@/components/layout/ConnDot";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
 import { hasShownDenial, markDenialShown } from "@/lib/pinResetDenials";
+import { errorMessage } from "@/lib/errors";
 
 type Stage =
   | { kind: "list" }
@@ -168,7 +169,10 @@ export default function LoginRoute() {
         navigate(target, { replace: true });
       }, 200);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("login.errorGeneric");
+      // errorMessage unwraps ConvexError.data (a raw err.message would miss it);
+      // the LOCKED_OUT/INVALID_PIN codes are thrown as plain Errors so they pass
+      // through unchanged for the substring match below.
+      const msg = errorMessage(err);
       const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
       if (lockedMatch) {
         setPhase({
@@ -179,7 +183,7 @@ export default function LoginRoute() {
       } else if (msg.includes("INVALID_PIN")) {
         setPhase({ kind: "error", message: t("login.errorWrongPin"), sticky: false });
       } else {
-        setPhase({ kind: "error", message: msg, sticky: false });
+        setPhase({ kind: "error", message: t("login.errorGeneric"), sticky: false });
       }
       setPinReset((n) => n + 1);
     }
@@ -193,6 +197,15 @@ export default function LoginRoute() {
       </main>
     );
   }
+
+  // Map the Phase machine to PinEntry's feedback props in one place (the union
+  // is discriminated once here rather than three times in the JSX below).
+  const pinFeedback =
+    phase.kind === "error"
+      ? { phase: "error" as const, message: phase.message, persist: phase.sticky }
+      : phase.kind === "success"
+        ? { phase: "success" as const, message: t("login.welcome"), persist: false }
+        : { phase: "idle" as const, message: undefined, persist: false };
 
   return (
     <main className="flex flex-1 flex-col p-6">
@@ -234,13 +247,7 @@ export default function LoginRoute() {
             onSubmit={onPinSubmit}
             reset={pinReset}
             pending={phase.kind === "pending"}
-            phase={phase.kind === "error" ? "error" : phase.kind === "success" ? "success" : "idle"}
-            message={
-              phase.kind === "error" ? phase.message
-              : phase.kind === "success" ? t("login.welcome")
-              : undefined
-            }
-            persist={phase.kind === "error" ? phase.sticky : false}
+            {...pinFeedback}
           />
           <button
             type="button"
