@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — Hotfix: cancel-sale double-cancel on the charge screen
+
+- **"Cancel sale" threw `TXN_NOT_AWAITING` / `INVALID_STATE_FOR_CANCEL` into the console (most visible on the manual bank-transfer tab).** `handleCancel` runs the `cancelTransaction` *action* (commits the txn → `cancelled` server-side) then navigates to `/sale`. An action's commit doesn't synchronously refresh the client's reactive subscription, so at navigate time `txn.status` was still the stale `awaiting_payment` and `/sale` sits outside the navigation guard's `allowWithin` charge subtree — so `usePathChangeBlocker` popped the "Cancel payment?" dialog *after* the user had already cancelled, driving a redundant second cancel (`cancelAwaitingPayment` → `TXN_NOT_AWAITING`; a re-click → `INVALID_STATE_FOR_CANCEL`). The client caught them, but Convex logs every server-side throw to the browser console.
+- **Fix:** added a live `bypass` escape to `usePathChangeBlocker` (read inside the predicate, mirroring how `allowWithin` already dodges the stale `when`). `charge.tsx` sets `leavingRef.current = true` right before the deliberate-exit navigates in `handleCancel` and `handlePickAnotherVoucher`, so an explicit cancel no longer trips the guard. 2 regression tests on the pure `shouldBlockNavigation` predicate.
+
 ## 2026-06-20 — Hotfix: handover-in no-session deadlock
 
 - **Booth stuck in `handover_pending` after handover-out (prod incident).** `handoverOut` ends the outgoing session, so during `handover_pending` the device has no active session. `RootLayout`'s session gate redirected the session-less `/shift/handover` → `/login`, while `login.tsx` redirected `handover_pending` → `/shift/handover` — an infinite redirect bounce that re-fired `getActiveStaff` on every remount ("login screen refreshing crazily"). The incoming staff could never log in.
