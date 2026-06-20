@@ -131,7 +131,7 @@ export default function HistoryIndex() {
                           variant="outline"
                           className={`text-[10px] uppercase tracking-wide ${badge.cls}`}
                         >
-                          {badge.label}
+                          {t(badge.labelKey)}
                         </Badge>
                       </div>
                     </Card>

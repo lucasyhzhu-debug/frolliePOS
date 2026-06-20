@@ -15,7 +15,7 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { KNOWN_TELEGRAM_ROLES } from "../../../convex/telegram/config";
 import { useSession } from "@/hooks/useSession";
-import { useT } from "@/lib/i18n";
+import { useT, type TranslationKey } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -49,17 +49,17 @@ function relativeTime(ms: number): string {
 
 type StatusKind = "archived" | "error" | "active" | "dormant";
 
-function deriveStatus(chat: Chat): { kind: StatusKind; label: string; title?: string } {
+function deriveStatus(chat: Chat): { kind: StatusKind; labelKey: TranslationKey; title?: string } {
   if (chat.archivedAt !== undefined) {
-    return { kind: "archived", label: "Archived" };
+    return { kind: "archived", labelKey: "mgrTelegram.statusArchived" };
   }
   if (chat.lastError && Date.now() - chat.lastError.at < DAY_MS) {
-    return { kind: "error", label: "Error", title: chat.lastError.message };
+    return { kind: "error", labelKey: "mgrTelegram.statusError", title: chat.lastError.message };
   }
   if (chat.role) {
-    return { kind: "active", label: "Active" };
+    return { kind: "active", labelKey: "mgrTelegram.statusActive" };
   }
-  return { kind: "dormant", label: "Dormant" };
+  return { kind: "dormant", labelKey: "mgrTelegram.statusDormant" };
 }
 
 const STATUS_VARIANT: Record<StatusKind, "default" | "secondary" | "destructive" | "outline"> = {
@@ -294,7 +294,7 @@ function ChatCard({
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px]">{chat.chatType}</Badge>
           <Badge variant={STATUS_VARIANT[status.kind]} title={status.title} className="text-[10px]">
-            {status.label}
+            {t(status.labelKey)}
           </Badge>
         </div>
       </div>

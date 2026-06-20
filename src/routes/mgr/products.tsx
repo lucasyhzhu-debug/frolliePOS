@@ -928,7 +928,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.price");
                 }}
                 inputMode="numeric"
-                placeholder="e.g. 75000"
+                placeholder={t("mgrProducts.placeholderPriceExample")}
                 aria-invalid={!!errors["add.price"]}
                 aria-describedby={errors["add.price"] ? "add.price-error" : undefined}
               />
@@ -999,7 +999,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.hue");
                 }}
                 inputMode="numeric"
-                placeholder="e.g. 180"
+                placeholder={t("mgrProducts.placeholderHueExample")}
                 aria-invalid={!!errors["add.hue"]}
                 aria-describedby={errors["add.hue"] ? "add.hue-error" : undefined}
               />
