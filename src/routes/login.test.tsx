@@ -251,6 +251,33 @@ describe("Login route — booth state navigation fork", () => {
     );
   });
 
+  it("booth locked + same staff but recordResume throws → still navigates home, no error", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "locked",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    // Resume is best-effort: a booth-state race (BOOTH_NOT_LOCKED) must not bounce
+    // the already-authenticated staffer back to the auth-error channel.
+    mockRecordResume.mockRejectedValueOnce(new Error("BOOTH_NOT_LOCKED"));
+    mockStaff([LUCAS, SARI]);
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    typePin("1234");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+    // No inline error rendered despite the resume throw.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("booth handover_pending → immediately redirects to /shift/handover before login", async () => {
     const { useBoothState } = await import("@/hooks/useBoothState");
     vi.mocked(useBoothState).mockReturnValue({

@@ -19,6 +19,14 @@ type Stage =
   | { kind: "list" }
   | { kind: "pin"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" } };
 
+// Async result-state for the PIN submit, lifted out of toasts into an inline
+// FieldMessage (ADR-048): idle → pending → success | error.
+type Phase =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "error"; message: string; sticky: boolean }
+  | { kind: "success" };
+
 export default function LoginRoute() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
@@ -30,13 +38,6 @@ export default function LoginRoute() {
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
 
-  // Async result-state for the PIN submit, lifted out of toasts into an inline
-  // FieldMessage (ADR-048): idle → pending → success | error.
-  type Phase =
-    | { kind: "idle" }
-    | { kind: "pending" }
-    | { kind: "error"; message: string; sticky: boolean }
-    | { kind: "success" };
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   // Hold the green "Welcome" flash for a beat before navigating away; cleared on
   // unmount so a fast unmount can't fire navigate after teardown.
@@ -120,12 +121,13 @@ export default function LoginRoute() {
         : t("login.pinResetDenied", { denier: denierLabel }),
       { duration: 10_000 },
     );
-  }, [recentPinReset]);
+  }, [recentPinReset, t]);
 
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
     if (!deviceId) {
       setPhase({ kind: "error", message: t("login.deviceNotReady"), sticky: false });
+      setPinReset((n) => n + 1); // clear the stale buffer so the staffer can retry
       return;
     }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
@@ -148,10 +150,20 @@ export default function LoginRoute() {
       } else if (boothState?.state === "locked" && stage.staff._id === boothState.staffId) {
         // Only the staff who locked the booth resumes — a different staff logging
         // in during "locked" skips recordResume and goes straight to home.
-        await recordResume({ idempotencyKey: `${idempotencyKey}:resume`, sessionId });
+        // Resume is best-effort bookkeeping: the staffer is already authenticated
+        // (session stored), so a booth-state race (e.g. another device changed
+        // state → BOOTH_NOT_LOCKED) must NOT bounce them back to the auth-error
+        // channel. Swallow it and proceed home; shift hours self-heal on the next
+        // event. (ADR-050)
+        try {
+          await recordResume({ idempotencyKey: `${idempotencyKey}:resume`, sessionId });
+        } catch {
+          // best-effort — fall through to home
+        }
       }
 
       setPhase({ kind: "success" });
+      if (successTimer.current !== undefined) clearTimeout(successTimer.current);
       successTimer.current = window.setTimeout(() => {
         navigate(target, { replace: true });
       }, 200);

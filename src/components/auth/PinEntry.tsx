@@ -53,9 +53,10 @@ export function PinEntry({
   };
 
   // A non-persistent error hides once the staffer resumes typing; a persistent
-  // (locked-out) message and the success message always show while set.
+  // (locked-out) message and the success message always show while set. Hidden
+  // while pending so the spinner never co-renders with a stale error message.
   const showMessage =
-    !!message && (phase !== "error" || persist || buffer.length === 0);
+    !pending && !!message && (phase !== "error" || persist || buffer.length === 0);
 
   const dotBorder =
     phase === "error" ? "border-error"
