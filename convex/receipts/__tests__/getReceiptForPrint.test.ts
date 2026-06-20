@@ -17,7 +17,12 @@ async function seedStaff(t: ReturnType<typeof convexTest>, role: "staff" | "mana
   });
 }
 
-async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff">, createdAt: number) {
+async function seedPaidTxn(
+  t: ReturnType<typeof convexTest>,
+  staffId: Id<"staff">,
+  createdAt: number,
+  opts?: { confirmedVia?: "webhook" | "polling" | "manual" | "manual_bca"; invoiceReceiptId?: string; invoiceCancelled?: boolean },
+) {
   return await t.run(async (ctx) => {
     // convex-test validates Id<> references on insert, so a real pos_products
     // row is required (the prior "px" cast fails reference validation, not the
@@ -30,6 +35,7 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff"
       status: "paid", subtotal: 25_000, voucher_discount: 0, total: 25_000,
       flags: 0, staff_id: staffId, created_at: createdAt, paid_at: createdAt,
       receipt_number: "R-2026-0042", receipt_token: "tok_" + "a".repeat(40),
+      ...(opts?.confirmedVia ? { confirmed_via: opts.confirmedVia } : {}),
     });
     await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txnId, product_id: productId,
@@ -39,6 +45,8 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff"
     await ctx.db.insert("pos_xendit_invoices", {
       transaction_id: txnId, xendit_invoice_id: "qr-1", xendit_idempotency_key: "ik-1",
       method: "QRIS", qr_string: "0002...", status_at_create: "PENDING", created_at: createdAt,
+      ...(opts?.invoiceReceiptId ? { receipt_id: opts.invoiceReceiptId } : {}),
+      ...(opts?.invoiceCancelled ? { cancelled_at: createdAt } : {}),
     });
     return txnId;
   });
@@ -98,5 +106,29 @@ describe("getReceiptForPrint", () => {
     const txnId = await seedPaidTxn(t, staffId, twoDaysAgo);
     const res = await t.query(api.receipts.public.getReceiptForPrint, { sessionId: mgrSession, txnId });
     expect(res).not.toBeNull();
+  });
+});
+
+describe("getReceiptForPrint — payment method label", () => {
+  it("labels a manual_bca sale 'Transfer Bank (manual)' with no RRN, ignoring the cancelled QRIS invoice", async () => {
+    const t = convexTest(schema);
+    const { staffId, sessionId } = await seedStaff(t, "staff");
+    const txnId = await seedPaidTxn(t, staffId, Date.now(), {
+      confirmedVia: "manual_bca", invoiceReceiptId: "qris-rrn-xyz", invoiceCancelled: true,
+    });
+    const res = await t.query(api.receipts.public.getReceiptForPrint, { sessionId, txnId });
+    expect(res!.viewModel.payment_method).toBe("Transfer Bank (manual)");
+    expect(res!.viewModel.rrn).toBeUndefined();
+  });
+
+  it("keeps the real invoice method for a manager-PIN 'manual' override (scoping lock)", async () => {
+    const t = convexTest(schema);
+    const { staffId, sessionId } = await seedStaff(t, "manager");
+    const txnId = await seedPaidTxn(t, staffId, Date.now(), {
+      confirmedVia: "manual", invoiceReceiptId: "qris-rrn-abc",
+    });
+    const res = await t.query(api.receipts.public.getReceiptForPrint, { sessionId, txnId });
+    expect(res!.viewModel.payment_method).toBe("QRIS");
+    expect(res!.viewModel.rrn).toBe("qris-rrn-abc");
   });
 });

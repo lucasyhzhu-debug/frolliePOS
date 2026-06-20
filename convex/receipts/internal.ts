@@ -33,6 +33,7 @@ async function buildVmFromTxnWithLines(
       voucher_code_snapshot?: string;
       voucher_discount: number;
       total: number;
+      confirmed_via?: "webhook" | "polling" | "manual" | "manual_bca" | null;
     };
     lines: Array<{
       product_name_snapshot: string;
@@ -51,14 +52,25 @@ async function buildVmFromTxnWithLines(
   // created_at and silently misdate the receipt.
   if (!txn.paid_at) throw new Error("PAID_TXN_MISSING_PAID_AT");
 
-  // Payment method — read latest active pos_xendit_invoices via payments/internal
-  // (ADR-034 — receipts must not query pos_xendit_invoices directly).
-  const invoice = await ctx.runQuery(
-    internal.payments.internal._getPaidInvoiceForTxn_internal,
-    { transactionId: txn._id },
-  );
-  const payment_method = invoice ? humanMethodFromInvoice(invoice) : "—";
-  const rrn = invoice?.receipt_id ?? undefined;
+  // Payment method. v1.2 #13: a manual_bca sale (#10) cancels its live QRIS
+  // invoice, which still resolves through _getPaidInvoiceForTxn_internal and
+  // would mislabel the receipt as "QRIS". Source the label from the txn's own
+  // confirmation provenance instead, and skip the (irrelevant) invoice read.
+  // A manual bank transfer has no Xendit RRN.
+  let payment_method: string;
+  let rrn: string | undefined;
+  if (txn.confirmed_via === "manual_bca") {
+    payment_method = "Transfer Bank (manual)";
+    rrn = undefined;
+  } else {
+    // ADR-034 — receipts must not query pos_xendit_invoices directly.
+    const invoice = await ctx.runQuery(
+      internal.payments.internal._getPaidInvoiceForTxn_internal,
+      { transactionId: txn._id },
+    );
+    payment_method = invoice ? humanMethodFromInvoice(invoice) : "—";
+    rrn = invoice?.receipt_id ?? undefined;
+  }
 
   // Cross-module per ADR-034 — refunds module owns pos_refunds.
   const refundRows = await ctx.runQuery(
