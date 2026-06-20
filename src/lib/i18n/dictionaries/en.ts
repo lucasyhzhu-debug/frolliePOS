@@ -537,6 +537,8 @@ export const en = {
   "keypad.digitAriaLabel": "Digit {digit}",
   // pinSheet
   "pinSheet.verifying": "Verifying…",
+  // pinEntry (login keypad feedback)
+  "pinEntry.verifying": "Verifying…",
   // printerSheet
   "printerSheet.statusUnsupported": "Unsupported",
   "printerSheet.statusDisconnected": "Disconnected",
@@ -624,6 +626,7 @@ export const en = {
   "login.errorGeneric": "Login failed",
   "login.errorLockedOut": "Locked out. A manager has been notified to reset your PIN. Wait {seconds}s to retry, or use the new PIN once it lands.",
   "login.errorWrongPin": "Wrong PIN.",
+  "login.welcome": "Welcome",
   "login.managerFallback": "manager",
   "login.pinResetDenied": "PIN reset declined by {denier}. Wait for the 60-second lockout to expire and try again.",
   "login.pinResetDeniedWithReason": "PIN reset declined by {denier} — \"{reason}\". Wait for the 60-second lockout to expire and try again.",

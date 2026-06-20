@@ -535,6 +535,8 @@ export const id: Record<keyof typeof en, string> = {
   "keypad.digitAriaLabel": "Angka {digit}",
   // pinSheet
   "pinSheet.verifying": "Memverifikasi…",
+  // pinEntry (login keypad feedback)
+  "pinEntry.verifying": "Memverifikasi…",
   // printerSheet
   "printerSheet.statusUnsupported": "Tidak didukung",
   "printerSheet.statusDisconnected": "Terputus",
@@ -622,6 +624,7 @@ export const id: Record<keyof typeof en, string> = {
   "login.errorGeneric": "Login gagal",
   "login.errorLockedOut": "Terkunci. Manajer telah diberitahu untuk mengatur ulang PIN Anda. Tunggu {seconds} detik, atau gunakan PIN baru setelah dikirim.",
   "login.errorWrongPin": "PIN salah.",
+  "login.welcome": "Selamat datang",
   "login.managerFallback": "manajer",
   "login.pinResetDenied": "Reset PIN ditolak oleh {denier}. Tunggu 60 detik lalu coba lagi.",
   "login.pinResetDeniedWithReason": "Reset PIN ditolak oleh {denier} — \"{reason}\". Tunggu 60 detik lalu coba lagi.",

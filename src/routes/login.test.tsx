@@ -81,17 +81,18 @@ const SARI: StaffRow = {
   role: "staff",
 };
 
-/** Wire useQuery call-0 (getActiveStaff) to return the given rows. */
+/**
+ * Wire useQuery to return the staff list for getActiveStaff and undefined for
+ * getRecentPinResetForStaff. Discriminates by ARGS (robust across re-renders),
+ * not call-order — a render-count shift would otherwise mis-slot the queries.
+ *   getActiveStaff            → args {}            → staff rows
+ *   getRecentPinResetForStaff → args { staffId }   → undefined (no denial)
+ */
 function mockStaff(rows: StaffRow[]) {
-  let callCount = 0;
   (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
-    // "skip" sentinel → always undefined
     if (args === "skip") return undefined;
-    const slot = callCount++;
-    // Call 0 = getActiveStaff
-    if (slot === 0) return rows;
-    // Call 1 = getRecentPinResetForStaff (skip while list stage, or pending)
-    return undefined;
+    if (args && typeof args === "object" && "staffId" in (args as object)) return undefined;
+    return rows; // getActiveStaff (args {})
   });
 }
 
@@ -123,6 +124,13 @@ function renderLogin() {
       </MemoryRouter>
     </ConvexProvider>,
   );
+}
+
+/** Click the on-screen keypad digits (aria-label "Digit N" in EN locale). */
+function typePin(pin: string) {
+  for (const d of pin) {
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`digit ${d}`, "i") }));
+  }
 }
 
 // ─── tests ────────────────────────────────────────────────────────────────────
@@ -243,6 +251,33 @@ describe("Login route — booth state navigation fork", () => {
     );
   });
 
+  it("booth locked + same staff but recordResume throws → still navigates home, no error", async () => {
+    const { useBoothState } = await import("@/hooks/useBoothState");
+    vi.mocked(useBoothState).mockReturnValue({
+      state: "locked",
+      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      staffName: "Lucas",
+      staleAutoclose: false,
+    });
+    // Resume is best-effort: a booth-state race (BOOTH_NOT_LOCKED) must not bounce
+    // the already-authenticated staffer back to the auth-error channel.
+    mockRecordResume.mockRejectedValueOnce(new Error("BOOTH_NOT_LOCKED"));
+    mockStaff([LUCAS, SARI]);
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    typePin("1234");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+    // No inline error rendered despite the resume throw.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("booth handover_pending → immediately redirects to /shift/handover before login", async () => {
     const { useBoothState } = await import("@/hooks/useBoothState");
     vi.mocked(useBoothState).mockReturnValue({
@@ -338,5 +373,105 @@ describe("Login route — booth state navigation fork", () => {
       expect(screen.getByTestId("home-page")).toBeInTheDocument(),
     );
     expect(mockRecordResume).not.toHaveBeenCalled();
+  });
+});
+
+// ─── PIN-entry feedback (inline messages, no toast) ──────────────────────────
+
+describe("Login PIN feedback", () => {
+  it("renders INVALID_PIN inline (role=alert) and fires NO toast", async () => {
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+    mockStaff([LUCAS, SARI]);
+    const { useAction } = await import("convex/react");
+    (useAction as unknown as Mock).mockReturnValue(
+      vi.fn().mockRejectedValue(new Error("INVALID_PIN")),
+    );
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    typePin("1234");
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/wrong pin/i));
+    const { toast } = await import("sonner");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("renders LOCKED_OUT as a persistent inline banner", async () => {
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+    mockStaff([LUCAS, SARI]);
+    const { useAction } = await import("convex/react");
+    (useAction as unknown as Mock).mockReturnValue(
+      vi.fn().mockRejectedValue(new Error("LOCKED_OUT:60")),
+    );
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    typePin("1234");
+    // Inline banner shows the locked-out copy with the interpolated seconds.
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/locked out/i),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/60/);
+    const { toast } = await import("sonner");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("shows green Welcome (role=status) then navigates home on success", async () => {
+    // Default useAction (mockLoginAction) resolves a sessionId; booth undefined → home.
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+    mockStaff([LUCAS, SARI]);
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    typePin("1234");
+    // Green success message appears (FieldMessage tone=success → role=status).
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/welcome/i));
+    // …then navigates home after the ~200ms tick (inside waitFor's 1s budget).
+    await waitFor(() =>
+      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
+    );
+  });
+});
+
+// ─── PIN-reset denial toast: remount dedup (#11) ─────────────────────────────
+
+describe("PIN reset denial toast (remount dedup)", () => {
+  // Discriminate queries by ARGS (robust across re-renders), not call-order:
+  //   getActiveStaff            → args {}            → staff list
+  //   getRecentPinResetForStaff → args { staffId }   → denied object
+  function wireDenied() {
+    (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
+      if (args === "skip") return undefined;
+      if (args && typeof args === "object" && "staffId" in (args as object)) {
+        return {
+          requestId: "reset-req-1",
+          status: "denied",
+          denied_by_manager_name: "Sari",
+          denied_by_manager_code: "S-02",
+          deny_reason: "not you",
+        };
+      }
+      return [LUCAS, SARI]; // getActiveStaff
+    });
+  }
+
+  it("fires exactly once across a remount", async () => {
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id); // pre-stage into PIN view
+    wireDenied();
+    const { toast } = await import("sonner");
+
+    const first = renderLogin();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    // Remount within the window (no localStorage.clear between — beforeEach
+    // cleared once at test start). The denial query returns denied again.
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    expect(toast.error).toHaveBeenCalledTimes(1); // still once — not twice
   });
 });

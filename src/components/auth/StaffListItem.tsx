@@ -16,7 +16,7 @@ export function StaffListItem({ name, role, onClick }: StaffListItemProps) {
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3",
-        "shadow-sm transition-colors hover:bg-accent",
+        "shadow-sm transition-[transform,background-color] hover:bg-accent active:bg-accent motion-safe:active:scale-[.98]",
       )}
     >
       <span className="grid h-10 w-10 place-items-center rounded-full bg-secondary text-sm font-medium">

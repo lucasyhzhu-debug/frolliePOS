@@ -2,6 +2,14 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — v1.2 #7 + #11: Login PIN feedback
+
+- Keypad keys show a pressed state and lock with a "Verifying…" spinner while the PIN is checked.
+- Wrong-PIN and locked-out errors now appear inline (red) under the dots instead of as a toast; success flashes green before home loads.
+- Fixed the spurious "PIN reset declined" toast that re-fired on screen remount (now de-duped via localStorage).
+- Staff-list rows gain a touch pressed-state (active background + motion-safe scale).
+- All copy routes through the typed i18n dictionary (EN/ID); preserves the v1.2 #6 booth-state navigation fork on success.
+
 ## 2026-06-19 — v1.2 #1: EN/ID language picker (i18n)
 
 - Per-staff EN/ID language toggle (flag-backed) on the home YOU group; English default.
