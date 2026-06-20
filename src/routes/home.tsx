@@ -13,13 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Flag, Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
-import { useT } from "@/lib/i18n";
+import { useT, type TranslationKey } from "@/lib/i18n";
 
 interface Tile {
   id: string;
   group: "sell" | "stock" | "you" | "mgr";
-  label: string;
-  hint: string;
+  labelKey: TranslationKey;
+  hintKey: TranslationKey;
   to: string;
   mgrOnly?: boolean;
   glyph: string;
@@ -27,14 +27,14 @@ interface Tile {
 }
 
 const TILES: Tile[] = [
-  { id: "saved", group: "sell", label: "Saved carts", hint: "resume a saved cart", to: "/sale/drafts", glyph: "◇" },
-  { id: "hist", group: "sell", label: "History", hint: "today's sales", to: "/history", glyph: "≡" },
-  { id: "refund", group: "sell", label: "Refund", hint: "today's refundable", to: "/refund", glyph: "↩" },
-  { id: "stock-check", group: "stock", label: "Stock check", hint: "inventory + recount", to: "/stock", glyph: "◐" },
-  { id: "account", group: "you", label: "Change PIN", hint: "ubah PIN Anda", to: "/account", glyph: "⚷" },
-  { id: "sett", group: "mgr", label: "Settlements", hint: "payouts ke BCA", to: "/settlements", mgrOnly: true, glyph: "$" },
-  { id: "mgr", group: "mgr", label: "Manager home", hint: "live + approvals", to: "/mgr", mgrOnly: true, glyph: "★" },
-  { id: "telegram-chats", group: "mgr", label: "Telegram chats", hint: "bot registry + roles", to: "/mgr/telegram-chats", mgrOnly: true, glyph: "✈" },
+  { id: "saved", group: "sell", labelKey: "home.tileSavedCartsLabel", hintKey: "home.tileSavedCartsHint", to: "/sale/drafts", glyph: "◇" },
+  { id: "hist", group: "sell", labelKey: "home.tileHistoryLabel", hintKey: "home.tileHistoryHint", to: "/history", glyph: "≡" },
+  { id: "refund", group: "sell", labelKey: "home.tileRefundLabel", hintKey: "home.tileRefundHint", to: "/refund", glyph: "↩" },
+  { id: "stock-check", group: "stock", labelKey: "home.tileStockLabel", hintKey: "home.tileStockHint", to: "/stock", glyph: "◐" },
+  { id: "account", group: "you", labelKey: "home.changePin", hintKey: "home.changePinHint", to: "/account", glyph: "⚷" },
+  { id: "sett", group: "mgr", labelKey: "home.tileSettlementsLabel", hintKey: "home.tileSettlementsHint", to: "/settlements", mgrOnly: true, glyph: "$" },
+  { id: "mgr", group: "mgr", labelKey: "home.tileMgrLabel", hintKey: "home.tileMgrHint", to: "/mgr", mgrOnly: true, glyph: "★" },
+  { id: "telegram-chats", group: "mgr", labelKey: "home.tileTelegramLabel", hintKey: "home.tileTelegramHint", to: "/mgr/telegram-chats", mgrOnly: true, glyph: "✈" },
 ];
 
 // Shared with the warning banners below — single source for the dark-safe
@@ -179,6 +179,7 @@ export default function HomeRoute() {
 }
 
 function TileBody({ tile }: { tile: Tile }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2">
       {/* Photo slot placeholder — reserved for #3 */}
@@ -186,8 +187,8 @@ function TileBody({ tile }: { tile: Tile }) {
         <span className="text-xl leading-none text-muted-foreground">{tile.glyph}</span>
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-medium leading-tight truncate">{tile.label}</p>
-        <p className="text-xs text-muted-foreground truncate">{tile.hint}</p>
+        <p className="text-sm font-medium leading-tight truncate">{t(tile.labelKey)}</p>
+        <p className="text-xs text-muted-foreground truncate">{t(tile.hintKey)}</p>
       </div>
     </div>
   );
