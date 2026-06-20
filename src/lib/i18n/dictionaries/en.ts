@@ -403,6 +403,8 @@ export const en = {
   "mgrStaff.roleSetStaff": "{name} is now staff",
   "mgrStaff.deactivatedSuccess": "{name} deactivated",
   "mgrStaff.pinResetSuccess": "PIN reset for {name}",
+  "mgrStaff.errorNameLength": "Name must be 1–60 characters.",
+  "mgrStaff.errorPinDigits": "PIN must be 4 digits.",
   // mgrStock
   "mgrStock.title": "Stock drift",
   "mgrStock.description": "Nightly cron at 02:00 WIB compares the stock-movement ledger to the cached on_hand. Investigate before manually patching the cache.",
