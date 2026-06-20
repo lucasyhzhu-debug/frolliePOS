@@ -106,17 +106,19 @@ Add one arg: `photo_storage_id: v.optional(v.union(v.id("_storage"), v.null()))`
 Three-state semantics:
 - `undefined` (omitted) → **keep** existing photo (current callers unaffected).
 - `null` → **remove**: `patch(productId, { photo_storage_id: undefined })` (Convex
-  deletes the field) + delete the old blob if present.
-- an id → **set/replace**: patch the new id + delete the *previous* blob if it
-  differs (prevents orphan accumulation; `before` is already fetched at line 141).
+  deletes the field).
+- an id → **set/replace**: patch the new id.
 
-Old-blob cleanup uses `before.photo_storage_id` (already read). Audit row stays
-the existing `product.updated` verb with `metadata: { field: "meta", photo_changed: boolean }`
-— **no new audit verb, no SCHEMA.md mint** (free-string `action`, CLAUDE.md #4).
+Audit row stays the existing `product.updated` verb with
+`metadata: { field: "meta", photo_changed: boolean }` — **no new audit verb, no
+SCHEMA.md mint** (free-string `action`, CLAUDE.md #4).
 
-> Decision: we **delete** the superseded blob (receipt-logo does not, but photos
-> are larger and edited more — orphan storage would accumulate). `ctx.storage.delete`
-> is available in mutations.
+> Decision (staffreview #1): we do **NOT** delete the superseded `_storage` blob.
+> The locked reference pattern (`settings.updateReceiptConfig`) doesn't either,
+> `ctx.storage.delete` is used nowhere in the repo, and a delete adds a failure
+> mode (throws if the blob is already gone) for negligible benefit at booth scale
+> (~6 products, rare edits → a handful of orphan blobs over the app's life).
+> Orphan cleanup is deferred debt — a future storage-GC cron if it ever matters.
 
 **(c) EXTEND `catalog` + `listAllProducts` read projection**
 Resolve a serving URL per product so the client renders without a second
@@ -127,6 +129,20 @@ The explicit return-type annotation on both queries must be updated (they alread
 carry one to break the cross-module inference cycle). `catalog` stays
 unauthenticated — product photos are non-sensitive (unlike `receipt_token`),
 and `photo_storage_id` is already shipped today.
+
+> Scale note (staffreview refinement): `getUrl` is a metadata lookup (not a blob
+> fetch), 1 per product per catalog re-run. Negligible at booth scale (~6); add a
+> code comment marking the assumption. The 6 existing `catalog` consumers
+> (`home`, `sale/index`, `sale/drafts`, `sale/voucher`, `mgr/spoilage`,
+> `useCatalogCache`) are additive-safe — a new field doesn't break structural reads.
+
+> **Deploy note (staffreview #2):** the `updateProductMeta` change is an *additive
+> optional arg* and `photo_url` is an *additive query field* — both ship BE+FE
+> **atomically** via the single Vercel production build (`npx convex deploy` then
+> FE build). It is NOT a mutation↔action rename, so no deploy-skew-fatal hazard.
+> Don't hand-deploy one side (a new FE sending `photo_storage_id` to an old BE
+> would fail Convex arg validation). Under skew both directions degrade
+> gracefully (old BE → no `photo_url` → chip fallback).
 
 ### 4.2 Frontend — render
 
@@ -155,9 +171,20 @@ props: { photoUrl?: string | null; initials?: string; hue?: number;
 
 **(c) `src/routes/sale/index.tsx`** — relayout the card once:
 - Grid: `className="grid grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 gap-2 items-stretch"`.
-- Card body becomes `flex flex-col`, `h-full`: `ProductThumb` (full-width square) →
-  title `text-sm font-medium leading-tight line-clamp-2` (drop `truncate`) →
-  price → qty badge (unchanged, absolute). Equal height via `items-stretch` + `h-full`.
+- **Equal-height chain (staffreview #4):** `items-stretch` only equalizes grid
+  *cells* — the card fills the cell only if `h-full` is threaded through every
+  layer: grid → `motion.div` (the `gridItemVariants` child) `className="h-full"` →
+  `Card className="h-full flex flex-col"`. Without the full chain, stretch is a
+  visual no-op.
+- Card body: `ProductThumb` (full-width square) → title
+  `text-sm font-medium leading-tight line-clamp-2` (drop `truncate`) → price →
+  qty badge (unchanged, `absolute`; it now overlays the photo's top-right corner —
+  its solid `bg-citrus` keeps it readable).
+- **1-col thumbnail cap (staffreview #5):** a full-width *square* photo at
+  `grid-cols-1` (~320–360px) is ~320px tall per card → long scroll. Cap the thumb
+  height (e.g. `aspect-square w-full` with `max-h-40`, or a fixed `h-28`/`h-32` +
+  `object-cover`) so 1-col stays scannable. Exact value is a QA/visual call in
+  execution — flag it as a tunable, don't ship an un-capped full-width square.
 - `p.photo_url`, `p.initials`, `p.hue` now read off the catalog product.
 - `buildAddCardLabel(p.name, p.pack_label)` stays on the Card's `aria-label` —
   a11y unaffected by the visual change.
@@ -166,9 +193,22 @@ props: { photoUrl?: string | null; initials?: string; hue?: number;
 - Product-list rows: small leading `ProductThumb` (size variant) next to the name.
 - Edit-metadata dialog (already manager-session, already calls `updateProductMeta`):
   add a photo control — current photo preview (or chip), "Upload photo" (file
-  input → client downscale → POST to `generateProductPhotoUploadUrl` result →
-  hold storageId in local state), "Remove photo" (sets a local `removePhoto` flag).
-  On Save, pass `photo_storage_id`: `removePhoto ? null : (uploadedId ?? undefined)`.
+  input `accept="image/*"` → client downscale → POST to
+  `generateProductPhotoUploadUrl` result → hold storageId in local state),
+  "Remove photo" (sets a local `removePhoto` flag). On Save, pass
+  `photo_storage_id`: `removePhoto ? null : (uploadedId ?? undefined)`.
+- **Idempotency-intent rotation (staffreview #3):** the upload-URL mutation is
+  idempotency-cached — a replayed key returns the *same* (short-lived) upload
+  target. Give it a dedicated `useIdempotency("catalog.photoUploadUrl")` intent and
+  `clearIntent` it after each successful POST, so a second photo upload in the same
+  session mints a fresh URL (matches the existing rotate-on-success pattern in this
+  file). The same file input works on phone (camera/gallery) and PC — no separate
+  path.
+
+> The three booth photos (`docs/frollie photoso/Frollie {1,3,8}pc.webp`, already
+> webp, named to the Dubai 1/3/8pc products) are wired in as the **initial seed
+> photos** during execution (seed sets `photo_storage_id` via a one-off storage
+> insert), so the booth has real photos on day one without a manual re-upload.
 
 **(e) Client downscale helper** — `src/lib/imageDownscale.ts` (new, pure-ish):
 `downscaleToWebp(file: File, size = 400): Promise<Blob>` — load into an
