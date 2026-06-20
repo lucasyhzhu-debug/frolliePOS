@@ -55,14 +55,16 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   await page.waitForURL(/\/refund$/, { timeout: 15_000 });
 
   // Prove the refund actually COMMITTED (not just navigation): re-open the
-  // transaction detail and assert the persisted refund-status badge flipped
-  // from "LUNAS" to "DIKEMBALIKAN". This is a 1-item / 1-qty FULL refund, so
-  // refundStatus() returns "full" → REFUND_BADGE.full.label === "DIKEMBALIKAN"
-  // (src/lib/pos-labels.ts:12, rendered at history/$txnId.tsx:163). The txn
-  // drops off the /refund refundable list, so we assert against the detail
-  // badge rather than the list.
-  // Exact match: "SEBAGIAN DIKEMBALIKAN" (partial) also contains "DIKEMBALIKAN",
-  // so assert the precise full-refund label to distinguish full from partial.
+  // transaction detail and assert the persisted refund-status badge flipped to
+  // the full-refund label. This is a 1-item / 1-qty FULL refund, so
+  // refundStatus() returns "full" → REFUND_BADGE.full.labelKey ===
+  // "history.badgeRefunded". The badge is now locale-driven (ADR-049); the
+  // pre-login / default-staff locale is "en" (CLAUDE.md #24), so it renders
+  // "REFUNDED" (was the hardcoded Indonesian "DIKEMBALIKAN" before i18n).
+  // The txn drops off the /refund refundable list, so we assert against the
+  // detail badge rather than the list.
+  // Exact match: "PARTIALLY REFUNDED" (partial) also contains "REFUNDED", so
+  // assert the precise full-refund label to distinguish full from partial.
   await page.goto(`/history/${txnId}`);
-  await expect(page.getByTestId("history-refund-status")).toHaveText(/^DIKEMBALIKAN$/i);
+  await expect(page.getByTestId("history-refund-status")).toHaveText(/^REFUNDED$/i);
 });
