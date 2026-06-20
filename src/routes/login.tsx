@@ -40,12 +40,6 @@ export default function LoginRoute() {
   const [pinReset, setPinReset] = useState(0);
 
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
-  // Hold the green "Welcome" flash for a beat before navigating away; cleared on
-  // unmount so a fast unmount can't fire navigate after teardown.
-  const successTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => {
-    if (successTimer.current !== undefined) clearTimeout(successTimer.current);
-  }, []);
 
   // Redirect immediately if booth is handover_pending — incoming staff should
   // complete the handover checklist, not go through the plain login flow.
@@ -163,11 +157,14 @@ export default function LoginRoute() {
         }
       }
 
+      // Navigate synchronously. A deferred (setTimeout) navigate is unsafe here:
+      // storeSession() flips useSession to "loading" (stored id set, getSession
+      // not yet resolved), which makes RootLayout swap the Outlet for its
+      // fallback — unmounting THIS route and cancelling any pending timer before
+      // it fires, stranding the staffer on /login. The success tint still paints
+      // for the render before unmount. (Regression: PR #104 / fixed here.)
       setPhase({ kind: "success" });
-      if (successTimer.current !== undefined) clearTimeout(successTimer.current);
-      successTimer.current = window.setTimeout(() => {
-        navigate(target, { replace: true });
-      }, 200);
+      navigate(target, { replace: true });
     } catch (err) {
       // errorMessage unwraps ConvexError.data (a raw err.message would miss it);
       // the LOCKED_OUT/INVALID_PIN codes are thrown as plain Errors so they pass

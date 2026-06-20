@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — Hotfix: login navigation + refund e2e i18n
+
+- **Login regression (from #7):** post-login navigation was deferred behind a 200ms "Welcome" timer that got cancelled when `storeSession()` briefly flipped the session to `loading` and RootLayout unmounted the login route — stranding staff on the PIN screen. Now navigates synchronously on success (the success tint still paints for the render before unmount). Fixed every e2e sign-in (7 specs were timing out on the home heading).
+- **Refund e2e (from #1):** the refund-status badge is now locale-driven (default `en`), so the detail badge renders `REFUNDED`, not the old hardcoded `DIKEMBALIKAN`. Updated the assertion to match.
+
 ## 2026-06-20 — v1.2 #7 + #11: Login PIN feedback
 
 - Keypad keys show a pressed state and lock with a "Verifying…" spinner while the PIN is checked.
