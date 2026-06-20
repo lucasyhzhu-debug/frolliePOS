@@ -2,6 +2,18 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — v1.2 #12 inline messaging (slice 2)
+
+- Converted sync form-validation toasts to inline `FieldMessage` in settlements,
+  mgr/staff (also closing an i18n literal gap), device activation, and mgr/receipt logo.
+- Refactored stock/$skuId server errors behind a local `humanizeThresholdError`.
+- Extended the ADR-048 ESLint fence: registered 6 files + banned `toast.error(t(...))`
+  (the post-i18n shape of an escaped sync validation).
+- Repaired ESLint flat-config block ordering: the `#12` fence block was previously
+  placed before the `#1` i18n block — because flat-config last-wins, this made the fence
+  dead for all registered files. Block moved after `#1`; i18n selectors duplicated into
+  `#12` so files in both registries carry both fences.
+
 ## 2026-06-20 — v1.2 #3: Product photos + sale-grid title legibility
 
 - Products can carry a manager-uploaded photo (manager-session); products without one render a deterministic colored initials chip (existing `initials`/`hue`).
