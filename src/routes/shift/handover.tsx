@@ -11,6 +11,7 @@ import { PinSheet } from "@/components/pos/PinSheet";
 import CountStep from "@/components/pos/CountStep";
 import { StaffListItem } from "@/components/auth/StaffListItem";
 import { useT } from "@/lib/i18n";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Shift handover — incoming staff flow (spec §3C, Task 15).
@@ -83,7 +84,10 @@ export default function ShiftHandover() {
       storeSession(sessionId, stage.staff._id);
       setStage({ kind: "count", sessionId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("shiftHandover.loginFailed");
+      // errorMessage unwraps ConvexError.data — a raw err.message would miss the
+      // INVALID_PIN / LOCKED_OUT codes thrown through loginWithPin (parity with
+      // login.tsx). Falls back to the generic copy when there's no message.
+      const msg = errorMessage(err) || t("shiftHandover.loginFailed");
       const friendly =
         msg.includes("INVALID_PIN") ? t("shiftHandover.wrongPin") :
         msg.includes("LOCKED_OUT") ? t("shiftHandover.accountLocked") :

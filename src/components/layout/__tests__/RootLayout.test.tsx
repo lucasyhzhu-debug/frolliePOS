@@ -31,6 +31,11 @@ vi.mock("@/hooks/useBoothState", () => ({
 vi.mock("@/components/pos/PrinterProvider", () => ({
   PrinterProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+// RouteFallback (rendered by the loading-hold branch) calls useT — stub it so the
+// test tree doesn't need a LocaleProvider wrapper.
+vi.mock("@/lib/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 // ---------------------------------------------------------------------------
 // Import AFTER mocks
@@ -165,6 +170,17 @@ describe("RootLayout — booth-state gate", () => {
     mockUseBoothState.mockReturnValue({ state: "open", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
     renderAt("/shift/handover");
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("shift-handover-page")).toBeNull();
+  });
+
+  it("holds loading (no /login bounce) on session-less /shift/handover while boothState is undefined", () => {
+    // Cold PWA relaunch: boothState not yet resolved. We must NOT redirect to
+    // /login (which re-fires getActiveStaff and bounces) before we know whether
+    // the booth is genuinely handover_pending — render the fallback instead (I-1).
+    mockUseSession.mockReturnValue(NO_SESSION);
+    mockUseBoothState.mockReturnValue(undefined);
+    renderAt("/shift/handover");
+    expect(screen.queryByTestId("login-page")).toBeNull();
     expect(screen.queryByTestId("shift-handover-page")).toBeNull();
   });
 });

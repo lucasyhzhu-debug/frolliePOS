@@ -25,7 +25,9 @@ const rotationPrompted = new Set<string>();
  *  3. SEC-03 forced PIN rotation → one-time redirect to /account when
  *     must_change_pin (soft; does not re-trap).
  *
- * /login is exempt from gate 2 only.
+ * /login is always exempt from gate 2; /shift/handover is exempt from gate 2 while
+ * booth state is "handover_pending" (the incoming staff authenticates session-less
+ * inside that screen — see the handover deadlock note below).
  * /activate, /approve/*, /r/* live OUTSIDE this layout (see router.tsx) so
  * neither gate applies to them — verified by src/router.test.tsx.
  */
@@ -48,6 +50,11 @@ export function RootLayout() {
   useStartupReconciliation(session.status === "active" ? session.sessionId : undefined);
 
   const isLogin = location.pathname === "/login";
+  const onHandoverRoute = location.pathname === "/shift/handover";
+  // Single source for the "handover_pending" check — consumed by both the
+  // no-session exemption below and the active-session SOP gate further down, so
+  // the two can't drift. `?.` so it's safely `false` while boothState loads.
+  const boothPending = boothState?.state === "handover_pending";
 
   // /shift/handover must be reachable WITHOUT an active session: handoverOut ends
   // the outgoing session, so during handover_pending the device has no session and
@@ -57,13 +64,23 @@ export function RootLayout() {
   // deadlock-bouncing forever (getActiveStaff re-fires on every remount — prod
   // incident 2026-06-20). Gated on the live booth state so a stale or manual visit
   // with no pending handover still correctly redirects to /login.
-  const isHandoverIn =
-    location.pathname === "/shift/handover" &&
-    boothState?.state === "handover_pending";
+  // NOTE: only the `session.status === "none"` gate below consults this flag, so an
+  // active-session visitor on /shift/handover is unaffected (the SOP gate handles them).
+  const isHandoverIn = onHandoverRoute && boothPending;
 
   // Show loading while: deviceId hasn't resolved, device-registration query is
-  // in-flight, or session is still validating against Convex.
-  if (deviceId === null || deviceRegistered === undefined || session.status === "loading") {
+  // in-flight, session is still validating, OR we're session-less on /shift/handover
+  // and booth state hasn't resolved yet. The last clause matters: `isHandoverIn` is
+  // `false` while boothState is undefined, so without holding here a cold PWA
+  // relaunch on /shift/handover would briefly bounce through /login (re-firing
+  // getActiveStaff) before settling. We must know whether it's genuinely
+  // handover_pending before choosing to exempt vs redirect (review I-1).
+  if (
+    deviceId === null ||
+    deviceRegistered === undefined ||
+    session.status === "loading" ||
+    (onHandoverRoute && session.status === "none" && boothState === undefined)
+  ) {
     return <RouteFallback />;
   }
 
@@ -106,7 +123,7 @@ export function RootLayout() {
     if (boothState.state === "closed" && location.pathname !== "/shift/start") {
       return <Navigate to="/shift/start" replace />;
     }
-    if (boothState.state === "handover_pending" && location.pathname !== "/shift/handover") {
+    if (boothPending && !onHandoverRoute) {
       return <Navigate to="/shift/handover" replace />;
     }
   }
