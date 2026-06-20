@@ -48,7 +48,12 @@ export function DeviceActivation() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deviceId) { const msg = t("deviceActivation.toastDeviceNotReady"); toast.error(msg); return; }
+    if (!deviceId) {
+      // var-idiom: precondition toast, not sync validation (ADR-048)
+      const msg = t("deviceActivation.toastDeviceNotReady");
+      toast.error(msg);
+      return;
+    }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
     const next: Record<string, string> = {};
     if (!/^\d{6}$/.test(code)) next["act.code"] = t("deviceActivation.toastCodeDigits");

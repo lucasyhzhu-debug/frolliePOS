@@ -588,6 +588,7 @@ function MgrStaffInner({
               <Label>{t("mgrStaff.labelInitialPin")}</Label>
               <div
                 id="staff-add-pin"
+                tabIndex={-1}
                 className="flex justify-center gap-3 py-1"
                 aria-invalid={!!errors["add.pin"]}
                 aria-describedby={errors["add.pin"] ? "add.pin-error" : undefined}

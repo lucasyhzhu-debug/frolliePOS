@@ -199,7 +199,7 @@ that files appearing in both registries carry both fences simultaneously.
 - `src/routes/mgr/staff.tsx` — "name required" / "PIN required" validation (also closed
   an i18n literal gap: a hardcoded `"Staff name is required"` literal bypassed the #1
   fence until this slice)
-- `src/components/auth/DeviceActivation.tsx` — setup-code validation
+- `src/components/layout/DeviceActivation.tsx` — setup-code validation
 - `src/routes/mgr/receipt.tsx` — logo file validation
 
 **Files joining the fence only (server errors via humanizers, no `FieldMessage` conversion needed):**

@@ -131,6 +131,7 @@ function SettlementsInner({
     if (!/^\d{4}$/.test(fLast4)) next["entry.last4"] = t("settlements.errorLast4Invalid");
     if (gross !== null && mdr !== null && gross - mdr < 0) next["entry.mdr"] = t("settlements.errorNetInvalid");
     if (applyErrors("entry.", next, ENTRY_FOCUS)) return;
+    // non-null: guarded above — applyErrors returned (and we'd have returned) if any were null
     setPinAction({ kind: "enterSettlement", settlementDate: fDate, grossAmount: gross!, mdrAmount: mdr!, transactionCount: count!, bcaAccountLast4: fLast4 });
     setPinError(undefined);
   }

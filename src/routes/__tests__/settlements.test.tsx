@@ -47,7 +47,7 @@ describe("settlements inline validation", () => {
   it("shows inline field errors and fires no toast on invalid submit", () => {
     renderRoute();
     fireEvent.click(screen.getByText("Record settlement"));  // settlements.recordButton
-    fireEvent.click(screen.getByRole("button", { name: "Continue" })); // settlements.next — enabled after gate-loosening (Step 4b)
+    fireEvent.click(screen.getByRole("button", { name: "Continue" })); // Continue is always enabled now; validation runs on submit
     expect(screen.getByText("Invalid date.")).toBeInTheDocument(); // settlements.errorDateInvalid
     expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
     expect(toastError).not.toHaveBeenCalled();

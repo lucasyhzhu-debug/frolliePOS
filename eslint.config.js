@@ -19,6 +19,22 @@ import reactHooks from "eslint-plugin-react-hooks";
 import noCrossModuleDbAccess from "./tools/eslint-rules/no-cross-module-db-access.js";
 import idempotencyRequired from "./tools/eslint-rules/idempotency-required.js";
 
+// ADR-049 i18n selectors — declared once here because flat config does NOT merge
+// no-restricted-syntax arrays; the last matching config's array replaces earlier
+// ones. The v1.2 #12 block must re-include these so files in both registries
+// (i18n + inline-messaging) still get the i18n fence.
+const I18N_JSX_TEXT_SELECTOR = {
+  selector: "JSXText[value=/[A-Za-z]{3,}/]",
+  message:
+    "Converted file: user-facing text must go through t(...) (ADR-049), not a hardcoded JSX literal.",
+};
+const I18N_TEXT_PROP_SELECTOR = {
+  selector:
+    "JSXAttribute[name.name=/^(label|placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
+  message:
+    "Converted file: text props must use t(...) (ADR-049).",
+};
+
 // Single source of truth for table ownership. When a new module + table pair
 // lands, add the mapping here. Tables not present here are unpoliced.
 const OWNERSHIP = {
@@ -223,17 +239,8 @@ export default [
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "JSXText[value=/[A-Za-z]{3,}/]",
-          message:
-            "Converted file: user-facing text must go through t(...) (ADR-049), not a hardcoded JSX literal.",
-        },
-        {
-          selector:
-            "JSXAttribute[name.name=/^(label|placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
-          message:
-            "Converted file: text props must use t(...) (ADR-049).",
-        },
+        I18N_JSX_TEXT_SELECTOR,
+        I18N_TEXT_PROP_SELECTOR,
       ],
     },
   },
@@ -245,9 +252,9 @@ export default [
     // literal first arg = sync validation (must be inline); dynamic first arg
     // (toast.error(humanizeX(err))) = server/async, stays legal; toast.success
     // stays legal. Append files here as later #12 slices convert them. ADR-048.
-    // NOTE: this block intentionally comes AFTER the v1.2 #1 i18n block so the
-    // toast selectors take precedence for files in both registries (flat config
-    // last-wins merge).
+    // NOTE: flat config does NOT merge no-restricted-syntax; the last matching
+    // config's array REPLACES earlier ones, so this block must re-include the
+    // i18n selectors for files that appear in both registries.
     files: [
       "src/routes/mgr/products.tsx",
       "src/routes/mgr/vouchers.tsx",
@@ -262,17 +269,8 @@ export default [
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "JSXText[value=/[A-Za-z]{3,}/]",
-          message:
-            "Converted file: user-facing text must go through t(...) (ADR-049), not a hardcoded JSX literal.",
-        },
-        {
-          selector:
-            "JSXAttribute[name.name=/^(label|placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
-          message:
-            "Converted file: text props must use t(...) (ADR-049).",
-        },
+        I18N_JSX_TEXT_SELECTOR,
+        I18N_TEXT_PROP_SELECTOR,
         {
           selector:
             "CallExpression[callee.object.name='toast'][callee.property.name='error'][arguments.0.type='Literal']",
