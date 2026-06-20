@@ -29,6 +29,21 @@ export default function LoginRoute() {
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
 
+  // Async result-state for the PIN submit, lifted out of toasts into an inline
+  // FieldMessage (ADR-048): idle → pending → success | error.
+  type Phase =
+    | { kind: "idle" }
+    | { kind: "pending" }
+    | { kind: "error"; message: string; sticky: boolean }
+    | { kind: "success" };
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // Hold the green "Welcome" flash for a beat before navigating away; cleared on
+  // unmount so a fast unmount can't fire navigate after teardown.
+  const successTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => {
+    if (successTimer.current !== undefined) clearTimeout(successTimer.current);
+  }, []);
+
   // Redirect immediately if booth is handover_pending — incoming staff should
   // complete the handover checklist, not go through the plain login flow.
   useEffect(() => {
@@ -66,6 +81,12 @@ export default function LoginRoute() {
     setStage({ kind: "pin", staff: match });
   }, [staff, boothState]);
 
+  // Clear any stale inline message when the stage changes (e.g. switching staff
+  // or returning to the list).
+  useEffect(() => {
+    setPhase({ kind: "idle" });
+  }, [stage]);
+
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
   // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
   // every wrong-PIN attempt re-uses the same key and the server's
@@ -101,38 +122,51 @@ export default function LoginRoute() {
 
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
-    if (!deviceId) { toast.error(t("login.deviceNotReady")); return; }
+    if (!deviceId) {
+      setPhase({ kind: "error", message: t("login.deviceNotReady"), sticky: false });
+      return;
+    }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
+    setPhase({ kind: "pending" });
     try {
       const { sessionId } = await login({
         staffId: stage.staff._id, pin, deviceId, idempotencyKey,
       });
       storeSession(sessionId, stage.staff._id);
 
-      // Navigation fork on resolved booth state (v1.2 #6).
-      //   closed        → start of day checklist
+      // Resolve the navigation target on the booth state (v1.2 #6), then flash
+      // the green "Welcome" before navigating.
+      //   closed              → start of day checklist
       //   locked + same staff → record resume, then home
-      //   open or undefined → home (normal login)
+      //   open or undefined   → home (normal login)
       // (handover_pending is handled by the redirect effect above.)
+      let target = "/";
       if (boothState?.state === "closed") {
-        navigate("/shift/start", { replace: true });
+        target = "/shift/start";
       } else if (boothState?.state === "locked" && stage.staff._id === boothState.staffId) {
         // Only the staff who locked the booth resumes — a different staff logging
         // in during "locked" skips recordResume and goes straight to home.
         await recordResume({ idempotencyKey: `${idempotencyKey}:resume`, sessionId });
-        navigate("/", { replace: true });
-      } else {
-        navigate("/", { replace: true });
       }
+
+      setPhase({ kind: "success" });
+      successTimer.current = window.setTimeout(() => {
+        navigate(target, { replace: true });
+      }, 200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("login.errorGeneric");
       const lockedMatch = msg.match(/LOCKED_OUT:(\d+)/);
-      const friendly =
-        lockedMatch
-          ? t("login.errorLockedOut", { seconds: lockedMatch[1] })
-          : msg.includes("INVALID_PIN") ? t("login.errorWrongPin") :
-            msg;
-      toast.error(friendly);
+      if (lockedMatch) {
+        setPhase({
+          kind: "error",
+          message: t("login.errorLockedOut", { seconds: lockedMatch[1] }),
+          sticky: true,
+        });
+      } else if (msg.includes("INVALID_PIN")) {
+        setPhase({ kind: "error", message: t("login.errorWrongPin"), sticky: false });
+      } else {
+        setPhase({ kind: "error", message: msg, sticky: false });
+      }
       setPinReset((n) => n + 1);
     }
   };
@@ -182,7 +216,18 @@ export default function LoginRoute() {
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
-          <PinEntry onSubmit={onPinSubmit} reset={pinReset} />
+          <PinEntry
+            onSubmit={onPinSubmit}
+            reset={pinReset}
+            pending={phase.kind === "pending"}
+            phase={phase.kind === "error" ? "error" : phase.kind === "success" ? "success" : "idle"}
+            message={
+              phase.kind === "error" ? phase.message
+              : phase.kind === "success" ? t("login.welcome")
+              : undefined
+            }
+            persist={phase.kind === "error" ? phase.sticky : false}
+          />
           <button
             type="button"
             onClick={() => setStage({ kind: "list" })}

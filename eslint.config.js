@@ -168,7 +168,7 @@ export default [
     // literal first arg = sync validation (must be inline); dynamic first arg
     // (toast.error(humanizeX(err))) = server/async, stays legal; toast.success
     // stays legal. Append files here as later #12 slices convert them. ADR-048.
-    files: ["src/routes/mgr/products.tsx", "src/routes/mgr/vouchers.tsx"],
+    files: ["src/routes/mgr/products.tsx", "src/routes/mgr/vouchers.tsx", "src/routes/login.tsx"],
     rules: {
       "no-restricted-syntax": [
         "error",
