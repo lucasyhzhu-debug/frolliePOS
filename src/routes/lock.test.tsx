@@ -37,6 +37,16 @@ vi.mock("@/hooks/useIdempotency", () => ({
   clearIntent: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Stable synchronous device id. The REAL useDeviceId starts null and resolves
+// via an async IDB effect; without this mock the manager-takeover test races
+// that resolution — under full-suite worker contention `deviceId` is still null
+// when the PIN auto-submits, so handleTakeoverPin's `!deviceId` guard returns
+// early and managerTakeover is never called (flaky "spy called 0 times").
+// Mirrors handover/login/useBoothState tests.
+vi.mock("@/hooks/useDeviceId", () => ({
+  useDeviceId: () => "test-device-id",
+}));
+
 vi.mock("@/components/layout/ConnDot", () => ({
   ConnDot: () => null,
 }));
