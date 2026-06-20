@@ -116,8 +116,8 @@ describe("HistoryIndex route (/history)", () => {
     expect(screen.getByText(/75\.000/)).toBeInTheDocument();
     // Instrument badge.
     expect(screen.getByText("QRIS")).toBeInTheDocument();
-    // Refund status badge (no refunds → LUNAS).
-    expect(screen.getByText("LUNAS")).toBeInTheDocument();
+    // Refund status badge (no refunds → PAID; English default in tests).
+    expect(screen.getByText("PAID")).toBeInTheDocument();
   });
 
   it("hides the date picker for staff sessions", () => {

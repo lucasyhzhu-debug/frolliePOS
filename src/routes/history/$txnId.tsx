@@ -144,7 +144,7 @@ export default function HistoryDetail() {
   const canRefund = txn.status === "paid" && status !== "full";
   const paidAt = txn.paid_at ?? txn.created_at;
   const confirmedViaLabel = txn.confirmed_via
-    ? CONFIRMED_VIA_LABEL[txn.confirmed_via]
+    ? t(CONFIRMED_VIA_LABEL[txn.confirmed_via])
     : "—";
 
   return (
@@ -164,7 +164,7 @@ export default function HistoryDetail() {
               className={`text-[10px] uppercase tracking-wide ${badge.cls}`}
               data-testid="history-refund-status"
             >
-              {badge.label}
+              {t(badge.labelKey)}
             </Badge>
           </div>
           <div className="mt-1 text-xs text-muted-foreground">

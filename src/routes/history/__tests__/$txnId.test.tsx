@@ -138,9 +138,9 @@ describe("HistoryDetail route (/history/:txnId)", () => {
     expect(screen.getByTestId("history-total").textContent).toMatch(
       /100\.000/,
     );
-    // No refunds → LUNAS badge.
+    // No refunds → PAID badge (English default in tests).
     expect(screen.getByTestId("history-refund-status")).toHaveTextContent(
-      "LUNAS",
+      "PAID",
     );
   });
 
