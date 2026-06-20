@@ -17,7 +17,7 @@ export type ReceiptSettings = {
   address: string;
   contact: string;
   instagram_handle: string;          // e.g. "@frollie.id"
-  footer_text: string;               // v0.5.3b configurable; default "Terima kasih! 💛"
+  footer_text: string;               // v0.5.3b configurable; default "Thank you!" (v1.2 #13)
   logo_url: string | null;           // v0.5.3b uploaded logo; null → emoji fallback
 };
 
@@ -94,7 +94,7 @@ export function renderReceipt(vm: ReceiptViewModel): string {
   // definition). Refund states keep their badge — it carries real signal.
   const statusBadge = status === "paid"
     ? ""
-    : `<div style="text-align:center;background:${statusStyle.bg};color:${statusStyle.fg};padding:6px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:14px">${statusStyle.label}</div>`;
+    : `<div style="text-align:center;background:${statusStyle.bg};color:${statusStyle.fg};padding:6px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:14px">${escapeHtml(statusStyle.label)}</div>`;
 
   const linesHtml = vm.lines
     .map((l) => {

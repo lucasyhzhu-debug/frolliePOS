@@ -104,7 +104,7 @@ export const SAMPLE_RECEIPT: {
   statusLabel: string;
 } = {
   status: "paid",
-  statusLabel: "LUNAS",
+  statusLabel: "LUNAS",   // ignored for "paid" receipts (v1.2 #13 suppresses the badge)
   viewModel: {
     receipt_number: "R-2026-0042",
     paid_at: 1_780_000_000_000,

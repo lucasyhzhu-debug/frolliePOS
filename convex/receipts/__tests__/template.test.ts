@@ -113,9 +113,9 @@ describe("renderReceipt — paid-only (PR A)", () => {
   });
 
   it("renders method only when no RRN (no trailing middot)", () => {
-    const html = renderReceipt({ ...baseVm(), payment_method: "Transfer Bank (manual)", rrn: undefined });
-    expect(html).toContain("Transfer Bank (manual)");
-    expect(html).not.toContain("Transfer Bank (manual) ·");
+    const html = renderReceipt({ ...baseVm(), payment_method: "Transfer bank (manual)", rrn: undefined });
+    expect(html).toContain("Transfer bank (manual)");
+    expect(html).not.toContain("Transfer bank (manual) ·");
   });
 
   it("renders the em-dash method placeholder when no invoice resolved", () => {

@@ -404,9 +404,11 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
       .collect();
     // Reduce-pick-max instead of slice+sort — O(n) single pass, no extra
-    // allocation. cancelled_at is NOT filtered out: PR B's refund flow may
-    // stamp cancelled_at on the paying invoice, but the receipt still needs
-    // the original method + RRN.
+    // allocation. cancelled_at is NOT filtered out: a refund commit may stamp
+    // cancelled_at on the original paying invoice, but the receipt still needs
+    // its method + RRN. (manual_bca receipts bypass this query entirely upstream
+    // in receipts/internal — see the v1.2 #13 note there — so a cancelled QRIS
+    // invoice can no longer leak onto a manual-transfer receipt.)
     return invoices.reduce<typeof invoices[number] | null>(
       (best, cur) => (best == null || cur.created_at > best.created_at ? cur : best),
       null,

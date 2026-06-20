@@ -110,14 +110,14 @@ describe("getReceiptForPrint", () => {
 });
 
 describe("getReceiptForPrint — payment method label", () => {
-  it("labels a manual_bca sale 'Transfer Bank (manual)' with no RRN, ignoring the cancelled QRIS invoice", async () => {
+  it("labels a manual_bca sale 'Transfer bank (manual)' with no RRN, ignoring the cancelled QRIS invoice", async () => {
     const t = convexTest(schema);
     const { staffId, sessionId } = await seedStaff(t, "staff");
     const txnId = await seedPaidTxn(t, staffId, Date.now(), {
       confirmedVia: "manual_bca", invoiceReceiptId: "qris-rrn-xyz", invoiceCancelled: true,
     });
     const res = await t.query(api.receipts.public.getReceiptForPrint, { sessionId, txnId });
-    expect(res!.viewModel.payment_method).toBe("Transfer Bank (manual)");
+    expect(res!.viewModel.payment_method).toBe("Transfer bank (manual)");
     expect(res!.viewModel.rrn).toBeUndefined();
   });
 

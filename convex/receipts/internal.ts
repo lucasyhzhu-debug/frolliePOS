@@ -33,7 +33,7 @@ async function buildVmFromTxnWithLines(
       voucher_code_snapshot?: string;
       voucher_discount: number;
       total: number;
-      confirmed_via?: "webhook" | "polling" | "manual" | "manual_bca" | null;
+      confirmed_via?: "webhook" | "polling" | "manual" | "manual_bca";
     };
     lines: Array<{
       product_name_snapshot: string;
@@ -60,7 +60,12 @@ async function buildVmFromTxnWithLines(
   let payment_method: string;
   let rrn: string | undefined;
   if (txn.confirmed_via === "manual_bca") {
-    payment_method = "Transfer Bank (manual)";
+    // POC-tradeoff: this label is intentionally duplicated from
+    // CONFIRMED_VIA_LABEL.manual_bca (src/lib/pos-labels.ts) and the
+    // charge-success screen. Those are i18n-keyed UI surfaces; the receipt is
+    // deliberately OUT of i18n scope (ADR-049 — body stays Indonesian), so a
+    // shared constant would couple the two boundaries. Keep the literal here.
+    payment_method = "Transfer bank (manual)";
     rrn = undefined;
   } else {
     // ADR-034 — receipts must not query pos_xendit_invoices directly.

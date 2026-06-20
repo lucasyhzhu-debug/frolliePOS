@@ -6,7 +6,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
 - Paid receipts no longer print the "LUNAS" / "[ LUNAS ]" status badge — a handed receipt is paid by definition. Refund-state badges (`SEBAGIAN DIKEMBALIKAN` / `DIKEMBALIKAN`) are kept.
 - Payment block collapsed to a single line: `QRIS · RRN` (HTML middot) / `QRIS - RRN` (thermal ASCII); method-only when there's no RRN. Dropped the "Dibayar via" and "RRN:" labels.
-- Manual-BCA sales now render `Transfer Bank (manual)` instead of the leaked cancelled-QRIS method (the receipt was reading the dead invoice, not the txn's `confirmed_via`).
+- Manual-BCA sales now render `Transfer bank (manual)` instead of the leaked cancelled-QRIS method (the receipt was reading the dead invoice, not the txn's `confirmed_via`).
 - Receipt footer default → "Thank you!"; the business-name default was already "FROLLIE".
 - **Ops (owner-owned):** update the live `pos_settings` row via `/mgr/receipt` — business name → `FROLLIE`, footer → `Thank you!`. The code default does not overwrite an already-set field.
 - Renderer change is **not retroactive** to receipts already cached in `pos_receipt_html_cache` (24h TTL); they self-heal as the TTL expires. No forced purge.
