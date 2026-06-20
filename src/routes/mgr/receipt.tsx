@@ -23,13 +23,19 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldMessage } from "@/components/ui/field-message";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
+
+const LOGO_FOCUS: Record<string, string> = {
+  "logo.file": "logo-input",
+};
 
 const MAX_FIELD_LEN = 120;
 const MAX_LOGO_BYTES = 1_000_000;
@@ -78,6 +84,8 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const config = useQuery(api.settings.public.getReceiptConfig, { sessionId }) as
     | ReceiptConfig
     | undefined;
+
+  const { errors, clearFieldError, clearErrors, applyErrors } = useFieldErrors();
 
   // One idempotency intent per distinct mutation surface.
   const uploadKey = useIdempotency("settings.logoUpload");
@@ -139,16 +147,12 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   // ─── Logo upload ────────────────────────────────────────────────────────────
 
   async function onPickLogo(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("mgrReceipt.logoNotImage"));
-      return;
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      toast.error(t("mgrReceipt.logoTooLarge"));
-      return;
-    }
-    if (!uploadKey) {
-      toast.error(t("mgrReceipt.logoNotReady"));
+    const next: Record<string, string> = {};
+    if (!file.type.startsWith("image/")) next["logo.file"] = t("mgrReceipt.logoNotImage");
+    else if (file.size > MAX_LOGO_BYTES) next["logo.file"] = t("mgrReceipt.logoTooLarge");
+    else if (!uploadKey) next["logo.file"] = t("mgrReceipt.logoNotReady");
+    if (applyErrors("logo.", next, LOGO_FOCUS)) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     setUploading(true);
@@ -185,12 +189,13 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       setLogoPreviewUrl(objectUrl);
       if (prev) URL.revokeObjectURL(prev);
 
+      clearErrors("logo.");
       toast.success(t("mgrReceipt.logoReady"));
     } catch {
       // Rotate the intent BEFORE the toast so the next retry mints a fresh
       // upload URL instead of replaying the stale one cached on `uploadKey`.
       await clearIntent("settings.logoUpload");
-      toast.error(t("mgrReceipt.logoUploadFailed"));
+      const msg = t("mgrReceipt.logoUploadFailed"); toast.error(msg); // var-idiom (async)
     } finally {
       setUploading(false);
       // Reset the input so the same file can be re-picked if needed.
@@ -349,14 +354,20 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               </div>
               <input
                 ref={fileInputRef}
+                id="logo-input"
                 type="file"
                 accept="image/*"
                 className="hidden"
+                aria-describedby={errors["logo.file"] ? "logo.file-error" : undefined}
                 onChange={(e) => {
+                  clearFieldError("logo.file");
                   const f = e.target.files?.[0];
                   if (f) void onPickLogo(f);
                 }}
               />
+              {errors["logo.file"] && (
+                <FieldMessage id="logo.file-error">{errors["logo.file"]}</FieldMessage>
+              )}
             </div>
 
             <div className="flex justify-end pt-2">
