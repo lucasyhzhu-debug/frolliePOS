@@ -13,6 +13,7 @@ import { PinEntry } from "@/components/auth/PinEntry";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
+import { hasShownDenial, markDenialShown } from "@/lib/pinResetDenials";
 
 type Stage =
   | { kind: "list" }
@@ -103,11 +104,12 @@ export default function LoginRoute() {
     api.approvals.public.getRecentPinResetForStaff,
     stage.kind === "pin" ? { staffId: stage.staff._id } : "skip",
   );
-  const shownDenialRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!recentPinReset || recentPinReset.status !== "denied") return;
-    if (shownDenialRef.current.has(recentPinReset.requestId)) return;
-    shownDenialRef.current.add(recentPinReset.requestId);
+    // Dedup across component remounts via localStorage — an in-memory ref resets
+    // on every mount, re-firing the denial toast each time login re-renders (#11).
+    if (hasShownDenial(recentPinReset.requestId)) return;
+    markDenialShown(recentPinReset.requestId);
     const name = recentPinReset.denied_by_manager_name ?? t("login.managerFallback");
     const code = recentPinReset.denied_by_manager_code;
     const denierLabel = code ? `${name} (${code})` : name;

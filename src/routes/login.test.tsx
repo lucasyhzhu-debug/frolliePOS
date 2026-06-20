@@ -407,3 +407,44 @@ describe("Login PIN feedback", () => {
     );
   });
 });
+
+// ─── PIN-reset denial toast: remount dedup (#11) ─────────────────────────────
+
+describe("PIN reset denial toast (remount dedup)", () => {
+  // Discriminate queries by ARGS (robust across re-renders), not call-order:
+  //   getActiveStaff            → args {}            → staff list
+  //   getRecentPinResetForStaff → args { staffId }   → denied object
+  function wireDenied() {
+    (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
+      if (args === "skip") return undefined;
+      if (args && typeof args === "object" && "staffId" in (args as object)) {
+        return {
+          requestId: "reset-req-1",
+          status: "denied",
+          denied_by_manager_name: "Sari",
+          denied_by_manager_code: "S-02",
+          deny_reason: "not you",
+        };
+      }
+      return [LUCAS, SARI]; // getActiveStaff
+    });
+  }
+
+  it("fires exactly once across a remount", async () => {
+    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id); // pre-stage into PIN view
+    wireDenied();
+    const { toast } = await import("sonner");
+
+    const first = renderLogin();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    // Remount within the window (no localStorage.clear between — beforeEach
+    // cleared once at test start). The denial query returns denied again.
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
+    );
+    expect(toast.error).toHaveBeenCalledTimes(1); // still once — not twice
+  });
+});
