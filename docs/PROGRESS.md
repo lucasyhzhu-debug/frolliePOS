@@ -2182,8 +2182,11 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 7 (📋 planned 2026-06-20):**
 - Receipt cleanup (#13) — drop the redundant `LUNAS` paid badge (keep refund-state badges), collapse the payment block to one line (`QRIS · RRN` HTML / `QRIS - RRN` thermal), fix the manual-BCA method leak (`Transfer Bank (manual)` from `confirmed_via`, not the cancelled QRIS invoice), and move the footer default to English (`Thank you!`). Receipt body stays Indonesian (ADR-049 defers receipt i18n). Both staffreview gates ✅.
 
+**In Phase 8 (📋 planned 2026-06-20):**
+- Product photos + sale-grid title legibility (#3) — optional manager-uploaded photo with a deterministic colored initials-chip fallback (existing `initials`/`hue`), rendered on `/sale` + `/mgr/products`; narrow-phone title truncation fixed in the same Option-A card (square thumb, 2-line `line-clamp-2` title, 1-col collapse). Net-new photo path mirrors the receipt-logo upload; no schema change (`photo_storage_id` now live). Both staffreview gates ✅.
+
 **Still not yet (later v1.2 phases):**
-- Real Xendit refunds (#9, spike-gated), product photos (#3, incl. sale-grid title legibility)
+- Real Xendit refunds (#9, spike-gated)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2652,6 +2655,61 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **notes:**
     - 2026-06-20: planned via /spec-plan-pipeline; both staffreview gates ✅ approved (0 Critical). Owner-owned post-merge: edit prod `pos_settings` row via `/mgr/receipt` (business name → FROLLIE, footer → Thank you!).
     - 2026-06-20: SHIPPED via PR #111 (squash 2b89bef). /triple-review (0 Critical) + /simplify xhigh clean; 54 receipt/escpos tests green, typecheck + build:fe pass.
+
+**Phase 8 — #3 product photos + sale-grid title legibility (📋 PLANNED 2026-06-20):** give products an optional manager-uploaded photo with a deterministic colored initials-chip fallback — `initials`/`hue` already exist and are captured/seeded, so only the render is new — rendered on the `/sale` grid + manager product surfaces; AND fix narrow-phone title truncation in the same Option-A card (square thumb on top, 2-line `line-clamp-2` title, `grid-cols-1` collapse + `items-stretch`). Net-new = the photo path: manager-session `generateProductPhotoUploadUrl` (mirrors the v0.5.3b receipt-logo upload) → client downscale to a square ~400px webp (EXIF-honored) → fold `storageId` into `updateProductMeta` (keep/set/remove) → `catalog` resolves `photo_url`. No schema change (`photo_storage_id` was a dead field, now live); no superseded-blob delete (mirror reference). Both staffreview gates ✅.
+
+### Backend (`convex/`) — Phase 8 (#3 product photos)
+- 📋 **[v12-be-photo-api]** `catalog/public.ts` — `generateProductPhotoUploadUrl` (manager-session, idempotent) + extend `updateProductMeta` with `photo_storage_id` (undefined=keep / null=remove / id=set, `photo_changed` audit) + resolve `photo_url` in `catalog` & `listAllProducts`
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-20-product-photos-title-legibility-design.md), [Plan](./superpowers/plans/2026-06-20-product-photos-title-legibility.md), [spec review](./reviews/staffreview-product-photos-spec-2026-06-20.md), [plan review](./reviews/staffreview-product-photos-plan-2026-06-20.md)
+  - **subtasks:**
+    - [ ] `generateProductPhotoUploadUrl` (mirror `settings.generateLogoUploadUrl`) + manager/non-manager auth tests
+    - [ ] `updateProductMeta` photo keep/set/remove + audit flag; tests (incl. name-only-edit preserves photo)
+    - [ ] `catalog` + `listAllProducts` resolve `photo_url` (additive); projection test
+  - **notes:** _(empty)_
+
+### Frontend (`src/`) — Phase 8 (#3 product photos)
+- 📋 **[v12-fe-product-thumb]** `src/lib/{productThumb,imageDownscale}.ts` + `components/pos/ProductThumb.tsx` + i18n — pure initials/hue chip logic, square-webp EXIF-honored downscale, the photo/chip render component (decorative `alt=""`, `onError`→chip), and `mgrProducts.*` photo-control keys (en+id)
+  - **agent:** `ui-component-builder`
+  - **deps:** none
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-product-photos-title-legibility.md)
+  - **subtasks:**
+    - [ ] `productThumb.ts` deriveInitials/resolveHue/chipColors + unit tests
+    - [ ] `imageDownscale.ts` square webp + `imageOrientation:"from-image"` (manual-smoke)
+    - [ ] `ProductThumb` component (photo→img, error→chip)
+    - [ ] i18n keys for photo controls (en + id, key-union parity)
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-sale-grid]** `routes/sale/index.tsx` — relayout the product card once: `ProductThumb` (square, `max-h-40` cap) on top, drop `truncate` for `line-clamp-2`, responsive `grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 items-stretch` with `h-full` threaded grid-child→Card for equal height
+  - **agent:** `ui-component-builder`
+  - **deps:** v12-be-photo-api, v12-fe-product-thumb
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-product-photos-title-legibility.md)
+  - **subtasks:**
+    - [ ] Grid classes + `h-full` chain (motion.div→Card)
+    - [ ] Card: ProductThumb + 2-line title + price + qty badge
+    - [ ] Typecheck + sale tests green (aria-label unchanged)
+  - **notes:** _(empty)_
+- 📋 **[v12-fe-mgr-photo]** `routes/mgr/products.tsx` — Edit-dialog photo control (upload→downscale→POST→rotated idempotency; remove=`null`; object-URL preview revoke) + small leading `ProductThumb` on each product-list row
+  - **agent:** `frontend-integrator`
+  - **deps:** v12-be-photo-api, v12-fe-product-thumb
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-product-photos-title-legibility.md)
+  - **subtasks:**
+    - [ ] Photo state + `handlePhotoPick` (downscale + upload + `clearIntent` rotate)
+    - [ ] Edit-dialog control + list-row thumb; pass `photo_storage_id` on save
+    - [ ] Typecheck + lint (i18n fence) + mgr tests; manual smoke (PC + phone EXIF)
+  - **notes:**
+    - Post-ship (owner-owned): upload the 3 booth photos (`docs/frollie photoso/Frollie {1,3,8}pc.webp`) via the new control — dogfoods the path.
+
+### Cross-cutting — Phase 8 (#3 product photos)
+- 📋 **[v12-xc-photo-docs]** `docs/API_REFERENCE.md` + `docs/CHANGELOG.md` + `CLAUDE.md` — document the new mutation, `updateProductMeta` photo arg, `catalog` `photo_url`, and `photo_storage_id` now-live
+  - **agent:** `claude`
+  - **deps:** v12-fe-sale-grid, v12-fe-mgr-photo
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-product-photos-title-legibility.md)
+  - **subtasks:**
+    - [ ] API_REFERENCE: mutation + meta arg + photo_url + dead-field-now-live note
+    - [ ] CHANGELOG entry
+    - [ ] CLAUDE.md catalog row note
+  - **notes:** _(empty)_
 
 ---
 
