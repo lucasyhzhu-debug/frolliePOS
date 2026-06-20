@@ -9,6 +9,7 @@ interface NumericKeypadProps {
   onClear?: () => void;
   onBackspace?: () => void;
   size?: "compact" | "comfortable";
+  disabled?: boolean;
 }
 
 const DIGIT_ROWS = [
@@ -23,6 +24,7 @@ export function NumericKeypad({
   onClear,
   onBackspace,
   size = "comfortable",
+  disabled = false,
 }: NumericKeypadProps) {
   const t = useT();
   const handleClear = useCallback(
@@ -37,6 +39,7 @@ export function NumericKeypad({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (disabled) return;
       if (e.key >= "0" && e.key <= "9") {
         onPress(e.key);
       } else if (e.key === "Backspace") {
@@ -47,7 +50,7 @@ export function NumericKeypad({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onPress, handleBackspace, handleClear]);
+  }, [onPress, handleBackspace, handleClear, disabled]);
 
   const isCompact = size === "compact";
 
@@ -68,6 +71,7 @@ export function NumericKeypad({
                   isCompact ? "h-12" : "h-14"
                 )}
                 onClick={handleClear}
+                disabled={disabled}
               >
                 C
               </Button>
@@ -86,6 +90,7 @@ export function NumericKeypad({
                   isCompact ? "h-12" : "h-14"
                 )}
                 onClick={handleBackspace}
+                disabled={disabled}
               >
                 <Delete className="h-5 w-5" />
               </Button>
@@ -100,10 +105,11 @@ export function NumericKeypad({
               aria-label={t("keypad.digitAriaLabel", { digit: key })}
               className={cn(
                 "tabular font-medium",
-                "border-border bg-secondary text-foreground hover:bg-accent hover:text-accent-foreground",
+                "border-border bg-secondary text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent",
                 isCompact ? "h-12 text-xl" : "h-14 text-2xl"
               )}
               onClick={() => onPress(key)}
+              disabled={disabled}
             >
               {key}
             </Button>
