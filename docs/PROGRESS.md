@@ -2179,8 +2179,11 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 **In Phase 6 (📋 planned 2026-06-19):**
 - Login PIN feedback (#11+#7) — pressed keys + "Verifying…" spinner, inline red/locked-out messaging (replacing toasts), 200ms green success, and the evidence-first fix for the spurious "PIN reset declined" remount toast. Includes the narrow-phone sale-grid title-legibility fix scoped into #3 (separate session).
 
+**In Phase 7 (📋 planned 2026-06-20):**
+- Receipt cleanup (#13) — drop the redundant `LUNAS` paid badge (keep refund-state badges), collapse the payment block to one line (`QRIS · RRN` HTML / `QRIS - RRN` thermal), fix the manual-BCA method leak (`Transfer Bank (manual)` from `confirmed_via`, not the cancelled QRIS invoice), and move the footer default to English (`Thank you!`). Receipt body stays Indonesian (ADR-049 defers receipt i18n). Both staffreview gates ✅.
+
 **Still not yet (later v1.2 phases):**
-- Receipt cleanup (#13), real Xendit refunds (#9, spike-gated), product photos (#3, incl. sale-grid title legibility)
+- Real Xendit refunds (#9, spike-gated), product photos (#3, incl. sale-grid title legibility)
 
 ### Frontend (`src/`)
 - ✅ **[v12-fe-modal-offscreen]** `components/ui/dialog.tsx` — cap `DialogContent` at viewport height + internal scroll so tall dialogs (PinSheet, PrinterSheet, mgr) don't clip off-screen on the tablet (#8) (8ea4fee)
@@ -2599,6 +2602,54 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
     - [ ] Add pressed-state classes; CHANGELOG entry
     - [ ] Full suite + typecheck green; commit
   - **notes:** _(empty)_
+
+### Cross-cutting — Phase 7 (#13 receipt cleanup)
+- 📋 **[v12-xc-recpt-footer]** Receipt #13 T1: English footer default (`Thank you!`) + no-`pos_settings`-row propagation test
+  - **agent:** `convex-expert`
+  - **deps:** none
+  - **docs:** [Spec](./superpowers/specs/2026-06-20-v1.2-receipt-cleanup-design.md), [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md), [spec review](./reviews/staffreview-v1.2-receipt-cleanup-spec-2026-06-20.md), [plan review](./reviews/staffreview-v1.2-receipt-cleanup-plan-2026-06-20.md)
+  - **subtasks:**
+    - [ ] Failing propagation test (no settings row → "Thank you!")
+    - [ ] Change `RECEIPT_DEFAULTS.footer_text` + `SAMPLE_RECEIPT` footer
+    - [ ] Tests green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-xc-recpt-html]** Receipt #13 T2: HTML renderer — suppress paid badge (keep refund states) + collapse payment to one middot line
+  - **agent:** `convex-expert`
+  - **deps:** v12-xc-recpt-footer
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
+  - **subtasks:**
+    - [ ] Failing badge-suppression + payment-shape tests
+    - [ ] `template.ts`: guarded badge + one-line payment
+    - [ ] Tests green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-xc-recpt-thermal]** Receipt #13 T3: thermal renderer — suppress paid `[ LUNAS ]` + one-line ASCII payment (`status` param)
+  - **agent:** `convex-expert`
+  - **deps:** v12-xc-recpt-footer
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
+  - **subtasks:**
+    - [ ] Failing suppression + dash-payment tests
+    - [ ] `escpos.ts`: guarded status line + ASCII-dash payment
+    - [ ] Tests green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-xc-recpt-method]** Receipt #13 T4: fix manual-BCA method leak — label `Transfer Bank (manual)` from `confirmed_via`, not the cancelled QRIS invoice
+  - **agent:** `convex-expert`
+  - **deps:** v12-xc-recpt-html, v12-xc-recpt-thermal
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
+  - **subtasks:**
+    - [ ] Failing manual_bca label + `manual` scoping-lock tests (convex-test)
+    - [ ] Widen `buildVmFromTxnWithLines` param type + branch on `confirmed_via`
+    - [ ] Tests + typecheck green; commit
+  - **notes:** _(empty)_
+- 📋 **[v12-xc-recpt-docs]** Receipt #13 T5: CHANGELOG entry + full-suite/typecheck/build verification
+  - **agent:** `convex-expert`
+  - **deps:** v12-xc-recpt-method
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
+  - **subtasks:**
+    - [ ] Prepend CHANGELOG entry (incl. owner-owned `/mgr/receipt` prod edit + cache non-retroactivity)
+    - [ ] `npx vitest run convex/receipts src/lib/__tests__/escpos.test.ts` + typecheck + build:fe green
+    - [ ] Commit
+  - **notes:**
+    - 2026-06-20: planned via /spec-plan-pipeline; both staffreview gates ✅ approved (0 Critical). Owner-owned post-merge: edit prod `pos_settings` row via `/mgr/receipt` (business name → FROLLIE, footer → Thank you!).
 
 ---
 
