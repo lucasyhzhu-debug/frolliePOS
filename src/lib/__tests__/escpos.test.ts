@@ -12,7 +12,8 @@ describe("encodeReceipt", () => {
     expect(bytes.length).toBeGreaterThan(50);
     const text = new TextDecoder("ascii").decode(bytes);
     expect(text).toContain("R-2026-0042");
-    expect(text).toContain("LUNAS");
+    // v1.2 #13: paid receipts no longer print the [ LUNAS ] badge:
+    expect(text).not.toContain("LUNAS");
     // Money formatted via src/lib/format.rp (no floats):
     expect(text).toContain("Rp 325.000");
     // Footer follow caption derives from the instagram_handle setting:
@@ -33,6 +34,32 @@ describe("encodeReceipt", () => {
     const vm = { ...SAMPLE_RECEIPT.viewModel, settings: { ...SAMPLE_RECEIPT.viewModel.settings, address: "" } };
     const text = new TextDecoder("ascii").decode(encodeReceipt(vm, "paid", "LUNAS"));
     expect(text).not.toContain("Pakuwon");
+  });
+
+  it("prints the [ DIKEMBALIKAN ] badge for a refunded receipt", () => {
+    const vm = {
+      ...SAMPLE_RECEIPT.viewModel,
+      refunds: [{ refund_amount: 325_000, refunded_at: 1_780_000_000_000 }],
+    };
+    const text = new TextDecoder("ascii").decode(encodeReceipt(vm, "refunded", "DIKEMBALIKAN"));
+    expect(text).toContain("[ DIKEMBALIKAN ]");
+  });
+
+  it("prints payment method + RRN on one ASCII dash line, no 'Dibayar via'/'RRN:'", () => {
+    const vm = { ...SAMPLE_RECEIPT.viewModel, payment_method: "QRIS", rrn: "RRN123" };
+    const text = new TextDecoder("ascii").decode(encodeReceipt(vm, "paid", "LUNAS"));
+    expect(text).toContain("QRIS - RRN123");
+    expect(text).not.toContain("Dibayar via");
+    expect(text).not.toContain("RRN:");
+  });
+
+  it("prints method only when no RRN", () => {
+    const text = new TextDecoder("ascii").decode(
+      encodeReceipt(SAMPLE_RECEIPT.viewModel, "paid", "LUNAS"),
+    );
+    // SAMPLE has payment_method "QRIS", no rrn → bare method, no dash:
+    expect(text).toContain("QRIS");
+    expect(text).not.toContain("QRIS -");
   });
 });
 

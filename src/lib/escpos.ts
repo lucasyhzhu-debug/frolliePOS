@@ -37,7 +37,7 @@ export function instagramUrl(handle: string): string | null {
 
 export function encodeReceipt(
   vm: ReceiptViewModel,
-  _status: ReceiptStatus,
+  status: ReceiptStatus,
   statusLabel: string,
 ): Uint8Array {
   const e = new EscPosEncoder();
@@ -50,7 +50,8 @@ export function encodeReceipt(
   const address = ascii(vm.settings.address);
   if (address) e.line(address);
   e.line("-".repeat(COLS));
-  e.line(`[ ${ascii(statusLabel)} ]`);
+  // v1.2 #13: skip the status badge on paid receipts; keep it for refund states.
+  if (status !== "paid") e.line(`[ ${ascii(statusLabel)} ]`);
   e.align("left");
   e.line(row(vm.receipt_number, `${fmtDate(vm.paid_at)} ${fmtTime(vm.paid_at)}`));
   e.line("-".repeat(COLS));
@@ -75,8 +76,10 @@ export function encodeReceipt(
     e.bold(true).line(row("NET DIBAYAR", rp(net))).bold(false);
   }
 
-  e.line(`Dibayar via ${ascii(vm.payment_method)}`);
-  if (vm.rrn) e.line(`RRN: ${ascii(vm.rrn)}`);
+  // v1.2 #13: one line. ASCII hyphen, not a middot — ascii() folds non-ASCII away,
+  // so the HTML middot would vanish on the thermal head.
+  const method = ascii(vm.payment_method);
+  e.line(vm.rrn ? `${method} - ${ascii(vm.rrn)}` : method);
 
   // Footer — Instagram follow QR (derived from the handle), then the
   // configurable footer line. Both come from /mgr/receipt settings.
