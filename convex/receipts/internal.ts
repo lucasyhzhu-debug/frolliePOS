@@ -60,11 +60,14 @@ async function buildVmFromTxnWithLines(
   let payment_method: string;
   let rrn: string | undefined;
   if (txn.confirmed_via === "manual_bca") {
-    // POC-tradeoff: this label is intentionally duplicated from
-    // CONFIRMED_VIA_LABEL.manual_bca (src/lib/pos-labels.ts) and the
-    // charge-success screen. Those are i18n-keyed UI surfaces; the receipt is
-    // deliberately OUT of i18n scope (ADR-049 — body stays Indonesian), so a
-    // shared constant would couple the two boundaries. Keep the literal here.
+    // POC-tradeoff: this label is the 3rd divergent confirmed_via→label site,
+    // alongside CONFIRMED_VIA_LABEL.manual_bca (src/lib/pos-labels.ts, i18n-keyed
+    // UI) and instrumentLabel() (convex/telegram/txnTicker.ts → "Manual BCA").
+    // They split across three boundaries — i18n-keyed screen surfaces, a V8-safe
+    // Telegram server string, and this receipt which is deliberately OUT of i18n
+    // scope (ADR-049 — body stays Indonesian). A shared constant would couple
+    // them; the correct eventual fix is a provenance→canonical-key map with two
+    // resolvers (t()-based + literal). Over-engineering for v1 — keep the literal.
     payment_method = "Transfer bank (manual)";
     rrn = undefined;
   } else {
