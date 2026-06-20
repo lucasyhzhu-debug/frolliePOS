@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { usePrinter } from "@/components/pos/PrinterProvider";
 import { encodeReceipt } from "@/lib/escpos";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 /**
  * v0.5.3a T9 — transaction detail.
@@ -33,6 +34,7 @@ import { toast } from "sonner";
  */
 
 export default function HistoryDetail() {
+  const t = useT();
   const session = useSession();
   const navigate = useNavigate();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
@@ -64,9 +66,9 @@ export default function HistoryDetail() {
     try {
       const bytes = encodeReceipt(printData.viewModel, printData.status, printData.statusLabel);
       await print(bytes);
-      toast.success("Struk dicetak");
+      toast.success(t("historyDetail.printSuccess"));
     } catch {
-      toast.error("Gagal mencetak struk");
+      toast.error(t("historyDetail.printError"));
     }
   };
   const isPrinterReady = printerStatus === "connected" || printerStatus === "printing";
@@ -90,7 +92,7 @@ export default function HistoryDetail() {
       // httpAction route — the SPA's /r/ path is a stub.
       window.open(buildReceiptUrl(token), "_blank");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Gagal membagikan struk";
+      const msg = err instanceof Error ? err.message : t("historyDetail.shareError");
       toast.error(msg);
     } finally {
       setSharing(false);
@@ -100,11 +102,11 @@ export default function HistoryDetail() {
   // ---- guards ----
   if (!txnId) {
     return (
-      <SpokeLayout title="Transaksi">
+      <SpokeLayout title={t("historyDetail.title")}>
         <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-          <p className="text-sm text-destructive">Transaksi tidak ditemukan.</p>
+          <p className="text-sm text-destructive">{t("historyDetail.notFound")}</p>
           <Button variant="outline" asChild>
-            <Link to="/history">Kembali</Link>
+            <Link to="/history">{t("historyDetail.back")}</Link>
           </Button>
         </main>
       </SpokeLayout>
@@ -113,7 +115,7 @@ export default function HistoryDetail() {
 
   if (session.status === "loading" || detail === undefined) {
     return (
-      <SpokeLayout title="Transaksi" backTo="/history">
+      <SpokeLayout title={t("historyDetail.title")} backTo="/history">
         <main className="flex flex-1 flex-col items-center justify-center p-4">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </main>
@@ -124,13 +126,13 @@ export default function HistoryDetail() {
 
   if (detail === null) {
     return (
-      <SpokeLayout title="Transaksi" backTo="/history">
+      <SpokeLayout title={t("historyDetail.title")} backTo="/history">
         <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
           <p className="text-sm text-muted-foreground">
-            Transaksi tidak ditemukan.
+            {t("historyDetail.notFound")}
           </p>
           <Button variant="outline" asChild>
-            <Link to="/history">Kembali</Link>
+            <Link to="/history">{t("historyDetail.back")}</Link>
           </Button>
         </main>
       </SpokeLayout>
@@ -146,7 +148,7 @@ export default function HistoryDetail() {
     : "—";
 
   return (
-    <SpokeLayout title="Transaksi" backTo="/history">
+    <SpokeLayout title={t("historyDetail.title")} backTo="/history">
       <section className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         {/* Header card: receipt # + status badge + paid time */}
         <Card className="p-4">
@@ -155,7 +157,7 @@ export default function HistoryDetail() {
               className="text-sm font-medium"
               data-testid="history-receipt-number"
             >
-              {txn.receipt_number ?? "(tanpa nomor struk)"}
+              {txn.receipt_number ?? t("historyDetail.noReceiptNumber")}
             </span>
             <Badge
               variant="outline"
@@ -188,7 +190,7 @@ export default function HistoryDetail() {
                       {l.qty} × {rp(l.unit_price_snapshot)}
                       {refunded > 0 ? (
                         <span className="ml-1 text-warning">
-                          · {refunded} dikembalikan
+                          · {t("historyDetail.refundedQty", { qty: String(refunded) })}
                         </span>
                       ) : null}
                     </p>
@@ -204,13 +206,13 @@ export default function HistoryDetail() {
           {/* Totals */}
           <dl className="space-y-1 text-sm">
             <div className="flex justify-between text-muted-foreground">
-              <dt>Subtotal</dt>
+              <dt>{t("historyDetail.subtotal")}</dt>
               <dd className="tabular-nums">{rp(txn.subtotal)}</dd>
             </div>
             {txn.voucher_discount > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <dt>
-                  Diskon voucher
+                  {t("historyDetail.voucherDiscount")}
                   {txn.voucher_code_snapshot
                     ? ` (${txn.voucher_code_snapshot})`
                     : null}
@@ -221,7 +223,7 @@ export default function HistoryDetail() {
               </div>
             )}
             <div className="flex justify-between font-semibold">
-              <dt>Total</dt>
+              <dt>{t("historyDetail.total")}</dt>
               <dd className="tabular-nums" data-testid="history-total">
                 {rp(txn.total)}
               </dd>
@@ -232,7 +234,7 @@ export default function HistoryDetail() {
         {/* Payment + share */}
         <Card className="p-4">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Konfirmasi pembayaran</span>
+            <span className="text-muted-foreground">{t("historyDetail.paymentConfirmation")}</span>
             <span>{confirmedViaLabel}</span>
           </div>
           <Button
@@ -241,7 +243,7 @@ export default function HistoryDetail() {
             disabled={sharing}
             data-testid="history-share-receipt"
           >
-            {sharing ? "Membagikan…" : "Bagikan struk"}
+            {sharing ? t("historyDetail.sharing") : t("historyDetail.shareReceipt")}
           </Button>
           <Button
             variant="outline"
@@ -250,7 +252,7 @@ export default function HistoryDetail() {
             disabled={printDisabled}
             data-testid="history-print"
           >
-            {isPrinterReady ? "Cetak struk" : "Hubungkan & cetak"}
+            {isPrinterReady ? t("historyDetail.printReceipt") : t("historyDetail.connectAndPrint")}
           </Button>
           {canRefund && (
             <Button
@@ -259,7 +261,7 @@ export default function HistoryDetail() {
               onClick={() => navigate(`/refund/${txnId}`)}
               data-testid="history-refund"
             >
-              Refund
+              {t("historyDetail.refund")}
             </Button>
           )}
         </Card>

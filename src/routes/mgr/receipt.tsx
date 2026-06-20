@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 const MAX_FIELD_LEN = 120;
 const MAX_LOGO_BYTES = 1_000_000;
@@ -54,11 +55,12 @@ function humanizeSettingsError(e: unknown): string {
 export default function MgrReceipt() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -72,6 +74,7 @@ export default function MgrReceipt() {
 }
 
 function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
+  const t = useT();
   const config = useQuery(api.settings.public.getReceiptConfig, { sessionId }) as
     | ReceiptConfig
     | undefined;
@@ -137,15 +140,15 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   async function onPickLogo(file: File) {
     if (!file.type.startsWith("image/")) {
-      toast.error("Pick an image file.");
+      toast.error(t("mgrReceipt.logoNotImage"));
       return;
     }
     if (file.size > MAX_LOGO_BYTES) {
-      toast.error("Logo must be under 1 MB.");
+      toast.error(t("mgrReceipt.logoTooLarge"));
       return;
     }
     if (!uploadKey) {
-      toast.error("Not ready yet — try again in a moment.");
+      toast.error(t("mgrReceipt.logoNotReady"));
       return;
     }
     setUploading(true);
@@ -182,12 +185,12 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       setLogoPreviewUrl(objectUrl);
       if (prev) URL.revokeObjectURL(prev);
 
-      toast.success("Logo ready — Save to apply.");
+      toast.success(t("mgrReceipt.logoReady"));
     } catch {
       // Rotate the intent BEFORE the toast so the next retry mints a fresh
       // upload URL instead of replaying the stale one cached on `uploadKey`.
       await clearIntent("settings.logoUpload");
-      toast.error("Logo upload failed. Try again.");
+      toast.error(t("mgrReceipt.logoUploadFailed"));
     } finally {
       setUploading(false);
       // Reset the input so the same file can be re-picked if needed.
@@ -237,7 +240,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         ...(includeLogo ? { logo_storage_id: logoStorageId } : {}),
       });
       await clearIntent("settings.updateReceipt");
-      toast.success("Saved. Customers see updated branding on next receipt.");
+      toast.success(t("mgrReceipt.savedSuccess"));
     } catch (e) {
       toast.error(humanizeSettingsError(e));
     } finally {
@@ -249,7 +252,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   if (config === undefined) {
     return (
-      <SpokeLayout title="Receipt settings" backTo="/">
+      <SpokeLayout title={t("mgrReceipt.title")} backTo="/">
         <div className="flex flex-1 flex-col gap-4 p-4">
           <Card className="p-4">
             <div className="h-4 w-32 animate-pulse rounded bg-muted" />
@@ -261,39 +264,39 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   }
 
   return (
-    <SpokeLayout title="Receipt settings" backTo="/">
+    <SpokeLayout title={t("mgrReceipt.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Branding for customer receipts. Changes apply to new receipts after Save.
+          {t("mgrReceipt.subtitle")}
         </p>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* Form column */}
           <Card className="space-y-4 p-4">
             <div className="space-y-1.5">
-              <Label htmlFor="r-business-name">Business name</Label>
+              <Label htmlFor="r-business-name">{t("mgrReceipt.businessNameLabel")}</Label>
               <Input
                 id="r-business-name"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
                 maxLength={MAX_FIELD_LEN}
-                placeholder="Frollie · Pakuwon Mall"
+                placeholder={t("mgrReceipt.placeholderBusinessName")}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="r-address">Address</Label>
+              <Label htmlFor="r-address">{t("mgrReceipt.addressLabel")}</Label>
               <Input
                 id="r-address"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 maxLength={MAX_FIELD_LEN}
-                placeholder="Pakuwon Mall, Lt. UG"
+                placeholder={t("mgrReceipt.placeholderAddress")}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="r-contact">Contact</Label>
+              <Label htmlFor="r-contact">{t("mgrReceipt.contactLabel")}</Label>
               <Input
                 id="r-contact"
                 value={contact}
@@ -304,25 +307,25 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="r-instagram">Instagram handle</Label>
+              <Label htmlFor="r-instagram">{t("mgrReceipt.instagramLabel")}</Label>
               <Input
                 id="r-instagram"
                 value={instagramHandle}
                 onChange={(e) => setInstagramHandle(e.target.value)}
                 maxLength={MAX_FIELD_LEN}
-                placeholder="@frollie.id"
+                placeholder={t("mgrReceipt.placeholderInstagram")}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="r-footer">Footer text</Label>
+              <Label htmlFor="r-footer">{t("mgrReceipt.footerLabel")}</Label>
               <textarea
                 id="r-footer"
                 value={footerText}
                 onChange={(e) => setFooterText(e.target.value)}
                 maxLength={MAX_FIELD_LEN}
                 rows={2}
-                placeholder="Terima kasih! 💛"
+                placeholder={t("mgrReceipt.placeholderFooter")}
                 className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               />
               <p className="text-xs text-muted-foreground">
@@ -331,7 +334,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Logo</Label>
+              <Label>{t("mgrReceipt.logoLabel")}</Label>
               <div className="flex items-center gap-3">
                 <Button
                   variant="outline"
@@ -340,9 +343,9 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   disabled={uploading || !uploadKey}
                   type="button"
                 >
-                  {uploading ? "Uploading…" : logoStorageId ? "Replace logo" : "Upload logo"}
+                  {uploading ? t("mgrReceipt.logoUploading") : logoStorageId ? t("mgrReceipt.logoReplace") : t("mgrReceipt.logoUpload")}
                 </Button>
-                <p className="text-xs text-muted-foreground">PNG/JPG, &lt; 1 MB</p>
+                <p className="text-xs text-muted-foreground">{t("mgrReceipt.logoHint")}</p>
               </div>
               <input
                 ref={fileInputRef}
@@ -358,7 +361,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
             <div className="flex justify-end pt-2">
               <Button onClick={onSave} disabled={saving || !saveKey}>
-                {saving ? "Saving…" : "Save"}
+                {saving ? t("mgrReceipt.saving") : t("common.save")}
               </Button>
             </div>
           </Card>
@@ -366,7 +369,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
           {/* Live preview column — visual cues from convex/receipts/template.ts */}
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Live preview
+              {t("mgrReceipt.livePreview")}
             </p>
             <ReceiptPreview
               businessName={businessName}
@@ -377,8 +380,7 @@ function MgrReceiptInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               logoUrl={logoPreviewUrl}
             />
             <p className="text-xs text-muted-foreground">
-              Preview only — the real receipt is rendered by the server with the
-              transaction's line items.
+              {t("mgrReceipt.previewNote")}
             </p>
           </div>
         </div>
@@ -406,6 +408,7 @@ function ReceiptPreview({
   footerText: string;
   logoUrl: string | null;
 }) {
+  const t = useT();
   return (
     <div className="rounded-xl bg-muted p-4">
       <div className="mx-auto max-w-[340px] rounded-xl bg-card p-5 shadow-sm">
@@ -421,38 +424,38 @@ function ReceiptPreview({
             ) : (
               <span>🍪</span>
             )}
-            <span>{businessName || "Business name"}</span>
+            <span>{businessName || t("mgrReceipt.previewBusinessName")}</span>
           </div>
           <div className="text-[11px] leading-snug text-muted-foreground">
-            {address || "Address"}
+            {address || t("mgrReceipt.previewAddress")}
             <br />
-            {contact || "Contact"}
+            {contact || t("mgrReceipt.previewContact")}
           </div>
         </div>
 
         {/* Status pill (static — preview only) */}
         <div className="my-3 rounded-md bg-success/15 py-1.5 text-center text-xs font-semibold text-success">
-          LUNAS
+          {t("mgrReceipt.previewPaid")}
         </div>
 
         {/* Stand-in body — keeps the proportions believable without faking a real txn */}
         <div className="border-t border-dashed border-border pt-2 text-[12px] text-muted-foreground">
           <div className="flex justify-between">
-            <span>(line items)</span>
+            <span>{t("mgrReceipt.previewLineItems")}</span>
             <span>—</span>
           </div>
           <div className="mt-1 flex justify-between">
-            <span>(totals)</span>
+            <span>{t("mgrReceipt.previewTotals")}</span>
             <span>—</span>
           </div>
         </div>
 
         {/* Footer */}
         <div className="mt-3 border-t border-dashed border-border pt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-          {footerText || "Footer text"}
+          {footerText || t("mgrReceipt.previewFooterText")}
           <br />
           <span className="text-[11px]">
-            Follow us on Instagram! {instagramHandle || "@handle"}
+            {t("mgrReceipt.previewInstagram", { handle: instagramHandle || "@handle" })}
           </span>
         </div>
       </div>

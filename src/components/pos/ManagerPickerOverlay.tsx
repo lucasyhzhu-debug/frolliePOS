@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useT } from "@/lib/i18n";
 
 export type Manager = { name: string; code: string };
 
@@ -23,6 +24,7 @@ interface Props {
  * `manager-picker` + `pick-manager-<code>` and must continue to work.
  */
 export function ManagerPickerOverlay({ open, managers, onPick, onCancel }: Props) {
+  const t = useT();
   if (!open) return null;
   return (
     <div
@@ -30,15 +32,15 @@ export function ManagerPickerOverlay({ open, managers, onPick, onCancel }: Props
       data-testid="manager-picker"
     >
       <Card className="w-full max-w-sm p-5 pb-6">
-        <h3 className="mb-4 text-center text-base font-semibold">Pick a manager</h3>
+        <h3 className="mb-4 text-center text-base font-semibold">{t("mgrPicker.title")}</h3>
         {managers === undefined ? (
           <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading managers…</span>
+            <span>{t("mgrPicker.loading")}</span>
           </div>
         ) : managers.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No active managers found.
+            {t("mgrPicker.empty")}
           </p>
         ) : (
           <div className="flex flex-col gap-2">
@@ -57,7 +59,7 @@ export function ManagerPickerOverlay({ open, managers, onPick, onCancel }: Props
           </div>
         )}
         <Button variant="ghost" className="mt-4 w-full" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </Card>
     </div>

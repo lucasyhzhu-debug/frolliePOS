@@ -1,8 +1,13 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { describe, it, test, expect, vi, beforeEach } from "vitest";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ApprovalPending } from "../ApprovalPending";
 import type { ApprovalStatus } from "@/hooks/useApproval";
+import { LocaleProvider } from "@/lib/i18n";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 // ---- mock useApproval so we can flip status between renders ----
 let mockStatus: ApprovalStatus = "loading";
@@ -27,7 +32,7 @@ describe("ApprovalPending — terminal callbacks", () => {
 
     // Flip to resolved
     mockStatus = "resolved";
-    rerender(<ApprovalPending requestId={FAKE_ID} onResolved={onResolved} />);
+    rerender(<LocaleProvider><ApprovalPending requestId={FAKE_ID} onResolved={onResolved} /></LocaleProvider>);
 
     await waitFor(() => expect(onResolved).toHaveBeenCalledTimes(1));
   });
@@ -41,7 +46,7 @@ describe("ApprovalPending — terminal callbacks", () => {
 
     // Flip to denied
     mockStatus = "denied";
-    rerender(<ApprovalPending requestId={FAKE_ID} onDenied={onDenied} />);
+    rerender(<LocaleProvider><ApprovalPending requestId={FAKE_ID} onDenied={onDenied} /></LocaleProvider>);
 
     await waitFor(() => expect(onDenied).toHaveBeenCalledTimes(1));
   });
@@ -55,7 +60,7 @@ describe("ApprovalPending — terminal callbacks", () => {
 
     // Flip to expired
     mockStatus = "expired";
-    rerender(<ApprovalPending requestId={FAKE_ID} onExpired={onExpired} />);
+    rerender(<LocaleProvider><ApprovalPending requestId={FAKE_ID} onExpired={onExpired} /></LocaleProvider>);
 
     await waitFor(() => expect(onExpired).toHaveBeenCalledTimes(1));
   });
@@ -68,8 +73,8 @@ describe("ApprovalPending — terminal callbacks", () => {
     );
 
     // Re-render several times with the same terminal status
-    rerender(<ApprovalPending requestId={FAKE_ID} onDenied={onDenied} />);
-    rerender(<ApprovalPending requestId={FAKE_ID} onDenied={onDenied} />);
+    rerender(<LocaleProvider><ApprovalPending requestId={FAKE_ID} onDenied={onDenied} /></LocaleProvider>);
+    rerender(<LocaleProvider><ApprovalPending requestId={FAKE_ID} onDenied={onDenied} /></LocaleProvider>);
 
     await waitFor(() => expect(onDenied).toHaveBeenCalledTimes(1));
   });

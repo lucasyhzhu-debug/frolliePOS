@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-19 — v1.2 #1: EN/ID language picker (i18n)
+
+- Per-staff EN/ID language toggle (flag-backed) on the home YOU group; English default.
+- Zero-dependency typed i18n dictionary (`src/lib/i18n/`); `staff.locale` preference + `setOwnLocale`.
+- ESLint fence prevents hardcoded copy regressions in converted files (ADR-049).
+- Currency + dates unchanged (id-ID); receipts/Telegram out of scope.
+
 ## 2026-06-19 — v1.2 #6: Shift SOP flow
 
 Booth shift lifecycle as a state machine, structured handovers, and an audience-split signoff summary.

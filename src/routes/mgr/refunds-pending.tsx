@@ -21,6 +21,7 @@ import { useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
@@ -40,11 +41,12 @@ type PendingRefundRow = NonNullable<
 export default function MgrRefundsPending() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -52,9 +54,9 @@ export default function MgrRefundsPending() {
   if (session.status !== "active" || session.staff.role !== "manager") {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
-        <p className="text-sm text-muted-foreground">Manager access required.</p>
+        <p className="text-sm text-muted-foreground">{t("mgrRefunds.managerRequired")}</p>
         <Button variant="outline" size="sm" onClick={() => navigate("/")}>
-          Back to home
+          {t("mgrRefunds.backToHome")}
         </Button>
       </main>
     );
@@ -66,19 +68,20 @@ export default function MgrRefundsPending() {
 function MgrRefundsPendingInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   const refunds = useQuery(api.refunds.public.listPendingSettlement, { sessionId });
   const markSettled = useMutation(api.refunds.public.markRefundSettled);
+  const t = useT();
 
   return (
-    <SpokeLayout title="Pending settlements" backTo="/mgr/dashboard">
+    <SpokeLayout title={t("mgrRefunds.title")} backTo="/mgr/dashboard">
       <div className="flex flex-1 flex-col gap-4 p-4">
         {refunds === undefined ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
         ) : (
           <>
             <SummaryHeader refunds={refunds} />
             {refunds.length === 0 ? (
               <div className="rounded-md border border-dashed p-6 text-center">
                 <p className="text-sm text-muted-foreground">
-                  No refunds awaiting settlement.
+                  {t("mgrRefunds.empty")}
                 </p>
               </div>
             ) : (
@@ -103,10 +106,11 @@ function MgrRefundsPendingInner({ sessionId }: { sessionId: Id<"staff_sessions">
 function SummaryHeader({ refunds }: { refunds: PendingRefundRow[] }) {
   const count = refunds.length;
   const totalSum = refunds.reduce((acc, r) => acc + r.total_refund, 0);
+  const t = useT();
   return (
     <div className="flex items-baseline justify-between gap-3 rounded-md border bg-muted/30 p-3">
       <p className="text-sm font-medium" data-testid="refunds-pending-count">
-        {count} pending {count === 1 ? "refund" : "refunds"}
+        {t(count === 1 ? "mgrRefunds.pendingCount_one" : "mgrRefunds.pendingCount_other", { count })}
       </p>
       <p className="text-sm tabular-nums" data-testid="refunds-pending-sum">
         {rp(totalSum)}
@@ -125,6 +129,7 @@ function RefundRow({
   markSettled: ReturnType<typeof useMutation<typeof api.refunds.public.markRefundSettled>>;
 }) {
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   async function handleSettle() {
     setBusy(true);
@@ -134,7 +139,7 @@ function RefundRow({
         idempotencyKey: crypto.randomUUID(),
         refundId: refund._id,
       });
-      toast.success("Refund settled");
+      toast.success(t("mgrRefunds.settledSuccess"));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -154,7 +159,7 @@ function RefundRow({
         )}
       </div>
       <Button size="sm" onClick={handleSettle} disabled={busy}>
-        {busy ? "Settling…" : "Mark settled"}
+        {busy ? t("mgrRefunds.settling") : t("mgrRefunds.markSettled")}
       </Button>
     </Card>
   );

@@ -1,9 +1,11 @@
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/hooks/useIsOnline";
+import { useT } from "@/lib/i18n";
 
 /** Connection indicator dot. State sourcing lives in useIsOnline. */
 export function ConnDot() {
   const online = useIsOnline();
+  const t = useT();
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       <span
@@ -12,7 +14,7 @@ export function ConnDot() {
           online ? "bg-success" : "bg-error",
         )}
       />
-      <span>{online ? "live" : "offline"}</span>
+      <span>{online ? t("connDot.live") : t("connDot.offline")}</span>
     </span>
   );
 }

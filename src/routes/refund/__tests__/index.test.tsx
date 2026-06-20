@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithLocale as render, screen } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -20,6 +20,18 @@ import { SESSION_KEY } from "@/lib/storage-keys";
 
 const FAKE_SESSION_ID = "session_abc";
 
+// Mock useSession so LocaleProvider (which calls useSession) doesn't consume
+// a useQuery slot from the counter-based convex/react mock below.
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({
+    status: "active",
+    sessionId: FAKE_SESSION_ID,
+    staff: { _id: "staff_1", name: "Andi", role: "staff" },
+  }),
+  storeSession: vi.fn(),
+  clearSession: vi.fn(),
+}));
+
 // Default: empty refundable list + active session.
 let mockTxnsReturn: unknown = [];
 let mockSessionReturn: unknown = {
@@ -33,19 +45,12 @@ vi.mock("convex/react", async (importOriginal) => {
     ...actual,
     useQuery: (_query: unknown, args: unknown) => {
       if (args === "skip") return undefined;
-      // getSession takes { sessionId }, listTodaysRefundable also takes { sessionId }.
-      // Disambiguate by the staff/session payload shape — auth.getSession is the
-      // first useQuery call inside useSession; refunds.listTodaysRefundable is
-      // the second call in the route. We dispatch by call order via a counter.
-      const slot = queryCounter++;
-      // Slot 0 = useSession's getSession; Slot 1 = listTodaysRefundable.
-      // useSession may re-render, so cycle modulo 2.
-      return slot % 2 === 0 ? mockSessionReturn : mockTxnsReturn;
+      // useSession is fully mocked above — the only useQuery call here is
+      // listTodaysRefundable from the route itself.
+      return mockTxnsReturn;
     },
   };
 });
-
-let queryCounter = 0;
 
 // Imported after mock setup.
 import RefundList from "../index";
@@ -65,7 +70,6 @@ describe("RefundList route (/refund)", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
-    queryCounter = 0;
     mockTxnsReturn = [];
     mockSessionReturn = {
       sessionId: FAKE_SESSION_ID,
@@ -85,7 +89,7 @@ describe("RefundList route (/refund)", () => {
     localStorage.setItem(SESSION_KEY, FAKE_SESSION_ID);
     mockTxnsReturn = [];
     renderRoute();
-    expect(screen.getByText(/Belum ada transaksi hari ini\./i)).toBeInTheDocument();
-    expect(screen.getByText(/hubungi management/i)).toBeInTheDocument();
+    expect(screen.getByText(/No transactions today\./i)).toBeInTheDocument();
+    expect(screen.getByText(/contact management/i)).toBeInTheDocument();
   });
 });

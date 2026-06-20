@@ -2,11 +2,12 @@ import { Link, Navigate } from "react-router";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Card } from "@/components/ui/card";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 
 interface NavCard {
   to: string;
-  label: string;
-  hint: string;
+  labelKey: string;
+  hintKey: string;
   glyph: string;
   /** When true, `to` is an external/static URL opened in a new tab via <a>,
    *  not a React Router route. Used for the static presentation deck. */
@@ -14,28 +15,28 @@ interface NavCard {
 }
 
 const NAV_CARDS: NavCard[] = [
-  { to: "/mgr/dashboard", label: "Dashboard", hint: "Today at a glance", glyph: "◉" },
-  { to: "/mgr/products", label: "Products", hint: "Add, edit, price, archive", glyph: "▣" },
-  { to: "/mgr/staff", label: "Staff", hint: "Add, rename, role, PIN", glyph: "◔" },
-  { to: "/mgr/vouchers", label: "Vouchers", hint: "Create, edit, redemptions", glyph: "%" },
-  { to: "/mgr/spoilage", label: "Spoilage", hint: "Log damaged / spoiled stock", glyph: "⨯" },
-  { to: "/mgr/receipt", label: "Receipt", hint: "Branding + footer", glyph: "≡" },
-  { to: "/mgr/telegram-chats", label: "Telegram chats", hint: "Bot registry + roles", glyph: "✈" },
-  { to: "/mgr/refunds-pending", label: "Refunds pending", hint: "Awaiting settlement", glyph: "↻" },
-  { to: "/mgr/stock", label: "Stock drift", hint: "Cron-detected ledger gaps", glyph: "Δ" },
-  { to: "/mgr/device-setup", label: "Device setup", hint: "Aktivasi perangkat baru", glyph: "⊕" },
-  { to: "/mgr/audit", label: "Audit log", hint: "Append-only activity trail", glyph: "❡" },
+  { to: "/mgr/dashboard", labelKey: "mgrHome.navDashboard", hintKey: "mgrHome.navDashboardHint", glyph: "◉" },
+  { to: "/mgr/products", labelKey: "mgrHome.navProducts", hintKey: "mgrHome.navProductsHint", glyph: "▣" },
+  { to: "/mgr/staff", labelKey: "mgrHome.navStaff", hintKey: "mgrHome.navStaffHint", glyph: "◔" },
+  { to: "/mgr/vouchers", labelKey: "mgrHome.navVouchers", hintKey: "mgrHome.navVouchersHint", glyph: "%" },
+  { to: "/mgr/spoilage", labelKey: "mgrHome.navSpoilage", hintKey: "mgrHome.navSpoilageHint", glyph: "⨯" },
+  { to: "/mgr/receipt", labelKey: "mgrHome.navReceipt", hintKey: "mgrHome.navReceiptHint", glyph: "≡" },
+  { to: "/mgr/telegram-chats", labelKey: "mgrHome.navTelegramChats", hintKey: "mgrHome.navTelegramChatsHint", glyph: "✈" },
+  { to: "/mgr/refunds-pending", labelKey: "mgrHome.navRefundsPending", hintKey: "mgrHome.navRefundsPendingHint", glyph: "↻" },
+  { to: "/mgr/stock", labelKey: "mgrHome.navStockDrift", hintKey: "mgrHome.navStockDriftHint", glyph: "Δ" },
+  { to: "/mgr/device-setup", labelKey: "mgrHome.navDeviceSetup", hintKey: "mgrHome.navDeviceSetupHint", glyph: "⊕" },
+  { to: "/mgr/audit", labelKey: "mgrHome.navAuditLog", hintKey: "mgrHome.navAuditLogHint", glyph: "❡" },
   {
     to: "/presentation/frolliepos-talk.html",
-    label: "Presentation",
-    hint: "Frollie POS conference talk",
+    labelKey: "mgrHome.navPresentation",
+    hintKey: "mgrHome.navPresentationHint",
     glyph: "▶",
     external: true,
   },
   {
     to: "/presentation/force-times-direction.html",
-    label: "Force × Direction",
-    hint: "UNSW talk — AI & strategy",
+    labelKey: "mgrHome.navForceDirection",
+    hintKey: "mgrHome.navForceDirectionHint",
     glyph: "↗",
     external: true,
   },
@@ -43,12 +44,13 @@ const NAV_CARDS: NavCard[] = [
 
 export default function MgrHome() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
-      <SpokeLayout title="Manager home">
+      <SpokeLayout title={t("mgrHome.title")}>
         <main className="flex flex-1 items-center justify-center p-8">
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         </main>
       </SpokeLayout>
     );
@@ -59,10 +61,10 @@ export default function MgrHome() {
   }
 
   return (
-    <SpokeLayout title="Manager home" backTo="/">
+    <SpokeLayout title={t("mgrHome.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-3 p-4">
         <p className="text-sm text-muted-foreground">
-          Pick a manager surface.
+          {t("mgrHome.subtitle")}
         </p>
         <div className="grid grid-cols-2 gap-2">
           {NAV_CARDS.map((c) => {
@@ -73,10 +75,10 @@ export default function MgrHome() {
                     {c.glyph}
                   </span>
                   <span className="text-sm font-medium leading-tight">
-                    {c.label}
+                    {t(c.labelKey as Parameters<typeof t>[0])}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{c.hint}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t(c.hintKey as Parameters<typeof t>[0])}</p>
               </>
             );
             return (

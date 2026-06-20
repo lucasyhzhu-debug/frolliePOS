@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 
 /**
@@ -67,9 +67,9 @@ describe("CountStep", () => {
   it("renders both SKU rows with system on_hand", () => {
     renderCountStep();
     expect(screen.getByText("Dubai 1pc")).toBeInTheDocument();
-    expect(screen.getByText("Sistem: 10")).toBeInTheDocument();
+    expect(screen.getByText("System: 10")).toBeInTheDocument();
     expect(screen.getByText("Dubai 8pc")).toBeInTheDocument();
-    expect(screen.getByText("Sistem: 5")).toBeInTheDocument();
+    expect(screen.getByText("System: 5")).toBeInTheDocument();
   });
 
   it("uses custom submitLabel when provided", () => {
@@ -96,7 +96,7 @@ describe("CountStep", () => {
     const [firstInput] = screen.getAllByDisplayValue("");
     fireEvent.change(firstInput, { target: { value: "8" } });
 
-    const btn = screen.getByRole("button", { name: /simpan|submit/i });
+    const btn = screen.getByRole("button", { name: /save count|submit/i });
     fireEvent.click(btn);
 
     await waitFor(() => expect(mockRecordRecount).toHaveBeenCalledTimes(1));
@@ -112,7 +112,7 @@ describe("CountStep", () => {
   it("shows error message (FieldMessage) when payload is empty", async () => {
     renderCountStep();
     // Click submit without entering any counts
-    const btn = screen.getByRole("button", { name: /simpan|submit/i });
+    const btn = screen.getByRole("button", { name: /save count|submit/i });
     fireEvent.click(btn);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(mockRecordRecount).not.toHaveBeenCalled();
@@ -125,7 +125,7 @@ describe("CountStep", () => {
 
     const [firstInput] = screen.getAllByDisplayValue("");
     fireEvent.change(firstInput, { target: { value: "3" } });
-    fireEvent.click(screen.getByRole("button", { name: /simpan|submit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save count|submit/i }));
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(onSubmitted).not.toHaveBeenCalled();

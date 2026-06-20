@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
 import { PinSheet } from "./PinSheet";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 describe("PinSheet", () => {
   it("renders title + label + keypad", () => {

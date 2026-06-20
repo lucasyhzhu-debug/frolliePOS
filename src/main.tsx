@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { Toaster } from "sonner";
+import { LocaleProvider } from "@/lib/i18n";
 import { router } from "@/router";
 import "@/index.css";
 import { reportOps } from "@/lib/reportOps";
@@ -38,7 +39,9 @@ const convex = new ConvexReactClient(convexUrl ?? "https://placeholder.convex.cl
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ConvexProvider client={convex}>
-      <RouterProvider router={router} />
+      <LocaleProvider>
+        <RouterProvider router={router} />
+      </LocaleProvider>
       <Toaster position="top-center" richColors closeButton />
     </ConvexProvider>
   </React.StrictMode>,

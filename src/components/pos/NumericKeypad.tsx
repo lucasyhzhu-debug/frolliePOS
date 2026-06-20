@@ -2,6 +2,7 @@ import { useEffect, useCallback } from "react";
 import { Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 interface NumericKeypadProps {
   onPress: (key: string) => void;
@@ -23,6 +24,7 @@ export function NumericKeypad({
   onBackspace,
   size = "comfortable",
 }: NumericKeypadProps) {
+  const t = useT();
   const handleClear = useCallback(
     () => (onClear ? onClear() : onPress("C")),
     [onClear, onPress]
@@ -59,7 +61,7 @@ export function NumericKeypad({
                 key="C"
                 type="button"
                 variant="secondary"
-                aria-label="Clear"
+                aria-label={t("keypad.clearAriaLabel")}
                 className={cn(
                   "tabular text-base font-medium",
                   "border border-border text-foreground",
@@ -78,7 +80,7 @@ export function NumericKeypad({
                 key="⌫"
                 type="button"
                 variant="secondary"
-                aria-label="Backspace"
+                aria-label={t("keypad.backspaceAriaLabel")}
                 className={cn(
                   "border border-border text-foreground",
                   isCompact ? "h-12" : "h-14"
@@ -95,7 +97,7 @@ export function NumericKeypad({
               key={key}
               type="button"
               variant="outline"
-              aria-label={`Digit ${key}`}
+              aria-label={t("keypad.digitAriaLabel", { digit: key })}
               className={cn(
                 "tabular font-medium",
                 "border-border bg-secondary text-foreground hover:bg-accent hover:text-accent-foreground",

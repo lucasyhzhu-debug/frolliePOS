@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import { LocaleProvider } from "@/lib/i18n";
 
 let mockRecovery: { count: number; latest: { _id: string; created_at: number } | null };
 let mockRole: "manager" | "staff" = "staff";
@@ -37,7 +38,9 @@ import Home from "../home";
 function renderHome() {
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <Home />
+      <LocaleProvider>
+        <Home />
+      </LocaleProvider>
     </MemoryRouter>,
   );
 }
@@ -92,7 +95,7 @@ describe("HomeRoute role-based tile rendering", () => {
   it("renders an Akhiri shift control in the app-bar that navigates to /shift/end", () => {
     mockRole = "staff";
     renderHome();
-    const endShiftBtn = screen.getByLabelText(/akhiri shift/i);
+    const endShiftBtn = screen.getByLabelText(/end shift/i);
     expect(endShiftBtn).toBeInTheDocument();
   });
 });

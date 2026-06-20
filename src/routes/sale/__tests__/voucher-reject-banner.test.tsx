@@ -1,6 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { renderWithLocale as render, screen } from "@/test-utils";
 import { describe, it, expect, vi } from "vitest";
 import { VoucherRejectBanner } from "../voucher-reject-banner";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: vi.fn(() => ({ status: "none", sessionId: null, staff: null })),
+}));
 
 describe("VoucherRejectBanner", () => {
   it("renders EXPIRED humanization", () => {

@@ -193,4 +193,81 @@ export default [
       ],
     },
   },
+
+  {
+    // v1.2 #1 — i18n migration registry. Files here route user-facing copy through
+    // t(); this fence stops regressions to hardcoded JSX text literals and string
+    // literals in text props. Brand-name JSXText should be wrapped as {"Brand"} to
+    // keep it out of the JSXText node type. Append files as later #1 slices convert
+    // them; Task 7 will add the remaining routes. ADR-049.
+    files: [
+      "src/routes/home.tsx",
+      "src/components/pos/LocaleToggle.tsx",
+      "src/components/auth/StaffListItem.tsx",
+      "src/routes/sale/charge-success.tsx",
+      "src/routes/sale/charge.tsx",
+      "src/routes/sale/drafts.tsx",
+      "src/routes/sale/index.tsx",
+      "src/routes/sale/voucher-reject-banner.tsx",
+      "src/routes/sale/voucher.tsx",
+      "src/routes/mgr/audit.tsx",
+      "src/routes/mgr/dashboard.tsx",
+      "src/routes/mgr/device-setup.tsx",
+      "src/routes/mgr/home.tsx",
+      "src/routes/mgr/products.tsx",
+      "src/routes/mgr/receipt.tsx",
+      "src/routes/mgr/refunds-pending.tsx",
+      "src/routes/mgr/spoilage.tsx",
+      "src/routes/mgr/staff.tsx",
+      "src/routes/mgr/stock.tsx",
+      "src/routes/mgr/telegram-chats.tsx",
+      "src/routes/mgr/vouchers.tsx",
+      "src/components/pos/AbandonCartDialog.tsx",
+      "src/components/pos/ApprovalPending.tsx",
+      "src/components/pos/CountStep.tsx",
+      "src/components/pos/DayPicker.tsx",
+      "src/components/pos/ManagerPickerOverlay.tsx",
+      "src/components/pos/NumericKeypad.tsx",
+      "src/components/pos/PinSheet.tsx",
+      "src/components/pos/PrinterSheet.tsx",
+      "src/components/pos/RefundLineSelector.tsx",
+      "src/components/pos/ShiftWizard.tsx",
+      "src/components/layout/AppHeader.tsx",
+      "src/components/layout/ConnDot.tsx",
+      "src/components/layout/DeviceActivation.tsx",
+      "src/components/layout/RootLayout.tsx",
+      "src/components/layout/Stub.tsx",
+      "src/routes/account.tsx",
+      "src/routes/lock.tsx",
+      "src/routes/login.tsx",
+      "src/routes/settlements.tsx",
+      "src/routes/approve/index.tsx",
+      "src/routes/history/$txnId.tsx",
+      "src/routes/history/index.tsx",
+      "src/routes/refund/detail.tsx",
+      "src/routes/refund/index.tsx",
+      "src/routes/shift/end.tsx",
+      "src/routes/shift/handover.tsx",
+      "src/routes/shift/start.tsx",
+      "src/routes/stock/$skuId.tsx",
+      "src/routes/stock/index.tsx",
+      "src/routes/stock/recount.tsx",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXText[value=/[A-Za-z]{3,}/]",
+          message:
+            "Converted file: user-facing text must go through t(...) (ADR-049), not a hardcoded JSX literal.",
+        },
+        {
+          selector:
+            "JSXAttribute[name.name=/^(label|placeholder|title|aria-label)$/] > Literal[value=/[A-Za-z]{3,}/]",
+          message:
+            "Converted file: text props must use t(...) (ADR-049).",
+        },
+      ],
+    },
+  },
 ];

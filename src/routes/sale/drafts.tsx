@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 /**
  * Per-draft idempotency keys: hooks cannot be called inside a loop or map.
@@ -20,6 +21,7 @@ import { toast } from "sonner";
  */
 
 export default function SaleDrafts() {
+  const t = useT();
   const navigate = useNavigate();
   const session = useSession();
 
@@ -63,10 +65,10 @@ export default function SaleDrafts() {
         };
       });
       loadFromDraft(cartLines, result.voucherCode);
-      toast.success("Draft loaded");
+      toast.success(t("drafts.toastDraftLoaded"));
       navigate("/sale");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not resume draft";
+      const msg = err instanceof Error ? err.message : t("drafts.errorResumeFailed");
       toast.error(msg);
     }
   };
@@ -80,10 +82,10 @@ export default function SaleDrafts() {
         draftId: draftId as Parameters<typeof deleteDraft>[0]["draftId"],
         idempotencyKey,
       });
-      toast.success("Draft deleted");
+      toast.success(t("drafts.toastDraftDeleted"));
       // listDrafts is a live query — list re-renders reactively.
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not delete draft";
+      const msg = err instanceof Error ? err.message : t("drafts.errorDeleteFailed");
       toast.error(msg);
     }
   };
@@ -93,20 +95,20 @@ export default function SaleDrafts() {
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 flex-col p-4">
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       </main>
     );
   }
   if (session.status !== "active") return null;
 
   return (
-    <SpokeLayout title="Saved drafts" backTo="/sale">
+    <SpokeLayout title={t("drafts.title")} backTo="/sale">
       <section className="flex-1 overflow-y-auto p-4">
         {drafts == null ? (
-          <div className="text-sm text-muted-foreground">Loading drafts…</div>
+          <div className="text-sm text-muted-foreground">{t("drafts.loadingDrafts")}</div>
         ) : drafts.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No saved drafts
+            {t("drafts.noDrafts")}
           </div>
         ) : (
           <ul className="space-y-3">
@@ -142,13 +144,13 @@ export default function SaleDrafts() {
                         size="sm"
                         onClick={() => handleDelete(draft._id)}
                       >
-                        Delete
+                        {t("drafts.delete")}
                       </Button>
                       <Button
                         size="sm"
                         onClick={() => handleResume(draft._id)}
                       >
-                        Resume
+                        {t("drafts.resume")}
                       </Button>
                     </div>
                   </Card>

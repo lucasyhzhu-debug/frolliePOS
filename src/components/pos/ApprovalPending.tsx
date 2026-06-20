@@ -3,6 +3,7 @@ import { Loader2, CheckCircle2 } from "lucide-react";
 import { useApproval } from "@/hooks/useApproval";
 import { Button } from "@/components/ui/button";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useT } from "@/lib/i18n";
 
 type Props = {
   requestId: Id<"pos_approval_requests"> | null;
@@ -23,6 +24,7 @@ export function ApprovalPending({
   onExpired,
   onCancel,
 }: Props) {
+  const t = useT();
   const status = useApproval(requestId);
 
   // Fire terminal callbacks exactly once per transition.
@@ -54,7 +56,7 @@ export function ApprovalPending({
       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Waiting for a manager to approve in Telegram…
+          {t("approvalPending.waiting")}
         </p>
         {onCancel && (
           <Button
@@ -63,7 +65,7 @@ export function ApprovalPending({
             onClick={onCancel}
             data-testid="approval-cancel"
           >
-            Batalkan permintaan
+            {t("approvalPending.cancelRequest")}
           </Button>
         )}
       </div>
@@ -74,7 +76,7 @@ export function ApprovalPending({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
         <CheckCircle2 className="h-6 w-6 text-primary" />
-        <p className="text-sm font-medium">{successMessage ?? "Approved"}</p>
+        <p className="text-sm font-medium">{successMessage ?? t("approvalPending.approved")}</p>
       </div>
     );
   }
@@ -83,11 +85,11 @@ export function ApprovalPending({
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
         <p className="text-sm text-destructive">
-          Declined by manager — try again
+          {t("approvalPending.declined")}
         </p>
         {onDenied && (
           <Button variant="outline" size="sm" onClick={onDenied}>
-            Retry
+            {t("approvalPending.retry")}
           </Button>
         )}
       </div>
@@ -98,11 +100,11 @@ export function ApprovalPending({
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
       <p className="text-sm text-muted-foreground">
-        Request expired. Try again.
+        {t("approvalPending.expired")}
       </p>
       {onExpired && (
         <Button variant="outline" size="sm" onClick={onExpired}>
-          Retry
+          {t("approvalPending.retry")}
         </Button>
       )}
     </div>

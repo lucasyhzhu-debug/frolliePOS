@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import StepRail from "./StepRail";
 import CountStep from "./CountStep";
+import { useT } from "@/lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Types (consumed by Tasks 13/14/15)
@@ -45,6 +46,7 @@ const transition = (reduce: boolean) =>
 // ---------------------------------------------------------------------------
 
 export default function ShiftWizard({ title, steps, onComplete, terminalLabel }: ShiftWizardProps) {
+  const t = useT();
   const reduce = useReducedMotion() ?? false;
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -147,7 +149,7 @@ export default function ShiftWizard({ title, steps, onComplete, terminalLabel }:
               {isCountStep ? (
                 <CountStep
                   onSubmitted={handleCountSubmitted}
-                  submitLabel="Simpan hitungan"
+                  submitLabel={t("shiftWizard.saveCount")}
                 />
               ) : (
                 <div className="prose prose-sm dark:prose-invert">
@@ -166,13 +168,13 @@ export default function ShiftWizard({ title, steps, onComplete, terminalLabel }:
           disabled={currentIndex === 0 || busy}
           onClick={handleBack}
         >
-          Kembali
+          {t("shiftWizard.back")}
         </Button>
 
         {/* For count steps: only show the advance button once countReady */}
         {canAdvance && (
           <Button disabled={busy} onClick={handleNext}>
-            {isLastStep ? (terminalLabel ?? steps[currentIndex].label) : "Lanjut"}
+            {isLastStep ? (terminalLabel ?? steps[currentIndex].label) : t("shiftWizard.next")}
           </Button>
         )}
       </div>

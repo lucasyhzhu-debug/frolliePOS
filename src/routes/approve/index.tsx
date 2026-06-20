@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { rp } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 
 /*
  * SERVICE-WORKER NOTE (staffreview Improvement #13):
@@ -30,28 +31,49 @@ import { rp } from "@/lib/format";
 /** Map thrown action error codes to human-readable messages. */
 function mapError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("TOKEN_INVALID")) return "Invalid link";
-  if (msg.includes("TOKEN_EXPIRED")) return "Link expired";
+  if (msg.includes("TOKEN_INVALID")) return "TOKEN_INVALID";
+  if (msg.includes("TOKEN_EXPIRED")) return "TOKEN_EXPIRED";
   // REQUEST_RESOLVED is emitted by BOTH the action-layer pre-check (actions.ts)
   // AND the internal-layer race guard (_markResolved/_markDenied_internal).
   // Single code, single mapping — see Simplify finding ALTITUDE-2.
-  if (msg.includes("REQUEST_RESOLVED")) return "Already resolved";
-  if (msg.includes("REQUEST_REVOKED")) return "Approval revoked — too many wrong PIN attempts. Ask the staffer to retry.";
-  if (msg.includes("NOT_MANAGER")) return "That staff code is not a manager";
-  if (msg.includes("INVALID_PIN")) return "Wrong manager PIN";
-  if (msg.includes("NEW_PIN_INVALID")) return "New PIN must be 4 digits";
-  if (msg.includes("WRONG_KIND")) return "Approval type mismatch";
-  if (msg.includes("TXN_NOT_AWAITING")) return "Transaction is no longer awaiting payment";
-  if (msg.includes("TXN_NOT_REFUNDABLE")) return "Transaction is not refundable";
-  if (msg.includes("LINE_NOT_FOUND")) return "Refund line no longer exists";
+  if (msg.includes("REQUEST_RESOLVED")) return "REQUEST_RESOLVED";
+  if (msg.includes("REQUEST_REVOKED")) return "REQUEST_REVOKED";
+  if (msg.includes("NOT_MANAGER")) return "NOT_MANAGER";
+  if (msg.includes("INVALID_PIN")) return "INVALID_PIN";
+  if (msg.includes("NEW_PIN_INVALID")) return "NEW_PIN_INVALID";
+  if (msg.includes("WRONG_KIND")) return "WRONG_KIND";
+  if (msg.includes("TXN_NOT_AWAITING")) return "TXN_NOT_AWAITING";
+  if (msg.includes("TXN_NOT_REFUNDABLE")) return "TXN_NOT_REFUNDABLE";
+  if (msg.includes("LINE_NOT_FOUND")) return "LINE_NOT_FOUND";
   if (
     msg.includes("REQUEST_MISSING_TXN") ||
     msg.includes("REQUEST_MISSING_LINES") ||
     msg.includes("REQUEST_MISSING_REQUESTER")
   ) {
-    return "Refund request is incomplete — please re-request";
+    return "REQUEST_MISSING";
   }
   return msg;
+}
+
+function useErrorMessage() {
+  const t = useT();
+  return (code: string): string => {
+    switch (code) {
+      case "TOKEN_INVALID": return t("approve.errTokenInvalid");
+      case "TOKEN_EXPIRED": return t("approve.errTokenExpired");
+      case "REQUEST_RESOLVED": return t("approve.errAlreadyResolved");
+      case "REQUEST_REVOKED": return t("approve.errRequestRevoked");
+      case "NOT_MANAGER": return t("approve.errNotManager");
+      case "INVALID_PIN": return t("approve.errInvalidPin");
+      case "NEW_PIN_INVALID": return t("approve.errNewPinInvalid");
+      case "WRONG_KIND": return t("approve.errWrongKind");
+      case "TXN_NOT_AWAITING": return t("approve.errTxnNotAwaiting");
+      case "TXN_NOT_REFUNDABLE": return t("approve.errTxnNotRefundable");
+      case "LINE_NOT_FOUND": return t("approve.errLineNotFound");
+      case "REQUEST_MISSING": return t("approve.errRequestMissing");
+      default: return code;
+    }
+  };
 }
 
 /** 4-dot PIN display — shows filled/empty dots based on current entry length. */
@@ -96,6 +118,8 @@ interface PinResetProps {
 }
 
 function PinResetVariant({ token, request }: PinResetProps) {
+  const t = useT();
+  const mapErr = useErrorMessage();
   const [staffCode, setStaffCode] = useState("");
   const [managerPin, setManagerPin] = useState("");
   const [newPin, setNewPin] = useState("");
@@ -147,15 +171,15 @@ function PinResetVariant({ token, request }: PinResetProps) {
     e.preventDefault();
     if (!idempotencyKey) return;
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
     if (newPin.length !== 4) {
-      setError("New PIN must be 4 digits");
+      setError(t("approve.validationNewPin"));
       return;
     }
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
 
@@ -171,12 +195,13 @@ function PinResetVariant({ token, request }: PinResetProps) {
       });
       setOutcome("approved");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(idempotencyIntent);
       }
@@ -188,11 +213,11 @@ function PinResetVariant({ token, request }: PinResetProps) {
   async function handleConfirmDeny() {
     if (!denyKey) return;
     if (!staffCode.trim()) {
-      setError("Select your manager identity");
+      setError(t("approve.validationManagerIdentity"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
     if (!denyReason.trim()) return;
@@ -209,12 +234,13 @@ function PinResetVariant({ token, request }: PinResetProps) {
       });
       setOutcome("denied");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(denyIntent);
       }
@@ -228,7 +254,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
-          ✓ PIN reset — {request.subject_staff_name} can now log in with the new PIN.
+          {t("approve.pinResetApproved", { name: request.subject_staff_name })}
         </p>
       </main>
     );
@@ -239,7 +265,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <XCircle className="h-8 w-8 text-destructive" />
         <p className="text-sm font-medium">
-          Declined — PIN reset request rejected. {request.subject_staff_name} stays locked.
+          {t("approve.pinResetDenied", { name: request.subject_staff_name })}
         </p>
       </main>
     );
@@ -248,24 +274,24 @@ function PinResetVariant({ token, request }: PinResetProps) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
-        <h1 className="text-lg font-semibold">Staff PIN Reset</h1>
+        <h1 className="text-lg font-semibold">{t("approve.pinResetTitle")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">
             {request.subject_staff_name}
             {request.subject_staff_code ? ` (${request.subject_staff_code})` : ""}
           </span>{" "}
-          is locked out. A manager can reset their PIN.
+          {t("approve.pinResetSubtitle")}
         </p>
       </header>
 
       <form
         onSubmit={handleSubmit}
         className="flex w-full max-w-sm flex-col gap-5"
-        aria-label="PIN reset form"
+        aria-label={t("approve.pinResetFormLabel")}
       >
         {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="staff-code">Your manager identity</Label>
+          <Label htmlFor="staff-code">{t("approve.managerIdentityLabel")}</Label>
           <Select
             value={staffCode}
             onValueChange={(value) => {
@@ -278,12 +304,12 @@ function PinResetVariant({ token, request }: PinResetProps) {
               <SelectValue
                 placeholder={
                   managers === undefined
-                    ? "Loading…"
+                    ? t("common.loading")
                     : managers === null
-                      ? "Link expired"
+                      ? t("approve.linkExpired")
                       : managers.length === 0
-                        ? "No managers configured"
-                        : "Select a manager"
+                        ? t("approve.noManagers")
+                        : t("approve.selectManager")
                 }
               />
             </SelectTrigger>
@@ -311,12 +337,12 @@ function PinResetVariant({ token, request }: PinResetProps) {
             aria-pressed={activeField === "managerPin"}
           >
             <span className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Your manager PIN
+              {t("approve.managerPinLabel")}
             </span>
             {managerPin.length > 0 ? (
               <PinDots value={managerPin} />
             ) : (
-              <span className="text-muted-foreground">Tap to enter</span>
+              <span className="text-muted-foreground">{t("approve.tapToEnter")}</span>
             )}
           </button>
         </div>
@@ -335,12 +361,12 @@ function PinResetVariant({ token, request }: PinResetProps) {
             aria-pressed={activeField === "newPin"}
           >
             <span className="block text-xs font-medium text-muted-foreground mb-1.5">
-              New PIN for {request.subject_staff_name}
+              {t("approve.newPinLabel", { name: request.subject_staff_name })}
             </span>
             {newPin.length > 0 ? (
               <PinDots value={newPin} />
             ) : (
-              <span className="text-muted-foreground">Tap to enter</span>
+              <span className="text-muted-foreground">{t("approve.tapToEnter")}</span>
             )}
           </button>
         </div>
@@ -376,10 +402,10 @@ function PinResetVariant({ token, request }: PinResetProps) {
           {pending ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Resetting PIN…
+              {t("approve.resettingPin")}
             </>
           ) : (
-            "Reset PIN"
+            t("approve.resetPin")
           )}
         </Button>
 
@@ -387,7 +413,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
             to decline; manager identity + manager PIN + reason are enough. */}
         {showDenyReason ? (
           <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <Label htmlFor="deny-reason">Why are you declining?</Label>
+            <Label htmlFor="deny-reason">{t("approve.denyReasonLabel")}</Label>
             <Input
               id="deny-reason"
               type="text"
@@ -397,7 +423,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
                 setDenyReason(e.target.value);
                 setError(undefined);
               }}
-              placeholder="e.g. Suspicious lockout"
+              placeholder={t("approve.denyReasonPlaceholderPinReset")}
               disabled={denyPending}
             />
             <div className="flex gap-2">
@@ -417,10 +443,10 @@ function PinResetVariant({ token, request }: PinResetProps) {
                 {denyPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Declining…
+                    {t("approve.declining")}
                   </>
                 ) : (
-                  "Confirm decline"
+                  t("approve.confirmDecline")
                 )}
               </Button>
               <Button
@@ -434,7 +460,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
                 }}
                 disabled={denyPending}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </div>
@@ -455,7 +481,7 @@ function PinResetVariant({ token, request }: PinResetProps) {
             }
             className="w-full"
           >
-            Decline reset request
+            {t("approve.declineResetRequest")}
           </Button>
         )}
       </form>
@@ -488,6 +514,8 @@ interface ManualPaymentProps {
 }
 
 function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
+  const t = useT();
+  const mapErr = useErrorMessage();
   const [staffCode, setStaffCode] = useState("");
   const [managerPin, setManagerPin] = useState("");
   const [pending, setPending] = useState(false);
@@ -525,11 +553,11 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
     e.preventDefault();
     if (!approveKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
 
@@ -544,12 +572,13 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
       });
       setOutcome("approved");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(approveIntent);
       }
@@ -561,11 +590,11 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
   async function handleConfirmDeny() {
     if (!denyKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
     if (!denyReason.trim()) return;
@@ -582,12 +611,13 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
       });
       setOutcome("denied");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(denyIntent);
       }
@@ -602,7 +632,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
-          ✓ Approved — payment of {rp(request.display.amount_idr)} confirmed.
+          {t("approve.paymentApproved", { amount: rp(request.display.amount_idr) })}
         </p>
       </main>
     );
@@ -612,7 +642,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <XCircle className="h-8 w-8 text-destructive" />
-        <p className="text-sm font-medium">Declined — payment request rejected.</p>
+        <p className="text-sm font-medium">{t("approve.paymentDenied")}</p>
       </main>
     );
   }
@@ -621,24 +651,24 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
-        <h1 className="text-lg font-semibold">Manager approval needed</h1>
+        <h1 className="text-lg font-semibold">{t("approve.managerApprovalNeeded")}</h1>
       </header>
 
       {/* Summary card */}
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Amount</span>
+          <span className="text-muted-foreground">{t("approve.amount")}</span>
           <span className="font-semibold tabular-nums">
             {rp(request.display.amount_idr)}
           </span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-muted-foreground shrink-0">{t("approve.reason")}</span>
           <span className="text-right">{request.display.reason}</span>
         </div>
         {request.display.requester_name && (
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Requested by</span>
+            <span className="text-muted-foreground">{t("approve.requestedBy")}</span>
             <span>{request.display.requester_name}</span>
           </div>
         )}
@@ -652,11 +682,11 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
       <form
         onSubmit={handleApprove}
         className="flex w-full max-w-sm flex-col gap-5"
-        aria-label="Manual payment approval form"
+        aria-label={t("approve.paymentFormLabel")}
       >
         {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Label htmlFor="mgr-staff-code">{t("approve.managerIdentityLabel")}</Label>
           <Select
             value={staffCode}
             onValueChange={(value) => {
@@ -669,12 +699,12 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
               <SelectValue
                 placeholder={
                   managers === undefined
-                    ? "Loading…"
+                    ? t("common.loading")
                     : managers === null
-                      ? "Link expired"
+                      ? t("approve.linkExpired")
                       : managers.length === 0
-                        ? "No managers configured"
-                        : "Select a manager"
+                        ? t("approve.noManagers")
+                        : t("approve.selectManager")
                 }
               />
             </SelectTrigger>
@@ -692,12 +722,12 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
         <div className="space-y-2">
           <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
             <span className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Your manager PIN
+              {t("approve.managerPinLabel")}
             </span>
             {managerPin.length > 0 ? (
               <PinDots value={managerPin} />
             ) : (
-              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+              <span className="text-muted-foreground">{t("approve.enter4DigitPin")}</span>
             )}
           </div>
           <NumericKeypad
@@ -718,13 +748,13 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
         {/* Deny reason input — revealed after clicking Deny */}
         {showDenyReason && (
           <div className="space-y-1.5">
-            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Label htmlFor="deny-reason">{t("approve.reasonForDeclining")}</Label>
             <Input
               id="deny-reason"
               type="text"
               value={denyReason}
               onChange={(e) => setDenyReason(e.target.value)}
-              placeholder="e.g. Customer requested cancellation"
+              placeholder={t("approve.denyReasonPlaceholderPayment")}
               disabled={denyPending}
               autoFocus
             />
@@ -749,10 +779,10 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
                 {pending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Approving…
+                    {t("approve.approving")}
                   </>
                 ) : (
-                  "Approve"
+                  t("approve.approve")
                 )}
               </Button>
               <Button
@@ -765,7 +795,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
                 }}
                 disabled={pending || denyPending}
               >
-                Deny
+                {t("approve.deny")}
               </Button>
             </>
           ) : (
@@ -787,10 +817,10 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
                 {denyPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Declining…
+                    {t("approve.declining")}
                   </>
                 ) : (
-                  "Confirm Deny"
+                  t("approve.confirmDeny")
                 )}
               </Button>
               <Button
@@ -804,7 +834,7 @@ function ManualPaymentVariant({ token, request }: ManualPaymentProps) {
                 }}
                 disabled={denyPending}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </>
           )}
@@ -843,6 +873,8 @@ interface RefundProps {
 }
 
 function RefundVariant({ token, request }: RefundProps) {
+  const t = useT();
+  const mapErr = useErrorMessage();
   const [staffCode, setStaffCode] = useState("");
   const [managerPin, setManagerPin] = useState("");
   const [pending, setPending] = useState(false);
@@ -880,11 +912,11 @@ function RefundVariant({ token, request }: RefundProps) {
     e.preventDefault();
     if (!approveKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
 
@@ -899,12 +931,13 @@ function RefundVariant({ token, request }: RefundProps) {
       });
       setOutcome("approved");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(approveIntent);
       }
@@ -916,11 +949,11 @@ function RefundVariant({ token, request }: RefundProps) {
   async function handleConfirmDeny() {
     if (!denyKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
     if (!denyReason.trim()) return;
@@ -937,12 +970,13 @@ function RefundVariant({ token, request }: RefundProps) {
       });
       setOutcome("denied");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(denyIntent);
       }
@@ -957,7 +991,7 @@ function RefundVariant({ token, request }: RefundProps) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
-          ✓ Approved — refund of {rp(request.display.total_refund)} committed.
+          {t("approve.refundApproved", { amount: rp(request.display.total_refund) })}
         </p>
       </main>
     );
@@ -967,7 +1001,7 @@ function RefundVariant({ token, request }: RefundProps) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <XCircle className="h-8 w-8 text-destructive" />
-        <p className="text-sm font-medium">Declined — refund request rejected.</p>
+        <p className="text-sm font-medium">{t("approve.refundDenied")}</p>
       </main>
     );
   }
@@ -976,30 +1010,30 @@ function RefundVariant({ token, request }: RefundProps) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
-        <h1 className="text-lg font-semibold">Manager approval needed — Refund</h1>
+        <h1 className="text-lg font-semibold">{t("approve.managerApprovalNeededRefund")}</h1>
       </header>
 
       {/* Summary card */}
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Receipt</span>
+          <span className="text-muted-foreground">{t("approve.receipt")}</span>
           <span className="font-medium tabular-nums">
             {request.display.receipt_number}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Total refund</span>
+          <span className="text-muted-foreground">{t("approve.totalRefund")}</span>
           <span className="font-semibold tabular-nums text-foreground">
             {rp(request.display.total_refund)}
           </span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-muted-foreground shrink-0">{t("approve.reason")}</span>
           <span className="text-right">{request.display.reason}</span>
         </div>
         {request.display.requester_name && (
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Requested by</span>
+            <span className="text-muted-foreground">{t("approve.requestedBy")}</span>
             <span>{request.display.requester_name}</span>
           </div>
         )}
@@ -1023,11 +1057,11 @@ function RefundVariant({ token, request }: RefundProps) {
       <form
         onSubmit={handleApprove}
         className="flex w-full max-w-sm flex-col gap-5"
-        aria-label="Refund approval form"
+        aria-label={t("approve.refundFormLabel")}
       >
         {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Label htmlFor="mgr-staff-code">{t("approve.managerIdentityLabel")}</Label>
           <Select
             value={staffCode}
             onValueChange={(value) => {
@@ -1040,12 +1074,12 @@ function RefundVariant({ token, request }: RefundProps) {
               <SelectValue
                 placeholder={
                   managers === undefined
-                    ? "Loading…"
+                    ? t("common.loading")
                     : managers === null
-                      ? "Link expired"
+                      ? t("approve.linkExpired")
                       : managers.length === 0
-                        ? "No managers configured"
-                        : "Select a manager"
+                        ? t("approve.noManagers")
+                        : t("approve.selectManager")
                 }
               />
             </SelectTrigger>
@@ -1063,12 +1097,12 @@ function RefundVariant({ token, request }: RefundProps) {
         <div className="space-y-2">
           <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
             <span className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Your manager PIN
+              {t("approve.managerPinLabel")}
             </span>
             {managerPin.length > 0 ? (
               <PinDots value={managerPin} />
             ) : (
-              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+              <span className="text-muted-foreground">{t("approve.enter4DigitPin")}</span>
             )}
           </div>
           <NumericKeypad
@@ -1089,13 +1123,13 @@ function RefundVariant({ token, request }: RefundProps) {
         {/* Deny reason input — revealed after clicking Deny */}
         {showDenyReason && (
           <div className="space-y-1.5">
-            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Label htmlFor="deny-reason">{t("approve.reasonForDeclining")}</Label>
             <Input
               id="deny-reason"
               type="text"
               value={denyReason}
               onChange={(e) => setDenyReason(e.target.value)}
-              placeholder="e.g. Items still in customer's possession"
+              placeholder={t("approve.denyReasonPlaceholderRefund")}
               disabled={denyPending}
               autoFocus
             />
@@ -1120,10 +1154,10 @@ function RefundVariant({ token, request }: RefundProps) {
                 {pending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Approving…
+                    {t("approve.approving")}
                   </>
                 ) : (
-                  "Approve"
+                  t("approve.approve")
                 )}
               </Button>
               <Button
@@ -1136,7 +1170,7 @@ function RefundVariant({ token, request }: RefundProps) {
                 }}
                 disabled={pending || denyPending}
               >
-                Deny
+                {t("approve.deny")}
               </Button>
             </>
           ) : (
@@ -1158,10 +1192,10 @@ function RefundVariant({ token, request }: RefundProps) {
                 {denyPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Declining…
+                    {t("approve.declining")}
                   </>
                 ) : (
-                  "Confirm Deny"
+                  t("approve.confirmDeny")
                 )}
               </Button>
               <Button
@@ -1175,7 +1209,7 @@ function RefundVariant({ token, request }: RefundProps) {
                 }}
                 disabled={denyPending}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </>
           )}
@@ -1211,6 +1245,8 @@ interface SpoilageProps {
 }
 
 function SpoilageVariant({ token, request }: SpoilageProps) {
+  const t = useT();
+  const mapErr = useErrorMessage();
   const [staffCode, setStaffCode] = useState("");
   const [managerPin, setManagerPin] = useState("");
   const [pending, setPending] = useState(false);
@@ -1248,11 +1284,11 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
     e.preventDefault();
     if (!approveKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
 
@@ -1267,12 +1303,13 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
       });
       setOutcome("approved");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(approveIntent);
       }
@@ -1284,11 +1321,11 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
   async function handleConfirmDeny() {
     if (!denyKey) return;
     if (!staffCode.trim()) {
-      setError("Enter your manager staff code");
+      setError(t("approve.validationStaffCode"));
       return;
     }
     if (managerPin.length !== 4) {
-      setError("Manager PIN must be 4 digits");
+      setError(t("approve.validationManagerPin"));
       return;
     }
     if (!denyReason.trim()) return;
@@ -1305,12 +1342,13 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
       });
       setOutcome("denied");
     } catch (err) {
-      const mapped = mapError(err);
+      const code = mapError(err);
+      const mapped = mapErr(code);
       setError(mapped);
       if (
-        mapped === "Invalid link" ||
-        mapped === "Link expired" ||
-        mapped === "Already resolved"
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
       ) {
         void clearIntent(denyIntent);
       }
@@ -1325,7 +1363,7 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-primary" />
         <p className="text-sm font-medium">
-          ✓ Approved — {request.display.total_qty} units logged as spoilage.
+          {t("approve.spoilageApproved", { qty: String(request.display.total_qty) })}
         </p>
       </main>
     );
@@ -1335,7 +1373,7 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <XCircle className="h-8 w-8 text-destructive" />
-        <p className="text-sm font-medium">Declined — no stock change made.</p>
+        <p className="text-sm font-medium">{t("approve.spoilageDenied")}</p>
       </main>
     );
   }
@@ -1344,24 +1382,24 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
-        <h1 className="text-lg font-semibold">Manager approval needed — Spoilage</h1>
+        <h1 className="text-lg font-semibold">{t("approve.managerApprovalNeededSpoilage")}</h1>
       </header>
 
       {/* Summary card */}
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Total units</span>
+          <span className="text-muted-foreground">{t("approve.totalUnits")}</span>
           <span className="font-semibold tabular-nums text-foreground">
             {request.display.total_qty}
           </span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground shrink-0">Reason</span>
+          <span className="text-muted-foreground shrink-0">{t("approve.reason")}</span>
           <span className="text-right">{request.display.reason}</span>
         </div>
         {request.display.requester_name && (
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Requested by</span>
+            <span className="text-muted-foreground">{t("approve.requestedBy")}</span>
             <span>{request.display.requester_name}</span>
           </div>
         )}
@@ -1383,11 +1421,11 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
       <form
         onSubmit={handleApprove}
         className="flex w-full max-w-sm flex-col gap-5"
-        aria-label="Spoilage approval form"
+        aria-label={t("approve.spoilageFormLabel")}
       >
         {/* Manager identity picker (token-gated query — ADR-029) */}
         <div className="space-y-1.5">
-          <Label htmlFor="mgr-staff-code">Your manager identity</Label>
+          <Label htmlFor="mgr-staff-code">{t("approve.managerIdentityLabel")}</Label>
           <Select
             value={staffCode}
             onValueChange={(value) => {
@@ -1400,12 +1438,12 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
               <SelectValue
                 placeholder={
                   managers === undefined
-                    ? "Loading…"
+                    ? t("common.loading")
                     : managers === null
-                      ? "Link expired"
+                      ? t("approve.linkExpired")
                       : managers.length === 0
-                        ? "No managers configured"
-                        : "Select a manager"
+                        ? t("approve.noManagers")
+                        : t("approve.selectManager")
                 }
               />
             </SelectTrigger>
@@ -1423,12 +1461,12 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
         <div className="space-y-2">
           <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
             <span className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Your manager PIN
+              {t("approve.managerPinLabel")}
             </span>
             {managerPin.length > 0 ? (
               <PinDots value={managerPin} />
             ) : (
-              <span className="text-muted-foreground">Enter 4-digit PIN below</span>
+              <span className="text-muted-foreground">{t("approve.enter4DigitPin")}</span>
             )}
           </div>
           <NumericKeypad
@@ -1449,13 +1487,13 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
         {/* Deny reason input — revealed after clicking Deny */}
         {showDenyReason && (
           <div className="space-y-1.5">
-            <Label htmlFor="deny-reason">Reason for declining</Label>
+            <Label htmlFor="deny-reason">{t("approve.reasonForDeclining")}</Label>
             <Input
               id="deny-reason"
               type="text"
               value={denyReason}
               onChange={(e) => setDenyReason(e.target.value)}
-              placeholder="e.g. Not actually spoiled — re-count needed"
+              placeholder={t("approve.denyReasonPlaceholderSpoilage")}
               disabled={denyPending}
               autoFocus
             />
@@ -1480,10 +1518,10 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
                 {pending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Approving…
+                    {t("approve.approving")}
                   </>
                 ) : (
-                  "Approve"
+                  t("approve.approve")
                 )}
               </Button>
               <Button
@@ -1496,7 +1534,7 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
                 }}
                 disabled={pending || denyPending}
               >
-                Deny
+                {t("approve.deny")}
               </Button>
             </>
           ) : (
@@ -1518,10 +1556,10 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
                 {denyPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Declining…
+                    {t("approve.declining")}
                   </>
                 ) : (
-                  "Confirm Deny"
+                  t("approve.confirmDeny")
                 )}
               </Button>
               <Button
@@ -1535,7 +1573,7 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
                 }}
                 disabled={denyPending}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </>
           )}
@@ -1560,56 +1598,39 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
 // table; the call-site narrowing is the safety net.
 
 type TerminalCopy = {
-  resolvedMsg: (req: any) => React.ReactNode;
-  deniedMsg: (req: any, denierLabel: string) => React.ReactNode;
-  deniedExtra?: (req: any) => React.ReactNode;
+  resolvedMsg: (req: any, t: ReturnType<typeof useT>) => React.ReactNode;
+  deniedMsg: (req: any, denierLabel: string, t: ReturnType<typeof useT>) => React.ReactNode;
+  deniedExtra?: (req: any, t: ReturnType<typeof useT>) => React.ReactNode;
 };
 
 const TERMINAL_COPY: Record<string, TerminalCopy> = {
   staff_pin_reset: {
-    resolvedMsg: (req) => (
-      <>✓ {req.subject_staff_name}&apos;s PIN has already been reset.</>
-    ),
-    deniedMsg: (req, denierLabel) => (
-      <>
-        PIN reset for {req.subject_staff_name} was declined by {denierLabel}.
-      </>
-    ),
-    deniedExtra: (req) => (
+    resolvedMsg: (req, t) => t("approve.terminalPinResetResolved", { name: req.subject_staff_name }),
+    deniedMsg: (req, denierLabel, t) =>
+      t("approve.terminalPinResetDenied", { name: req.subject_staff_name, denier: denierLabel }),
+    deniedExtra: (req, t) => (
       <p className="text-xs text-muted-foreground">
-        {req.subject_staff_name} stays locked until the natural lockout cycle expires.
+        {t("approve.terminalPinResetDeniedExtra", { name: req.subject_staff_name })}
       </p>
     ),
   },
   manual_payment_override: {
-    resolvedMsg: (req) => (
-      <>✓ Payment of {rp(req.display.amount_idr)} already approved.</>
-    ),
-    deniedMsg: (req, denierLabel) => (
-      <>
-        Payment of {rp(req.display.amount_idr)} was declined by {denierLabel}.
-      </>
-    ),
+    resolvedMsg: (req, t) =>
+      t("approve.terminalPaymentResolved", { amount: rp(req.display.amount_idr) }),
+    deniedMsg: (req, denierLabel, t) =>
+      t("approve.terminalPaymentDenied", { amount: rp(req.display.amount_idr), denier: denierLabel }),
   },
   refund: {
-    resolvedMsg: (req) => (
-      <>✓ Refund of {rp(req.display.total_refund)} already approved.</>
-    ),
-    deniedMsg: (req, denierLabel) => (
-      <>
-        Refund of {rp(req.display.total_refund)} was declined by {denierLabel}.
-      </>
-    ),
+    resolvedMsg: (req, t) =>
+      t("approve.terminalRefundResolved", { amount: rp(req.display.total_refund) }),
+    deniedMsg: (req, denierLabel, t) =>
+      t("approve.terminalRefundDenied", { amount: rp(req.display.total_refund), denier: denierLabel }),
   },
   spoilage: {
-    resolvedMsg: (req) => (
-      <>✓ Spoilage of {req.display.total_qty} units already approved.</>
-    ),
-    deniedMsg: (req, denierLabel) => (
-      <>
-        Spoilage of {req.display.total_qty} units was declined by {denierLabel}.
-      </>
-    ),
+    resolvedMsg: (req, t) =>
+      t("approve.terminalSpoilageResolved", { qty: String(req.display.total_qty) }),
+    deniedMsg: (req, denierLabel, t) =>
+      t("approve.terminalSpoilageDenied", { qty: String(req.display.total_qty), denier: denierLabel }),
   },
 };
 
@@ -1618,6 +1639,7 @@ const TERMINAL_COPY: Record<string, TerminalCopy> = {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Approve() {
+  const t = useT();
   const { token } = useParams<{ token: string }>();
 
   // useQuery returns undefined while loading, null when not found.
@@ -1631,7 +1653,7 @@ export default function Approve() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Checking link…</p>
+        <p className="text-sm text-muted-foreground">{t("approve.checkingLink")}</p>
       </main>
     );
   }
@@ -1641,7 +1663,7 @@ export default function Approve() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <p className="text-sm text-muted-foreground">
-          This reset link has expired or is invalid.
+          {t("approve.linkExpiredOrInvalid")}
         </p>
       </main>
     );
@@ -1654,7 +1676,7 @@ export default function Approve() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <CheckCircle2 className="h-8 w-8 text-primary" />
-        <p className="text-sm font-medium">{copy.resolvedMsg(request)}</p>
+        <p className="text-sm font-medium">{copy.resolvedMsg(request, t)}</p>
       </main>
     );
   }
@@ -1669,7 +1691,7 @@ export default function Approve() {
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
           <XCircle className="h-8 w-8 text-destructive" />
           <p className="text-sm font-medium">
-            Approval revoked — too many wrong PIN attempts. Ask the staffer to retry.
+            {t("approve.errRequestRevoked")}
           </p>
         </main>
       );
@@ -1680,7 +1702,7 @@ export default function Approve() {
     const denierLabel =
       denierName && denierCode
         ? `${denierName} (${denierCode})`
-        : denierName ?? denierCode ?? "a manager";
+        : denierName ?? denierCode ?? t("approve.aManager");
     const reason = request.deny_reason;
 
     const copy = TERMINAL_COPY[request.kind];
@@ -1688,13 +1710,13 @@ export default function Approve() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
         <XCircle className="h-8 w-8 text-destructive" />
-        <p className="text-sm font-medium">{copy.deniedMsg(request, denierLabel)}</p>
+        <p className="text-sm font-medium">{copy.deniedMsg(request, denierLabel, t)}</p>
         {reason && (
           <p className="text-sm text-muted-foreground italic">
             &ldquo;{reason}&rdquo;
           </p>
         )}
-        {copy.deniedExtra?.(request)}
+        {copy.deniedExtra?.(request, t)}
       </main>
     );
   }
@@ -1722,7 +1744,7 @@ export default function Approve() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
       <p className="text-sm text-muted-foreground">
-        This approval type is not yet supported in this view.
+        {t("approve.unsupportedKind")}
       </p>
     </main>
   );

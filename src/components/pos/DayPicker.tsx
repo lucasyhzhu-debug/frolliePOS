@@ -8,6 +8,7 @@
  * isn't duplicated across two routes.
  */
 import type { ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 
 interface DayPickerProps {
   value: string | undefined; // "YYYY-MM-DD" or undefined
@@ -21,13 +22,14 @@ interface DayPickerProps {
 }
 
 export function DayPicker({ value, onChange, id, testId, label }: DayPickerProps) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2">
       <label
         htmlFor={id}
         className="text-xs font-medium text-muted-foreground"
       >
-        {label ?? "Tanggal"}
+        {label ?? t("dayPicker.label")}
       </label>
       <input
         id={id}
@@ -41,10 +43,10 @@ export function DayPicker({ value, onChange, id, testId, label }: DayPickerProps
         <button
           type="button"
           onClick={() => onChange(undefined)}
-          aria-label="Reset to today"
+          aria-label={t("dayPicker.resetAriaLabel")}
           className="text-xs text-muted-foreground underline"
         >
-          Hari ini
+          {t("dayPicker.today")}
         </button>
       )}
     </div>

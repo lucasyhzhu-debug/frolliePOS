@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, waitFor, fireEvent } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import LoginRoute from "./login";
@@ -61,6 +61,7 @@ vi.mock("@/hooks/useIdempotency", () => ({
 }));
 
 vi.mock("@/hooks/useSession", () => ({
+  useSession: vi.fn(() => ({ status: "none", sessionId: null, staff: null })),
   storeSession: vi.fn(),
 }));
 

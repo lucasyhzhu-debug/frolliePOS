@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -148,7 +148,7 @@ describe("HistoryDetail route (/history/:txnId)", () => {
     mockDetailReturn = null;
     renderRoute();
     expect(
-      screen.getByText(/Transaksi tidak ditemukan/i),
+      screen.getByText(/Transaction not found/i),
     ).toBeInTheDocument();
   });
 

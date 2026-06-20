@@ -14,6 +14,8 @@ export const authTables = {
     created_at: v.number(),
     last_login_at: v.optional(v.number()),
     must_change_pin: v.optional(v.boolean()), // SEC-03: forced rotation after bootstrap default
+    // v1.2 #1 (i18n): per-staff UI language. Absent ⇒ English default (ADR-049).
+    locale: v.optional(v.union(v.literal("en"), v.literal("id"))),
   })
     .index("by_active", ["active"])
     .index("by_role", ["role"])

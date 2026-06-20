@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { rp, fmtDate, fmtTime } from "@/lib/format";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 /**
  * Refund form (per-line stepper). v0.5.1 PR B B23.
@@ -40,6 +41,7 @@ import { toast } from "sonner";
  * client _at fields.
  */
 export default function RefundDetail() {
+  const t = useT();
   const navigate = useNavigate();
   const session = useSession();
   const { txnId: txnIdParam } = useParams<{ txnId: string }>();
@@ -93,15 +95,15 @@ export default function RefundDetail() {
   // ---- guards ----
   if (!txnId) {
     return (
-      <SpokeLayout title="Refund">
+      <SpokeLayout title={t("refundDetail.title")}>
         <main className="flex flex-1 flex-col items-center justify-center p-4">
-          <p className="text-sm text-destructive">No transaction specified.</p>
+          <p className="text-sm text-destructive">{t("refundDetail.noTxnSpecified")}</p>
           <Button
             variant="outline"
             className="mt-4"
             onClick={() => navigate("/refund")}
           >
-            Back to refund list
+            {t("refundDetail.backToList")}
           </Button>
         </main>
       </SpokeLayout>
@@ -110,7 +112,7 @@ export default function RefundDetail() {
 
   if (session.status === "loading" || data === undefined) {
     return (
-      <SpokeLayout title="Refund">
+      <SpokeLayout title={t("refundDetail.title")}>
         <main className="flex flex-1 flex-col items-center justify-center p-4">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </main>
@@ -121,13 +123,13 @@ export default function RefundDetail() {
 
   if (data.txn === null) {
     return (
-      <SpokeLayout title="Refund">
+      <SpokeLayout title={t("refundDetail.title")}>
         <main className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
           <p className="text-sm text-muted-foreground">
-            Transaction not found or not paid.
+            {t("refundDetail.txnNotFound")}
           </p>
           <Button variant="outline" onClick={() => navigate("/refund")}>
-            Back to refund list
+            {t("refundDetail.backToList")}
           </Button>
         </main>
       </SpokeLayout>
@@ -145,28 +147,28 @@ export default function RefundDetail() {
 
   // ---- error mapping (shared inline + telegram) ----
   const mapErr = (raw: string): string => {
-    if (raw.includes("INVALID_PIN")) return "Wrong PIN";
+    if (raw.includes("INVALID_PIN")) return t("refundDetail.errInvalidPin");
     if (raw.includes("MANAGER_NOT_FOUND"))
-      return "Manager not found or not active";
+      return t("refundDetail.errManagerNotFound");
     if (raw.includes("TXN_NOT_REFUNDABLE"))
-      return "This transaction is not refundable";
+      return t("refundDetail.errTxnNotRefundable");
     if (raw.includes("TXN_NOT_PAID"))
-      return "This transaction is not in a paid state";
-    if (raw.includes("LINE_NOT_FOUND")) return "Refund line no longer exists";
+      return t("refundDetail.errTxnNotPaid");
+    if (raw.includes("LINE_NOT_FOUND")) return t("refundDetail.errLineNotFound");
     if (raw.includes("REFUND_QTY_EXCEEDS_REFUNDABLE"))
-      return "Refund quantity exceeds what's refundable on this line";
+      return t("refundDetail.errQtyExceeds");
     if (raw.includes("REFUND_QTY_INVALID"))
-      return "Refund quantity must be a positive integer";
+      return t("refundDetail.errQtyInvalid");
     if (raw.includes("REFUND_LINES_DUPLICATE"))
-      return "Refund line listed twice — please reload and retry";
+      return t("refundDetail.errLinesDuplicate");
     if (raw.includes("REFUND_TOTAL_ZERO"))
-      return "Refund amount is zero — voucher-covered lines cannot be refunded";
+      return t("refundDetail.errTotalZero");
     if (raw.includes("REFUND_REQUEST_PENDING_DIFFERENT"))
-      return "A different refund request for this transaction is already pending — wait for it to resolve or ask a manager to deny it before requesting again.";
+      return t("refundDetail.errRequestPendingDifferent");
     if (raw.includes("NO_SESSION") || raw.includes("SESSION_INVALID"))
-      return "Session expired — please sign in again";
+      return t("refundDetail.errSessionExpired");
     if (raw.includes("POS_BASE_URL not set"))
-      return "Server config missing: POS_BASE_URL not set (contact dev)";
+      return t("refundDetail.errBaseUrlMissing");
     return raw;
   };
 
@@ -195,7 +197,7 @@ export default function RefundDetail() {
         managerStaffCode: pickedManager.code,
         managerPin: pin,
       });
-      toast.success("Refund committed");
+      toast.success(t("refundDetail.refundCommitted"));
       setPickerOpen(false);
       // N2: clear the persisted idempotency key on success so a future refund
       // attempt for the same txn (e.g. partial refund #2) mints a fresh key
@@ -203,7 +205,7 @@ export default function RefundDetail() {
       if (txnId) await clearIntent(`refund-inline:${txnId}`);
       navigate("/refund");
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Refund failed";
+      const raw = err instanceof Error ? err.message : t("refundDetail.refundFailed");
       setPinError(mapErr(raw));
     } finally {
       setPinPending(false);
@@ -227,7 +229,7 @@ export default function RefundDetail() {
       });
       setApprovalRequestId(requestId);
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Request failed";
+      const raw = err instanceof Error ? err.message : t("refundDetail.requestFailed");
       toast.error(mapErr(raw));
     } finally {
       setTelegramSubmitting(false);
@@ -253,16 +255,16 @@ export default function RefundDetail() {
       });
       if (txnId) await clearIntent(`refund-telegram:${txnId}`);
       setApprovalRequestId(null);
-      toast.success("Permintaan dibatalkan");
+      toast.success(t("refundDetail.requestCancelled"));
     } catch (err) {
-      toast.error(mapErr(err instanceof Error ? err.message : "Cancel failed"));
+      toast.error(mapErr(err instanceof Error ? err.message : t("refundDetail.cancelFailed")));
     } finally {
       cancellingRef.current = false;
     }
   };
 
   const handleApprovalResolved = async () => {
-    toast.success("Manager approved — refund committed.");
+    toast.success(t("refundDetail.approvalResolved"));
     // N2: clear the persisted telegram idempotency key on resolve so a future
     // refund attempt mints a fresh requestId instead of replaying the cached
     // request blob for 24h.
@@ -270,12 +272,12 @@ export default function RefundDetail() {
     navigate("/refund");
   };
   const handleApprovalDenied = async () => {
-    toast.error("Approval denied — try a different approach.");
+    toast.error(t("refundDetail.approvalDenied"));
     if (txnId) await clearIntent(`refund-telegram:${txnId}`);
     setApprovalRequestId(null);
   };
   const handleApprovalExpired = async () => {
-    toast.error("Approval request expired — please try again.");
+    toast.error(t("refundDetail.approvalExpired"));
     if (txnId) await clearIntent(`refund-telegram:${txnId}`);
     setApprovalRequestId(null);
   };
@@ -286,13 +288,13 @@ export default function RefundDetail() {
     telegramSubmitting;
 
   return (
-    <SpokeLayout title="Refund">
+    <SpokeLayout title={t("refundDetail.title")}>
       <section className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         {/* txn header */}
         <Card className="p-4">
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-medium">
-              {data.txn.receipt_number ?? "(no receipt #)"}
+              {data.txn.receipt_number ?? t("refundDetail.noReceiptNumber")}
             </span>
             <span className="text-base font-semibold tabular-nums">
               {rp(data.txn.total)}
@@ -311,7 +313,7 @@ export default function RefundDetail() {
             <Separator />
             <ApprovalPending
               requestId={approvalRequestId}
-              successMessage="Refund approved — committed."
+              successMessage={t("refundDetail.approvalSuccessMessage")}
               onResolved={handleApprovalResolved}
               onDenied={handleApprovalDenied}
               onExpired={handleApprovalExpired}
@@ -344,7 +346,7 @@ export default function RefundDetail() {
             {data.refunds.length > 0 && (
               <Card className="p-3 text-xs text-muted-foreground">
                 <div className="mb-1 font-medium text-foreground">
-                  Already refunded
+                  {t("refundDetail.alreadyRefunded")}
                 </div>
                 <ul className="space-y-1">
                   {data.refunds.map((r) => (
@@ -363,14 +365,14 @@ export default function RefundDetail() {
                 htmlFor="refund-reason"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Reason (required)
+                {t("refundDetail.reasonLabel")}
               </label>
               <textarea
                 id="refund-reason"
                 data-testid="refund-reason"
                 value={refund.reason}
                 onChange={(e) => refund.setReason(e.target.value)}
-                placeholder="Why is this refund needed?"
+                placeholder={t("refundDetail.reasonPlaceholder")}
                 rows={2}
                 disabled={pinPending || telegramSubmitting}
                 className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -380,7 +382,7 @@ export default function RefundDetail() {
             {/* running total */}
             <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2">
               <span className="text-xs font-medium text-muted-foreground">
-                Refund total
+                {t("refundDetail.refundTotal")}
               </span>
               <span
                 className="text-base font-semibold tabular-nums"
@@ -397,7 +399,7 @@ export default function RefundDetail() {
                 onClick={handleInlineStart}
                 disabled={submitDisabled}
               >
-                Refund with manager PIN
+                {t("refundDetail.submitInline")}
               </Button>
               <Button
                 data-testid="refund-submit-telegram"
@@ -406,8 +408,8 @@ export default function RefundDetail() {
                 disabled={submitDisabled}
               >
                 {telegramSubmitting
-                  ? "Sending…"
-                  : "Request approval (Telegram)"}
+                  ? t("refundDetail.sending")
+                  : t("refundDetail.submitTelegram")}
               </Button>
             </div>
           </>
@@ -431,8 +433,8 @@ export default function RefundDetail() {
       {/* PIN sheet — opens after manager is picked */}
       <PinSheet
         open={pickerOpen && pickedManager !== null}
-        title="Confirm refund"
-        label={`Enter ${pickedManager?.name ?? "manager"}'s PIN to confirm refund`}
+        title={t("refundDetail.pinSheetTitle")}
+        label={t("refundDetail.pinSheetLabel", { name: pickedManager?.name ?? t("refundDetail.manager") })}
         pending={pinPending}
         error={pinError}
         onSubmit={handlePinSubmit}

@@ -10,10 +10,12 @@ import { PinSheet } from "@/components/pos/PinSheet";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useT } from "@/lib/i18n";
 
 export default function Lock() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
   const deviceId = useDeviceId();
   const lockShift = useMutation(api.shifts.public.lockShift);
   const managerTakeover = useAction(api.shifts.actions.managerTakeover);
@@ -57,7 +59,7 @@ export default function Lock() {
 
   const handleTakeoverPin = async (pin: string) => {
     if (!deviceId || !takeoverKey || !pickedManager) {
-      setTakeoverError("Perangkat atau manajer belum siap");
+      setTakeoverError(t("lock.errorNotReady"));
       return;
     }
     setTakeoverPending(true);
@@ -75,9 +77,9 @@ export default function Lock() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Pengalihan gagal";
       setTakeoverError(
-        msg.includes("INVALID_PIN") ? "PIN salah." :
-        msg.includes("NOT_MANAGER") ? "Bukan akun manajer." :
-        msg.includes("LOCKED_OUT") ? "Akun terkunci. Coba lagi nanti." :
+        msg.includes("INVALID_PIN") ? t("lock.errorInvalidPin") :
+        msg.includes("NOT_MANAGER") ? t("lock.errorNotManager") :
+        msg.includes("LOCKED_OUT") ? t("lock.errorLockedOut") :
         msg,
       );
     } finally {
@@ -86,24 +88,24 @@ export default function Lock() {
   };
 
   return (
-    <SpokeLayout title="Lock + handoff">
+    <SpokeLayout title={t("lock.title")}>
       <div className="flex flex-1 items-center justify-center p-6">
         <Card className="w-full max-w-sm p-6 text-center">
-          <h2 className="text-lg font-semibold">End {session.staff.name}&apos;s shift?</h2>
+          <h2 className="text-lg font-semibold">{t("lock.heading", { name: session.staff.name })}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            The next person taps their name and PIN to sign in.
+            {t("lock.hint")}
           </p>
           <div className="mt-6 flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => navigate("/")}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button className="flex-1" onClick={handleLock}>
-              Lock
+              {t("lock.lockButton")}
             </Button>
           </div>
           <div className="mt-4">
             <Button variant="ghost" size="sm" onClick={handleTakeoverOpen}>
-              Manajer buka kunci
+              {t("lock.managerTakeover")}
             </Button>
           </div>
         </Card>
@@ -112,11 +114,11 @@ export default function Lock() {
       {/* Manager-picker + PIN sheet for takeover */}
       <PinSheet
         open={takeoverOpen}
-        title="Manajer buka kunci"
+        title={t("lock.managerTakeover")}
         label={
           pickedManager
-            ? `PIN untuk ${pickedManager.name}`
-            : "Pilih manajer dulu"
+            ? t("lock.pinForManager", { name: pickedManager.name })
+            : t("lock.pickManagerFirst")
         }
         pending={takeoverPending}
         error={takeoverError}
@@ -140,7 +142,7 @@ export default function Lock() {
                 </button>
               ))}
               {managers.length === 0 && (
-                <p className="text-sm text-muted-foreground">Tidak ada manajer aktif.</p>
+                <p className="text-sm text-muted-foreground">{t("lock.noManagers")}</p>
               )}
             </div>
           ) : null

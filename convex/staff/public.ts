@@ -135,6 +135,45 @@ export const generateDeviceSetupCode = mutation({
  * API path is preserved (api.staff.public.activateDevice) so the FE/tests need
  * only switch useMutation→useAction / t.mutation→t.action.
  */
+/**
+ * Self-service UI language preference. v1.2 #1 (i18n, ADR-049). Staff-session,
+ * SELF-ONLY — staff_id is derived from the session, never an arg, so a staffer can
+ * only set their own locale (rule #22 low-stakes config; no manager-PIN).
+ */
+export const setOwnLocale = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    locale: v.union(v.literal("en"), v.literal("id")),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; sessionId: Id<"staff_sessions">; locale: "en" | "id" },
+    { ok: true }
+  >(
+    "staff.setOwnLocale",
+    async (ctx, args) => {
+      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      await ctx.db.patch(staffId, { locale: args.locale });
+      await logAudit(ctx, {
+        actor_id: staffId,
+        action: "staff.locale_set",
+        entity_type: "staff",
+        entity_id: staffId,
+        source: "booth_inline",
+        device_id: deviceId,
+        metadata: { locale: args.locale },
+      });
+      return { ok: true as const };
+    },
+    {
+      staffIdFromArgs: (_a) => undefined, // self-derived from session, not args
+      authCheck: async (ctx, args) => {
+        await requireSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});
+
 export const activateDevice = action({
   args: {
     idempotencyKey: v.string(),

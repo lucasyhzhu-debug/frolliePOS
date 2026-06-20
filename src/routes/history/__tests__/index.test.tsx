@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithLocale as render, screen } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -104,7 +104,7 @@ describe("HistoryIndex route (/history)", () => {
     renderRoute();
     const empty = screen.getByTestId("history-empty");
     expect(empty).toBeInTheDocument();
-    expect(empty.textContent).toContain("Belum ada transaksi hari ini");
+    expect(empty.textContent).toContain("No transactions today");
   });
 
   it("renders rows when the list has entries", () => {
@@ -127,7 +127,7 @@ describe("HistoryIndex route (/history)", () => {
     };
     mockRowsReturn = [];
     renderRoute();
-    expect(screen.queryByLabelText(/Tanggal/i)).toBeNull();
+    expect(screen.queryByLabelText(/Date/i)).toBeNull();
   });
 
   it("shows the date picker for manager sessions", () => {
@@ -137,6 +137,6 @@ describe("HistoryIndex route (/history)", () => {
     };
     mockRowsReturn = [];
     renderRoute();
-    expect(screen.getByLabelText(/Tanggal/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Date/i)).toBeInTheDocument();
   });
 });

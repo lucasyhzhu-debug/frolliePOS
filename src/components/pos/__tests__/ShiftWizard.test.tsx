@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
+
+vi.mock("@/hooks/useSession", () => ({
+  useSession: () => ({ status: "none" }),
+}));
 
 /**
  * ShiftWizard — orchestration shell (Task 11, v1.2 #6).

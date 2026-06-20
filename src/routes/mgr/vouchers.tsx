@@ -22,6 +22,7 @@ import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id, Doc } from "../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
+import { useT } from "@/lib/i18n";
 import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -113,11 +114,12 @@ function endOfDayWibToEpochMs(dateStr: string): number | null {
 
 export default function MgrVouchers() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -130,6 +132,7 @@ export default function MgrVouchers() {
 }
 
 function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
+  const t = useT();
   const vouchers = useQuery(api.vouchers.public.listAllVouchers, { sessionId }) as
     | Voucher[]
     | undefined;
@@ -352,7 +355,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     setMetaBusy(true);
     try {
       await updateVoucherMeta(patch);
-      toast.success("Saved");
+      toast.success(t("mgrVouchers.savedSuccess"));
       await clearIntent("vouchers.updateMeta");
       closeMetaEdit();
     } catch (err) {
@@ -367,7 +370,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
     if (!archiveKey) return;
     if (
       !window.confirm(
-        `Archive ${v.code}? Existing redemptions are preserved; the voucher just stops being usable.`,
+        t("mgrVouchers.confirmArchive", { code: v.code }),
       )
     ) {
       return;
@@ -378,7 +381,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         sessionId,
         voucherId: v._id,
       });
-      toast.success(`${v.code} archived`);
+      toast.success(t("mgrVouchers.archivedSuccess", { code: v.code }));
       await clearIntent("vouchers.archive");
     } catch (err) {
       toast.error(humanizeVoucherError(err));
@@ -416,7 +419,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
           expires_at: pinAction.expires_at,
           managerPin,
         });
-        toast.success(`${pinAction.code} created`);
+        toast.success(t("mgrVouchers.createdSuccess", { code: pinAction.code }));
         setAddOpen(false);
         await clearIntent("vouchers.createVoucher");
       }
@@ -438,24 +441,24 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   const pinTitle =
-    pinAction?.kind === "createVoucher" ? "Add voucher" : "Manager PIN";
+    pinAction?.kind === "createVoucher" ? t("mgrVouchers.addVoucher") : t("mgrVouchers.pinTitleDefault");
 
   const pinLabel =
     pinAction?.kind === "createVoucher"
-      ? `Confirm with your manager PIN to create ${pinAction.code}.`
-      : "Enter manager PIN.";
+      ? t("mgrVouchers.pinLabelCreate", { code: pinAction.code })
+      : t("mgrVouchers.pinLabelDefault");
 
   return (
-    <SpokeLayout title="Vouchers" backTo="/">
+    <SpokeLayout title={t("mgrVouchers.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-muted-foreground">
-              Create, edit, archive, view redemptions.
+              {t("mgrVouchers.description")}
             </p>
           </div>
           <Button size="sm" onClick={openAdd}>
-            Add voucher
+            {t("mgrVouchers.addVoucher")}
           </Button>
         </div>
 
@@ -471,7 +474,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         ) : sortedVouchers.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              No vouchers yet — add one above
+              {t("mgrVouchers.empty")}
             </p>
           </div>
         ) : (
@@ -493,31 +496,31 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         {v.code}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {v.type === "percentage" ? "Percentage" : "Amount"} ·{" "}
+                        {v.type === "percentage" ? t("mgrVouchers.typePercentage") : t("mgrVouchers.typeAmount")} ·{" "}
                         <span className="font-mono">{valueLabel}</span>
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Used {v.used_count}
+                        {t("mgrVouchers.usedCount", { count: v.used_count })}
                         {v.max_redemptions !== undefined
                           ? ` / ${v.max_redemptions}`
                           : ""}
                         {v.min_cart_value !== undefined
-                          ? ` · min ${rp(v.min_cart_value)}`
+                          ? ` · ${t("mgrVouchers.minCart", { amount: rp(v.min_cart_value) })}`
                           : ""}
                         {v.expires_at !== undefined
-                          ? ` · expires ${fmtDate(v.expires_at)}`
-                          : " · no expiry"}
+                          ? ` · ${t("mgrVouchers.expires", { date: fmtDate(v.expires_at) })}`
+                          : ` · ${t("mgrVouchers.noExpiry")}`}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {!v.active && (
                         <Badge variant="outline" className="text-[10px]">
-                          Archived
+                          {t("mgrVouchers.badgeArchived")}
                         </Badge>
                       )}
                       {v.active && expired && (
                         <Badge variant="outline" className="text-[10px]">
-                          Expired
+                          {t("mgrVouchers.badgeExpired")}
                         </Badge>
                       )}
                     </div>
@@ -532,7 +535,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                           className="text-xs"
                           onClick={() => openMetaEdit(v)}
                         >
-                          Edit
+                          {t("mgrVouchers.edit")}
                         </Button>
                         <Button
                           variant="outline"
@@ -541,7 +544,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                           onClick={() => archiveOne(v)}
                           disabled={!archiveKey}
                         >
-                          Archive
+                          {t("mgrVouchers.archive")}
                         </Button>
                       </>
                     )}
@@ -551,20 +554,20 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                       className="text-xs"
                       onClick={() => toggleHistory(v)}
                     >
-                      {showHistory ? "Hide history" : "Redemptions"}
+                      {showHistory ? t("mgrVouchers.hideHistory") : t("mgrVouchers.redemptions")}
                     </Button>
                   </div>
 
                   {showHistory && (
                     <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
                       <p className="mb-1 font-medium text-muted-foreground">
-                        Redemption history
+                        {t("mgrVouchers.redemptionHistory")}
                       </p>
                       {redemptions === undefined ? (
-                        <p className="text-muted-foreground">Loading…</p>
+                        <p className="text-muted-foreground">{t("common.loading")}</p>
                       ) : redemptions.length === 0 ? (
                         <p className="text-muted-foreground">
-                          No redemptions yet.
+                          {t("mgrVouchers.noRedemptions")}
                         </p>
                       ) : (
                         <ul className="space-y-0.5">
@@ -604,16 +607,15 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add voucher</DialogTitle>
+            <DialogTitle>{t("mgrVouchers.addVoucher")}</DialogTitle>
             <DialogDescription>
-              Code, type, and value are locked once created. Manager PIN
-              required after Continue.
+              {t("mgrVouchers.addDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="new-voucher-code">Code</Label>
+              <Label htmlFor="new-voucher-code">{t("mgrVouchers.labelCode")}</Label>
               <Input
                 id="new-voucher-code"
                 value={addCode}
@@ -622,7 +624,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.code");
                 }}
                 maxLength={32}
-                placeholder="e.g. WELCOME10"
+                placeholder={t("mgrVouchers.codePlaceholder")}
                 inputMode="text"
                 autoCapitalize="characters"
                 aria-invalid={!!errors["add.code"]}
@@ -633,7 +635,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-voucher-type">Type</Label>
+              <Label htmlFor="new-voucher-type">{t("mgrVouchers.labelType")}</Label>
               <Select
                 value={addType}
                 onValueChange={(val) => setAddType(val as VoucherType)}
@@ -642,14 +644,14 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="percentage">Percentage</SelectItem>
-                  <SelectItem value="amount">Amount (Rp)</SelectItem>
+                  <SelectItem value="percentage">{t("mgrVouchers.typePercentage")}</SelectItem>
+                  <SelectItem value="amount">{t("mgrVouchers.typeAmountRp")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-voucher-value">
-                {addType === "percentage" ? "Value (%)" : "Value (Rp)"}
+                {addType === "percentage" ? t("mgrVouchers.labelValuePct") : t("mgrVouchers.labelValueRp")}
               </Label>
               <Input
                 id="new-voucher-value"
@@ -659,7 +661,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.value");
                 }}
                 inputMode="numeric"
-                placeholder={addType === "percentage" ? "1-100" : "e.g. 5000"}
+                placeholder={addType === "percentage" ? "1-100" : t("mgrVouchers.valuePlaceholderAmount")}
                 aria-invalid={!!errors["add.value"]}
                 aria-describedby={errors["add.value"] ? "add.value-error" : undefined}
               />
@@ -673,7 +675,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-voucher-min">Min cart (Rp, opt)</Label>
+              <Label htmlFor="new-voucher-min">{t("mgrVouchers.labelMinCart")}</Label>
               <Input
                 id="new-voucher-min"
                 value={addMinCart}
@@ -682,7 +684,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.minCart");
                 }}
                 inputMode="numeric"
-                placeholder="e.g. 50000"
+                placeholder={t("mgrVouchers.minCartPlaceholder")}
                 aria-invalid={!!errors["add.minCart"]}
                 aria-describedby={errors["add.minCart"] ? "add.minCart-error" : undefined}
               />
@@ -691,7 +693,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-voucher-max">Max redemptions (opt)</Label>
+              <Label htmlFor="new-voucher-max">{t("mgrVouchers.labelMaxRedemptions")}</Label>
               <Input
                 id="new-voucher-max"
                 value={addMaxRedemptions}
@@ -700,7 +702,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.maxRedemptions");
                 }}
                 inputMode="numeric"
-                placeholder="e.g. 100"
+                placeholder={t("mgrVouchers.maxRedemptionsPlaceholder")}
                 aria-invalid={!!errors["add.maxRedemptions"]}
                 aria-describedby={errors["add.maxRedemptions"] ? "add.maxRedemptions-error" : undefined}
               />
@@ -709,7 +711,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="new-voucher-expires">Expires (opt)</Label>
+              <Label htmlFor="new-voucher-expires">{t("mgrVouchers.labelExpires")}</Label>
               <Input
                 id="new-voucher-expires"
                 type="date"
@@ -725,20 +727,20 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 <FieldMessage id="add.expires-error">{errors["add.expires"]}</FieldMessage>
               )}
               <p className="text-[10px] text-muted-foreground">
-                Treated as end-of-day WIB.
+                {t("mgrVouchers.expiresHint")}
               </p>
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitAddOpenPin}
               disabled={!createKey || addCode.trim().length < 3}
             >
-              Continue
+              {t("mgrVouchers.continue")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -753,16 +755,15 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit voucher</DialogTitle>
+            <DialogTitle>{t("mgrVouchers.editVoucher")}</DialogTitle>
             <DialogDescription>
-              {metaTarget?.code ?? ""} — code, type, and value are locked.
-              Archive and recreate to change them.
+              {metaTarget?.code ?? ""} — {t("mgrVouchers.editDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1.5">
-              <Label>Status</Label>
+              <Label>{t("mgrVouchers.labelStatus")}</Label>
               <Select
                 value={metaActive ? "active" : "inactive"}
                 onValueChange={(val) => setMetaActive(val === "active")}
@@ -772,13 +773,13 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="active">{t("mgrVouchers.statusActive")}</SelectItem>
+                  <SelectItem value="inactive">{t("mgrVouchers.statusInactive")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-min">Min cart (Rp)</Label>
+              <Label htmlFor="edit-min">{t("mgrVouchers.labelMinCartEdit")}</Label>
               <Input
                 id="edit-min"
                 value={metaMinCart}
@@ -796,7 +797,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-max">Max redemptions</Label>
+              <Label htmlFor="edit-max">{t("mgrVouchers.labelMaxEdit")}</Label>
               <Input
                 id="edit-max"
                 value={metaMaxRedemptions}
@@ -814,7 +815,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="edit-expires">Expires</Label>
+              <Label htmlFor="edit-expires">{t("mgrVouchers.labelExpiresEdit")}</Label>
               <Input
                 id="edit-expires"
                 type="date"
@@ -831,8 +832,7 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 <FieldMessage id="meta.expires-error">{errors["meta.expires"]}</FieldMessage>
               )}
               <p className="text-[10px] text-muted-foreground">
-                Treated as end-of-day WIB. Leave blank to keep the existing
-                value (clearing the field does not unset expiry).
+                {t("mgrVouchers.expiresEditHint")}
               </p>
             </div>
           </div>
@@ -843,10 +843,10 @@ function MgrVouchersInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={closeMetaEdit}
               disabled={metaBusy}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={commitMetaEdit} disabled={metaBusy || !metaKey}>
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

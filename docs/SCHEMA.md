@@ -57,6 +57,7 @@ Booth employees and managers.
 | `created_at` | `number` | ms epoch |
 | `last_login_at` | `number?` | |
 | `must_change_pin` | `boolean?` | SEC-03 (v1.1). `true` on the bootstrap-seeded manager → FE forces a one-time rotation prompt after login. Cleared (`false`) by `_changePinCommit_internal` on any successful PIN change. Absent on existing rows = falsy. |
+| `locale` | `"en" \| "id"` `?` | v1.2 #1 (i18n). Per-staff UI language preference. Absent ⇒ `"en"` English default (no migration; set by `setOwnLocale` mutation, Task 4). Projected by `getSession` → flows through `useSession` → consumed by `LocaleProvider`. |
 
 Indexes: `by_active` on `active`, `by_role` on `role`.
 
@@ -758,6 +759,7 @@ refund.denied               # _markDenied_internal via denyRequest (kind=refund)
 refund.settled              # markRefundSettled — pending → settled bookkeeping flip (ADR-038, manager-session gated, source=booth_inline)
 # v0.5.3b admin slice (all source=booth_inline)
 staff.updated               # updateStaffName / setStaffRole — metadata={ field:"name"|"role", role? } (manager-session for name; manager-PIN for role)
+staff.locale_set            # setOwnLocale (v1.2 #1) — staff-session, self-only; metadata={ locale:"en"|"id" }; source=booth_inline
 staff.created               # createStaff action — manager-PIN gated; new staff row inserted with role + pin_hash
 staff.deactivated           # deactivateStaff — manager-PIN gated; soft-delete via active=false
 product.created             # createProduct action — manager-PIN gated; metadata={ name, price_idr }

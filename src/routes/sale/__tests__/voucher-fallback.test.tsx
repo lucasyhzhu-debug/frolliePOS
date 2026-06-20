@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithLocale as render, screen, fireEvent } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi } from "vitest";
 import SaleVoucher from "../voucher";

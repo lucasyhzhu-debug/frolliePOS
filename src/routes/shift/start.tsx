@@ -4,6 +4,7 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
+import { useT } from "@/lib/i18n";
 
 /**
  * Start-of-day wizard — fires when a staff logs in to a CLOSED booth.
@@ -21,62 +22,66 @@ import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/p
  * submitting. The mutation itself wraps withIdempotency on the backend.
  */
 
-const STEPS: WizardStep[] = [
-  {
-    key: "count",
-    label: "Hitung stok",
-    type: "count",
-  },
-  {
-    key: "power-on",
-    label: "Hidupkan perangkat",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Hidupkan semua perangkat:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>WiFi</li>
-          <li>Printer</li>
-          <li>HP Frollie</li>
-        </ul>
-        <p className="mt-3">Konfirmasi <strong>GoFood OPEN</strong> di aplikasi.</p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          (Lalamove/Gosend: cek lewat WA. Cocokkan dengan hitungan stok tadi.)
-        </p>
-      </div>
-    ),
-  },
-  {
-    key: "fill-display",
-    label: "Isi display",
-    type: "instruction",
-    body: (
-      <div>
-        <p>Taruh <strong>5 cookies</strong> ke dalam display booth.</p>
-      </div>
-    ),
-  },
-  {
-    key: "tidy-booth",
-    label: "Rapikan booth",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Sebelum buka:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>Rapikan booth</li>
-          <li>Pastikan banner terlihat dari eskalator</li>
-          <li>Foto depan + dalam booth → kirim ke WA group</li>
-        </ul>
-      </div>
-    ),
-  },
-];
-
+function useSteps(): WizardStep[] {
+  const t = useT();
+  return [
+    {
+      key: "count",
+      label: t("shiftStart.stepCountLabel"),
+      type: "count",
+    },
+    {
+      key: "power-on",
+      label: t("shiftStart.stepPowerOnLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftStart.stepPowerOnTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftStart.powerOnWifi")}</li>
+            <li>{t("shiftStart.powerOnPrinter")}</li>
+            <li>{"HP Frollie"}</li>
+          </ul>
+          <p className="mt-3">{t("shiftStart.stepPowerOnGofood")}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t("shiftStart.stepPowerOnHint")}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "fill-display",
+      label: t("shiftStart.stepFillDisplayLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p>{t("shiftStart.stepFillDisplayBody")}</p>
+        </div>
+      ),
+    },
+    {
+      key: "tidy-booth",
+      label: t("shiftStart.stepTidyBoothLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftStart.stepTidyBoothTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftStart.stepTidyBoothItem1")}</li>
+            <li>{t("shiftStart.stepTidyBoothItem2")}</li>
+            <li>{t("shiftStart.stepTidyBoothItem3")}</li>
+          </ul>
+        </div>
+      ),
+    },
+  ];
+}
 
 export default function ShiftStart() {
+  const t = useT();
   const navigate = useNavigate();
   const session = useSession();
+  const steps = useSteps();
   const completeStartOfDay = useMutation(api.shifts.public.completeStartOfDay);
 
   const sessionId = session.status === "active" ? session.sessionId : null;
@@ -100,10 +105,10 @@ export default function ShiftStart() {
 
   return (
     <ShiftWizard
-      title="Mulai hari"
-      steps={STEPS}
+      title={t("shiftStart.title")}
+      steps={steps}
       onComplete={onComplete}
-      terminalLabel="Mulai hari"
+      terminalLabel={t("shiftStart.terminalLabel")}
     />
   );
 }

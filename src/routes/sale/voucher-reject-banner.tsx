@@ -1,11 +1,5 @@
 import { Button } from "@/components/ui/button";
-
-const REASON_COPY: Record<string, string> = {
-  EXPIRED: "expired between cart-build and payment",
-  INACTIVE: "is no longer active",
-  MIN_CART_VALUE: "needs a higher cart total",
-  NOT_FOUND: "was removed by the manager",
-};
+import { useT } from "@/lib/i18n";
 
 /**
  * Charge-screen advisory banner surfacing V8's `voucher_rejected` signal.
@@ -24,17 +18,23 @@ export function VoucherRejectBanner({
   rejected: { code: string; reason: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE" };
   onPickAnother: () => void;
 }) {
+  const t = useT();
+  const REASON_COPY: Record<string, string> = {
+    EXPIRED: t("voucherBanner.reasonExpired"),
+    INACTIVE: t("voucherBanner.reasonInactive"),
+    MIN_CART_VALUE: t("voucherBanner.reasonMinCart"),
+    NOT_FOUND: t("voucherBanner.reasonNotFound"),
+  };
   return (
     <div
       role="alert"
       className="border border-warning/30 bg-warning/15 rounded-md p-3 flex items-center justify-between gap-2"
     >
       <p className="text-sm">
-        Voucher <span className="font-mono font-semibold">{rejected.code}</span>{" "}
-        {REASON_COPY[rejected.reason] ?? "is invalid"} — applied without it.
+        {t("voucherBanner.message", { code: rejected.code, reason: REASON_COPY[rejected.reason] ?? t("voucherBanner.reasonInvalid") })}
       </p>
       <Button size="sm" variant="outline" onClick={onPickAnother}>
-        Pick a different voucher
+        {t("voucherBanner.pickAnother")}
       </Button>
     </div>
   );

@@ -7,11 +7,13 @@ import { useRecountNudge } from "@/hooks/useRecountNudge";
 import { useAwaitingPaymentRecovery } from "@/hooks/useAwaitingPaymentRecovery";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
+import { LocaleToggle } from "@/components/pos/LocaleToggle";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Flag, Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
+import { useT } from "@/lib/i18n";
 
 interface Tile {
   id: string;
@@ -35,8 +37,6 @@ const TILES: Tile[] = [
   { id: "telegram-chats", group: "mgr", label: "Telegram chats", hint: "bot registry + roles", to: "/mgr/telegram-chats", mgrOnly: true, glyph: "✈" },
 ];
 
-const GROUP_LABELS = { sell: "SELL", stock: "STOCK", you: "YOU", mgr: "MANAGER" } as const;
-
 // Shared with the warning banners below — single source for the dark-safe
 // warning-tone treatment so the recount + recovery banners stay in sync.
 const BANNER_CLS =
@@ -45,6 +45,7 @@ const BANNER_CLS =
 export default function HomeRoute() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
   const liveCatalog = useQuery(api.catalog.public.catalog, {});
   const { snapshot } = useCatalogCache(liveCatalog);
   const catalog = snapshot ?? liveCatalog;
@@ -59,7 +60,7 @@ export default function HomeRoute() {
   const grouped = (["sell", "stock", "you", "mgr"] as const)
     .map((g) => ({
       group: g,
-      tiles: TILES.filter((t) => t.group === g && (!t.mgrOnly || isManager)),
+      tiles: TILES.filter((tile) => tile.group === g && (!tile.mgrOnly || isManager)),
     }))
     .filter((x) => x.tiles.length > 0);
 
@@ -75,8 +76,8 @@ export default function HomeRoute() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Akhiri shift"
-            title="Akhiri shift"
+            aria-label={t("home.endShift")}
+            title={t("home.endShift")}
             onClick={() => navigate("/shift/end")}
           >
             <Flag className="size-5" />
@@ -84,7 +85,7 @@ export default function HomeRoute() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Lock and hand off"
+            aria-label={t("home.lockHandoff")}
             onClick={() => navigate("/lock")}
           >
             <Lock className="size-5" />
@@ -93,14 +94,14 @@ export default function HomeRoute() {
 
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold leading-tight truncate">
-            Frollie{" "}
+            {"Frollie"}{" "}
             <span className="font-normal text-muted-foreground">· {session.staff.name}</span>
           </h1>
           <p className="text-[10px] text-muted-foreground leading-none mt-0.5">
             <span className="uppercase tracking-widest">v{__APP_VERSION__}</span>
             {catalog != null && (
               <span className="ml-2 normal-case">
-                {catalog.products.length} products · {catalog.skus.length} SKUs
+                {t("home.catalogSummary_other", { count: catalog.products.length, skus: catalog.skus.length })}
               </span>
             )}
           </p>
@@ -116,7 +117,7 @@ export default function HomeRoute() {
         {/* Banners */}
         {nudge && (
           <Link to="/stock/recount" className={BANNER_CLS}>
-            Saatnya menghitung ulang stok — ketuk untuk mulai
+            {t("home.recountNudge")}
           </Link>
         )}
 
@@ -126,7 +127,7 @@ export default function HomeRoute() {
             className={BANNER_CLS}
             data-testid="awaiting-recovery-banner"
           >
-            {recovery.count} pembayaran belum selesai — ketuk untuk lanjutkan
+            {t("home.awaitingPayment_other", { count: recovery.count })}
           </Link>
         )}
 
@@ -141,8 +142,8 @@ export default function HomeRoute() {
               <span className="text-2xl leading-none">◉</span>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold leading-tight">New sale</p>
-              <p className="mt-1 text-sm text-primary-foreground/80">start a cart</p>
+              <p className="text-2xl font-bold leading-tight">{t("home.newSale")}</p>
+              <p className="mt-1 text-sm text-primary-foreground/80">{t("home.startCart")}</p>
             </div>
           </Link>
         </Card>
@@ -157,18 +158,17 @@ export default function HomeRoute() {
           {grouped.map(({ group, tiles }) => (
             <section key={group}>
               <h2 className="mb-2 text-xs font-medium tracking-widest text-muted-foreground">
-                {GROUP_LABELS[group]}
+                {t(`home.group.${group}` as const)}
               </h2>
               <div className="grid grid-cols-2 gap-2">
-                {tiles.map((t) => (
-                  <motion.div key={t.id} variants={itemV}>
+                {tiles.map((tile) => (
+                  <motion.div key={tile.id} variants={itemV}>
                     <Card className="relative p-3 transition-colors hover:bg-accent">
-                      <Link to={t.to} className="block">
-                        <TileBody tile={t} />
-                      </Link>
+                      <Link to={tile.to} className="block"><TileBody tile={tile} /></Link>
                     </Card>
                   </motion.div>
                 ))}
+                {group === "you" && <LocaleToggle />}
               </div>
             </section>
           ))}

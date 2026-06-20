@@ -10,6 +10,7 @@ import { useBoothState } from "@/hooks/useBoothState";
 import { PinSheet } from "@/components/pos/PinSheet";
 import CountStep from "@/components/pos/CountStep";
 import { StaffListItem } from "@/components/auth/StaffListItem";
+import { useT } from "@/lib/i18n";
 
 /**
  * Shift handover — incoming staff flow (spec §3C, Task 15).
@@ -30,6 +31,7 @@ type Stage =
   | { kind: "count"; sessionId: Id<"staff_sessions"> };
 
 export default function ShiftHandover() {
+  const t = useT();
   const navigate = useNavigate();
   const deviceId = useDeviceId();
   const boothState = useBoothState();
@@ -64,7 +66,7 @@ export default function ShiftHandover() {
   // -------------------------------------------------------------------------
   const onPinSubmit = async (pin: string) => {
     if (stage.kind !== "pin") return;
-    if (!deviceId) { setPinError("Device not ready — please wait"); return; }
+    if (!deviceId) { setPinError(t("shiftHandover.deviceNotReady")); return; }
     if (!loginKey) return; // IDB not yet resolved — guard ADR-013
 
     setPinPending(true);
@@ -81,10 +83,10 @@ export default function ShiftHandover() {
       storeSession(sessionId, stage.staff._id);
       setStage({ kind: "count", sessionId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Login failed";
+      const msg = err instanceof Error ? err.message : t("shiftHandover.loginFailed");
       const friendly =
-        msg.includes("INVALID_PIN") ? "Wrong PIN." :
-        msg.includes("LOCKED_OUT") ? "Account locked. Contact a manager." :
+        msg.includes("INVALID_PIN") ? t("shiftHandover.wrongPin") :
+        msg.includes("LOCKED_OUT") ? t("shiftHandover.accountLocked") :
         msg;
       setPinError(friendly);
     } finally {
@@ -102,7 +104,7 @@ export default function ShiftHandover() {
       idempotencyKey: completeKey,
       sessionId: stage.sessionId,
       steps: [
-        { key: "count", label: "Hitung stok", type: "count", confirmed_at: Date.now() },
+        { key: "count", label: t("shiftHandover.countStepLabel"), type: "count", confirmed_at: Date.now() },
       ],
       countChanged,
     });
@@ -118,8 +120,8 @@ export default function ShiftHandover() {
     return (
       <main className="flex flex-1 flex-col p-6">
         <header className="mb-6">
-          <h1 className="text-xl font-semibold text-foreground">Hitung stok</h1>
-          <p className="text-sm text-muted-foreground">Sebelum mulai shift, hitung stok terlebih dahulu.</p>
+          <h1 className="text-xl font-semibold text-foreground">{t("shiftHandover.countTitle")}</h1>
+          <p className="text-sm text-muted-foreground">{t("shiftHandover.countSubtitle")}</p>
         </header>
         <CountStep onSubmitted={onCountSubmitted} />
       </main>
@@ -129,16 +131,16 @@ export default function ShiftHandover() {
   return (
     <main className="flex flex-1 flex-col p-6">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-foreground">Siapa yang masuk?</h1>
-        <p className="text-sm text-muted-foreground">Pilih nama kamu untuk melanjutkan.</p>
+        <h1 className="text-xl font-semibold text-foreground">{t("shiftHandover.pickTitle")}</h1>
+        <p className="text-sm text-muted-foreground">{t("shiftHandover.pickSubtitle")}</p>
       </header>
 
       {/* pick stage */}
       {eligibleStaff === undefined ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       ) : eligibleStaff.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Tidak ada staff aktif lain. Hubungi manager.
+          {t("shiftHandover.noOtherStaff")}
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -160,7 +162,7 @@ export default function ShiftHandover() {
       <PinSheet
         open={stage.kind === "pin"}
         title={stage.kind === "pin" ? stage.staff.name : ""}
-        label="Masukkan PIN"
+        label={t("shiftHandover.enterPin")}
         pending={pinPending}
         error={pinError}
         onSubmit={onPinSubmit}

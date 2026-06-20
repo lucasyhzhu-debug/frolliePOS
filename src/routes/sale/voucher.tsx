@@ -13,13 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
-const REASON_MESSAGES: Record<string, string> = {
-  NOT_FOUND: "Code not found",
-  INACTIVE: "Voucher inactive",
-  EXPIRED: "Voucher expired",
-  MIN_CART_VALUE: "Cart below minimum for this voucher",
-};
+// REASON_MESSAGES is now built inside the component using t() — moved below.
 
 // Narrowed catalog-snapshot shape — we only read `vouchers` here.
 // The full snapshot has products/skus/components/stockLevels too.
@@ -28,9 +24,17 @@ type CatalogSnapshot = {
 } & Record<string, unknown>;
 
 export default function SaleVoucher() {
+  const t = useT();
   const navigate = useNavigate();
   const { subtotal, voucherCode, setVoucher, clearVoucher } = useCart();
   const [code, setCode] = useState("");
+
+  const REASON_MESSAGES: Record<string, string> = {
+    NOT_FOUND: t("voucher.reasonNotFound"),
+    INACTIVE: t("voucher.reasonInactive"),
+    EXPIRED: t("voucher.reasonExpired"),
+    MIN_CART_VALUE: t("voucher.reasonMinCart"),
+  };
 
   const upperCode = code.toUpperCase();
 
@@ -62,7 +66,7 @@ export default function SaleVoucher() {
   const handleApply = () => {
     if (!validation?.valid) return;
     setVoucher(upperCode);
-    toast.success("Voucher applied");
+    toast.success(t("voucher.toastApplied"));
     navigate("/sale");
   };
 
@@ -72,13 +76,13 @@ export default function SaleVoucher() {
   };
 
   return (
-    <SpokeLayout title="Apply voucher" backTo="/sale">
+    <SpokeLayout title={t("voucher.title")} backTo="/sale">
       <section className="flex flex-1 flex-col gap-4 p-4">
         {/* Code input */}
         <div className="flex gap-2">
           <Input
-            aria-label="Voucher code"
-            placeholder="Enter voucher code"
+            aria-label={t("voucher.codeAriaLabel")}
+            placeholder={t("voucher.codePlaceholder")}
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             className="flex-1 font-mono tracking-widest uppercase"
@@ -87,14 +91,14 @@ export default function SaleVoucher() {
             disabled={!validation?.valid}
             onClick={handleApply}
           >
-            Apply
+            {t("voucher.apply")}
           </Button>
         </div>
 
         {/* Offline-fallback hint — only when actually falling back. */}
         {usingCache && (
           <p className="text-xs text-muted-foreground">
-            Offline — applying from cached list. Server re-validates on commit.
+            {t("voucher.offlineHint")}
           </p>
         )}
 
@@ -103,7 +107,7 @@ export default function SaleVoucher() {
           <div className="rounded-md border px-4 py-3">
             {validation.valid ? (
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-success">Valid</span>
+                <span className="text-sm font-medium text-success">{t("voucher.valid")}</span>
                 <span className="text-sm tabular-nums text-success">
                   −{rp(validation.discountAmount)}
                 </span>
@@ -111,8 +115,8 @@ export default function SaleVoucher() {
             ) : (
               <p className="text-sm text-destructive">
                 {validation.reason != null
-                  ? (REASON_MESSAGES[validation.reason] ?? "Invalid voucher")
-                  : "Invalid voucher"}
+                  ? (REASON_MESSAGES[validation.reason] ?? t("voucher.invalid"))
+                  : t("voucher.invalid")}
               </p>
             )}
           </div>
@@ -123,14 +127,14 @@ export default function SaleVoucher() {
           <div className="rounded-md border border-dashed border-border px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                Applied: <span className="font-medium text-foreground">{voucherCode}</span>
+                {t("voucher.applied", { code: voucherCode })}
               </span>
               <button
                 type="button"
                 className="text-xs text-destructive underline-offset-2 hover:underline"
                 onClick={handleRemove}
               >
-                Remove
+                {t("voucher.remove")}
               </button>
             </div>
           </div>
@@ -138,7 +142,7 @@ export default function SaleVoucher() {
 
         {/* Cancel / back */}
         <Button variant="outline" className="w-full" onClick={() => navigate("/sale")}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </section>
     </SpokeLayout>

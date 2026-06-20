@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 /**
  * /mgr/device-setup (v0.5.6) — mint a 6-digit device-registration code via the
@@ -19,12 +20,13 @@ import { toast } from "sonner";
  */
 export default function MgrDeviceSetup() {
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
-      <SpokeLayout title="Device setup">
+      <SpokeLayout title={t("mgrDeviceSetup.title")}>
         <main className="flex flex-1 items-center justify-center p-8">
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         </main>
       </SpokeLayout>
     );
@@ -39,6 +41,7 @@ function MgrDeviceSetupInner({ sessionId }: { sessionId: Id<"staff_sessions"> })
   const generate = useMutation(api.staff.public.generateDeviceSetupCode);
   const [minted, setMinted] = useState<{ code: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   const onGenerate = async () => {
     setBusy(true);
@@ -53,17 +56,16 @@ function MgrDeviceSetupInner({ sessionId }: { sessionId: Id<"staff_sessions"> })
   };
 
   return (
-    <SpokeLayout title="Device setup" backTo="/mgr">
+    <SpokeLayout title={t("mgrDeviceSetup.title")} backTo="/mgr">
       <main className="flex flex-1 flex-col gap-4 p-4">
         <p className="text-sm text-muted-foreground">
-          Buat kode aktivasi 6-digit untuk mendaftarkan perangkat baru. Bacakan kodenya
-          dan ketik di layar <code>/activate</code> perangkat tersebut.
+          {t("mgrDeviceSetup.instruction")}
         </p>
         {minted ? (
           <SetupCodeCard minted={minted} onRegenerate={onGenerate} busy={busy} />
         ) : (
           <Button onClick={onGenerate} disabled={busy} size="lg">
-            {busy ? "Membuat…" : "Generate setup code"}
+            {busy ? t("mgrDeviceSetup.generating") : t("mgrDeviceSetup.generateBtn")}
           </Button>
         )}
       </main>
@@ -81,6 +83,7 @@ function SetupCodeCard({
   busy: boolean;
 }) {
   const { mmss, expired } = useCountdown(minted.expiresAt);
+  const t = useT();
 
   return (
     <Card className="flex flex-col items-center gap-3 p-6">
@@ -92,15 +95,15 @@ function SetupCodeCard({
       </span>
       {expired ? (
         <p className="text-sm text-destructive" data-testid="setup-expired">
-          Kode kedaluwarsa — buat ulang.
+          {t("mgrDeviceSetup.codeExpired")}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground" data-testid="setup-countdown">
-          Kedaluwarsa dalam {mmss}
+          {t("mgrDeviceSetup.codeExpiry", { mmss })}
         </p>
       )}
       <Button variant="outline" size="sm" onClick={onRegenerate} disabled={busy}>
-        {busy ? "Membuat…" : "Regenerate"}
+        {busy ? t("mgrDeviceSetup.generating") : t("mgrDeviceSetup.regenerateBtn")}
       </Button>
     </Card>
   );

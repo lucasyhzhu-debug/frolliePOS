@@ -47,6 +47,7 @@ import { FieldMessage } from "@/components/ui/field-message";
 import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 type Product = Doc<"pos_products">;
 type Sku = Doc<"pos_inventory_skus">;
@@ -155,11 +156,12 @@ const PRICE_FOCUS: Record<string, string> = {
 export default function MgrProducts() {
   const navigate = useNavigate();
   const session = useSession();
+  const t = useT();
 
   if (session.status === "loading") {
     return (
       <main className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -669,23 +671,25 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
+  const t = useT();
+
   const pinTitle =
     pinAction?.kind === "createProduct"
-      ? "Add product"
+      ? t("mgrProducts.pinTitleAdd")
       : pinAction?.kind === "updatePricing"
-        ? "Update pricing"
+        ? t("mgrProducts.pinTitleUpdatePricing")
         : pinAction?.kind === "createInventorySku"
-          ? "Add SKU"
-          : "Manager PIN";
+          ? t("mgrProducts.pinTitleAddSku")
+          : t("mgrProducts.pinTitleDefault");
 
   const pinLabel =
     pinAction?.kind === "createProduct"
-      ? `Confirm with your manager PIN to add ${pinAction.name}.`
+      ? t("mgrProducts.pinLabelAdd", { name: pinAction.name })
       : pinAction?.kind === "updatePricing"
-        ? `Confirm with your manager PIN to update pricing for ${pinAction.productName}.`
+        ? t("mgrProducts.pinLabelUpdatePricing", { name: pinAction.productName })
         : pinAction?.kind === "createInventorySku"
-          ? `Confirm with your manager PIN to add SKU ${pinAction.sku}.`
-          : "Enter manager PIN.";
+          ? t("mgrProducts.pinLabelAddSku", { sku: pinAction.sku })
+          : t("mgrProducts.pinLabelDefault");
 
   // Quick lookup for SKU name display.
   const skuById = useMemo(() => {
@@ -695,20 +699,20 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
   }, [data]);
 
   return (
-    <SpokeLayout title="Products" backTo="/">
+    <SpokeLayout title={t("mgrProducts.title")} backTo="/">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-muted-foreground">
-              Add, edit, price, link components, archive.
+              {t("mgrProducts.subtitle")}
             </p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={openAddSku}>
-              Add SKU
+              {t("mgrProducts.addSku")}
             </Button>
             <Button size="sm" onClick={openAdd}>
-              Add product
+              {t("mgrProducts.addProduct")}
             </Button>
           </div>
         </div>
@@ -725,7 +729,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
         ) : sortedProducts.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              No products yet — add one above
+              {t("mgrProducts.noProducts")}
             </p>
           </div>
         ) : (
@@ -745,19 +749,19 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         {p.name}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {p.pack_label} · {p.sku_family} · sort {p.sort_order}
+                        {t("mgrProducts.skuInfoLine", { packLabel: p.pack_label, skuFamily: p.sku_family, sortOrder: p.sort_order })}
                       </p>
                       <p className="mt-1 text-sm font-mono">
                         {rp(p.price_idr)}
                         <span className="ml-2 text-xs text-muted-foreground">
-                          tax {p.tax_rate}%
+                          {t("mgrProducts.taxDisplay", { rate: p.tax_rate })}
                         </span>
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {!p.active && (
                         <Badge variant="outline" className="text-[10px]">
-                          Archived
+                          {t("mgrProducts.archived")}
                         </Badge>
                       )}
                     </div>
@@ -766,7 +770,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   {productComponents.length > 0 && (
                     <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
                       <p className="mb-1 font-medium text-muted-foreground">
-                        Components
+                        {t("mgrProducts.componentsLabel")}
                       </p>
                       <ul className="space-y-0.5">
                         {productComponents.map((c) => {
@@ -793,7 +797,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         className="text-xs"
                         onClick={() => openMetaEdit(p)}
                       >
-                        Edit
+                        {t("mgrProducts.editBtn")}
                       </Button>
                       <Button
                         variant="outline"
@@ -801,7 +805,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         className="text-xs"
                         onClick={() => openPriceEdit(p)}
                       >
-                        Edit price
+                        {t("mgrProducts.editPriceBtn")}
                       </Button>
                       <Button
                         variant="outline"
@@ -809,7 +813,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         className="text-xs"
                         onClick={() => openComponents(p)}
                       >
-                        Components
+                        {t("mgrProducts.componentsBtn")}
                       </Button>
                       <Button
                         variant="outline"
@@ -818,7 +822,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         onClick={() => archiveOne(p)}
                         disabled={!archiveKey}
                       >
-                        Archive
+                        {t("mgrProducts.archiveBtn")}
                       </Button>
                     </div>
                   )}
@@ -838,15 +842,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add product</DialogTitle>
+            <DialogTitle>{t("mgrProducts.addProductTitle")}</DialogTitle>
             <DialogDescription>
-              Manager PIN required after Continue.
+              {t("mgrProducts.pinRequiredAfterContinue")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="new-product-code">Product code</Label>
+              <Label htmlFor="new-product-code">{t("mgrProducts.fieldProductCode")}</Label>
               <Input
                 id="new-product-code"
                 value={addProductCode}
@@ -854,7 +858,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   setAddProductCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""));
                   clearFieldError("add.code");
                 }}
-                placeholder="e.g. DUBAI_8PC"
+                placeholder={t("mgrProducts.placeholderProductCode")}
                 aria-invalid={!!errors["add.code"]}
                 aria-describedby={errors["add.code"] ? "add.code-error" : undefined}
               />
@@ -863,7 +867,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="new-product-name">Name</Label>
+              <Label htmlFor="new-product-name">{t("mgrProducts.fieldName")}</Label>
               <Input
                 id="new-product-name"
                 value={addName}
@@ -872,7 +876,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("add.name");
                 }}
                 maxLength={80}
-                placeholder="e.g. Dubai 8pcs"
+                placeholder={t("mgrProducts.placeholderProductName")}
                 aria-invalid={!!errors["add.name"]}
                 aria-describedby={errors["add.name"] ? "add.name-error" : undefined}
               />
@@ -881,7 +885,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-pack-label">Pack label</Label>
+              <Label htmlFor="new-pack-label">{t("mgrProducts.fieldPackLabel")}</Label>
               <Input
                 id="new-pack-label"
                 value={addPackLabel}
@@ -889,7 +893,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   setAddPackLabel(e.target.value);
                   clearFieldError("add.packLabel");
                 }}
-                placeholder="e.g. 8pcs"
+                placeholder={t("mgrProducts.placeholderPackLabel")}
                 aria-invalid={!!errors["add.packLabel"]}
                 aria-describedby={errors["add.packLabel"] ? "add.packLabel-error" : undefined}
               />
@@ -898,7 +902,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-family">SKU family</Label>
+              <Label htmlFor="new-sku-family">{t("mgrProducts.fieldSkuFamily")}</Label>
               <Input
                 id="new-sku-family"
                 value={addSkuFamily}
@@ -906,7 +910,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   setAddSkuFamily(e.target.value);
                   clearFieldError("add.skuFamily");
                 }}
-                placeholder="e.g. dubai"
+                placeholder={t("mgrProducts.placeholderSkuFamily")}
                 aria-invalid={!!errors["add.skuFamily"]}
                 aria-describedby={errors["add.skuFamily"] ? "add.skuFamily-error" : undefined}
               />
@@ -915,7 +919,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-price">Price (Rp)</Label>
+              <Label htmlFor="new-price">{t("mgrProducts.fieldPrice")}</Label>
               <Input
                 id="new-price"
                 value={addPrice}
@@ -933,7 +937,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-tax">Tax rate (%)</Label>
+              <Label htmlFor="new-tax">{t("mgrProducts.fieldTax")}</Label>
               <Input
                 id="new-tax"
                 value={addTax}
@@ -951,7 +955,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sort">Sort order</Label>
+              <Label htmlFor="new-sort">{t("mgrProducts.fieldSortOrder")}</Label>
               <Input
                 id="new-sort"
                 value={addSortOrder}
@@ -968,7 +972,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-initials">Initials (opt)</Label>
+              <Label htmlFor="new-initials">{t("mgrProducts.fieldInitials")}</Label>
               <Input
                 id="new-initials"
                 value={addInitials}
@@ -986,7 +990,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-hue">Hue 0-360 (opt)</Label>
+              <Label htmlFor="new-hue">{t("mgrProducts.fieldHue")}</Label>
               <Input
                 id="new-hue"
                 value={addHue}
@@ -1013,25 +1017,23 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   onChange={(e) => setAddWithSku(e.target.checked)}
                 />
                 <span className="flex-1">
-                  <span className="font-medium">Also create or link a matching inventory SKU</span>
+                  <span className="font-medium">{t("mgrProducts.withSkuLabel")}</span>
                   <span className="block text-xs text-muted-foreground">
-                    Use this for single-SKU products like "Dubai 1pc" or "Dubai 3pcs".
-                    For multi-SKU products like Mixed Box, leave unchecked and add
-                    components in the editor afterwards.
+                    {t("mgrProducts.withSkuHint")}
                   </span>
                 </span>
               </label>
               {addWithSku && (
                 <div className="ml-6 space-y-2">
                   <div className="text-xs">
-                    <span className="text-muted-foreground">Slug: </span>
+                    <span className="text-muted-foreground">{t("mgrProducts.slugLabel")} </span>
                     <span className="font-mono">
-                      {bundleSlugValid ? bundleSlugPreview : "(set a SKU family first)"}
+                      {bundleSlugValid ? bundleSlugPreview : t("mgrProducts.slugPlaceholder")}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="bundle-qty">Component qty</Label>
+                      <Label htmlFor="bundle-qty">{t("mgrProducts.fieldComponentQty")}</Label>
                       <Input
                         id="bundle-qty"
                         value={addSkuComponentQty}
@@ -1049,7 +1051,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="bundle-threshold">Low-stock threshold</Label>
+                      <Label htmlFor="bundle-threshold">{t("mgrProducts.fieldLowStockThreshold")}</Label>
                       <Input
                         id="bundle-threshold"
                         value={addBundleThreshold}
@@ -1071,7 +1073,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
               {!bundleSlugValid && (
                 <p className="text-xs text-muted-foreground">
-                  Set a SKU family above (lowercase, numbers, hyphens, max 32) to enable this option.
+                  {t("mgrProducts.withSkuDisabledHint")}
                 </p>
               )}
             </div>
@@ -1079,13 +1081,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitAddOpenPin}
               disabled={!createKey || addName.trim().length === 0 || !bundleInputsValid}
             >
-              Continue
+              {t("mgrProducts.continueBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1100,15 +1102,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add inventory SKU</DialogTitle>
+            <DialogTitle>{t("mgrProducts.addSkuTitle")}</DialogTitle>
             <DialogDescription>
-              Manager PIN required after Continue.
+              {t("mgrProducts.pinRequiredAfterContinue")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-slug">SKU (slug)</Label>
+              <Label htmlFor="new-sku-slug">{t("mgrProducts.fieldSkuSlug")}</Label>
               <Input
                 id="new-sku-slug"
                 value={addSkuSlug}
@@ -1117,7 +1119,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("sku.slug");
                 }}
                 maxLength={32}
-                placeholder="e.g. matcha"
+                placeholder={t("mgrProducts.placeholderSkuSlug")}
                 aria-invalid={!!errors["sku.slug"]}
                 aria-describedby={errors["sku.slug"] ? "sku.slug-error" : undefined}
               />
@@ -1126,7 +1128,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-name">Name</Label>
+              <Label htmlFor="new-sku-name">{t("mgrProducts.fieldName")}</Label>
               <Input
                 id="new-sku-name"
                 value={addSkuName}
@@ -1135,7 +1137,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                   clearFieldError("sku.name");
                 }}
                 maxLength={80}
-                placeholder="e.g. Matcha cookies"
+                placeholder={t("mgrProducts.placeholderSkuName")}
                 aria-invalid={!!errors["sku.name"]}
                 aria-describedby={errors["sku.name"] ? "sku.name-error" : undefined}
               />
@@ -1144,7 +1146,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-threshold">Low-stock threshold</Label>
+              <Label htmlFor="new-sku-threshold">{t("mgrProducts.fieldLowStockThreshold")}</Label>
               <Input
                 id="new-sku-threshold"
                 value={addSkuThreshold}
@@ -1161,7 +1163,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-code">Code (opt)</Label>
+              <Label htmlFor="new-sku-code">{t("mgrProducts.fieldCode")}</Label>
               <Input
                 id="new-sku-code"
                 value={addSkuCode}
@@ -1170,7 +1172,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-initials">Initials (opt)</Label>
+              <Label htmlFor="new-sku-initials">{t("mgrProducts.fieldInitials")}</Label>
               <Input
                 id="new-sku-initials"
                 value={addSkuInitials}
@@ -1179,7 +1181,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-sku-hue">Hue 0-360 (opt)</Label>
+              <Label htmlFor="new-sku-hue">{t("mgrProducts.fieldHue")}</Label>
               <Input
                 id="new-sku-hue"
                 value={addSkuHue}
@@ -1199,13 +1201,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddSkuOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitAddSkuOpenPin}
               disabled={!createSkuKey || addSkuSlug.trim().length === 0 || addSkuName.trim().length === 0}
             >
-              Continue
+              {t("mgrProducts.continueBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1220,15 +1222,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit product</DialogTitle>
+            <DialogTitle>{t("mgrProducts.editProductTitle")}</DialogTitle>
             <DialogDescription>
-              Metadata only — price is edited separately with manager PIN.
+              {t("mgrProducts.editProductDesc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="edit-name">Name</Label>
+              <Label htmlFor="edit-name">{t("mgrProducts.fieldName")}</Label>
               <Input
                 id="edit-name"
                 value={metaName}
@@ -1246,7 +1248,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-pack-label">Pack label</Label>
+              <Label htmlFor="edit-pack-label">{t("mgrProducts.fieldPackLabel")}</Label>
               <Input
                 id="edit-pack-label"
                 value={metaPackLabel}
@@ -1263,7 +1265,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-sku-family">SKU family</Label>
+              <Label htmlFor="edit-sku-family">{t("mgrProducts.fieldSkuFamily")}</Label>
               <Input
                 id="edit-sku-family"
                 value={metaSkuFamily}
@@ -1280,7 +1282,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-sort">Sort order</Label>
+              <Label htmlFor="edit-sort">{t("mgrProducts.fieldSortOrder")}</Label>
               <Input
                 id="edit-sort"
                 value={metaSortOrder}
@@ -1298,7 +1300,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-initials">Initials</Label>
+              <Label htmlFor="edit-initials">{t("mgrProducts.fieldInitials")}</Label>
               <Input
                 id="edit-initials"
                 value={metaInitials}
@@ -1316,7 +1318,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-hue">Hue 0-360</Label>
+              <Label htmlFor="edit-hue">{t("mgrProducts.fieldHue")}</Label>
               <Input
                 id="edit-hue"
                 value={metaHue}
@@ -1341,13 +1343,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={closeMetaEdit}
               disabled={metaBusy}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={commitMetaEdit}
               disabled={metaBusy || !metaKey}
             >
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1362,15 +1364,15 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Edit price</DialogTitle>
+            <DialogTitle>{t("mgrProducts.editPriceTitle")}</DialogTitle>
             <DialogDescription>
-              {priceTarget?.name ?? ""} — manager PIN required.
+              {t("mgrProducts.editPriceDesc", { name: priceTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="price-buf">Price (Rp)</Label>
+              <Label htmlFor="price-buf">{t("mgrProducts.fieldPrice")}</Label>
               <Input
                 id="price-buf"
                 value={priceBuf}
@@ -1392,7 +1394,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="price-tax">Tax rate (%)</Label>
+              <Label htmlFor="price-tax">{t("mgrProducts.fieldTax")}</Label>
               <Input
                 id="price-tax"
                 value={priceTaxBuf}
@@ -1412,7 +1414,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
 
           <DialogFooter>
             <Button variant="ghost" onClick={closePriceEdit}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitPriceOpenPin}
@@ -1422,7 +1424,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                 parseIntStrict(priceTaxBuf) === null
               }
             >
-              Continue
+              {t("mgrProducts.continueBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1437,24 +1439,23 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Components</DialogTitle>
+            <DialogTitle>{t("mgrProducts.componentsTitle")}</DialogTitle>
             <DialogDescription>
-              {compTarget?.name ?? ""} — replace-set; saving overwrites all
-              component rows for this product.
+              {t("mgrProducts.componentsDesc", { name: compTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {compRows.length === 0 ? (
               <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                No components — add a row.
+                {t("mgrProducts.noCompRows")}
               </p>
             ) : (
               compRows.map((row, idx) => (
                 <div key={idx} className="space-y-1">
                   <div className="flex items-end gap-2">
                     <div className="flex-1 space-y-1">
-                      <Label className="text-xs">SKU</Label>
+                      <Label className="text-xs">{t("mgrProducts.fieldSkuSlug")}</Label>
                       <Select
                         value={row.inventory_sku_id || undefined}
                         onValueChange={(v) => {
@@ -1465,7 +1466,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                         disabled={compBusy}
                       >
                         <SelectTrigger aria-invalid={!!errors[`comp.row${idx}`]}>
-                          <SelectValue placeholder="Pick SKU" />
+                          <SelectValue placeholder={t("mgrProducts.pickSkuPlaceholder")} />
                         </SelectTrigger>
                         <SelectContent>
                           {activeSkus.map((s) => (
@@ -1477,7 +1478,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
                       </Select>
                     </div>
                     <div className="w-20 space-y-1">
-                      <Label className="text-xs">Qty</Label>
+                      <Label className="text-xs">{t("mgrProducts.fieldQty")}</Label>
                       <Input
                         id={`comp-row-qty-${idx}`}
                         value={String(row.qty)}
@@ -1514,7 +1515,7 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={addCompRow}
               disabled={compBusy}
             >
-              Add row
+              {t("mgrProducts.addRow")}
             </Button>
           </div>
 
@@ -1524,13 +1525,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
               onClick={closeComponents}
               disabled={compBusy}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={commitComponents}
               disabled={compBusy || !componentsKey}
             >
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

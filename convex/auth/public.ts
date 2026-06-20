@@ -35,6 +35,7 @@ export const getSession = query({
         name: staff.name,
         role: staff.role,
         must_change_pin: staff.must_change_pin ?? false,
+        locale: staff.locale ?? "en", // v1.2 #1: absent ⇒ English
       },
       deviceId: s.device_id,
       startedAt: s.started_at,

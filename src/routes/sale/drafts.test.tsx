@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
+import { LocaleProvider } from "@/lib/i18n";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -24,9 +25,11 @@ describe("SaleDrafts route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={["/sale/drafts"]}>
-          <SaleDrafts />
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={["/sale/drafts"]}>
+            <SaleDrafts />
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
     // session.status is "none" (no sessionId in localStorage) → renders null
@@ -38,9 +41,11 @@ describe("SaleDrafts route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={["/sale/drafts"]}>
-          <SaleDrafts />
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={["/sale/drafts"]}>
+            <SaleDrafts />
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
     // session.status is "loading" (stored id + query pending) → shows loading text
@@ -52,9 +57,11 @@ describe("SaleDrafts route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={["/sale/drafts"]}>
-          <SaleDrafts />
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={["/sale/drafts"]}>
+            <SaleDrafts />
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
     expect(container).toBeTruthy();

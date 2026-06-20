@@ -8,6 +8,7 @@ import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/p
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fmtShiftDuration } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 
 /**
  * /shift/end — choice screen + close/handover-out wizards.
@@ -28,118 +29,112 @@ import { fmtShiftDuration } from "@/lib/format";
  * share a dedupe key even if the user bounces between them.
  */
 
-// ---------------------------------------------------------------------------
-// Close steps — spec §3B (5 steps, Bahasa)
-// ---------------------------------------------------------------------------
+function useCloseSteps(): WizardStep[] {
+  const t = useT();
+  return [
+    {
+      key: "reminder",
+      label: t("shiftEnd.stepReminderLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftEnd.stepReminderTitle")}</p>
+          <p className="mt-2">{t("shiftEnd.stepReminderBody")}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t("shiftEnd.stepReminderHint")}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "count",
+      label: t("shiftEnd.stepCountLabel"),
+      type: "count",
+    },
+    {
+      key: "check-supplies",
+      label: t("shiftEnd.stepCheckSuppliesLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftEnd.stepCheckSuppliesTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftEnd.supplyStickers")}</li>
+            <li>{t("shiftEnd.supplySealStickers")}</li>
+            <li>{t("shiftEnd.supplyPaperBag")}</li>
+            <li>{t("shiftEnd.supplyOnionBag")}</li>
+            <li>{t("shiftEnd.supplyCableTies")}</li>
+          </ul>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t("shiftEnd.stepCheckSuppliesHint")}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "tidy-devices",
+      label: t("shiftEnd.stepTidyDevicesLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftEnd.stepTidyDevicesTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftEnd.tidyDevicesItem1")}</li>
+            <li>{t("shiftEnd.tidyDevicesItem2")}</li>
+            <li>{t("shiftEnd.tidyDevicesItem3")}</li>
+            <li>{t("shiftEnd.tidyDevicesItem4")}</li>
+          </ul>
+        </div>
+      ),
+    },
+    {
+      key: "lock-lockers",
+      label: t("shiftEnd.stepLockLockersLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftEnd.stepLockLockersTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftEnd.lockLockersItem1")}</li>
+            <li>{t("shiftEnd.lockLockersItem2")}</li>
+            <li>{t("shiftEnd.lockLockersItem3")}</li>
+          </ul>
+        </div>
+      ),
+    },
+  ];
+}
 
-const CLOSE_STEPS: WizardStep[] = [
-  {
-    key: "reminder",
-    label: "Pengingat",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Perhatian sebelum tutup:</p>
-        <p className="mt-2">
-          Semua barang harus masuk loker saat tutup. Kehilangan barang menjadi
-          tanggung jawab staff penutup.
-        </p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Kamu masih bisa pakai barang sampai langkah terakhir — masukkan loker
-          di langkah kunci loker.
-        </p>
-      </div>
-    ),
-  },
-  {
-    key: "count",
-    label: "Hitung stok",
-    type: "count",
-  },
-  {
-    key: "check-supplies",
-    label: "Cek perlengkapan",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Cek stok perlengkapan:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>Stiker produk</li>
-          <li>Stiker seal</li>
-          <li>Paper bag</li>
-          <li>Kantong bawang</li>
-          <li>Cable ties</li>
-        </ul>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Kalau ada yang tersisa &lt; 3 hari → lapor ke grup WA.
-        </p>
-      </div>
-    ),
-  },
-  {
-    key: "tidy-devices",
-    label: "Rapikan perangkat",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Rapikan semua perangkat:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>Gulung kabel dengan rapi</li>
-          <li>Matikan WiFi + printer</li>
-          <li>Semua perangkat ke rak bawah loker</li>
-          <li>Tutup dengan kain</li>
-        </ul>
-      </div>
-    ),
-  },
-  {
-    key: "lock-lockers",
-    label: "Kunci loker",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Kunci kedua loker:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>Masukkan semua barang ke loker</li>
-          <li>Kunci loker kiri <strong>dan</strong> kanan</li>
-          <li>Bawa kunci pulang</li>
-        </ul>
-      </div>
-    ),
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Handover-out steps — spec §3C (2 steps, Bahasa)
-// ---------------------------------------------------------------------------
-
-const HANDOVER_STEPS: WizardStep[] = [
-  {
-    key: "count",
-    label: "Hitung stok",
-    type: "count",
-  },
-  {
-    key: "check-supplies",
-    label: "Cek perlengkapan",
-    type: "instruction",
-    body: (
-      <div>
-        <p className="font-medium">Cek stok perlengkapan:</p>
-        <ul className="mt-2 list-disc pl-5 space-y-1">
-          <li>Stiker produk</li>
-          <li>Stiker seal</li>
-          <li>Paper bag</li>
-          <li>Kantong bawang</li>
-          <li>Cable ties</li>
-        </ul>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Kalau ada yang tersisa &lt; 3 hari → lapor ke grup WA.
-        </p>
-      </div>
-    ),
-  },
-];
+function useHandoverSteps(): WizardStep[] {
+  const t = useT();
+  return [
+    {
+      key: "count",
+      label: t("shiftEnd.stepCountLabel"),
+      type: "count",
+    },
+    {
+      key: "check-supplies",
+      label: t("shiftEnd.stepCheckSuppliesLabel"),
+      type: "instruction",
+      body: (
+        <div>
+          <p className="font-medium">{t("shiftEnd.stepCheckSuppliesTitle")}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            <li>{t("shiftEnd.supplyStickers")}</li>
+            <li>{t("shiftEnd.supplySealStickers")}</li>
+            <li>{t("shiftEnd.supplyPaperBag")}</li>
+            <li>{t("shiftEnd.supplyOnionBag")}</li>
+            <li>{t("shiftEnd.supplyCableTies")}</li>
+          </ul>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t("shiftEnd.stepCheckSuppliesHint")}
+          </p>
+        </div>
+      ),
+    },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -148,10 +143,14 @@ const HANDOVER_STEPS: WizardStep[] = [
 type Mode = "choice" | "close" | "handover";
 
 export default function ShiftEnd() {
+  const t = useT();
   const navigate = useNavigate();
   const session = useSession();
   const endOfDaySignOff = useMutation(api.shifts.public.endOfDaySignOff);
   const handoverOut = useMutation(api.shifts.public.handoverOut);
+
+  const closeSteps = useCloseSteps();
+  const handoverSteps = useHandoverSteps();
 
   const sessionId = session.status === "active" ? session.sessionId : null;
 
@@ -216,15 +215,15 @@ export default function ShiftEnd() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 gap-6">
         <Card className="w-full max-w-sm p-6 text-center">
-          <h2 className="text-xl font-semibold">Shift selesai!</h2>
+          <h2 className="text-xl font-semibold">{t("shiftEnd.summaryTitle")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Terima kasih atas kerja keras kamu hari ini.
+            {t("shiftEnd.summarySubtitle")}
           </p>
 
           <div className="mt-6 space-y-3">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                Total jam kerja
+                {t("shiftEnd.summaryHoursLabel")}
               </p>
               <p className="text-3xl font-bold text-primary mt-1">
                 {fmtShiftDuration(signOffDurationMs)}
@@ -233,7 +232,7 @@ export default function ShiftEnd() {
             {signOffCountChanged != null && (
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Selisih stok (hitungan akhir)
+                  {t("shiftEnd.summaryStockDiffLabel")}
                 </p>
                 <p className="text-lg font-semibold mt-1">
                   {signOffCountChanged > 0 ? "+" : ""}
@@ -244,12 +243,12 @@ export default function ShiftEnd() {
           </div>
 
           <p className="mt-5 text-xs text-muted-foreground">
-            Ringkasan penjualan dikirim ke Founders via Telegram.
+            {t("shiftEnd.summarySentNote")}
           </p>
         </Card>
 
         <Button className="w-full max-w-sm" onClick={handleFinalSignOff}>
-          Selesai — keluar
+          {t("shiftEnd.doneButton")}
         </Button>
       </div>
     );
@@ -261,10 +260,10 @@ export default function ShiftEnd() {
   if (mode === "close") {
     return (
       <ShiftWizard
-        title="Tutup booth"
-        steps={CLOSE_STEPS}
+        title={t("shiftEnd.closeBooth")}
+        steps={closeSteps}
         onComplete={onCloseComplete}
-        terminalLabel="Sign off — selesai hari ini"
+        terminalLabel={t("shiftEnd.closeTerminalLabel")}
       />
     );
   }
@@ -272,10 +271,10 @@ export default function ShiftEnd() {
   if (mode === "handover") {
     return (
       <ShiftWizard
-        title="Serah terima"
-        steps={HANDOVER_STEPS}
+        title={t("shiftEnd.handoverTitle")}
+        steps={handoverSteps}
         onComplete={onHandoverComplete}
-        terminalLabel="Serah terima"
+        terminalLabel={t("shiftEnd.handoverTerminalLabel")}
       />
     );
   }
@@ -285,9 +284,9 @@ export default function ShiftEnd() {
   // -------------------------------------------------------------------------
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 gap-4">
-      <h2 className="text-xl font-semibold">Akhiri shift</h2>
+      <h2 className="text-xl font-semibold">{t("shiftEnd.choiceTitle")}</h2>
       <p className="text-sm text-muted-foreground text-center">
-        Pilih jenis penutupan shift:
+        {t("shiftEnd.choiceSubtitle")}
       </p>
 
       <div className="flex flex-col gap-3 w-full max-w-sm mt-2">
@@ -296,9 +295,9 @@ export default function ShiftEnd() {
           className="h-auto py-5 flex flex-col items-start text-left"
           onClick={() => setMode("close")}
         >
-          <span className="font-semibold text-base">Tutup booth</span>
+          <span className="font-semibold text-base">{t("shiftEnd.closeBooth")}</span>
           <span className="text-xs text-muted-foreground mt-1">
-            Akhir hari — booth ditutup setelah shift ini
+            {t("shiftEnd.closeBoothDesc")}
           </span>
         </Button>
 
@@ -307,9 +306,9 @@ export default function ShiftEnd() {
           className="h-auto py-5 flex flex-col items-start text-left"
           onClick={() => setMode("handover")}
         >
-          <span className="font-semibold text-base">Serah terima</span>
+          <span className="font-semibold text-base">{t("shiftEnd.handoverTitle")}</span>
           <span className="text-xs text-muted-foreground mt-1">
-            Ganti shift — booth tetap buka untuk staff berikutnya
+            {t("shiftEnd.handoverDesc")}
           </span>
         </Button>
       </div>

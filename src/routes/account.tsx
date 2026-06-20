@@ -8,6 +8,7 @@ import { PinEntry } from "@/components/auth/PinEntry";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 type Step = "current" | "new" | "confirm";
 
@@ -17,19 +18,20 @@ type Step = "current" | "new" | "confirm";
  * idempotency cache, so we mint a one-shot crypto.randomUUID() at submit (the
  * shareReceipt / sale-drafts convention) — NOT useIdempotency.
  */
-function friendlyChangePinError(msg: string): string {
+function friendlyChangePinError(msg: string, t: ReturnType<typeof useT>): string {
   const locked = msg.match(/LOCKED_OUT:(\d+)/);
-  if (locked) return `Terkunci. Tunggu ${locked[1]} detik lalu coba lagi.`;
-  if (msg.includes("SAME_PIN")) return "PIN baru harus berbeda dari PIN lama.";
-  if (msg.includes("NEW_PIN_INVALID")) return "PIN baru harus 4 angka.";
-  if (msg.includes("INVALID_PIN")) return "PIN lama salah.";
-  return "Gagal mengubah PIN.";
+  if (locked) return t("account.errorLocked", { seconds: locked[1] });
+  if (msg.includes("SAME_PIN")) return t("account.errorSamePin");
+  if (msg.includes("NEW_PIN_INVALID")) return t("account.errorNewPinInvalid");
+  if (msg.includes("INVALID_PIN")) return t("account.errorInvalidPin");
+  return t("account.errorGeneric");
 }
 
 export default function AccountRoute() {
   const navigate = useNavigate();
   const session = useSession();
   const changePin = useAction(api.auth.actions.changePin);
+  const t = useT();
 
   const [step, setStep] = useState<Step>("current");
   const [busy, setBusy] = useState(false);
@@ -40,9 +42,9 @@ export default function AccountRoute() {
 
   if (session.status === "loading") {
     return (
-      <SpokeLayout title="Ubah PIN" backTo="/">
+      <SpokeLayout title={t("account.title")} backTo="/">
         <main className="flex flex-1 items-center justify-center p-8">
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         </main>
       </SpokeLayout>
     );
@@ -73,7 +75,7 @@ export default function AccountRoute() {
     }
     if (step === "confirm") {
       if (pin !== newPin) {
-        setError("PIN tidak cocok. Ulangi PIN baru.");
+        setError(t("account.errorPinMismatch"));
         setNewPin("");
         setStep("new");
         bump();
@@ -87,7 +89,7 @@ export default function AccountRoute() {
           newPin,
           idempotencyKey: crypto.randomUUID(),
         });
-        toast.success("PIN berhasil diubah");
+        toast.success(t("account.successChanged"));
         navigate("/", { replace: true });
       } catch (err) {
         const msg = errorMessage(err);
@@ -95,7 +97,7 @@ export default function AccountRoute() {
           navigate("/login", { replace: true });
           return;
         }
-        setError(friendlyChangePinError(msg));
+        setError(friendlyChangePinError(msg, t));
         restart();
       } finally {
         setBusy(false);
@@ -104,13 +106,13 @@ export default function AccountRoute() {
   };
 
   const prompt = busy
-    ? "Menyimpan…"
-    : step === "current" ? "Masukkan PIN lama"
-    : step === "new" ? "Masukkan PIN baru"
-    : "Konfirmasi PIN baru";
+    ? t("account.promptSaving")
+    : step === "current" ? t("account.promptCurrent")
+    : step === "new" ? t("account.promptNew")
+    : t("account.promptConfirm");
 
   return (
-    <SpokeLayout title="Ubah PIN" backTo="/">
+    <SpokeLayout title={t("account.title")} backTo="/">
       <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
         <p className="text-sm text-muted-foreground" data-testid="account-prompt">{prompt}</p>
         {error && (
@@ -119,11 +121,11 @@ export default function AccountRoute() {
           </p>
         )}
         {busy ? (
-          <p className="text-sm text-muted-foreground">Menyimpan…</p>
+          <p className="text-sm text-muted-foreground">{t("account.promptSaving")}</p>
         ) : (
           <PinEntry onSubmit={onPin} reset={resetTick} />
         )}
-        <Button variant="ghost" onClick={() => navigate("/")}>Batal</Button>
+        <Button variant="ghost" onClick={() => navigate("/")}>{t("common.cancel")}</Button>
       </main>
     </SpokeLayout>
   );

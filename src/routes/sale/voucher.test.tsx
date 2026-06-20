@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
+import { LocaleProvider } from "@/lib/i18n";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { SESSION_KEY } from "@/lib/storage-keys";
@@ -25,9 +26,11 @@ describe("SaleVoucher route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={["/sale/voucher"]}>
-          <SaleVoucher />
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={["/sale/voucher"]}>
+            <SaleVoucher />
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
     expect(container).toBeTruthy();
@@ -38,9 +41,11 @@ describe("SaleVoucher route", () => {
     const convex = new ConvexReactClient("https://example.convex.cloud");
     const { container } = render(
       <ConvexProvider client={convex}>
-        <MemoryRouter initialEntries={["/sale/voucher"]}>
-          <SaleVoucher />
-        </MemoryRouter>
+        <LocaleProvider>
+          <MemoryRouter initialEntries={["/sale/voucher"]}>
+            <SaleVoucher />
+          </MemoryRouter>
+        </LocaleProvider>
       </ConvexProvider>,
     );
     expect(container).toBeTruthy();
