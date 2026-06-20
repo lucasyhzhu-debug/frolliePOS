@@ -2604,52 +2604,54 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
   - **notes:** _(empty)_
 
 ### Cross-cutting — Phase 7 (#13 receipt cleanup)
-- 📋 **[v12-xc-recpt-footer]** Receipt #13 T1: English footer default (`Thank you!`) + no-`pos_settings`-row propagation test
+- ✅ **[v12-xc-recpt-footer]** Receipt #13 T1: English footer default (`Thank you!`) + no-`pos_settings`-row propagation test (2b89bef)
   - **agent:** `convex-expert`
   - **deps:** none
   - **docs:** [Spec](./superpowers/specs/2026-06-20-v1.2-receipt-cleanup-design.md), [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md), [spec review](./reviews/staffreview-v1.2-receipt-cleanup-spec-2026-06-20.md), [plan review](./reviews/staffreview-v1.2-receipt-cleanup-plan-2026-06-20.md)
   - **subtasks:**
-    - [ ] Failing propagation test (no settings row → "Thank you!")
-    - [ ] Change `RECEIPT_DEFAULTS.footer_text` + `SAMPLE_RECEIPT` footer
-    - [ ] Tests green; commit
+    - [x] Failing propagation test (no settings row → "Thank you!")
+    - [x] Change `RECEIPT_DEFAULTS.footer_text` + `SAMPLE_RECEIPT` footer
+    - [x] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-xc-recpt-html]** Receipt #13 T2: HTML renderer — suppress paid badge (keep refund states) + collapse payment to one middot line
+- ✅ **[v12-xc-recpt-html]** Receipt #13 T2: HTML renderer — suppress paid badge (keep refund states) + collapse payment to one middot line (2b89bef)
   - **agent:** `convex-expert`
   - **deps:** v12-xc-recpt-footer
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
   - **subtasks:**
-    - [ ] Failing badge-suppression + payment-shape tests
-    - [ ] `template.ts`: guarded badge + one-line payment
-    - [ ] Tests green; commit
+    - [x] Failing badge-suppression + payment-shape tests
+    - [x] `template.ts`: guarded badge + one-line payment
+    - [x] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-xc-recpt-thermal]** Receipt #13 T3: thermal renderer — suppress paid `[ LUNAS ]` + one-line ASCII payment (`status` param)
+- ✅ **[v12-xc-recpt-thermal]** Receipt #13 T3: thermal renderer — suppress paid `[ LUNAS ]` + one-line ASCII payment (`status` param) (2b89bef)
   - **agent:** `convex-expert`
   - **deps:** v12-xc-recpt-footer
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
   - **subtasks:**
-    - [ ] Failing suppression + dash-payment tests
-    - [ ] `escpos.ts`: guarded status line + ASCII-dash payment
-    - [ ] Tests green; commit
+    - [x] Failing suppression + dash-payment tests
+    - [x] `escpos.ts`: guarded status line + ASCII-dash payment
+    - [x] Tests green; commit
   - **notes:** _(empty)_
-- 📋 **[v12-xc-recpt-method]** Receipt #13 T4: fix manual-BCA method leak — label `Transfer Bank (manual)` from `confirmed_via`, not the cancelled QRIS invoice
+- ✅ **[v12-xc-recpt-method]** Receipt #13 T4: fix manual-BCA method leak — label `Transfer bank (manual)` from `confirmed_via`, not the cancelled QRIS invoice (2b89bef)
   - **agent:** `convex-expert`
   - **deps:** v12-xc-recpt-html, v12-xc-recpt-thermal
   - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
   - **subtasks:**
-    - [ ] Failing manual_bca label + `manual` scoping-lock tests (convex-test)
-    - [ ] Widen `buildVmFromTxnWithLines` param type + branch on `confirmed_via`
-    - [ ] Tests + typecheck green; commit
-  - **notes:** _(empty)_
-- 📋 **[v12-xc-recpt-docs]** Receipt #13 T5: CHANGELOG entry + full-suite/typecheck/build verification
+    - [x] Failing manual_bca label + `manual` scoping-lock tests (convex-test)
+    - [x] Widen `buildVmFromTxnWithLines` param type + branch on `confirmed_via`
+    - [x] Tests + typecheck green; commit
+  - **notes:**
+    - 2026-06-20: triple-review aligned the receipt label to lowercase `Transfer bank (manual)` to match the on-screen i18n label; root cause = `_getPaidInvoiceForTxn_internal` doesn't filter `cancelled_at`, so the cancelled QRIS invoice leaked. Fix sources the label from `txn.confirmed_via` and skips the invoice read.
+- ✅ **[v12-xc-recpt-docs]** Receipt #13 T5: CHANGELOG entry + full-suite/typecheck/build verification (2b89bef)
   - **agent:** `convex-expert`
   - **deps:** v12-xc-recpt-method
-  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md)
+  - **docs:** [Plan](./superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md), [staffreview](./reviews/staffreview-v12-receipt-cleanup-2026-06-20.md)
   - **subtasks:**
-    - [ ] Prepend CHANGELOG entry (incl. owner-owned `/mgr/receipt` prod edit + cache non-retroactivity)
-    - [ ] `npx vitest run convex/receipts src/lib/__tests__/escpos.test.ts` + typecheck + build:fe green
-    - [ ] Commit
+    - [x] Prepend CHANGELOG entry (incl. owner-owned `/mgr/receipt` prod edit + cache non-retroactivity)
+    - [x] `npx vitest run convex/receipts src/lib/__tests__/escpos.test.ts` + typecheck + build:fe green
+    - [x] Commit
   - **notes:**
     - 2026-06-20: planned via /spec-plan-pipeline; both staffreview gates ✅ approved (0 Critical). Owner-owned post-merge: edit prod `pos_settings` row via `/mgr/receipt` (business name → FROLLIE, footer → Thank you!).
+    - 2026-06-20: SHIPPED via PR #111 (squash 2b89bef). /triple-review (0 Critical) + /simplify xhigh clean; 54 receipt/escpos tests green, typecheck + build:fe pass.
 
 ---
 
