@@ -11,6 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 
+export function humanizeThresholdError(e: unknown, t: ReturnType<typeof useT>): string {
+  const msg = String((e as Error)?.message ?? e);
+  if (msg.includes("MANAGER_ONLY")) return t("stockDetail.errManagerOnly");
+  if (msg.includes("NEGATIVE_THRESHOLD") || msg.includes("NON_INTEGER_THRESHOLD"))
+    return t("stockDetail.errInvalidValue");
+  return t("stockDetail.errSaveFailed");
+}
+
 export default function SkuDetailScreen() {
   const t = useT();
   const { skuId } = useParams();
@@ -38,11 +46,7 @@ export default function SkuDetailScreen() {
       await clearIntent(intent);
       toast.success(t("stockDetail.thresholdSaved"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("MANAGER_ONLY")) toast.error(t("stockDetail.errManagerOnly"));
-      else if (msg.includes("NEGATIVE_THRESHOLD") || msg.includes("NON_INTEGER_THRESHOLD"))
-        toast.error(t("stockDetail.errInvalidValue"));
-      else toast.error(t("stockDetail.errSaveFailed"));
+      toast.error(humanizeThresholdError(err, t));
     }
   }
 

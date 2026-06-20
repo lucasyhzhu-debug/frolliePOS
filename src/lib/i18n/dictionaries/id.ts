@@ -401,6 +401,8 @@ export const id: Record<keyof typeof en, string> = {
   "mgrStaff.roleSetStaff": "{name} sekarang menjadi karyawan",
   "mgrStaff.deactivatedSuccess": "{name} berhasil dinonaktifkan",
   "mgrStaff.pinResetSuccess": "PIN {name} berhasil direset",
+  "mgrStaff.errorNameLength": "Nama harus 1–60 karakter.",
+  "mgrStaff.errorPinDigits": "PIN harus 4 digit.",
   // mgrStock
   "mgrStock.title": "Selisih stok",
   "mgrStock.description": "Cron harian pukul 02:00 WIB membandingkan ledger pergerakan stok dengan cache on_hand. Selidiki sebelum memperbarui cache secara manual.",
@@ -663,7 +665,7 @@ export const id: Record<keyof typeof en, string> = {
   "settlements.pinSheetLabel": "Konfirmasi dengan PIN manajer Anda.",
   "settlements.successRecorded": "Settlement dicatat",
   "settlements.errorTryAgain": "Coba lagi sebentar.",
-  "settlements.errorNetInvalid": "Biaya melebihi bruto — net tidak boleh negatif.",
+  "settlements.errorNetInvalid": "Fee tidak boleh melebihi bruto.",
   "settlements.errorDateInvalid": "Tanggal tidak valid.",
   "settlements.errorLast4Invalid": "Masukkan 4 digit terakhir rekening BCA.",
   "settlements.errorAmountInvalid": "Bruto & jumlah transaksi harus angka bulat ≥ 1.",

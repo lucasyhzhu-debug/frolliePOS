@@ -45,7 +45,14 @@ import {
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { PinSheet } from "@/components/pos/PinSheet";
 import { NumericKeypad } from "@/components/pos/NumericKeypad";
+import { FieldMessage } from "@/components/ui/field-message";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { toast } from "sonner";
+
+const ADD_FOCUS: Record<string, string> = {
+  "add.name": "staff-add-name",
+  "add.pin": "staff-add-pin",
+};
 
 type StaffRow = {
   _id: Id<"staff">;
@@ -116,6 +123,7 @@ function MgrStaffInner({
   selfStaffId: Id<"staff">;
 }) {
   const t = useT();
+  const { errors, clearFieldError, clearErrors, mergeErrors, applyErrors } = useFieldErrors();
   const staff = useQuery(api.staff.public.listStaff, { sessionId }) as
     | StaffRow[]
     | undefined;
@@ -163,19 +171,16 @@ function MgrStaffInner({
     setAddName("");
     setAddRole("staff");
     setAddPin("");
+    clearErrors("add.");
     setAddOpen(true);
   }
 
   function submitAddOpenPin() {
     const name = addName.trim();
-    if (name.length === 0 || name.length > 60) {
-      toast.error("Name must be 1–60 characters.");
-      return;
-    }
-    if (!/^\d{4}$/.test(addPin)) {
-      toast.error("PIN must be 4 digits.");
-      return;
-    }
+    const next: Record<string, string> = {};
+    if (name.length === 0 || name.length > 60) next["add.name"] = t("mgrStaff.errorNameLength");
+    if (!/^\d{4}$/.test(addPin)) next["add.pin"] = t("mgrStaff.errorPinDigits");
+    if (applyErrors("add.", next, ADD_FOCUS)) return;
     setPinAction({ kind: "createStaff", name, role: addRole, pin: addPin });
     setPinError(undefined);
   }
@@ -183,11 +188,13 @@ function MgrStaffInner({
   // ─── Rename ─────────────────────────────────────────────────────────────────
 
   function startRename(s: StaffRow) {
+    clearErrors("rename.");
     setRenamingId(s._id);
     setRenameBuf(s.name);
   }
 
   function cancelRename() {
+    clearErrors("rename.");
     setRenamingId(null);
     setRenameBuf("");
   }
@@ -195,9 +202,10 @@ function MgrStaffInner({
   async function commitRename(staffId: Id<"staff">) {
     const name = renameBuf.trim();
     if (name.length === 0 || name.length > 60) {
-      toast.error("Name must be 1–60 characters.");
+      mergeErrors("rename.", { "rename.name": t("mgrStaff.errorNameLength") });
       return;
     }
+    clearErrors("rename.");
     if (!renameKey) return;
     setRenameBusy(true);
     try {
@@ -417,31 +425,38 @@ function MgrStaffInner({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       {renameThis ? (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            value={renameBuf}
-                            onChange={(e) => setRenameBuf(e.target.value)}
-                            disabled={renameBusy}
-                            maxLength={60}
-                            autoFocus
-                            className="h-8"
-                            aria-label={t("mgrStaff.ariaStaffName")}
-                          />
-                          <Button
-                            size="sm"
-                            onClick={() => commitRename(s._id)}
-                            disabled={renameBusy || !renameKey}
-                          >
-                            {t("common.save")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={cancelRename}
-                            disabled={renameBusy}
-                          >
-                            {t("common.cancel")}
-                          </Button>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={renameBuf}
+                              onChange={(e) => { setRenameBuf(e.target.value); clearFieldError("rename.name"); }}
+                              disabled={renameBusy}
+                              maxLength={60}
+                              autoFocus
+                              className="h-8"
+                              aria-label={t("mgrStaff.ariaStaffName")}
+                              aria-invalid={!!errors["rename.name"]}
+                              aria-describedby={errors["rename.name"] ? `staff-rename-${s._id}-error` : undefined}
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => commitRename(s._id)}
+                              disabled={renameBusy || !renameKey}
+                            >
+                              {t("common.save")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={cancelRename}
+                              disabled={renameBusy}
+                            >
+                              {t("common.cancel")}
+                            </Button>
+                          </div>
+                          {errors["rename.name"] && (
+                            <FieldMessage id={`staff-rename-${s._id}-error`}>{errors["rename.name"]}</FieldMessage>
+                          )}
                         </div>
                       ) : (
                         <button
@@ -543,14 +558,19 @@ function MgrStaffInner({
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="new-staff-name">{t("mgrStaff.labelName")}</Label>
+              <Label htmlFor="staff-add-name">{t("mgrStaff.labelName")}</Label>
               <Input
-                id="new-staff-name"
+                id="staff-add-name"
                 value={addName}
-                onChange={(e) => setAddName(e.target.value)}
+                onChange={(e) => { setAddName(e.target.value); clearFieldError("add.name"); }}
                 maxLength={60}
                 placeholder={t("mgrStaff.namePlaceholder")}
+                aria-invalid={!!errors["add.name"]}
+                aria-describedby={errors["add.name"] ? "add.name-error" : undefined}
               />
+              {errors["add.name"] && (
+                <FieldMessage id="add.name-error">{errors["add.name"]}</FieldMessage>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>{t("mgrStaff.labelRole")}</Label>
@@ -566,7 +586,13 @@ function MgrStaffInner({
             </div>
             <div className="space-y-1.5">
               <Label>{t("mgrStaff.labelInitialPin")}</Label>
-              <div className="flex justify-center gap-3 py-1">
+              <div
+                id="staff-add-pin"
+                tabIndex={-1}
+                className="flex justify-center gap-3 py-1"
+                aria-invalid={!!errors["add.pin"]}
+                aria-describedby={errors["add.pin"] ? "add.pin-error" : undefined}
+              >
                 {[0, 1, 2, 3].map((i) => (
                   <span
                     key={i}
@@ -580,6 +606,7 @@ function MgrStaffInner({
                 onPress={(k) => {
                   if (k === "C") {
                     setAddPin("");
+                    clearFieldError("add.pin");
                     return;
                   }
                   if (k === "⌫") {
@@ -588,11 +615,15 @@ function MgrStaffInner({
                   }
                   if (addPin.length >= 4) return;
                   setAddPin(addPin + k);
+                  clearFieldError("add.pin");
                 }}
-                onClear={() => setAddPin("")}
+                onClear={() => { setAddPin(""); clearFieldError("add.pin"); }}
                 onBackspace={() => setAddPin((p) => p.slice(0, -1))}
                 size="compact"
               />
+              {errors["add.pin"] && (
+                <FieldMessage id="add.pin-error">{errors["add.pin"]}</FieldMessage>
+              )}
             </div>
           </div>
 
@@ -602,11 +633,7 @@ function MgrStaffInner({
             </Button>
             <Button
               onClick={submitAddOpenPin}
-              disabled={
-                !createKey ||
-                addName.trim().length === 0 ||
-                !/^\d{4}$/.test(addPin)
-              }
+              disabled={!createKey}
             >
               {t("mgrStaff.continue")}
             </Button>

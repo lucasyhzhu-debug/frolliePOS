@@ -64,9 +64,11 @@ call site:
 |---|---|---|
 | `toast.error("literal string")` | Sync validation → **inline** | Must use `FieldMessage` |
 | `` toast.error(`template without substitution`) `` | Sync validation → **inline** | Must use `FieldMessage` |
-| `toast.error(humanize*Error(err))` | Server/async → **toast OK** | First arg is a `CallExpression` |
+| `toast.error(humanize*Error(err))` | Server/async → **toast OK** | First arg is a `CallExpression` (callee ≠ `t`) |
 | `toast.error(msg)` | Server/async → **toast OK** | First arg is a variable |
+| `toast.error(t("key"))` | Sync validation → **inline** | Must use `FieldMessage` (post-i18n shape) |
 | `toast.warning("literal")` | Sync validation → **inline** | Must use `FieldMessage` |
+| `toast.warning(t("key"))` | Sync validation → **inline** | Must use `FieldMessage` (post-i18n shape) |
 | `toast.success(...)` | Positive global feedback → **toast OK** | Always legal |
 
 This heuristic is **machine-enforced** via a scoped `no-restricted-syntax` ESLint
@@ -151,9 +153,69 @@ By-file slices. Each slice:
 **Slice 1 (this ADR):** `src/routes/mgr/products.tsx` (26 sites) +
 `src/routes/mgr/vouchers.tsx` (12 sites).
 
-**Follow-up slices** (bucket-A, ~6 remaining files): settlements, `mgr/staff`,
-`stock/*`, DeviceActivation, `mgr/receipt` — scoped to future #12 slices. Files join
-the ESLint `files:` glob as they convert.
+**Slice 2 (2026-06-20):** Converted four additional files and extended the ESLint fence.
+
+*Post-v1.2 #1 (i18n) complication.* After the i18n migration, sync validation calls in
+converted files changed shape from `toast.error("literal")` to `toast.error(t("key"))`.
+The `t(...)` call is a `CallExpression`, not a `Literal` — so the original literal-only
+selectors were blind to it and the fence was silently not enforcing the policy on those
+sites.
+
+Two new selectors were added to ban the post-i18n form of escaped sync validation:
+
+```js
+{
+  selector:
+    "CallExpression[callee.object.name='toast'][callee.property.name='error'][arguments.0.type='CallExpression'][arguments.0.callee.name='t']",
+  message:
+    "Sync form-validation must use <FieldMessage>, not toast.error(t(...)). See ADR-048.",
+},
+{
+  selector:
+    "CallExpression[callee.object.name='toast'][callee.property.name='warning'][arguments.0.type='CallExpression'][arguments.0.callee.name='t']",
+  message:
+    "Sync form-validation must use <FieldMessage>, not toast.warning(t(...)). See ADR-048.",
+},
+```
+
+**Convention for legitimate server/async toasts in i18n-converted files:**
+server-rejection errors, precondition failures, and other async toasts route their
+translated message through a **humanizer** (`toast.error(humanize*Error(err))`) or
+through a **local variable** (`const msg = t("..."); toast.error(msg)`).
+A bare `toast.error(t(...))` is reserved-and-banned as the escaped-sync-validation
+shape — it indicates the call should be a `FieldMessage` instead.
+
+**Flat-config ordering fix.** `eslint.config.js` flat-config resolves `no-restricted-syntax`
+with last-matching-config-wins. The v1.2 #12 fence block was originally positioned
+*before* the v1.2 #1 i18n block. Because all #12-registered files are also in the #1
+registry, the i18n block (placed last) overrode the fence block — making the fence
+**completely dead** for all nine registered files, including slice 1's original three. The
+fix moves the #12 block *after* the #1 block, and duplicates the two i18n selectors
+(the `JSXText` literal fence and the `JSXAttribute` text-prop fence) into the #12 block so
+that files appearing in both registries carry both fences simultaneously.
+
+**Files converted in slice 2:**
+- `src/routes/settlements.tsx` — "entry key required" / "amount required" validation
+- `src/routes/mgr/staff.tsx` — "name required" / "PIN required" validation (also closed
+  an i18n literal gap: a hardcoded `"Staff name is required"` literal bypassed the #1
+  fence until this slice)
+- `src/components/layout/DeviceActivation.tsx` — setup-code validation
+- `src/routes/mgr/receipt.tsx` — logo file validation
+
+**Files joining the fence only (server errors via humanizers, no `FieldMessage` conversion needed):**
+- `src/routes/mgr/stock.tsx` — server errors routed through a local
+  `humanizeThresholdError(e, t)` helper; no sync validation calls to convert
+- `src/routes/stock/$skuId.tsx` — same pattern; `humanizeThresholdError` co-located
+
+The heuristic table (above) gains two rows:
+
+| Call form | Classification | Rule |
+|---|---|---|
+| `toast.error(t("key"))` | Sync validation → **inline** | Must use `FieldMessage` |
+| `toast.warning(t("key"))` | Sync validation → **inline** | Must use `FieldMessage` |
+
+**Follow-up slices** (bucket-A, remaining files): none identified as of 2026-06-20.
+Files join the ESLint `files:` glob as they convert.
 
 **Out of scope forever:** PIN/login surfaces (`login.tsx`, `PinSheet`, `PinEntry`,
 `NumericKeypad`) — owned by #11 and #7. Bucket-C global/async toasts — kept as toasts.

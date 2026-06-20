@@ -403,6 +403,8 @@ export const en = {
   "mgrStaff.roleSetStaff": "{name} is now staff",
   "mgrStaff.deactivatedSuccess": "{name} deactivated",
   "mgrStaff.pinResetSuccess": "PIN reset for {name}",
+  "mgrStaff.errorNameLength": "Name must be 1–60 characters.",
+  "mgrStaff.errorPinDigits": "PIN must be 4 digits.",
   // mgrStock
   "mgrStock.title": "Stock drift",
   "mgrStock.description": "Nightly cron at 02:00 WIB compares the stock-movement ledger to the cached on_hand. Investigate before manually patching the cache.",
@@ -665,7 +667,7 @@ export const en = {
   "settlements.pinSheetLabel": "Confirm with your manager PIN.",
   "settlements.successRecorded": "Settlement recorded",
   "settlements.errorTryAgain": "Try again in a moment.",
-  "settlements.errorNetInvalid": "Fee exceeds gross — net cannot be negative.",
+  "settlements.errorNetInvalid": "Fee can't exceed gross.",
   "settlements.errorDateInvalid": "Invalid date.",
   "settlements.errorLast4Invalid": "Enter the last 4 digits of the BCA account.",
   "settlements.errorAmountInvalid": "Gross & transaction count must be whole numbers ≥ 1.",

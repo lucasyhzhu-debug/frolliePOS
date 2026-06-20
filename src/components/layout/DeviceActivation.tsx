@@ -4,13 +4,20 @@ import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldMessage } from "@/components/ui/field-message";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
+
+const ACT_FOCUS: Record<string, string> = {
+  "act.code": "code",
+  "act.label": "label",
+};
 
 // SEC-04: map the raw structured errors from activateDevice to friendly copy.
 // ACTIVATION_LOCKED:<secs> surfaces after the throttle trips (per-device or global).
@@ -37,13 +44,21 @@ export function DeviceActivation() {
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const t = useT();
+  const { errors, clearFieldError, applyErrors } = useFieldErrors();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deviceId) return toast.error(t("deviceActivation.toastDeviceNotReady"));
+    if (!deviceId) {
+      // var-idiom: precondition toast, not sync validation (ADR-048)
+      const msg = t("deviceActivation.toastDeviceNotReady");
+      toast.error(msg);
+      return;
+    }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
-    if (!/^\d{6}$/.test(code)) return toast.error(t("deviceActivation.toastCodeDigits"));
-    if (!label.trim()) return toast.error(t("deviceActivation.toastEnterLabel"));
+    const next: Record<string, string> = {};
+    if (!/^\d{6}$/.test(code)) next["act.code"] = t("deviceActivation.toastCodeDigits");
+    if (!label.trim()) next["act.label"] = t("deviceActivation.toastEnterLabel");
+    if (applyErrors("act.", next, ACT_FOCUS)) return;
     setBusy(true);
     try {
       await activate({ code, deviceLabel: label.trim(), deviceId, idempotencyKey });
@@ -71,16 +86,28 @@ export function DeviceActivation() {
               <Label htmlFor="code">{t("deviceActivation.labelCode")}</Label>
               <Input
                 id="code" inputMode="numeric" pattern="\d{6}" maxLength={6}
-                value={code} onChange={(e) => setCode(e.target.value)}
+                value={code}
+                onChange={(e) => { setCode(e.target.value); clearFieldError("act.code"); }}
                 autoFocus className="tabular tracking-widest text-center text-lg"
+                aria-invalid={!!errors["act.code"]}
+                aria-describedby={errors["act.code"] ? "act.code-error" : undefined}
               />
+              {errors["act.code"] && (
+                <FieldMessage id="act.code-error">{errors["act.code"]}</FieldMessage>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="label">{t("deviceActivation.labelDeviceLabel")}</Label>
               <Input
                 id="label" placeholder={t("deviceActivation.placeholderLabel")}
-                value={label} onChange={(e) => setLabel(e.target.value)}
+                value={label}
+                onChange={(e) => { setLabel(e.target.value); clearFieldError("act.label"); }}
+                aria-invalid={!!errors["act.label"]}
+                aria-describedby={errors["act.label"] ? "act.label-error" : undefined}
               />
+              {errors["act.label"] && (
+                <FieldMessage id="act.label-error">{errors["act.label"]}</FieldMessage>
+              )}
             </div>
             <Button type="submit" disabled={busy || !deviceId} className="w-full">
               {busy ? t("deviceActivation.activating") : t("deviceActivation.activate")}
