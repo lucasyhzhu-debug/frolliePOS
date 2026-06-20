@@ -1,0 +1,108 @@
+# Staff Review: v1.2 #13 Receipt Cleanup (PLAN)
+
+**Date:** 2026-06-20
+**Plan:** `docs/superpowers/plans/2026-06-20-v1.2-receipt-cleanup.md`
+**Reviewers:** Staff Developer (Implementation) + Principal Developer (Architecture)
+**Plan Structure:** ✅ Validated (header, Global Constraints, 5 right-sized TDD tasks, verify-first, testing summary, rollback, success criteria all present)
+
+---
+
+## 1. Summary
+
+**Overall Assessment:** Approve
+
+Five bite-sized TDD tasks, each with exact code, exact run commands, and natural commit
+boundaries. Every load-bearing assumption was re-verified against real code during this gate
+(below). One Improvement was applied inline (Task 1 test upgraded from a tautological const
+assertion to an end-to-end default-propagation test). No Critical issues.
+
+## 2. Critical Issues (Must Fix)
+
+None.
+
+## 3. Improvements (Recommended) — applied inline
+
+| # | Improvement | Impact | Effort |
+|---|-------------|--------|--------|
+| 1 | Task 1 tested a constant against a literal (tautological, low value). Replaced with a propagation test: a receipt rendered with **no** `pos_settings` row carries the English footer — exercises `_getSettings_internal` → `RECEIPT_DEFAULTS` end-to-end. | M | L |
+
+## 4. Refinements (Optional)
+
+- None outstanding.
+
+## 5. Verification performed at this gate (assumptions confirmed against code)
+
+| Assumption | Verified | Evidence |
+|---|---|---|
+| `RECEIPT_DEFAULTS.business_name` already `"FROLLIE"` — only footer changes in code | ✅ | `convex/settings/internal.ts:8` |
+| `_getPaidTxnWithLinesForReceipt_internal` returns the **full** txn doc → `confirmed_via` present at runtime; no `transactions/internal.ts` change | ✅ | `convex/transactions/internal.ts:428` (`ctx.db.get`) |
+| Thermal `ascii()` strips non-`\x20-\x7E` → middot would vanish; thermal uses ASCII `-` | ✅ | `src/lib/escpos.ts:9` |
+| `getReceiptForPrint` `statusLabel` projection unchanged; existing `toBe("LUNAS")` test survives | ✅ | `convex/receipts/public.ts:55` |
+| `confirmed_via` union + invoice `receipt_id`/`cancelled_at` exist in schema | ✅ | `convex/transactions/schema.ts:38`, `convex/payments/schema.ts:15,20` |
+| Manual-BCA leak is real (cancelled QRIS invoice resolves through the receipt builder) | ✅ | `confirmManualBcaPayment` cancels invoice (`payments/public.ts:122`); `_getPaidInvoiceForTxn_internal` keeps cancelled (`payments/internal.ts:407`) |
+| `convex/**` tests run under `edge-runtime`; `src/**` under `jsdom` | ✅ | `vitest.config.ts` `environmentMatchGlobs` |
+
+## 6. Phase / Wave Accuracy
+
+| Task | Assessment | Notes |
+|---|---|---|
+| 1 Footer default | Good | Propagation test + 2 constants; independently testable |
+| 2 HTML renderer | Good | Badge suppression + payment collapse; VM-driven tests |
+| 3 Thermal renderer | Good | ASCII-separator divergence documented; param rename cosmetic |
+| 4 Method label | Good | Type-widen + branch; convex-test seeding mirrors existing helper |
+| 5 CHANGELOG + verify | Good | Full-suite + typecheck + build gate |
+
+**Ordering:** correct (constants → renderers → label → docs/verify). No cross-task collisions
+except sequential edits to `getReceiptForPrint.test.ts` (Tasks 1 & 4) and `escpos.test.ts`
+(Tasks 1 & 3) — different added blocks, no conflict.
+
+## 7. Specialist Agent Recommendations
+
+| Task | Recommended Agent | Rationale |
+|---|---|---|
+| All | `convex-expert` or general subagent | Renderer/label edits + vitest/convex-test; no schema/index work. Do NOT use haiku (per exec lessons — opus/sonnet for tricky branch logic). |
+
+## 8. Git Workflow Assessment
+
+| Check | Status |
+|---|---|
+| Feature branch off synced main | ✅ (pipeline-enforced) |
+| Commit-per-task | ✅ (5 commits) |
+| Pre-push typecheck + build + tests | ✅ (Task 5) |
+| Rollback strategy | ✅ revert single PR, no migration |
+| Deployment order | ✅ atomic FE+BE build, no mutation↔action rename |
+
+## 9. Documentation Checkpoints
+
+| Task | Docs |
+|---|---|
+| 5 | `docs/CHANGELOG.md` (rule #9). No SCHEMA.md / API_REFERENCE delta (no schema change, signatures stable). |
+
+## 10. Testing Plan Assessment
+
+**Verdict:** Adequate
+
+Covers: default propagation (no-row), paid-badge suppression + refund-badge retention (both
+renderers), payment-line shapes (rrn / no-rrn / `—`), manual_bca label + `manual` scoping lock.
+Regression: the two `LUNAS`-present assertions flip to absent (expected, listed). No happy-path-only
+gaps.
+
+## 11. Edge Cases Addressed
+
+- [x] manual_bca with no prior invoice → still "Transfer Bank (manual)" (branch precedes invoice read)
+- [x] no-RRN → no dangling separator (both renderers)
+- [x] `manual` vs `manual_bca` disambiguation (scoping test)
+- [x] refund badges preserved on both renderers
+- [x] thermal middot fold (ASCII separator)
+- [x] cached-receipt non-retroactivity (documented, no purge)
+
+## 12. Approval Conditions
+
+**To approve:** none outstanding.
+**Applied during review:** Improvement 1 (Task 1 propagation test).
+
+**Verdict:** ✅ Approved — ready for execution.
+
+---
+
+*Generated by /staffreview*
