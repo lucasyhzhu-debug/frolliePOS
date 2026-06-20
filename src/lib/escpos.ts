@@ -119,7 +119,7 @@ export const SAMPLE_RECEIPT: {
       address: "Pakuwon Mall, Surabaya",
       contact: "frollie.id",
       instagram_handle: "@frollie.id",
-      footer_text: "Terima kasih! 💛",
+      footer_text: "Thank you!",
       logo_url: null,
     },
   },

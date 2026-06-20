@@ -17,8 +17,8 @@ describe("encodeReceipt", () => {
     expect(text).toContain("Rp 325.000");
     // Footer follow caption derives from the instagram_handle setting:
     expect(text).toContain("Follow @frollie.id");
-    // No raw emoji bytes survive ASCII-fold (footer_text "Terima kasih! 💛"):
-    expect(text).not.toMatch(/[\u{1F000}-\u{1FAFF}]/u);
+    // Footer default is the English "Thank you!" (v1.2 #13):
+    expect(text).toContain("Thank you!");
   });
 
   it("starts with the ESC @ init sequence", () => {

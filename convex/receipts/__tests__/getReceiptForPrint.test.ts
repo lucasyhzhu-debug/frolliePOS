@@ -45,6 +45,15 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, staffId: Id<"staff"
 }
 
 describe("getReceiptForPrint", () => {
+  it("defaults the receipt footer to the English 'Thank you!' when no pos_settings row exists", async () => {
+    const t = convexTest(schema);
+    const { staffId, sessionId } = await seedStaff(t, "staff");
+    const txnId = await seedPaidTxn(t, staffId, Date.now());
+    const res = await t.query(api.receipts.public.getReceiptForPrint, { sessionId, txnId });
+    expect(res!.viewModel.settings.footer_text).toBe("Thank you!");
+    expect(res!.viewModel.settings.business_name).toBe("FROLLIE");
+  });
+
   it("returns view-model + status label for a paid txn (staff, today)", async () => {
     const t = convexTest(schema);
     const { staffId, sessionId } = await seedStaff(t, "staff");

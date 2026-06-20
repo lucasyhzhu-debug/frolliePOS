@@ -9,7 +9,7 @@ export const RECEIPT_DEFAULTS = {
   address: "Pakuwon Mall, Surabaya",
   contact: "+62 821-xxxx-xxxx · frollie.id",
   instagram_handle: "@frollie.id",
-  footer_text: "Terima kasih! 💛",
+  footer_text: "Thank you!",
 } as const;
 
 // v1.2 #10 manual-BCA account defaults — the live company account. Editable via
