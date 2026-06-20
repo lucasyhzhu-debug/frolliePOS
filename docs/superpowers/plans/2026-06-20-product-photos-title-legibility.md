@@ -39,8 +39,28 @@ Mirror `settings.generateLogoUploadUrl` (`convex/settings/public.ts:180`) into t
 import { convexTest } from "convex-test";
 import { expect, test, describe } from "vitest";
 import schema from "../../schema";
-import { api } from "../../_generated/api";
-import { seedManagerSession, seedStaffSession } from "./helpers"; // see note below
+import { api, internal } from "../../_generated/api";
+import { seedManagerSession } from "../../staff/__tests__/_helpers";
+
+// _helpers exports ONLY seedManagerSession → { managerId, sessionId, deviceId }
+// (manager PIN "9999"). Seed a non-manager inline for the rejection test.
+async function seedStaffSession(t: ReturnType<typeof convexTest>) {
+  const staffId = await t.action(internal.auth.actions._seedHashedStaff_internal, {
+    name: "Sari",
+    pin: "1111",
+    role: "staff",
+  });
+  const sessionId = await t.run(async (ctx) =>
+    ctx.db.insert("staff_sessions", {
+      staff_id: staffId,
+      device_id: "staff-device",
+      started_at: Date.now(),
+      ended_at: null,
+      end_reason: null,
+    }),
+  );
+  return { staffId, sessionId };
+}
 
 describe("generateProductPhotoUploadUrl", () => {
   test("manager session returns an upload url", async () => {
@@ -56,7 +76,7 @@ describe("generateProductPhotoUploadUrl", () => {
 
   test("non-manager session is rejected", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedStaffSession(t); // staff, not manager
+    const { sessionId } = await seedStaffSession(t);
     await expect(
       t.mutation(api.catalog.public.generateProductPhotoUploadUrl, {
         idempotencyKey: "k2",
@@ -66,8 +86,6 @@ describe("generateProductPhotoUploadUrl", () => {
   });
 });
 ```
-
-> **Note on seed helpers:** reuse the existing seeding approach in `convex/catalog/__tests__/productAdmin.test.ts` (it already creates manager + staff sessions for the PIN-gated tests). If a shared `helpers.ts` does not exist there, copy that file's inline session-seeding into this test (do NOT invent new helper names). Confirm the exact helper names by reading `productAdmin.test.ts` first.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -132,22 +150,37 @@ git commit -m "feat(v1.2 #3): generateProductPhotoUploadUrl (manager-session, mi
 
 ```ts
 // append to convex/catalog/__tests__/productPhoto.test.ts
-import { internal } from "../../_generated/api";
+// (seedManagerSession + api/internal already imported at top of the file)
+import type { Id } from "../../_generated/dataModel";
+
+// Create a product via the real PIN-gated action (manager PIN "9999" from
+// seedManagerSession). createProduct → { productId }.
+async function makeProduct(
+  t: ReturnType<typeof convexTest>,
+  sessionId: Id<"staff_sessions">,
+  key: string,
+): Promise<Id<"pos_products">> {
+  const { productId } = await t.action(api.catalog.actions.createProduct, {
+    idempotencyKey: key,
+    sessionId,
+    managerPin: "9999",
+    sku_family: "dubai",
+    code: "DUBAI_8PC",
+    name: "Dubai 8pcs",
+    pack_label: "8 pcs",
+    price_idr: 120000,
+    tax_rate: 0,
+    sort_order: 0,
+  });
+  return productId;
+}
 
 describe("updateProductMeta photo semantics", () => {
-  // Helper: create a product and return its id (reuse productAdmin.test.ts's create path)
-  async function seedProduct(t: any, sessionId: any) {
-    // Use the existing create flow from productAdmin.test.ts (createProduct action
-    // or the internal commit). Return the product _id. Confirm exact call by reading
-    // productAdmin.test.ts.
-  }
-
-  test("setting a photo id persists it and flags audit", async () => {
+  test("setting a photo id persists it", async () => {
     const t = convexTest(schema);
-    const { sessionId, staffId } = await seedManagerSession(t);
-    const productId = await seedProduct(t, sessionId);
-    // Fake a storage id by storing a tiny blob
-    const storageId = await t.run(async (ctx: any) =>
+    const { sessionId } = await seedManagerSession(t);
+    const productId = await makeProduct(t, sessionId, "cp1");
+    const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["x"], { type: "image/webp" })),
     );
     await t.mutation(api.catalog.public.updateProductMeta, {
@@ -155,36 +188,35 @@ describe("updateProductMeta photo semantics", () => {
       name: "Dubai 8pcs", pack_label: "8 pcs", sort_order: 0,
       photo_storage_id: storageId,
     });
-    const prod = await t.run((ctx: any) => ctx.db.get(productId));
-    expect(prod.photo_storage_id).toBe(storageId);
+    const prod = await t.run((ctx) => ctx.db.get(productId));
+    expect(prod?.photo_storage_id).toBe(storageId);
   });
 
   test("omitting photo_storage_id preserves the existing photo (name-only edit)", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedManagerSession(t);
-    const productId = await seedProduct(t, sessionId);
-    const storageId = await t.run(async (ctx: any) =>
+    const productId = await makeProduct(t, sessionId, "cp2");
+    const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["x"], { type: "image/webp" })),
     );
     await t.mutation(api.catalog.public.updateProductMeta, {
       idempotencyKey: "m2", sessionId, productId,
       name: "A", pack_label: "8 pcs", sort_order: 0, photo_storage_id: storageId,
     });
-    // name-only edit, photo omitted
     await t.mutation(api.catalog.public.updateProductMeta, {
       idempotencyKey: "m3", sessionId, productId,
-      name: "Renamed", pack_label: "8 pcs", sort_order: 0,
+      name: "Renamed", pack_label: "8 pcs", sort_order: 0, // photo omitted
     });
-    const prod = await t.run((ctx: any) => ctx.db.get(productId));
-    expect(prod.photo_storage_id).toBe(storageId); // preserved
-    expect(prod.name).toBe("Renamed");
+    const prod = await t.run((ctx) => ctx.db.get(productId));
+    expect(prod?.photo_storage_id).toBe(storageId); // preserved
+    expect(prod?.name).toBe("Renamed");
   });
 
   test("null removes the photo (field deleted)", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedManagerSession(t);
-    const productId = await seedProduct(t, sessionId);
-    const storageId = await t.run(async (ctx: any) =>
+    const productId = await makeProduct(t, sessionId, "cp3");
+    const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["x"], { type: "image/webp" })),
     );
     await t.mutation(api.catalog.public.updateProductMeta, {
@@ -195,13 +227,11 @@ describe("updateProductMeta photo semantics", () => {
       idempotencyKey: "m5", sessionId, productId,
       name: "A", pack_label: "8 pcs", sort_order: 0, photo_storage_id: null,
     });
-    const prod = await t.run((ctx: any) => ctx.db.get(productId));
-    expect(prod.photo_storage_id).toBeUndefined();
+    const prod = await t.run((ctx) => ctx.db.get(productId));
+    expect(prod?.photo_storage_id).toBeUndefined();
   });
 });
 ```
-
-> Confirm `seedProduct` against the real create path in `productAdmin.test.ts` before running — do not ship the stub body.
 
 - [ ] **Step 2: Run test to verify it fails**
 
