@@ -29,7 +29,7 @@ export const catalog = query({
   handler: async (
     ctx,
   ): Promise<{
-    products: Doc<"pos_products">[];
+    products: (Doc<"pos_products"> & { photo_url: string | null })[];
     skus: Doc<"pos_inventory_skus">[];
     components: Doc<"pos_product_components">[];
     stockLevels: Array<{ inventory_sku_id: string; on_hand: number }>;
@@ -61,7 +61,16 @@ export const catalog = query({
       on_hand,
     }));
 
-    return { products, skus, components, stockLevels, vouchers };
+    // photo_url resolved server-side so the client renders without a 2nd round-trip.
+    // getUrl is a metadata lookup, not a blob fetch; negligible at booth scale.
+    const productsWithPhoto = await Promise.all(
+      products.map(async (p) => ({
+        ...p,
+        photo_url: p.photo_storage_id ? await ctx.storage.getUrl(p.photo_storage_id) : null,
+      })),
+    );
+
+    return { products: productsWithPhoto, skus, components, stockLevels, vouchers };
   },
 });
 
@@ -80,7 +89,7 @@ export const listAllProducts = query({
     ctx,
     args,
   ): Promise<{
-    products: Doc<"pos_products">[];
+    products: (Doc<"pos_products"> & { photo_url: string | null })[];
     skus: Doc<"pos_inventory_skus">[];
     components: Doc<"pos_product_components">[];
   }> => {
@@ -93,7 +102,15 @@ export const listAllProducts = query({
         .collect(),
       ctx.db.query("pos_product_components").collect(),
     ]);
-    return { products, skus, components };
+    // photo_url resolved server-side (mirror `catalog`); getUrl is a metadata
+    // lookup, negligible at booth scale.
+    const productsWithPhoto = await Promise.all(
+      products.map(async (p) => ({
+        ...p,
+        photo_url: p.photo_storage_id ? await ctx.storage.getUrl(p.photo_storage_id) : null,
+      })),
+    );
+    return { products: productsWithPhoto, skus, components };
   },
 });
 
