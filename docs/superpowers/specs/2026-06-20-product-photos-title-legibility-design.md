@@ -205,16 +205,22 @@ props: { photoUrl?: string | null; initials?: string; hue?: number;
   file). The same file input works on phone (camera/gallery) and PC — no separate
   path.
 
-> The three booth photos (`docs/frollie photoso/Frollie {1,3,8}pc.webp`, already
-> webp, named to the Dubai 1/3/8pc products) are wired in as the **initial seed
-> photos** during execution (seed sets `photo_storage_id` via a one-off storage
-> insert), so the booth has real photos on day one without a manual re-upload.
+> **Seed photos (revised, staffreview pass-2):** do NOT build a seed-photo
+> mechanism. Convex mutations/seed can't read the repo FS and only an action can
+> `ctx.storage.store` — a seed script is real scope for marginal benefit. Instead,
+> **after the feature ships the manager uploads the 3 booth photos**
+> (`docs/frollie photoso/Frollie {1,3,8}pc.webp`, already webp, named to Dubai
+> 1/3/8pc) **through the new control** — 2 minutes on PC, and it dogfoods the exact
+> upload path. The photos stay in the repo as the source assets. (Optional dev
+> convenience: a throwaway local Node upload script, NOT part of this phase.)
 
 **(e) Client downscale helper** — `src/lib/imageDownscale.ts` (new, pure-ish):
-`downscaleToWebp(file: File, size = 400): Promise<Blob>` — load into an
-`Image`/`createImageBitmap`, center-crop to square, draw to a `size×size` canvas,
-`canvas.toBlob(resolve, "image/webp", 0.82)`. Fallback to `image/jpeg` if the
-webp blob is null (older WebView). Returns the Blob to POST.
+`downscaleToWebp(file: File, size = 400): Promise<Blob>` — decode via
+`createImageBitmap(file, { imageOrientation: "from-image" })` (**staffreview pass-2:
+honor EXIF orientation or phone portrait shots upload sideways**), center-crop to
+square, draw to a `size×size` canvas, `canvas.toBlob(resolve, "image/webp", 0.82)`.
+Fallback to `image/jpeg` if the webp blob is null (older WebView). Returns the Blob
+to POST. Canvas isn't testable in jsdom → manual-smoke only (no unit test).
 
 ### 4.3 i18n — `src/lib/i18n/dictionaries/{en,id}.ts`
 
