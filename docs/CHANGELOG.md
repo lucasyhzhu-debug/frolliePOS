@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — v1.2 #3: Product photos + sale-grid title legibility
+
+- Products can carry a manager-uploaded photo (manager-session); products without one render a deterministic colored initials chip (existing `initials`/`hue`).
+- Sale grid: square thumbnail + 2-line wrapping title (drops truncation); 1-column collapse on the narrowest phones.
+- New `catalog.generateProductPhotoUploadUrl`; `updateProductMeta` gains `photo_storage_id` (keep/set/remove); `catalog`/`listAllProducts` project `photo_url`. No schema change.
+
 ## 2026-06-20 — v1.2 #13: Receipt cleanup
 
 - Paid receipts no longer print the "LUNAS" / "[ LUNAS ]" status badge — a handed receipt is paid by definition. Refund-state badges (`SEBAGIAN DIKEMBALIKAN` / `DIKEMBALIKAN`) are kept.
