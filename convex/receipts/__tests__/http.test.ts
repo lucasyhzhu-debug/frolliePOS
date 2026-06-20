@@ -64,7 +64,8 @@ describe("GET /r/:token httpAction", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     const body = await res.text();
     expect(body).toContain("R-2026-0001");
-    expect(body).toContain("LUNAS");
+    // v1.2 #13: paid receipts no longer show the LUNAS badge.
+    expect(body).not.toContain("LUNAS");
   });
 
   it("returns 404 for unknown token", async () => {
@@ -133,7 +134,8 @@ describe("GET /r/:token httpAction", () => {
     const res = await t.fetch("/r/tok-trailing-slash/", { method: "GET" });
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("LUNAS");
+    // v1.2 #13: paid receipts no longer show the LUNAS badge.
+    expect(body).not.toContain("LUNAS");
   });
 
   it("cache hit on second call returns identical bytes", async () => {

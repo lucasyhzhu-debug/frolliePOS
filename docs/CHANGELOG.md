@@ -2,6 +2,15 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-20 — v1.2 #13: Receipt cleanup
+
+- Paid receipts no longer print the "LUNAS" / "[ LUNAS ]" status badge — a handed receipt is paid by definition. Refund-state badges (`SEBAGIAN DIKEMBALIKAN` / `DIKEMBALIKAN`) are kept.
+- Payment block collapsed to a single line: `QRIS · RRN` (HTML middot) / `QRIS - RRN` (thermal ASCII); method-only when there's no RRN. Dropped the "Dibayar via" and "RRN:" labels.
+- Manual-BCA sales now render `Transfer bank (manual)` instead of the leaked cancelled-QRIS method (the receipt was reading the dead invoice, not the txn's `confirmed_via`).
+- Receipt footer default → "Thank you!"; the business-name default was already "FROLLIE".
+- **Ops (owner-owned):** update the live `pos_settings` row via `/mgr/receipt` — business name → `FROLLIE`, footer → `Thank you!`. The code default does not overwrite an already-set field.
+- Renderer change is **not retroactive** to receipts already cached in `pos_receipt_html_cache` (24h TTL); they self-heal as the TTL expires. No forced purge.
+
 ## 2026-06-20 — Hotfix: cancel-sale double-cancel on the charge screen
 
 - **"Cancel sale" threw `TXN_NOT_AWAITING` / `INVALID_STATE_FOR_CANCEL` into the console (most visible on the manual bank-transfer tab).** `handleCancel` runs the `cancelTransaction` *action* (commits the txn → `cancelled` server-side) then navigates to `/sale`. An action's commit doesn't synchronously refresh the client's reactive subscription, so at navigate time `txn.status` was still the stale `awaiting_payment` and `/sale` sits outside the navigation guard's `allowWithin` charge subtree — so `usePathChangeBlocker` popped the "Cancel payment?" dialog *after* the user had already cancelled, driving a redundant second cancel (`cancelAwaitingPayment` → `TXN_NOT_AWAITING`; a re-click → `INVALID_STATE_FOR_CANCEL`). The client caught them, but Convex logs every server-side throw to the browser console.
