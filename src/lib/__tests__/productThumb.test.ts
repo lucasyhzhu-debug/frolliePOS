@@ -13,11 +13,18 @@ describe("deriveInitials", () => {
   test("no digits → first letter only, uppercase", () => {
     expect(deriveInitials("Lotus")).toBe("L");
   });
+  test("empty/whitespace name falls back to '?'", () => {
+    expect(deriveInitials("")).toBe("?");
+    expect(deriveInitials("   ")).toBe("?");
+  });
 });
 
 describe("resolveHue", () => {
   test("valid stored hue wins", () => {
     expect(resolveHue("DUBAI_8PC", 30)).toBe(30);
+  });
+  test("stored hue 360 stays 360 (does not collapse to 0)", () => {
+    expect(resolveHue("DUBAI_8PC", 360)).toBe(360);
   });
   test("ignores out-of-range stored hue and hashes code", () => {
     const h = resolveHue("DUBAI_8PC", 999);

@@ -411,6 +411,10 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       setMetaRemovePhoto(false);
       setMetaPhotoPreview(URL.createObjectURL(blob));
     } catch (err) {
+      // Rotate the intent on failure too: the minted upload URL may already be
+      // consumed/expired, so a retry on the same key must mint a fresh one
+      // (mirrors the receipt-logo handler — clears on both success and error).
+      await clearIntent("catalog.photoUploadUrl");
       toast.error(humanizeCatalogError(err));
     } finally {
       setMetaPhotoBusy(false);
@@ -1268,7 +1272,9 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
       <Dialog
         open={metaTarget !== null}
         onOpenChange={(o) => {
-          if (!o) closeMetaEdit();
+          // Don't let ESC / backdrop close the dialog mid-upload — closing would
+          // strand the in-flight handlePhotoPick (leaked object URL + orphan blob).
+          if (!o && !metaPhotoBusy) closeMetaEdit();
         }}
       >
         <DialogContent className="max-w-md">
@@ -1448,13 +1454,13 @@ function MgrProductsInner({ sessionId }: { sessionId: Id<"staff_sessions"> }) {
             <Button
               variant="ghost"
               onClick={closeMetaEdit}
-              disabled={metaBusy}
+              disabled={metaBusy || metaPhotoBusy}
             >
               {t("common.cancel")}
             </Button>
             <Button
               onClick={commitMetaEdit}
-              disabled={metaBusy || !metaKey}
+              disabled={metaBusy || metaPhotoBusy || !metaKey}
             >
               {t("common.save")}
             </Button>

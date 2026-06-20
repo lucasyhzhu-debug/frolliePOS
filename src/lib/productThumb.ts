@@ -13,7 +13,9 @@ export function deriveInitials(name: string, storedInitials?: string): string {
 
 export function resolveHue(code: string, storedHue?: number): number {
   if (typeof storedHue === "number" && storedHue >= 0 && storedHue <= 360) {
-    return Math.round(storedHue) % 360;
+    // Already validated to [0, 360]; don't `% 360` here or a stored 360 would
+    // collapse to 0. hsl(360 …) is valid and renders identically to hsl(0 …).
+    return Math.round(storedHue);
   }
   let h = 0;
   for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) % 360;
