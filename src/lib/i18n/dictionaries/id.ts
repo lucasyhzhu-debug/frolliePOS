@@ -663,7 +663,7 @@ export const id: Record<keyof typeof en, string> = {
   "settlements.pinSheetLabel": "Konfirmasi dengan PIN manajer Anda.",
   "settlements.successRecorded": "Settlement dicatat",
   "settlements.errorTryAgain": "Coba lagi sebentar.",
-  "settlements.errorNetInvalid": "Biaya melebihi bruto — net tidak boleh negatif.",
+  "settlements.errorNetInvalid": "Fee tidak boleh melebihi bruto.",
   "settlements.errorDateInvalid": "Tanggal tidak valid.",
   "settlements.errorLast4Invalid": "Masukkan 4 digit terakhir rekening BCA.",
   "settlements.errorAmountInvalid": "Bruto & jumlah transaksi harus angka bulat ≥ 1.",

@@ -19,9 +19,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldMessage } from "@/components/ui/field-message";
+import { useFieldErrors } from "@/hooks/useFieldErrors";
 import { rp, parseIntStrict } from "@/lib/format";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
+
+const ENTRY_FOCUS: Record<string, string> = {
+  "entry.date": "s-date",
+  "entry.gross": "s-gross",
+  "entry.mdr": "s-mdr",
+  "entry.count": "s-count",
+  "entry.last4": "s-last4",
+};
 
 type PinAction = {
   kind: "enterSettlement";
@@ -93,18 +103,11 @@ function SettlementsInner({
   const [pinPending, setPinPending] = useState(false);
   const [pinError, setPinError] = useState<string | undefined>(undefined);
 
+  const { errors, clearFieldError, clearErrors, applyErrors } = useFieldErrors();
+
   const grossN = parseIntStrict(fGross);
   const mdrN = parseIntStrict(fMdr);
   const netPreview = grossN !== null && mdrN !== null ? grossN - mdrN : null;
-  const formValid =
-    /^\d{4}-\d{2}-\d{2}$/.test(fDate) &&
-    grossN !== null &&
-    grossN >= 1 &&
-    mdrN !== null &&
-    (parseIntStrict(fCount) ?? 0) >= 1 &&
-    /^\d{4}$/.test(fLast4) &&
-    netPreview !== null &&
-    netPreview >= 0;
 
   function openForm() {
     setFDate("");
@@ -112,6 +115,7 @@ function SettlementsInner({
     setFMdr("");
     setFCount("");
     setFLast4("");
+    clearErrors("entry.");
     setFormOpen(true);
   }
 
@@ -119,45 +123,23 @@ function SettlementsInner({
     const gross = parseIntStrict(fGross);
     const mdr = parseIntStrict(fMdr);
     const count = parseIntStrict(fCount);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fDate)) {
-      toast.error(t("settlements.errorDateInvalid"));
-      return;
-    }
-    if (gross === null || gross < 1) {
-      toast.error(t("settlements.errorGrossInvalid"));
-      return;
-    }
-    if (mdr === null) {
-      toast.error(t("settlements.errorMdrInvalid"));
-      return;
-    }
-    if (count === null || count < 1) {
-      toast.error(t("settlements.errorCountInvalid"));
-      return;
-    }
-    if (!/^\d{4}$/.test(fLast4)) {
-      toast.error(t("settlements.errorLast4Invalid"));
-      return;
-    }
-    if (gross - mdr < 0) {
-      toast.error(t("settlements.errorNetInvalid"));
-      return;
-    }
-    setPinAction({
-      kind: "enterSettlement",
-      settlementDate: fDate,
-      grossAmount: gross,
-      mdrAmount: mdr,
-      transactionCount: count,
-      bcaAccountLast4: fLast4,
-    });
+    const next: Record<string, string> = {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fDate)) next["entry.date"] = t("settlements.errorDateInvalid");
+    if (gross === null || gross < 1) next["entry.gross"] = t("settlements.errorGrossInvalid");
+    if (mdr === null) next["entry.mdr"] = t("settlements.errorMdrInvalid");
+    if (count === null || count < 1) next["entry.count"] = t("settlements.errorCountInvalid");
+    if (!/^\d{4}$/.test(fLast4)) next["entry.last4"] = t("settlements.errorLast4Invalid");
+    if (gross !== null && mdr !== null && gross - mdr < 0) next["entry.mdr"] = t("settlements.errorNetInvalid");
+    if (applyErrors("entry.", next, ENTRY_FOCUS)) return;
+    setPinAction({ kind: "enterSettlement", settlementDate: fDate, grossAmount: gross!, mdrAmount: mdr!, transactionCount: count!, bcaAccountLast4: fLast4 });
     setPinError(undefined);
   }
 
   async function handlePinSubmit(managerPin: string) {
     if (!pinAction) return;
     if (!entryKey) {
-      toast.error(t("settlements.errorTryAgain"));
+      const msg = t("settlements.errorTryAgain");
+      toast.error(msg);
       return;
     }
     setPinPending(true);
@@ -269,8 +251,11 @@ function SettlementsInner({
                 id="s-date"
                 type="date"
                 value={fDate}
-                onChange={(e) => setFDate(e.target.value)}
+                aria-invalid={!!errors["entry.date"]}
+                aria-describedby={errors["entry.date"] ? "entry.date-error" : undefined}
+                onChange={(e) => { setFDate(e.target.value); clearFieldError("entry.date"); }}
               />
+              {errors["entry.date"] && <FieldMessage id="entry.date-error">{errors["entry.date"]}</FieldMessage>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="s-gross">{t("settlements.fieldGross")}</Label>
@@ -278,9 +263,12 @@ function SettlementsInner({
                 id="s-gross"
                 value={fGross}
                 inputMode="numeric"
-                onChange={(e) => setFGross(e.target.value.replace(/[^\d]/g, ""))}
+                aria-invalid={!!errors["entry.gross"]}
+                aria-describedby={errors["entry.gross"] ? "entry.gross-error" : undefined}
+                onChange={(e) => { setFGross(e.target.value.replace(/[^\d]/g, "")); clearFieldError("entry.gross"); }}
                 placeholder={t("settlements.placeholderGross")}
               />
+              {errors["entry.gross"] && <FieldMessage id="entry.gross-error">{errors["entry.gross"]}</FieldMessage>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="s-mdr">{t("settlements.fieldMdr")}</Label>
@@ -288,9 +276,12 @@ function SettlementsInner({
                 id="s-mdr"
                 value={fMdr}
                 inputMode="numeric"
-                onChange={(e) => setFMdr(e.target.value.replace(/[^\d]/g, ""))}
+                aria-invalid={!!errors["entry.mdr"]}
+                aria-describedby={errors["entry.mdr"] ? "entry.mdr-error" : undefined}
+                onChange={(e) => { setFMdr(e.target.value.replace(/[^\d]/g, "")); clearFieldError("entry.mdr"); }}
                 placeholder={t("settlements.placeholderMdr")}
               />
+              {errors["entry.mdr"] && <FieldMessage id="entry.mdr-error">{errors["entry.mdr"]}</FieldMessage>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="s-count">{t("settlements.fieldCount")}</Label>
@@ -298,9 +289,12 @@ function SettlementsInner({
                 id="s-count"
                 value={fCount}
                 inputMode="numeric"
-                onChange={(e) => setFCount(e.target.value.replace(/[^\d]/g, ""))}
+                aria-invalid={!!errors["entry.count"]}
+                aria-describedby={errors["entry.count"] ? "entry.count-error" : undefined}
+                onChange={(e) => { setFCount(e.target.value.replace(/[^\d]/g, "")); clearFieldError("entry.count"); }}
                 placeholder={t("settlements.placeholderCount")}
               />
+              {errors["entry.count"] && <FieldMessage id="entry.count-error">{errors["entry.count"]}</FieldMessage>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="s-last4">{t("settlements.fieldLast4")}</Label>
@@ -309,9 +303,12 @@ function SettlementsInner({
                 value={fLast4}
                 inputMode="numeric"
                 maxLength={4}
-                onChange={(e) => setFLast4(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
+                aria-invalid={!!errors["entry.last4"]}
+                aria-describedby={errors["entry.last4"] ? "entry.last4-error" : undefined}
+                onChange={(e) => { setFLast4(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); clearFieldError("entry.last4"); }}
                 placeholder={t("settlements.placeholderLast4")}
               />
+              {errors["entry.last4"] && <FieldMessage id="entry.last4-error">{errors["entry.last4"]}</FieldMessage>}
             </div>
             <div className="flex items-baseline justify-between rounded-md bg-muted/40 px-3 py-2">
               <span className="text-xs text-muted-foreground">{t("settlements.labelNetPreview")}</span>
@@ -324,7 +321,7 @@ function SettlementsInner({
             <Button variant="ghost" onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={submitFormOpenPin} disabled={!entryKey || !formValid}>
+            <Button onClick={submitFormOpenPin} disabled={!entryKey}>
               {t("settlements.next")}
             </Button>
           </DialogFooter>

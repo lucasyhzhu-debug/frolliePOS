@@ -665,7 +665,7 @@ export const en = {
   "settlements.pinSheetLabel": "Confirm with your manager PIN.",
   "settlements.successRecorded": "Settlement recorded",
   "settlements.errorTryAgain": "Try again in a moment.",
-  "settlements.errorNetInvalid": "Fee exceeds gross — net cannot be negative.",
+  "settlements.errorNetInvalid": "Fee can't exceed gross.",
   "settlements.errorDateInvalid": "Invalid date.",
   "settlements.errorLast4Invalid": "Enter the last 4 digits of the BCA account.",
   "settlements.errorAmountInvalid": "Gross & transaction count must be whole numbers ≥ 1.",
