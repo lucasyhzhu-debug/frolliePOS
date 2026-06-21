@@ -10,7 +10,7 @@ import { PrinterSheet } from "@/components/pos/PrinterSheet";
 import { LocaleToggle } from "@/components/pos/LocaleToggle";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Flag, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 import { useT, type TranslationKey } from "@/lib/i18n";
@@ -76,16 +76,8 @@ export default function HomeRoute() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label={t("home.endShift")}
-            title={t("home.endShift")}
-            onClick={() => navigate("/shift/end")}
-          >
-            <Flag className="size-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={t("home.lockHandoff")}
+            aria-label={t("home.lock")}
+            title={t("home.lock")}
             onClick={() => navigate("/lock")}
           >
             <Lock className="size-5" />
@@ -173,6 +165,37 @@ export default function HomeRoute() {
             </section>
           ))}
         </motion.div>
+
+        {/* End-of-shift actions. Promoted from the old app-bar Flag icon, which
+            sat next to Lock and was constantly mistaken for it — a Lock leaves
+            the booth open and sends NO founders summary, so staff who meant to
+            sign off were silently skipping the Telegram notification. These are
+            the only two paths that send the shift-end summary. */}
+        <section className="space-y-2 pt-2">
+          <h2 className="mb-2 text-xs font-medium tracking-widest text-muted-foreground">
+            {t("home.group.shift")}
+          </h2>
+          <Button
+            variant="outline"
+            className="h-auto w-full py-4 flex flex-col items-start text-left"
+            onClick={() => navigate("/shift/end?mode=close")}
+          >
+            <span className="font-semibold text-base">{t("shiftEnd.closeBooth")}</span>
+            <span className="text-xs text-muted-foreground mt-1 whitespace-normal">
+              {t("shiftEnd.closeBoothDesc")}
+            </span>
+          </Button>
+          <Button
+            variant="outline"
+            className="h-auto w-full py-4 flex flex-col items-start text-left"
+            onClick={() => navigate("/shift/end?mode=handover")}
+          >
+            <span className="font-semibold text-base">{t("shiftEnd.handoverTitle")}</span>
+            <span className="text-xs text-muted-foreground mt-1 whitespace-normal">
+              {t("shiftEnd.handoverDesc")}
+            </span>
+          </Button>
+        </section>
       </main>
     </div>
   );

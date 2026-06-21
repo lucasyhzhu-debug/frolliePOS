@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useSession, clearSession } from "@/hooks/useSession";
@@ -162,7 +162,16 @@ export default function ShiftEnd() {
     sessionId ? `shift:end:handover:${sessionId}` : "shift:end:handover:none",
   );
 
-  const [mode, setMode] = useState<Mode>("choice");
+  // Home now deep-links straight into a wizard via `?mode=close|handover`
+  // (the two big shift-end buttons), skipping the choice screen. A bare
+  // /shift/end (or any other value) still shows the choice screen.
+  const [searchParams] = useSearchParams();
+  const requestedMode = searchParams.get("mode");
+  const [mode, setMode] = useState<Mode>(
+    requestedMode === "close" || requestedMode === "handover"
+      ? requestedMode
+      : "choice",
+  );
   // Set after endOfDaySignOff resolves: durationMs returned by the mutation.
   const [signOffDurationMs, setSignOffDurationMs] = useState<number | null>(null);
   // countChanged captured from the count step (shown on summary screen).

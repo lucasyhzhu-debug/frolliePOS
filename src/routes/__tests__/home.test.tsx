@@ -92,10 +92,13 @@ describe("HomeRoute role-based tile rendering", () => {
     expect(screen.getByLabelText(/lock/i)).toBeInTheDocument();
   });
 
-  it("renders an Akhiri shift control in the app-bar that navigates to /shift/end", () => {
+  it("renders Close booth + Handover as big buttons (not an app-bar icon)", () => {
     mockRole = "staff";
     renderHome();
-    const endShiftBtn = screen.getByLabelText(/end shift/i);
-    expect(endShiftBtn).toBeInTheDocument();
+    // The old Flag/End-shift app-bar icon is gone — the two shift-end actions
+    // are now labelled big buttons in the page body.
+    expect(screen.queryByLabelText(/end shift/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /close booth/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /handover/i })).toBeInTheDocument();
   });
 });

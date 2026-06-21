@@ -85,9 +85,9 @@ import ShiftEnd from "../end";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function renderRoute() {
+function renderRoute(entry = "/shift/end") {
   return render(
-    <MemoryRouter initialEntries={["/shift/end"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <ShiftEnd />
     </MemoryRouter>,
   );
@@ -140,6 +140,30 @@ describe("ShiftEnd route (/shift/end)", () => {
       renderRoute();
       // No "Back" button (wizard nav) should be present on choice screen.
       expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Deep-link via ?mode= (home's big shift-end buttons)
+  // -------------------------------------------------------------------------
+
+  describe("deep-link ?mode=", () => {
+    it("?mode=handover enters the handover wizard directly (no choice screen)", () => {
+      renderRoute("/shift/end?mode=handover");
+      // Wizard heading present; choice-screen subtitle absent.
+      expect(screen.getByRole("heading", { name: /handover/i })).toBeInTheDocument();
+      expect(screen.queryByText(/choose the type of shift close/i)).toBeNull();
+    });
+
+    it("?mode=close enters the close wizard directly (no choice screen)", () => {
+      renderRoute("/shift/end?mode=close");
+      expect(screen.getByRole("heading", { name: /close booth/i })).toBeInTheDocument();
+      expect(screen.queryByText(/choose the type of shift close/i)).toBeNull();
+    });
+
+    it("an unknown mode falls back to the choice screen", () => {
+      renderRoute("/shift/end?mode=bogus");
+      expect(screen.getByText(/choose the type of shift close/i)).toBeInTheDocument();
     });
   });
 
