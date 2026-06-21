@@ -81,9 +81,11 @@ for that device's bound outlet.
 `outlet_id` is **derived from the authenticated session**, never accepted as a mutation/query
 argument. The chain:
 
-1. `registered_devices.outlet_id` binds a phone to exactly one outlet (chosen at activation).
-2. At login, `_loginCommit_internal` resolves the device's `outlet_id` and stamps it on the new
-   `staff_sessions` row.
+1. `registered_devices.outlet_id` binds a phone to exactly one outlet. Binding is a **post-activation
+   manager-PIN assign** (`staff.assignDeviceOutlet`) — devices activate *unbound* (staffreview OQ4,
+   2026-06-21); no outlet is chosen at activation time.
+2. At login, `_loginCommit_internal` (and the `managerTakeover` + `seed` session writers) resolves the
+   device's `outlet_id` and stamps it on the new `staff_sessions` row.
 3. `requireSession(ctx, sessionId)` returns `{ staffId, deviceId, role, outlet_id }`.
 4. Every operational query/mutation scopes by that `outlet_id` via a `withOutletScope` helper.
 

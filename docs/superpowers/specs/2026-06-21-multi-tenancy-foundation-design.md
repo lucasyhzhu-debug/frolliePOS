@@ -4,7 +4,7 @@
 **Phase:** v2.0 (Phase 1 — data plane)
 **Branch (target):** feat/v2.0-multi-outlet-foundation
 **Decomposition rationale:** brainstorm 2026-06-21 (locked decisions in the assignment brief)
-**Status:** Brainstorm (DRAFT — review at /spec-plan-pipeline)
+**Status:** Reviewed — staffreview gate passed 2026-06-21 (decisions resolved; ready to plan)
 **Fulfils:** [ADR-051](../../ADR/051-multi-outlet-tenancy-silo.md)
 
 > This is the **bedrock** spec of the multi-tenancy program. The owner-cockpit, Telegram-per-outlet,
@@ -21,8 +21,8 @@ table; `outlet_id` threaded through every operational table (and its indexes, le
 conversion of the three singletons/counters (`pos_settings`, `pos_recount_state`,
 `pos_receipt_counters` → `R-<outletcode>-YYYY-NNNN`); **session-derived** outlet scoping
 (`requireSession` returns `outlet_id`, a `withOutletScope` helper, and a new
-`index-leads-with-outlet_id` ESLint fence); device→outlet binding at activation plus a
-manager-PIN re-bind; the account-first **sticky-per-device** login change; and a production
+`index-leads-with-outlet_id` ESLint fence); post-activation **manager-PIN device→outlet assign**
+(devices activate unbound; OQ4); the account-first **sticky-per-device** login change; and a production
 **optional → backfill → enforce** migration that lands every existing prod row under a default
 outlet **"Frollie — Pakuwon"**.
 
@@ -45,7 +45,7 @@ outlet **"Frollie — Pakuwon"**.
 | 3 | `staff_outlet_access` join + staff-as-identity | `auth/` (or new `access/`) | Med — roster filter rewrite |
 | 4 | Per-outlet singletons + receipt-counter re-key | `settings/`, `inventory/`, `transactions/` | Med — upsert-key change, receipt format |
 | 5 | Session-derived scoping (`requireSession`, `withOutletScope`) | `auth/`, new `lib/outletScope.ts` | **High** — every operational read/write touches it |
-| 6 | Device→outlet binding (activation + re-bind) | `auth/`, `staff/` | Med — pre-auth activation UX |
+| 6 | Device→outlet binding (post-activation manager assign) | `auth/`, `staff/` | Med — all 3 session writers + assign UX |
 | 7 | Account-first sticky-per-device login | `src/routes/login.tsx`, `useSession`, `useDeviceId` | Med — FE flow change |
 | 8 | `index-leads-with-outlet_id` ESLint fence | `tools/eslint-rules/`, `eslint.config.js` | Med — false-positive tuning |
 | 9 | Production migration (optional → backfill → enforce) | `convex/migrations/` + scripts | **High** — prod data, idempotent backfill |
@@ -98,14 +98,14 @@ still carries `outlet_id` for post-read assertion.
 
 | Table | Module | New field | Index change (leads with `outlet_id`) |
 |---|---|---|---|
-| `staff_sessions` | auth | `outlet_id` | `by_outlet_device_active` `[outlet_id, device_id, ended_at]`; keep `by_staff_active` (staff is business-level) |
+| `staff_sessions` | auth | `outlet_id` | `by_outlet_device_active` `[outlet_id, device_id, ended_at]` (subsumes the existing `by_device_active` `[device_id, ended_at]` — **drop `by_device_active` in Step 3** after its readers, e.g. device-session lookup + awaiting-payment recovery, migrate to the scoped variant); keep `by_staff_active` (staff is business-level) |
 | `pos_auth_attempts` | auth | `outlet_id` | keep `by_staff` (lockout is per-staff identity); add `outlet_id` for audit context |
 | `registered_devices` | auth | `outlet_id` | `by_outlet_active` `[outlet_id, active]`; keep `by_device_id` (device id globally unique) |
-| `pending_device_setups` | auth | `target_outlet_id` (optional) | unchanged (code globally unique, short TTL); outlet resolved at activation if absent |
+| `pending_device_setups` | auth | *(none in Phase 1)* | unchanged. **No `target_outlet_id`** — the post-activation-manager-assign decision (OQ4) means activation does not pre-assign an outlet; a device activates unbound and a manager binds it afterward (see Stream 6). The `target_outlet_id` field is deferred to the Telegram-per-outlet spec if pre-assignment is ever added. |
 | `pos_inventory_skus` | catalog | `outlet_id` | `by_outlet_active` `[outlet_id, active]`; `by_outlet_code` `[outlet_id, code]` (code now unique *per outlet*) |
 | `pos_products` | catalog | `outlet_id` | `by_outlet_active_sort` `[outlet_id, active, sort_order]`; `by_outlet_family` `[outlet_id, family]`; `by_outlet_code` `[outlet_id, code]` |
 | `pos_product_components` | catalog | `outlet_id` | `by_outlet_product` `[outlet_id, product_id]`; `by_outlet_sku` `[outlet_id, inventory_sku_id]` |
-| `pos_transactions` | transactions | `outlet_id` | `by_outlet_status_created` `[outlet_id, status, created_at]`; `by_outlet_status_paid_at` `[outlet_id, status, paid_at]`; `by_outlet_staff_created` `[outlet_id, staff_id, created_at]`; keep `by_receipt_token` (token globally unique) |
+| `pos_transactions` | transactions | `outlet_id` | `by_outlet_status_created` `[outlet_id, status, created_at]`; `by_outlet_status_paid_at` `[outlet_id, status, paid_at]`; `by_outlet_staff_created` `[outlet_id, staff_id, created_at]`; keep `by_receipt_token` AND `by_receipt_number` (both globally unique — the outlet-code-prefixed `R-<code>-YYYY-NNNN` string stays globally unique; both on the GLOBAL_UNIQUE allowlist) |
 | `pos_transaction_lines` | transactions | `outlet_id` | `by_outlet_transaction` `[outlet_id, transaction_id]` |
 | `pos_xendit_invoices` | payments | `outlet_id` | `by_outlet_transaction` `[outlet_id, transaction_id]`; keep `by_xendit_invoice_id` (webhook dedup, globally unique) |
 | `pos_receipt_html_cache` | receipts | `outlet_id` | keep `by_token` (token globally unique); outlet for purge scoping |
@@ -138,6 +138,14 @@ still carries `outlet_id` for post-read assertion.
   reopens this; the answer is settled here. (See Open questions for the rationale.)
 - `api_tokens`, `api_rate_buckets`, `api_request_log` — global API governance (Frollie Pro sync);
   the public API is business-level, not per-outlet. (Per-outlet API filtering is a Phase-2 concern.)
+- `pos_settlements` — **business-level (Decision, 2026-06-21).** Xendit settles to **one merchant
+  bank account per deployment** (`bca_account_destination`) and knows nothing about outlets;
+  settlement is matched per-txn on `reference_id` then aggregated per *day* for the whole silo. The
+  aggregate is therefore business-wide: **no `outlet_id`**, `settlement_key` stays `settle-YYYY-MM-DD`,
+  and the Stream-9 backfill **skips it** (the exclusion list here is the authoritative backfill
+  filter). Per-outlet payout *attribution*, if the owner cockpit ever needs it, is a **derived join** —
+  settled `pos_transactions` already carry `outlet_id` — not a column on the aggregate. (Surfaced to
+  the owner-cockpit spec.)
 - `pos_idempotency` — keyed by `key` alone (shared namespace). Do not add a field; instead the
   **client must namespace `idempotencyKey` with outlet** (see Idempotency below).
 - `pos_device_activation_attempts` — already keyed by `device_id`/`"__global__"` sentinel; device
@@ -221,10 +229,14 @@ outlet code prefix.
   Every settings mutation re-scopes its single-row lookup to `by_outlet`.
 - **`pos_recount_state`** (inventory module): `last_recount_at` lookup re-keys to `by_outlet`.
 - **`pos_receipt_counters`** (transactions module): upsert now keyed `[outlet_id, year]`. The mint
-  helper (`_nextReceiptNumber_internal`) takes `outletId`, reads/creates the `(outlet_id, year)` row,
-  and the formatter produces **`R-<outletcode>-YYYY-NNNN`** (outlet code resolved via
-  `outlets.internal._requireOutletCode_internal`). NNNN is per-outlet-per-year (each outlet starts at
-  0001). Existing prod receipts keep their old `R-YYYY-NNNN` strings (snapshotted; never reformatted).
+  helper is **`_allocateReceiptNumber_internal`** (`convex/transactions/internal.ts:80`, an
+  `internalMutation`) — it both allocates `next_number` AND formats the string inline (today
+  `return \`R-${year}-${NNNN}\`` at line 96; there is **no separate formatter**). The edit: take
+  `outletId`, re-key the counter read/insert to `[outlet_id, year]` (index `by_outlet_year`), resolve
+  the code via `outlets.internal._requireOutletCode_internal`, and change the template to
+  **`R-${code}-${year}-${NNNN}`**. NNNN is per-outlet-per-year (each outlet starts at 0001). Its caller
+  `_confirmPaid` (same file) passes `outletId` (already available from the session at confirm time).
+  Existing prod receipts keep their old `R-YYYY-NNNN` strings (snapshotted; never reformatted).
   > **Snapshot rule (business rule #1) intact:** historical receipt numbers are frozen on the
   > transaction row; only *new* mints use the outlet-prefixed format.
 
@@ -247,9 +259,17 @@ requireSession(ctx, sessionId): Promise<{
 ```
 
 - Read `outlet_id` from the `staff_sessions` row (stamped at login). Throw `NO_SESSION` as today if
-  ended/missing/inactive; throw `SESSION_NO_OUTLET` if a session somehow lacks `outlet_id`
-  (defensive — should be impossible post-migration).
-- `requireManagerSession` returns the same shape minus nothing — `outlet_id` added to its return too.
+  ended/missing/inactive.
+- **Migration-tolerant window (I4 — collides with ADR-003 "no auto-logout").** Sessions never expire,
+  so **old active sessions with no `outlet_id`** exist between the Step-1 deploy and the Step-2
+  backfill. A hard `SESSION_NO_OUTLET` throw here would kick out **every currently-logged-in staff** at
+  deploy. So during Steps 1–2 the return is typed `outlet_id: Id<"outlets"> | undefined` and, when
+  absent, **falls back to the single default outlet** (resolved via `outlets`); only at **Step 3
+  (enforce)** does the type flip to required `Id<"outlets">` and the hard `SESSION_NO_OUTLET` throw
+  turn on (by then backfill guarantees every active session carries it). The Step-2 backfill stamps
+  active `staff_sessions` **early** (before any reader relies on the value).
+- `requireManagerSession` (which today returns `{ staffId, deviceId }`, no `role`) gains `outlet_id`
+  in its return too, with the same window semantics.
 - Every existing caller of these helpers gets `outlet_id` for free; the migration of call sites is to
   *use* it (pass into `withOutletScope` / scoped index queries).
 
@@ -261,6 +281,10 @@ Response gains `outlet_id` + `outlet_label` (the outlet `name`, fetched via
 ```ts
 staff: { _id, name, role, must_change_pin, locale, outlet_id, outlet_label }
 ```
+
+> **Window note (I4):** `getSession` runs the same default-outlet fallback during Steps 1–2 — it must
+> not call `_getOutlet_internal(undefined)` for a pre-backfill session. Resolve to the default outlet
+> when `outlet_id` is absent; the hard invariant only holds post-enforce.
 
 ### `withOutletScope` helper (new `convex/lib/outletScope.ts`, V8-safe)
 
@@ -298,45 +322,60 @@ the key's outlet prefix matches the session outlet (defensive; reject `OUTLET_KE
 
 ## Workstream 6 — Device → outlet binding
 
-**Goal:** A phone is bound to exactly one outlet at activation; re-binding is manager-PIN-gated.
+**Goal:** A phone is bound to exactly one outlet by an explicit **manager-PIN assign** step *after*
+activation (OQ4 decision, 2026-06-21); re-assigning is the same gated action. `registered_devices.outlet_id`
+is the **single source of truth** for "which outlet uses this device."
 
-### Activation (convex/staff/internal.ts `_activateDeviceCommit_internal`)
+### Activation (convex/staff/internal.ts `_activateDeviceCommit_internal`) — produces an *unbound* device
 
-Activation is **pre-auth** (no session yet), so we cannot derive the outlet from a session. Chosen
-approach (recommendation; see Open questions):
+Activation is **pre-auth** (no session) and, per OQ4, does **not** pre-assign an outlet. The device
+registers with `outlet_id: null` (optional during the window; required only after a manager binds it).
+No Telegram pre-assignment, no single-outlet auto-bind — binding is an explicit manager action below.
 
-- **Telegram pre-assignment (primary):** `/activatepos` is sent in a managers chat that is itself
-  per-outlet (Telegram-per-outlet spec). The issued `pending_device_setups` row carries
-  `target_outlet_id` from that chat's outlet. On activation, `_activateDeviceCommit_internal` copies
-  `target_outlet_id` → `registered_devices.outlet_id`.
-- **Booth inline fallback:** a booth manager generating a setup code does so *from an
-  already-outlet-bound device*; the inline path stamps that device's outlet onto `target_outlet_id`.
-- **Single-outlet deployments (Frollie today):** if `target_outlet_id` is absent AND the deployment
-  has exactly one active outlet, bind to it automatically (covers the migration / first-outlet case).
-  If absent AND multiple outlets exist, throw `OUTLET_REQUIRED_FOR_ACTIVATION` (forces the
-  pre-assignment path).
+### Manager assign (primary binding path — manager-PIN-gated)
 
-`registered_devices.outlet_id` is the **single source of truth** for "which outlet uses this device."
+- New action `staff.assignDeviceOutlet(sessionId, targetDeviceId, targetOutletId, managerPin, idempotencyKey)`
+  — manager-PIN via `verifyManagerPinOrThrow`; patches `registered_devices.outlet_id`; if the device
+  already had an outlet (re-assign), ends any active session on that device (`force_logout`);
+  `logAudit` verb `device.assignOutlet` (metadata: `device_id`, `from_outlet_id`, `to_outlet_id`).
+  Public mutation/action rules apply (`idempotencyKey` + `withIdempotency` + `authCheck`).
+- This is the **single binding writer** for both first-bind and re-bind — there is no separate
+  `rebindDeviceOutlet`; one action covers both (the `from_outlet_id` is null on first bind).
+- FE: a manager-only "Assign this device to an outlet" panel (a new `mgr/device` route, or extend
+  `mgr/device-setup`) listing outlets (`listOutlets`) + a manager-PIN confirm — FE detail in Stream 7.
 
-### Login resolves + stamps (convex/auth/internal.ts `_loginCommit_internal`)
+> **Single-outlet present (Frollie today):** the Step-2 backfill stamps every *existing* device with the
+> default outlet, so current phones keep working with **zero** manager action. The assign step is only
+> hit by genuinely new device activations going forward — at which point a manager binds the new phone
+> once.
 
-- After staff is resolved, look up `registered_devices.by_device_id` → `outlet_id`.
-- Throw `DEVICE_HAS_NO_OUTLET` if the device row is missing or `outlet_id` is null (post-migration
-  invariant: every active device has an outlet).
-- `_assertStaffHasOutletAccess_internal(staffId, outlet_id)` (Stream 3) before inserting the session.
-- Insert `staff_sessions` **with `outlet_id`**; thread it into the `staff.login` audit row
-  (`device_id` already threaded; add `outlet_id`).
+### Login resolves + stamps — **all three `staff_sessions` writers (C2)**
 
-### Re-bind (manager-PIN-gated)
+A `grep insert("staff_sessions")` finds **three** session writers; **every** one must stamp `outlet_id`
+(or, after enforce, the insert is a schema violation and `requireSession` throws `SESSION_NO_OUTLET`):
 
-- New action `staff.rebindDeviceOutlet(sessionId, targetOutletId, managerPin, idempotencyKey)` —
-  manager-PIN via `verifyManagerPinOrThrow`, patches `registered_devices.outlet_id`, ends any active
-  session on that device (force_logout), `logAudit` verb `device.rebindOutlet`. Lives in that phone's
-  device settings (FE route `mgr/device-setup` or a new `mgr/device` panel — FE detail in Stream 7).
+1. **`_loginCommit_internal`** (convex/auth/internal.ts:274) — after staff is resolved, look up
+   `registered_devices.by_device_id` → `outlet_id`. Throw **`DEVICE_HAS_NO_OUTLET`** (user-facing: "ask
+   a manager to assign this device to an outlet") if the device is missing or unbound. Run
+   `_assertStaffHasOutletAccess_internal(staffId, outlet_id)` (Stream 3), then insert the session
+   **with `outlet_id`** and thread it into the `staff.login` audit row.
+2. **`managerTakeover`** (convex/auth/internal.ts:613 — business rule #23 escape hatch) — "mirrors
+   `_loginCommit_internal` shape" and **also inserts a session**. It must do the same device→outlet
+   resolution + stamp. (Owner/manager bypasses the access-join assertion per Decision C, but still
+   needs a bound device — a takeover on an unbound device throws `DEVICE_HAS_NO_OUTLET`.)
+3. **`seed`** (convex/seed/internal.ts:242 — allowlisted) — seeds its manager session with the seeded
+   default outlet's id (the seed also creates the default outlet + `staff_outlet_access` rows so dev
+   fixtures are consistent post-migration).
 
-**Tests:** activation binds the pre-assigned outlet; single-outlet auto-bind; multi-outlet-no-target
-throws; login stamps session outlet; `DEVICE_HAS_NO_OUTLET`; re-bind requires manager PIN + ends
-sessions.
+### `requireManagerSession` callers that mint sessions
+
+`managerTakeover` is the only takeover writer; if a future reset path mirrors it, it inherits the same
+stamp requirement. Document this in the C2 task so the writer set stays swept.
+
+**Tests:** activation produces an unbound device (`outlet_id` null); `assignDeviceOutlet` binds +
+requires manager PIN; re-assign ends active sessions on that device; **login on an unbound device
+throws `DEVICE_HAS_NO_OUTLET`**; login stamps the session outlet; **`managerTakeover` session carries
+`outlet_id`**; takeover on an unbound device throws; seed fixtures carry the default outlet.
 
 ---
 
@@ -355,6 +394,11 @@ the roster is filtered to the device's outlet.
   and `outlet_label?: string`, projected from the extended `getSession`.
 - **`useDeviceId`:** unchanged contract; optionally a post-activation step caches the outlet label
   under a new `storage-keys` entry for instant pre-session display.
+- **Manager device-assign panel (OQ4):** a manager-only surface (new `mgr/device` route, or extend
+  `mgr/device-setup`) that lists outlets and binds/re-binds the chosen device via
+  `staff.assignDeviceOutlet` (manager-PIN). This is how a newly-activated, unbound phone gets its
+  outlet. An unbound device's login screen shows a clear "ask a manager to assign this device" state
+  (the `DEVICE_HAS_NO_OUTLET` path) rather than a dead login.
 - **No outlet arg ever leaves the client** for operational mutations (Decision D). The FE passes
   `sessionId`; the server derives outlet.
 - ESLint i18n fence: `login.tsx` is already in the i18n + inline-messaging registries — any new copy
@@ -377,8 +421,8 @@ device's outlet does not appear; existing single-outlet flow unchanged after bac
   table is in the OUTLET_SCOPED set **must** have its index callback lead with `.eq("outlet_id", …)`.
   A query against an outlet-scoped table that uses a non-`by_outlet_*` index is **allowed only if the
   index is on the GLOBAL_UNIQUE allowlist** (`by_token_hash`, `by_xendit_invoice_id`, `by_device_id`,
-  `by_receipt_token`, `by_line_and_sku`, `by_signature_created`) — those are deliberate
-  globally-unique lookups; the row still carries `outlet_id` for post-read assertion.
+  `by_receipt_token`, `by_receipt_number`, `by_line_and_sku`, `by_signature_created`) — those are
+  deliberate globally-unique lookups; the row still carries `outlet_id` for post-read assertion.
 - **Config block in `eslint.config.js`:** a new `OUTLET_SCOPED` set (the 23 tables) + `GLOBAL_UNIQUE`
   index allowlist, applied to `convex/**/*.ts` (ignoring `__tests__`). Place the block **after** the
   i18n/inline-messaging blocks if it ever reuses `no-restricted-syntax`; this rule is a *custom* rule,
@@ -411,11 +455,14 @@ single-device-designation flag is **retired (removed), not carried forward**. Th
   if set) becomes a `registered_devices.outlet_id` binding to the default **"Frollie — Pakuwon"**
   outlet — i.e. it is folded into the normal device-binding backfill, with no special carry-over of the
   designation itself.
-- `pos_settings.outlet_device_id` (the schema field), `settings.outletStatus` (the unauthenticated
-  query), `staff.setOutletDevice` (the manager-session writer), and the `settings.outlet_device_set`
-  audit verb are **RETIRED** — the field is dropped from `settings/schema.ts`, the query/mutation are
-  removed, and no new code reads the flag. (Historical `settings.outlet_device_set` audit rows stay —
-  audit log is append-only, ADR-007 — but no new rows are written.)
+- The following are **RETIRED** (verified symbols): `pos_settings.outlet_device_id` (field,
+  `settings/schema.ts:37`); `settings.outletStatus` (unauthenticated query, `settings/public.ts:30`);
+  `settings._setOutletDevice_internal` (`settings/internal.ts:123`); `staff.setOutletDevice`
+  (manager-session writer + its audit verb, `staff/public.ts:274,288`); and the `useOutletStatus` hook
+  (`src/hooks/useOutletStatus.ts`). The field is dropped from `settings/schema.ts`, the query/mutation/
+  hook are removed, and no new code reads the flag. (Historical `staff.setOutletDevice` audit rows stay
+  — audit log is append-only, ADR-007 — but no new rows are written.) **Note:** the audit verb is
+  `staff.setOutletDevice`, not `settings.outlet_device_set`.
 - The SOP-gate logic in `RootLayout` that currently keys on `outletStatus.isOutlet` (via
   `useOutletStatus`) must **re-key on the device's bound outlet** — the start-of-day gate now runs for
   the device whose `registered_devices.outlet_id` matches the session outlet, derived through the
@@ -440,15 +487,22 @@ indexes added **alongside** the old ones (no drops yet). New writes (post-deploy
 
 `migrations.backfillOutletId` (internal action → batched mutations, `runMutation` per page, cursor-
 based; **not** `runMutation`-in-a-loop anti-pattern — page through with `paginate`). For every
-operational table, set `outlet_id = <default outlet id>` where absent. Also:
+operational table **in the OUTLET_SCOPED set** (the 23 + `pos_receipt_counters`), set
+`outlet_id = <default outlet id>` where absent. **The "DO NOT get outlet_id" exclusion list is the
+authoritative filter** — the backfill must NOT touch `pos_settlements`, `audit_log`, `api_*`,
+`pos_idempotency`, `pos_device_activation_attempts`, `telegram_log`, `telegramUpdates`, or `staff`.
+Per-table specifics:
+- **`staff_sessions`: stamp ACTIVE sessions FIRST (I4)** — before any reader (`requireSession`/
+  `getSession`) relies on the value, so no logged-in staff is interrupted (ADR-003 no auto-logout).
 - `staff_outlet_access`: one row per active staff → default outlet (`granted_by: null`).
 - `pos_settings`: stamp the existing singleton row with `outlet_id` (it becomes the default outlet's row).
 - `pos_recount_state`: stamp the singleton.
 - `pos_receipt_counters`: stamp existing `(year)` rows with `outlet_id`; they continue the *old*
   numbering for that year (no resequencing — historical receipts already minted are frozen).
 - `registered_devices`: stamp `outlet_id` = default outlet (so existing phones keep working without
-  re-activation).
-Batched, resumable via stored cursor, safe to re-run (skips already-stamped rows).
+  re-activation **or a manager assign** — the OQ4 assign step is only for genuinely new devices).
+Batched, resumable via stored cursor, safe to re-run (skips already-stamped rows). A migration test
+asserts the excluded tables are **untouched**.
 
 ### Step 3 — enforce (required)
 
@@ -481,9 +535,10 @@ rule; FE + backend together).
 - **Audit threading:** add `outlet_id` to the `logAudit` metadata for state changes that have a
   session (booth_inline); system/cron sources without a session may omit it (audit `outlet_id` is
   optional — see Open questions on whether the whole audit log scopes).
-- **Telegram + cockpit are deliberately absent** — they consume this foundation. The `pending_device_setups.target_outlet_id`
-  field is added here (so device binding works) but its Telegram *population* lands in the
-  Telegram-per-outlet spec.
+- **Telegram + cockpit are deliberately absent** — they consume this foundation. Per OQ4, device→outlet
+  binding is a post-activation **manager assign** (`staff.assignDeviceOutlet`), so **no
+  `pending_device_setups.target_outlet_id`** is added in Phase 1; Telegram pre-assignment (if ever
+  wanted) is deferred to the Telegram-per-outlet spec.
 - **Single shared `convex/` codebase** is the silo fan-out mitigation (ADR-051); Phase 1 has one
   deployment so the orchestration script is a Phase-2 deliverable.
 
@@ -495,8 +550,8 @@ rule; FE + backend together).
 - **Amended ADRs:** ADR-003 (session carries outlet), ADR-031 (scope server-resolved, in spirit),
   ADR-039 (receipt `R-<outletcode>-YYYY-NNNN`), ADR-034 (new scoping lint fence).
 - **Sibling specs (depend on this):** owner-cockpit design (owner role, cockpit auth, clone wizard);
-  Telegram-per-outlet design (`telegramChats.outlet_id`, per-outlet routing, OTP-to-DM,
-  `pending_device_setups.target_outlet_id` population); Phase-2 control-plane / SaaS design (registry,
+  Telegram-per-outlet design (`telegramChats.outlet_id`, per-outlet routing, OTP-to-DM; may add
+  `pending_device_setups.target_outlet_id` if Telegram pre-assignment is ever wanted — not in Phase 1 per OQ4); Phase-2 control-plane / SaaS design (registry,
   billing, provisioning, deploy-orchestration fan-out, hybrid escape hatch).
 - **Key files:** `convex/auth/sessions.ts`, `convex/auth/internal.ts` (`_loginCommit_internal`),
   `convex/auth/public.ts` (`getSession`), `convex/staff/internal.ts`
@@ -506,39 +561,38 @@ rule; FE + backend together).
 
 ---
 
-## Open questions (review at /spec-plan-pipeline)
+## Resolved decisions (staffreview gate, 2026-06-21)
 
-**1. `outlet_id` type: `v.id("outlets")` vs `v.string()`?**
-*Recommendation:* `v.id("outlets")` (real FK). *Why:* the research pack sketched `string`, but a real
-FK gives us `ctx.db.get(outletId)`, schema validation, and the lint fence can assert `.eq("outlet_id", …)`
-against a typed field. The only cost is the FE handling an opaque id string (already true for `sessionId`).
+All open questions were resolved at the `/spec-plan-pipeline` staffreview gate. See
+`docs/reviews/staffreview-v2.0-multi-outlet-foundation-spec-2026-06-21.md` for the full review.
 
-**2. Does `audit_log` scope by outlet, or stay one shared log with an optional `outlet_id` context field?**
-*Recommendation:* one shared log + **optional** `outlet_id` for context filtering (cockpit), primary
-indexes unchanged. *Why:* ADR-007 makes it append-only company compliance; system/cron/reaper sources
-have no outlet; the owner cockpit can still filter by the optional field. Scoping its indexes by outlet
-would orphan the no-session audit rows.
+**C1. `pos_settlements` scoping → BUSINESS-LEVEL (no `outlet_id`).** One Xendit merchant account per
+deployment; settlement is matched per-txn on `reference_id` then aggregated per day for the whole silo.
+Added to the exclusion list; backfill skips it; per-outlet attribution (if ever needed) is a derived
+join in the cockpit spec.
 
-**3. Where does `staff_outlet_access` live — `auth/` or a new `access/` module?**
-*Recommendation:* `auth/` (it gates identity↔outlet, and `auth` is already the allowlisted
-foundational module). *Why:* avoids a new module + lint allowlist churn for one join table; the
-roster/login readers are already in `auth`.
+**1. `outlet_id` type → `v.id("outlets")` (real FK).** Enables `ctx.db.get(outletId)`, schema
+validation, and the typed lint-fence assertion. FE handles the opaque id as it already does `sessionId`.
 
-**4. Pre-auth activation outlet source — Telegram pre-assignment vs a post-activation manager assign?**
-*Recommendation:* Telegram pre-assignment primary + single-outlet auto-bind fallback (as specced).
-*Why:* activation has no session, so the cleanest source is the per-outlet managers chat that minted
-the code. For Frollie's single-outlet present, auto-bind means **zero activation-UX change** until a
-second outlet exists. The post-activation manager-assign page is the manual escape hatch (already
-covered by `rebindDeviceOutlet`).
+**2. `audit_log` scoping → one shared log + OPTIONAL `outlet_id` context field.** ADR-007 append-only
+company compliance; system/cron/reaper rows have no outlet; primary indexes unchanged; cockpit filters
+on the optional field.
 
-**5. Should `pos_idempotency` get a real `outlet_id` column instead of a client key prefix?**
-*Recommendation:* client key prefix (`${outlet_id}:${uuid}`) + a defensive `OUTLET_KEY_MISMATCH`
-server check; no schema column. *Why:* the table is keyed by `key` alone by design (shared mutation+action
-namespace); adding a column doesn't change the lookup key and the prefix is simpler. Revisit if the
-defensive check proves noisy.
+**3. `staff_outlet_access` module → `auth/`.** Gates identity↔outlet; `auth` is already the allowlisted
+foundational module; avoids new-module + lint-allowlist churn for one join table.
 
-**6. Do we drop old (pre-`outlet_id`) indexes in Step 3, or keep them?**
-*Recommendation:* drop the ones fully subsumed by a `by_outlet_*` variant; keep globally-unique
-lookups (`by_token_hash`, `by_xendit_invoice_id`, `by_device_id`, `by_receipt_token`, `by_line_and_sku`).
-*Why:* dead indexes are write-amplification and a scoping foot-gun; unique-token lookups are legitimately
-outlet-agnostic and the GLOBAL_UNIQUE allowlist covers them.
+**4. Device→outlet binding → POST-ACTIVATION MANAGER ASSIGN.** Devices activate **unbound**; a
+manager-PIN `staff.assignDeviceOutlet` binds them (one action for first-bind + re-bind). **No Telegram
+pre-assignment and no single-outlet auto-bind.** The Step-2 backfill stamps existing devices with the
+default outlet, so Frollie's current phones need no manager action; only genuinely new devices hit the
+assign step. (See Stream 6.)
+
+**5. `pos_idempotency` outlet handling → client key prefix `${outlet_id}:${uuid}` + defensive
+`OUTLET_KEY_MISMATCH` check; no schema column.** Table is keyed by `key` alone by design; the prefix is
+simpler and the dual-call `authCheck` already re-runs `requireSession`. (Orthogonal to the documented
+action→mutation distinct-key hazard — the prefix does not change chaining semantics.)
+
+**6. Drop old indexes in Step 3 → DROP the subsumed ones; KEEP GLOBAL_UNIQUE lookups.** Keep
+`by_token_hash`, `by_xendit_invoice_id`, `by_device_id`, `by_receipt_token`, `by_receipt_number`,
+`by_line_and_sku`, `by_signature_created`. Dead indexes are write-amplification + a scoping foot-gun;
+unique-token lookups are legitimately outlet-agnostic.
