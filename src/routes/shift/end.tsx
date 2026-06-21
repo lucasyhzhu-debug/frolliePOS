@@ -273,6 +273,7 @@ export default function ShiftEnd() {
         steps={closeSteps}
         onComplete={onCloseComplete}
         terminalLabel={t("shiftEnd.closeTerminalLabel")}
+        sessionId={sessionId ?? undefined}
       />
     );
   }
@@ -284,6 +285,7 @@ export default function ShiftEnd() {
         steps={handoverSteps}
         onComplete={onHandoverComplete}
         terminalLabel={t("shiftEnd.handoverTerminalLabel")}
+        sessionId={sessionId ?? undefined}
       />
     );
   }

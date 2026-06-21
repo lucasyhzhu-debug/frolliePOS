@@ -21,16 +21,29 @@ import { useT } from "@/lib/i18n";
 export interface CountStepProps {
   onSubmitted: (changed: number) => void;
   submitLabel?: string;
+  /**
+   * Authoritative session id. Callers that already hold the session (e.g. the
+   * handover-in flow, which has just stored a fresh session from `loginWithPin`)
+   * MUST pass it here. Without this, `CountStep` falls back to `useSession()`,
+   * which is briefly NOT "active" right after `storeSession` — leaving the SKU
+   * list empty and the Save button an enabled-but-inert no-op ("taps, nothing
+   * happens"). Prop wins; the hook is only the fallback for the recount route.
+   */
+  sessionId?: Id<"staff_sessions">;
 }
 
 export default function CountStep({
   onSubmitted,
   submitLabel,
+  sessionId: sessionIdProp,
 }: CountStepProps) {
   const t = useT();
   const resolvedSubmitLabel = submitLabel ?? t("countStep.submitDefault");
   const session = useSession();
-  const sessionId = session.status === "active" ? session.sessionId : null;
+  // Prop is authoritative; useSession() is the fallback (recount route). This
+  // closes the handover-in race where the hook lags a render behind storeSession.
+  const sessionId =
+    sessionIdProp ?? (session.status === "active" ? session.sessionId : null);
   const rows = useQuery(
     api.inventory.public.listInventory,
     sessionId ? { sessionId } : "skip",
@@ -115,7 +128,7 @@ export default function CountStep({
       )}
       <div className="p-4">
         <Button
-          disabled={busy || !key}
+          disabled={busy || !key || !sessionId}
           onClick={submit}
           size="lg"
           className="w-full"

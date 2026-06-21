@@ -127,7 +127,7 @@ export default function ShiftHandover() {
           <h1 className="text-xl font-semibold text-foreground">{t("shiftHandover.countTitle")}</h1>
           <p className="text-sm text-muted-foreground">{t("shiftHandover.countSubtitle")}</p>
         </header>
-        <CountStep onSubmitted={onCountSubmitted} />
+        <CountStep sessionId={stage.sessionId} onSubmitted={onCountSubmitted} />
       </main>
     );
   }
