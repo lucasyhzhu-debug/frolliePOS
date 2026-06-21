@@ -2,6 +2,12 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-21 — Hotfix: shift-end Telegram summary never fired (Lock vs End-shift)
+
+- **Staff ended their shifts with the app-bar Lock icon instead of End-shift, so the founders shift-end Telegram summary never sent (prod incident).** The home app bar carried two adjacent *unlabeled* ghost icons — 🚩 End-shift (`/shift/end`, the only path that fires the summary) and 🔒 Lock (`/lock`, which is silent + resumable *by design*). Staff tapped Lock; prod history showed **zero** `endOfDaySignOff` ever — only locks. The send path itself was healthy (handover-out summaries delivered fine), so this was purely a UX-trap, not a backend bug.
+- **Fix:** removed the End-shift icon from the app bar (Lock is now the lone top control); promoted the two real shift-end actions to labelled **big buttons** on the home screen under an "END OF SHIFT" heading — **Close booth** and **Handover**. `/shift/end` now accepts `?mode=close|handover` so the buttons deep-link straight into the wizard (the choice screen stays as the bare-route fallback). FE-only (no backend signature change); removed dead `home.endShift`/`home.lockHandoff` i18n keys, added `home.lock`/`home.group.shift`; updated home + shift/end tests. PR #120.
+- **Ops:** backfilled the missing founders summary for the staff whose lock-ended shift was skipped — recorded the corrective `signoff_close` (booth → `closed`, ready for the next day; this also consumes the stale lock so the morning start-of-day stale-autoclose can't double-send), then sent the single summary keyed to that event.
+
 ## 2026-06-20 — v1.2 #12 inline messaging (slice 2)
 
 - Converted sync form-validation toasts to inline `FieldMessage` in settlements,
