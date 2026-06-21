@@ -2,7 +2,7 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
-## 2026-06-21 — v1.2: shift-loop fixes + outlet device identity
+## 2026-06-21 — v1.2.1: shift-loop fixes + outlet device identity
 
 - **Manager skip start-of-day:** a manager on `/shift/start` can skip the SOP and go straight to the menu (normal staff still walk the checklist as the first staff of the day). The skip sets a per-session bypass flag (`src/lib/shiftSkip.ts`) *before* a best-effort `completeStartOfDay`, so the manager escapes even if the open-mutation itself throws.
 - **Idempotent booth close:** `endOfDaySignOff` on an already-`closed` booth is now a safe no-op (`{ durationMs: 0 }`, still ends the session) instead of throwing `BOOTH_NOT_OPEN` — covers an accidental re-close and the manager-skip state. `locked`/`handover_pending` still route to their own flows.
