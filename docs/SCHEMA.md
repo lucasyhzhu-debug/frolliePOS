@@ -567,6 +567,7 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `manual_bca_bank_name` | `string?` | *(v1.2 #10)* Display label for the bank. Read-time default `"BCA"` when absent. |
 | `manual_bca_account_name` | `string?` | *(v1.2 #10)* Account holder name shown to staff for verification. Read-time default `"PT Malo Group Bahagia"` when absent. |
 | `manual_bca_account_number` | `string?` | *(v1.2 #10)* Account number shown to staff — stored as a **string** (leading-zero safe, never coerced). Read-time default `"6044830994"` when absent. |
+| `outlet_device_id` | `string?` | *(v1.2)* The designated booth **outlet** device_id. When set, ONLY this device is subject to the start-of-day / handover SOP gate (`RootLayout`); every other registered device is a "viewer" that skips the SOP. Read-time default `null` when absent ⇒ every device acts as the outlet (backward compatible). Written via manager-session `staff.setOutletDevice` (validates the device is registered+active) → `settings/internal._setOutletDevice_internal`. Read by the unauthenticated `settings.outletStatus({ deviceId })`. |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
@@ -773,6 +774,7 @@ settings.founders_summary_toggled  # (v0.4) setFoundersSummaryEnabled — manage
 settings.txn_ticker_toggled        # setTxnTickerEnabled (v1.0.2) — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
 settings.manual_bca_updated # (v1.2 #10) settings.internal._updateManualBcaConfig_internal — INTERNAL ONLY (ops/dashboard; no public writer — the settlement account is not client-editable); actor_id=system; metadata={ enabled: boolean, via: "backend" }; source=system
+settings.outlet_device_set  # (v1.2) staff.setOutletDevice → settings.internal._setOutletDevice_internal — manager-session; designates/clears the booth outlet device; metadata={ outlet_device_id: string|null }; source=booth_inline
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
 voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
 voucher.edited              # updateVoucher — metadata captures changed fields

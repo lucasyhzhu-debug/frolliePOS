@@ -9,12 +9,15 @@ import { MemoryRouter } from "react-router";
 const mockCompleteStartOfDay = vi.fn();
 const mockNavigate = vi.fn();
 
+// Mutable role so a test can render the route as a manager (skip-SOD path).
+let mockRole: "staff" | "manager" = "staff";
+
 // useSession returns an active session by default.
 vi.mock("@/hooks/useSession", () => ({
   useSession: () => ({
     status: "active",
     sessionId: "session_abc",
-    staff: { _id: "staff_1", name: "Andi", role: "staff", must_change_pin: false },
+    staff: { _id: "staff_1", name: "Andi", role: mockRole, must_change_pin: false },
   }),
 }));
 
@@ -111,6 +114,8 @@ describe("ShiftStart route (/shift/start)", () => {
     mockCompleteStartOfDay.mockReset();
     mockCompleteStartOfDay.mockResolvedValue({ ok: true, eventId: "evt_1" });
     mockNavigate.mockReset();
+    mockRole = "staff";
+    sessionStorage.clear();
   });
 
   it("renders the wizard title", () => {
@@ -179,6 +184,54 @@ describe("ShiftStart route (/shift/start)", () => {
     // countChanged from CountStep stub's onSubmitted(3)
     expect(call.countChanged).toBe(3);
 
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
+    });
+  });
+
+  it("does NOT show the manager skip button for normal staff", () => {
+    mockRole = "staff";
+    renderRoute();
+    expect(
+      screen.queryByRole("button", { name: /skip start-of-day/i }),
+    ).toBeNull();
+  });
+
+  it("manager skip: marks the bypass flag, best-effort opens the booth, and navigates home", async () => {
+    mockRole = "manager";
+    renderRoute();
+
+    const skipBtn = screen.getByRole("button", { name: /skip start-of-day/i });
+    fireEvent.click(skipBtn);
+
+    // Best-effort open with an EMPTY checklist (no steps walked).
+    await waitFor(() => {
+      expect(mockCompleteStartOfDay).toHaveBeenCalledTimes(1);
+    });
+    const call = mockCompleteStartOfDay.mock.calls[0][0] as { steps: unknown[] };
+    expect(call.steps).toHaveLength(0);
+
+    // Bypass flag persisted for the active session (so the gate won't re-trap).
+    const { hasManagerSkippedSOD } = await import("@/lib/shiftSkip");
+    expect(hasManagerSkippedSOD("session_abc")).toBe(true);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
+    });
+  });
+
+  it("manager skip: still escapes (navigates) even when completeStartOfDay throws", async () => {
+    mockRole = "manager";
+    mockCompleteStartOfDay.mockRejectedValueOnce(new Error("BOOTH_NOT_CLOSED"));
+    renderRoute();
+
+    fireEvent.click(screen.getByRole("button", { name: /skip start-of-day/i }));
+
+    // Flag is set BEFORE the throwing mutation, so the manager is never trapped.
+    const { hasManagerSkippedSOD } = await import("@/lib/shiftSkip");
+    await waitFor(() => {
+      expect(hasManagerSkippedSOD("session_abc")).toBe(true);
+    });
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });

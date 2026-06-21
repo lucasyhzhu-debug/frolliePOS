@@ -284,8 +284,27 @@ export const endOfDaySignOff = mutation({
       const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
-      // C-2 write-side guard: sign-off is only valid from an OPEN booth.
-      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+      // Idempotent close (v1.2): closing an already-CLOSED booth is a safe no-op
+      // instead of a BOOTH_NOT_OPEN error. Covers an accidental re-close from the
+      // home screen and the manager-skip state (an active session on a closed
+      // booth — see src/lib/shiftSkip.ts). We still end the caller's session so
+      // "close" reliably logs out, but write NO duplicate signoff event/summary/
+      // Founders ping. `locked`/`handover_pending` still throw — those have their
+      // own dedicated flows (resume / handover-in) and must not be silently closed.
+      const latestForState = await ctx.runQuery(
+        internal.shifts.internal._latestShiftEvent_internal,
+        { deviceId },
+      );
+      const { dayStartMs } = wibDayWindow(now);
+      const currentState = deriveBoothState(latestForState, dayStartMs).state;
+      if (currentState === "closed") {
+        await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+          sessionId: args.sessionId,
+          endReason: "force_logout",
+        });
+        return { ok: true as const, durationMs: 0 };
+      }
+      if (currentState !== "open") throw new Error("BOOTH_NOT_OPEN");
 
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(

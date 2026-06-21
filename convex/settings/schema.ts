@@ -28,6 +28,13 @@ export const settingsTables = {
     manual_bca_bank_name: v.optional(v.string()),
     manual_bca_account_name: v.optional(v.string()),
     manual_bca_account_number: v.optional(v.string()),
+    // v1.2 — designated OUTLET (booth) device. When set, ONLY this device is
+    // subject to the start-of-day / handover SOP gate; every other registered
+    // device (a manager's PC / personal phone) is a "viewer" that skips the SOP
+    // and goes straight to the app. Optional + read-time default null
+    // (settings/internal._getSettings_internal): when ABSENT every registered
+    // device is treated as the outlet (backward-compatible single-device booth).
+    outlet_device_id: v.optional(v.string()),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
   }),

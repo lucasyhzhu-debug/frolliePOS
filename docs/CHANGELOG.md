@@ -2,6 +2,13 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-21 — v1.2: shift-loop fixes + outlet device identity
+
+- **Manager skip start-of-day:** a manager on `/shift/start` can skip the SOP and go straight to the menu (normal staff still walk the checklist as the first staff of the day). The skip sets a per-session bypass flag (`src/lib/shiftSkip.ts`) *before* a best-effort `completeStartOfDay`, so the manager escapes even if the open-mutation itself throws.
+- **Idempotent booth close:** `endOfDaySignOff` on an already-`closed` booth is now a safe no-op (`{ durationMs: 0 }`, still ends the session) instead of throwing `BOOTH_NOT_OPEN` — covers an accidental re-close and the manager-skip state. `locked`/`handover_pending` still route to their own flows.
+- **Outlet device identity:** new `pos_settings.outlet_device_id`. A manager designates the booth "outlet" from a device list (`/mgr/device-setup` → Outlet device section; `staff.listRegisteredDevices` / `staff.setOutletDevice`). Only the outlet device runs the start-of-day / handover SOP; viewer devices (a manager's PC / personal phone) skip it and go straight to the app. Unauthenticated `settings.outletStatus({ deviceId })` drives the `RootLayout` gate. Absent designation ⇒ every device is the outlet (backward compatible). This also resolves a class of "stuck in start-of-day" loop caused by logging in on a non-outlet device.
+- New audit verb `settings.outlet_device_set`.
+
 ## 2026-06-21 — Hotfix: shift count-step Save button dead during handover-in
 
 - **Incoming staff during a handover got stuck on the stock-count step — the Save button was tappable but did nothing, freezing the whole handover (prod incident, "Sisca can't sign off").** Root cause was in `CountStep`: it re-derived the session from its own `useSession()` hook instead of the authoritative session the handover route already held. Right after the incoming staff logs in, `storeSession()` fires but `useSession()` is briefly *not* `active` — so inside `CountStep` the session id was `null`, the inventory list rendered **empty** (`listInventory` skipped), and the Save button's `disabled` guard (`busy || !key`) left it **enabled while `submit()` silently `return`ed on `!sessionId`** — an enabled-but-inert control with zero feedback. The count step gates the wizard (`ShiftWizard` hides the advance button until count succeeds), so the handover could not proceed.

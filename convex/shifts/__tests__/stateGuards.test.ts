@@ -38,18 +38,22 @@ async function seedSession(
   });
 }
 
-test("endOfDaySignOff on a CLOSED booth → BOOTH_NOT_OPEN", async () => {
+test("endOfDaySignOff on a CLOSED booth → idempotent no-op (v1.2)", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedSession(t);
-  // Booth is fresh/closed — no start_of_day recorded.
-  await expect(
-    t.mutation(api.shifts.public.endOfDaySignOff, {
-      idempotencyKey: "k1",
-      sessionId,
-      steps: [],
-      countChanged: undefined,
-    }),
-  ).rejects.toThrow(/BOOTH_NOT_OPEN/);
+  // Booth is fresh/closed — no start_of_day recorded. v1.2: closing an
+  // already-closed booth is a safe no-op (ends the session, durationMs: 0, no
+  // duplicate signoff event) instead of throwing BOOTH_NOT_OPEN — covers the
+  // accidental re-close and the manager-skip state. Full behavioural coverage
+  // (event log stays empty, session ends) lives in signoff.test.ts.
+  const res = await t.mutation(api.shifts.public.endOfDaySignOff, {
+    idempotencyKey: "k1",
+    sessionId,
+    steps: [],
+    countChanged: undefined,
+  });
+  expect(res.ok).toBe(true);
+  expect(res.durationMs).toBe(0);
 });
 
 test("completeStartOfDay on an already-OPEN same-day booth → BOOTH_NOT_CLOSED", async () => {

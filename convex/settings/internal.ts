@@ -36,6 +36,8 @@ export const _getSettings_internal = internalQuery({
       founders_summary_enabled: row?.founders_summary_enabled ?? true,
       // v1.0.1: read-time default true — no migration needed for existing prod row
       txn_ticker_enabled: row?.txn_ticker_enabled ?? true,
+      // v1.2: null when no outlet designated ⇒ every device acts as the outlet.
+      outlet_device_id: row?.outlet_device_id ?? null,
       receipt: {
         business_name: row?.receipt_business_name ?? RECEIPT_DEFAULTS.business_name,
         address: row?.receipt_address ?? RECEIPT_DEFAULTS.address,
@@ -102,6 +104,50 @@ export const _updateManualBcaConfig_internal = internalMutation({
       entity_type: "pos_settings",
       source: "system",
       metadata: { enabled: args.enabled, via: "backend" },
+    });
+    return { ok: true as const };
+  },
+});
+
+/**
+ * v1.2 — designate (or clear) the OUTLET device on the singleton settings row.
+ * Cross-module writer: `pos_settings` is owned by settings/ (ADR-034), so the
+ * manager-facing `staff.setOutletDevice` mutation — which lives where
+ * `registered_devices` is validated — routes the WRITE through here.
+ *
+ * `outletDeviceId: null` CLEARS the designation (patch with `undefined` removes
+ * the optional field, so the read-time default null restores backward-compatible
+ * "every device is the outlet" behaviour). `staffId` is the validated manager for
+ * audit attribution.
+ */
+export const _setOutletDevice_internal = internalMutation({
+  args: {
+    outletDeviceId: v.union(v.string(), v.null()),
+    staffId: v.id("staff"),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const patch = {
+      // null → undefined deletes the field (Convex patch semantics) → read
+      // default null. A string sets it.
+      outlet_device_id: args.outletDeviceId ?? undefined,
+      updated_at: Date.now(),
+      updated_by: args.staffId,
+    };
+    const row = await ctx.db.query("pos_settings").first();
+    if (row) {
+      await ctx.db.patch(row._id, patch);
+    } else {
+      await ctx.db.insert("pos_settings", {
+        founders_summary_enabled: true,
+        ...patch,
+      });
+    }
+    await logAudit(ctx, {
+      actor_id: args.staffId,
+      action: "settings.outlet_device_set",
+      entity_type: "pos_settings",
+      source: "booth_inline",
+      metadata: { outlet_device_id: args.outletDeviceId },
     });
     return { ok: true as const };
   },

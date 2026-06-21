@@ -63,6 +63,33 @@ test("endOfDaySignOff ends the session, closes the booth, returns duration", asy
   await drainScheduled(t);
 });
 
+test("endOfDaySignOff is idempotent on an already-CLOSED booth (no throw, no second event)", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedActiveSession(t);
+  // Booth is CLOSED (no shift events) but the session is active — the
+  // manager-skip / accidental-re-close state. Close should be a safe no-op.
+  const res = await t.mutation(api.shifts.public.endOfDaySignOff, {
+    idempotencyKey: "idem-close-closed",
+    sessionId,
+    steps: [],
+    countChanged: undefined,
+  });
+  expect(res.ok).toBe(true);
+  expect(res.durationMs).toBe(0);
+  // No signoff event was written — booth stays closed and the event log is empty.
+  expect(
+    (await t.query(api.shifts.public.boothState, { deviceId: "d1" })).state,
+  ).toBe("closed");
+  const events = await t.run((ctx) => ctx.db.query("pos_shift_events").collect());
+  expect(events).toHaveLength(0);
+  // The session was still ended (close reliably logs out).
+  const sess = await t.run((ctx) =>
+    ctx.db.get(sessionId as Id<"staff_sessions">),
+  );
+  expect(sess?.ended_at).not.toBeNull();
+  // No scheduler drain needed — the no-op path schedules nothing.
+});
+
 test("endOfDaySignOff rejects an already-ended session", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedActiveSession(t);

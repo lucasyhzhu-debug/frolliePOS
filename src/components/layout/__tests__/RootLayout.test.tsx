@@ -5,11 +5,13 @@ import { MemoryRouter, Routes, Route } from "react-router";
 // ---------------------------------------------------------------------------
 // Hoist mock factories — must reference these before module init.
 // ---------------------------------------------------------------------------
-const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState } = vi.hoisted(() => ({
+const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState, mockUseOutletStatus } = vi.hoisted(() => ({
   mockUseSession: vi.fn(),
   mockUseDeviceId: vi.fn(() => "dev-001"),
   mockUseQuery: vi.fn(() => true), // deviceRegistered = true by default
   mockUseBoothState: vi.fn(() => undefined), // undefined = loading by default
+  // Default: this device IS the outlet (no designation ⇒ every device is outlet).
+  mockUseOutletStatus: vi.fn(() => ({ isOutlet: true, outletDeviceId: null })),
 }));
 
 vi.mock("@/hooks/useSession", () => ({
@@ -27,6 +29,9 @@ vi.mock("convex/react", async (importOriginal) => {
 });
 vi.mock("@/hooks/useBoothState", () => ({
   useBoothState: mockUseBoothState,
+}));
+vi.mock("@/hooks/useOutletStatus", () => ({
+  useOutletStatus: mockUseOutletStatus,
 }));
 vi.mock("@/components/pos/PrinterProvider", () => ({
   PrinterProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -91,6 +96,7 @@ describe("RootLayout — booth-state gate", () => {
     mockUseQuery.mockReturnValue(true); // deviceRegistered = true
     mockUseSession.mockReturnValue(ACTIVE_SESSION);
     mockUseBoothState.mockReturnValue(undefined); // loading by default
+    mockUseOutletStatus.mockReturnValue({ isOutlet: true, outletDeviceId: null }); // outlet by default
   });
 
   it("renders children normally when boothState is undefined (still loading)", () => {
@@ -116,6 +122,24 @@ describe("RootLayout — booth-state gate", () => {
     renderAt("/");
     expect(screen.getByTestId("shift-start-page")).toBeInTheDocument();
     expect(screen.queryByTestId("home-page")).toBeNull();
+  });
+
+  it("does NOT force start-of-day on a VIEWER (non-outlet) device even when booth is 'closed'", () => {
+    // A manager opens the POS on their PC (a viewer device): isOutlet=false. The
+    // SOP gate must skip so they land on the menu / transactions, not the SOP.
+    mockUseOutletStatus.mockReturnValue({ isOutlet: false, outletDeviceId: "booth-phone" });
+    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+    renderAt("/");
+    expect(screen.getByTestId("home-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("shift-start-page")).toBeNull();
+  });
+
+  it("does NOT force start-of-day while outletStatus is still loading (undefined ⇒ don't trap a viewer)", () => {
+    mockUseOutletStatus.mockReturnValue(undefined);
+    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+    renderAt("/");
+    expect(screen.getByTestId("home-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
 
   it("does NOT redirect when already on /shift/start and boothState.state is 'closed' (loop-safety)", () => {
