@@ -2804,7 +2804,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-be-outlets-schema]** `outlets` + `staff_outlet_access` + `outlet_id` threading — new tenancy tables; thread `outlet_id` across the ~23 operational tables with `by_outlet_*` indexes leading with `outlet_id`
   - **agent:** `convex-expert`
   - **deps:** `none`
-  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md)
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
   - **subtasks:**
     - [ ] `outlets` table (code/name/address/geo/timezone/active) + `staff_outlet_access` join
     - [ ] `outlet_id` + `by_outlet_*` indexes on all operational tables
@@ -2812,11 +2812,11 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-be-outlet-scoping]** session-derived outlet scoping — `requireSession` returns `outlet_id`; `withOutletScope` helper; index-leads-with-`outlet_id` ESLint fence
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlets-schema`
-  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md)
-- 📋 **[v13-be-device-binding]** device→outlet binding at activation + manager-PIN rebind; **retire `outlet_device_id`**
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+- 📋 **[v13-be-device-binding]** post-activation manager-PIN device→outlet assign (`assignDeviceOutlet`; devices activate unbound — OQ4); all 3 session writers stamp `outlet_id`; **retire `outlet_device_id`**
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlets-schema`
-  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md)
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
 - 📋 **[v13-be-owner-auth]** owner role + Telegram-OTP cockpit login + `/start` binding + durable cockpit sessions (`staff_sessions.kind`)
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlet-scoping`
@@ -2838,7 +2838,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet
   - **agent:** `frontend-integrator`
   - **deps:** `v13-be-device-binding`
-  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md)
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
 - 📋 **[v13-fe-cockpit-login]** `/cockpit/login` Telegram-OTP flow + remembered-device quick-PIN
   - **agent:** `frontend-integrator`
   - **deps:** `v13-be-owner-auth`
@@ -2860,7 +2860,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-xc-migration]** prod migration — additive `outlet_id` → backfill all rows to default outlet **"Frollie — Pakuwon"** → enforce; rationalize the `outlet_device_id` hotfix state; backfill existing Telegram chats onto the default outlet
   - **agent:** `—`
   - **deps:** `v13-be-outlets-schema`, `v13-be-telegram-routing`
-  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md)
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
 - 📋 **[v13-xc-adrs]** land ADR-051/052/053 + 5 specs; ADR README index entries + CHANGELOG
   - **agent:** `—`
   - **deps:** `none`
