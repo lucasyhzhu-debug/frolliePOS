@@ -2,6 +2,11 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-21 — Hotfix: repeat admin edits silently no-op'd (idempotency key not rotating)
+
+- **A manager editing several items back-to-back on one screen — e.g. uploading photos to Dubai 1/3/8 in a single `/mgr/products` session — found only the first edit stuck; the rest silently vanished (prod symptom: uploaded product photos never appeared).** Root cause was in `useIdempotency`: the hook reads its key once per mount, and `clearIntent()` only deleted the **client** IDB row — it never rotated the in-memory key nor cleared the server's 24h `pos_idempotency` cache. So the 2nd+ mutation of the same intent reused the spent key, the server **replayed** the first call's cached `{ok:true}`, and the handler (the `updateProductMeta` patch, the upload-URL mint) never ran. It "worked in testing" because single edits (or a reload between them) get a fresh mount = fresh key. Affected every multi-edit admin surface (products, staff, vouchers, receipt), not just photos.
+- **Fix:** `clearIntent(intent)` now notifies mounted `useIdempotency(intent)` hooks (via a module-level rotate subscription) so they mint a fresh UUID in place — no remount required. This makes every existing `clearIntent` call site behave the way its authors already assumed ("the next attempt gets a fresh key"). FE-only; no backend or schema change. Added a regression test for the mounted-`clearIntent` path (the prior test only covered unmount → remount).
+
 ## 2026-06-21 — Hotfix: shift-end Telegram summary never fired (Lock vs End-shift)
 
 - **Staff ended their shifts with the app-bar Lock icon instead of End-shift, so the founders shift-end Telegram summary never sent (prod incident).** The home app bar carried two adjacent *unlabeled* ghost icons — 🚩 End-shift (`/shift/end`, the only path that fires the summary) and 🔒 Lock (`/lock`, which is silent + resumable *by design*). Staff tapped Lock; prod history showed **zero** `endOfDaySignOff` ever — only locks. The send path itself was healthy (handover-out summaries delivered fine), so this was purely a UX-trap, not a backend bug.
