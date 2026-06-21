@@ -113,6 +113,25 @@ describe("useIdempotency", () => {
     expect(r2.current).not.toBe(key1);
   });
 
+  it("rotates the key in place when clearIntent fires on a MOUNTED hook", async () => {
+    // The booth regression: a long-lived screen (e.g. /mgr/products) fires the
+    // same intent twice WITHOUT remounting. Before the rotate-subscription fix
+    // the hook kept holding the spent key, so the server replayed the first
+    // call's cached response and the 2nd+ mutation silently no-op'd.
+    const { result } = renderHook(() => useIdempotency("catalog.updateMeta"));
+    await waitFor(() => expect(result.current).toBeDefined());
+    const key1 = result.current!;
+
+    // Clear WITHOUT unmounting — the mounted hook must rotate its own key.
+    await act(async () => {
+      await clearIntent("catalog.updateMeta");
+    });
+
+    await waitFor(() => expect(result.current).toBeDefined());
+    expect(result.current).not.toBe(key1);
+    expect(result.current!.startsWith("catalog.updateMeta")).toBe(true);
+  });
+
   // 24h-expiry test: manually insert a row with an expired timestamp, then
   // verify that useIdempotency replaces it with a fresh key.
   it("replaces an expired key with a fresh one", async () => {
