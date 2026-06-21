@@ -37,6 +37,7 @@ vi.mock("@/hooks/useIdempotency", () => ({
 }));
 
 import { useQuery, useMutation } from "convex/react";
+import { useSession } from "@/hooks/useSession";
 import CountStep from "../CountStep";
 
 const FAKE_SKUS = [
@@ -46,14 +47,24 @@ const FAKE_SKUS = [
 
 const mockRecordRecount = vi.fn();
 
-function renderCountStep(onSubmitted = vi.fn(), submitLabel?: string) {
+const ACTIVE_SESSION = {
+  status: "active",
+  sessionId: "session-test-1",
+  staff: { _id: "staff_1", name: "Bayu", role: "staff" },
+};
+
+function renderCountStep(
+  onSubmitted = vi.fn(),
+  submitLabel?: string,
+  props: { sessionId?: string } = {},
+) {
   vi.mocked(useQuery).mockReturnValue(FAKE_SKUS);
   vi.mocked(useMutation).mockReturnValue(mockRecordRecount);
 
   const convex = new ConvexReactClient("https://example.convex.cloud");
   return render(
     <ConvexProvider client={convex}>
-      <CountStep onSubmitted={onSubmitted} submitLabel={submitLabel} />
+      <CountStep onSubmitted={onSubmitted} submitLabel={submitLabel} {...props} />
     </ConvexProvider>,
   );
 }
@@ -62,6 +73,9 @@ describe("CountStep", () => {
   beforeEach(() => {
     mockRecordRecount.mockReset();
     mockRecordRecount.mockResolvedValue({ changed: 1 });
+    // Default: an active session (matches most existing tests). Individual tests
+    // override this to simulate the post-storeSession lag (handover-in race).
+    vi.mocked(useSession).mockReturnValue(ACTIVE_SESSION as never);
   });
 
   it("renders both SKU rows with system on_hand", () => {
@@ -136,5 +150,40 @@ describe("CountStep", () => {
     const [firstInput] = screen.getAllByDisplayValue("");
     fireEvent.change(firstInput, { target: { value: "12abc" } });
     expect(firstInput).toHaveValue("12");
+  });
+
+  // --- Handover-in dead-button regression (hotfix) -------------------------
+  // During handover-in the incoming staff has JUST logged in; useSession() is
+  // momentarily NOT "active" (stored id set, getSession not re-resolved). The
+  // count screen must still work using the authoritative sessionId the handover
+  // route already holds (stage.sessionId), passed as a prop.
+
+  it("submits using the sessionId prop when useSession is not yet active", async () => {
+    // Simulate the post-storeSession lag: hook reports loading/none.
+    vi.mocked(useSession).mockReturnValue({ status: "loading" } as never);
+    const onSubmitted = vi.fn();
+    renderCountStep(onSubmitted, undefined, { sessionId: "session-prop-1" });
+
+    // The inventory query must fire with the PROP session (not "skip") — this is
+    // the empty-list half of the bug. Guards against regressing the query wiring.
+    expect(vi.mocked(useQuery)).toHaveBeenCalledWith(expect.anything(), {
+      sessionId: "session-prop-1",
+    });
+
+    const [firstInput] = screen.getAllByDisplayValue("");
+    fireEvent.change(firstInput, { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: /save count|submit/i }));
+
+    await waitFor(() => expect(mockRecordRecount).toHaveBeenCalledTimes(1));
+    expect(mockRecordRecount.mock.calls[0][0].sessionId).toBe("session-prop-1");
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith(1));
+  });
+
+  it("disables the submit button when there is no usable session (no prop, hook inactive)", () => {
+    // No prop AND hook not active → the button must be DISABLED, never
+    // enabled-but-inert (the reported 'taps, nothing happens' symptom).
+    vi.mocked(useSession).mockReturnValue({ status: "loading" } as never);
+    renderCountStep();
+    expect(screen.getByRole("button", { name: /save count|submit/i })).toBeDisabled();
   });
 });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import StepRail from "./StepRail";
@@ -28,6 +29,8 @@ export interface ShiftWizardProps {
   onComplete: (confirmed: ConfirmedStep[], countChanged: number | null) => Promise<void>;
   /** Override the final-step button text without touching the rail's step label. */
   terminalLabel?: string;
+  /** Authoritative session id, forwarded to the count step (see CountStep). */
+  sessionId?: Id<"staff_sessions">;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +48,7 @@ const transition = (reduce: boolean) =>
 
 // ---------------------------------------------------------------------------
 
-export default function ShiftWizard({ title, steps, onComplete, terminalLabel }: ShiftWizardProps) {
+export default function ShiftWizard({ title, steps, onComplete, terminalLabel, sessionId }: ShiftWizardProps) {
   const t = useT();
   const reduce = useReducedMotion() ?? false;
 
@@ -148,6 +151,7 @@ export default function ShiftWizard({ title, steps, onComplete, terminalLabel }:
             >
               {isCountStep ? (
                 <CountStep
+                  sessionId={sessionId}
                   onSubmitted={handleCountSubmitted}
                   submitLabel={t("shiftWizard.saveCount")}
                 />
