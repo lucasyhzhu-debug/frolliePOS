@@ -2783,6 +2783,95 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 - **Negative-stock discipline** — sales are allowed at zero stock with a flag (ADR-018). Requires manager actually reconciling, or counts drift. Reconciliation UI is v0.5.
 - **`/approve` per-token PIN brute** — a live approval token (60-min TTL) lets the holder argon2-verify manager PINs by code with no per-token failed-attempt cap. An attacker who obtains a token can iterate predictable manager codes (`S-0001`, `S-0002`, …) and burn 3 wrong PINs each, locking out every manager and triggering a notify→reset-link feedback loop into the same Telegram group. Mitigation in v0.5 stabilization backlog (per-token cap). Until then: managers should treat a leaked /approve link as P0 — rotate manager PINs and invalidate the request via Convex `_deleteRequest_internal`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
 
+## v1.3.0 — multi-outlet tenancy + owner cockpit (+ SaaS foundation) 📋 PLANNED
+**Outcome:** Turn the single-booth POS into a multi-outlet, multi-business platform. One Convex deployment = one business (silo); `outlet_id` is the sole data-plane scoping column. Frollie's existing deployment becomes its own silo + outlets. A new **owner cockpit** (Telegram-OTP login, separate from booth PIN) lets an owner spin up and manage outlets across the business. Lays the SaaS control-plane foundation so the POS can later be sold to other businesses.
+Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs + ADR-051/052/053); entering `/spec-plan-pipeline`. **Supersedes the PR #124 `outlet_device_id` interim hotfix.**
+
+**Target:** Frollie runs 2+ outlets (e.g. Block M, Goldfinch) from one deployment; an owner clones a new outlet in minutes and sees consolidated financials — without a single line of booth-flow regression.
+
+**You'll be able to:**
+- Run several outlets (each its own catalog, stock, settings, receipts, managers chat) from one business deployment, with each booth phone bound to its outlet
+- Log in as an **owner** at a separate cockpit via a Telegram one-time code, and manage all outlets from one place
+- **Clone an existing outlet** into a new one (products, SKUs, photos, bank/receipt config) and pick which staff get access — via a guided new-outlet wizard
+- See cross-outlet + per-outlet financials, transactions, and product/promotions management in the cockpit
+
+**Still not yet:**
+- Self-serve SaaS signup for other businesses (control plane is foundation-only — provisioning is a spike, not shipped)
+- Owners operating a booth till from the cockpit (cockpit-plane only in v1)
+- Cross-business analytics / billing automation
+
+### Backend (`convex/`)
+- 📋 **[v13-be-outlets-schema]** `outlets` + `staff_outlet_access` + `outlet_id` threading — new tenancy tables; thread `outlet_id` across the ~23 operational tables with `by_outlet_*` indexes leading with `outlet_id`
+  - **agent:** `convex-expert`
+  - **deps:** `none`
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+  - **subtasks:**
+    - [ ] `outlets` table (code/name/address/geo/timezone/active) + `staff_outlet_access` join
+    - [ ] `outlet_id` + `by_outlet_*` indexes on all operational tables
+    - [ ] Per-outlet `pos_settings` / `pos_recount_state` / `pos_receipt_counters` (`R-<code>-YYYY-NNNN`)
+- 📋 **[v13-be-outlet-scoping]** session-derived outlet scoping — `requireSession` returns `outlet_id`; `withOutletScope` helper; index-leads-with-`outlet_id` ESLint fence
+  - **agent:** `convex-expert`
+  - **deps:** `v13-be-outlets-schema`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+- 📋 **[v13-be-device-binding]** post-activation manager-PIN device→outlet assign (`assignDeviceOutlet`; devices activate unbound — OQ4); all 3 session writers stamp `outlet_id`; **retire `outlet_device_id`**
+  - **agent:** `convex-expert`
+  - **deps:** `v13-be-outlets-schema`
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+- 📋 **[v13-be-owner-auth]** owner role + Telegram-OTP cockpit login + `/start` binding + durable cockpit sessions (`staff_sessions.kind`)
+  - **agent:** `convex-expert`
+  - **deps:** `v13-be-outlet-scoping`
+  - **docs:** [ADR-052](./ADR/052-owner-auth-telegram-otp.md), [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md)
+- 📋 **[v13-be-cockpit-queries]** owner-scoped cross-outlet readers + `createOutlet`/clone action (single-writer, idempotent, audited)
+  - **agent:** `convex-expert`
+  - **deps:** `v13-be-owner-auth`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
+- 📋 **[v13-be-telegram-routing]** per-outlet `(role, outlet_id)` Telegram routing; `founders`→`owners`; per-outlet managers/inventory chats
+  - **agent:** `convex-expert`
+  - **deps:** `v13-be-outlets-schema`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-per-outlet-telegram-routing-design.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)
+- 🗂️ **[v13-be-saas-control-plane]** `frollie-platform` control plane — businesses/billing/deployments registry + provisioning (Phase 2, gated on the spike)
+  - **agent:** `convex-expert`
+  - **deps:** `v13-xc-provisioning-spike`
+  - **docs:** [ADR-053](./ADR/053-saas-control-plane-provisioning.md), [spec](./superpowers/specs/2026-06-21-saas-control-plane-design.md)
+
+### Frontend (`src/`)
+- 📋 **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet
+  - **agent:** `frontend-integrator`
+  - **deps:** `v13-be-device-binding`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+- 📋 **[v13-fe-cockpit-login]** `/cockpit/login` Telegram-OTP flow + remembered-device quick-PIN
+  - **agent:** `frontend-integrator`
+  - **deps:** `v13-be-owner-auth`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md)
+- 📋 **[v13-fe-cockpit-shell]** `/cockpit/*` route tree + owner-session gate + outlet switcher _(use `/frontend-design`)_
+  - **agent:** `ui-component-builder`
+  - **deps:** `v13-fe-cockpit-login`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
+- 📋 **[v13-fe-outlet-wizard]** guided new-outlet / clone wizard (blank-vs-clone → name → address → bank/receipt → staff access → Telegram → review) _(use `/frontend-design`)_
+  - **agent:** `ui-component-builder`
+  - **deps:** `v13-be-cockpit-queries`, `v13-fe-cockpit-shell`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
+- 📋 **[v13-fe-cockpit-dashboards]** consolidated + per-outlet financials landing; txn browser / product / promotions mgmt (roadmap) _(use `/frontend-design`)_
+  - **agent:** `ui-component-builder`
+  - **deps:** `v13-fe-cockpit-shell`, `v13-be-cockpit-queries`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
+
+### Cross-cutting
+- 📋 **[v13-xc-migration]** prod migration — additive `outlet_id` → backfill all rows to default outlet **"Frollie — Pakuwon"** → enforce; rationalize the `outlet_device_id` hotfix state; backfill existing Telegram chats onto the default outlet
+  - **agent:** `—`
+  - **deps:** `v13-be-outlets-schema`, `v13-be-telegram-routing`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+- 📋 **[v13-xc-adrs]** land ADR-051/052/053 + 5 specs; ADR README index entries + CHANGELOG
+  - **agent:** `—`
+  - **deps:** `none`
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [ADR-052](./ADR/052-owner-auth-telegram-otp.md), [ADR-053](./ADR/053-saas-control-plane-provisioning.md)
+- 🗂️ **[v13-xc-provisioning-spike]** verify programmatic Convex project + deploy-key creation (the gate on self-serve SaaS) — spike before any Phase-2 build
+  - **agent:** `—`
+  - **deps:** `none`
+  - **docs:** [ADR-053](./ADR/053-saas-control-plane-provisioning.md)
+
+---
+
 ## Decisions awaiting CTO
 
 - **Cross-deployment integration with Frollie Pro `product_master`** — sync, API call, or shared package? Affects v1.1+ when POS starts reading Pro's `products` table.
