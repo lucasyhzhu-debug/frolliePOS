@@ -215,3 +215,98 @@ export const activateDevice = action({
     }
   },
 });
+
+// ─── Outlet device designation (v1.2) ────────────────────────────────────────
+// A manager picks WHICH registered device is the booth "outlet". Only the outlet
+// is subject to the start-of-day / handover SOP gate (RootLayout); every other
+// device is a viewer that skips the SOP. `registered_devices` is owned by this
+// module (ADR-034), so the device LIST + validation live here; the WRITE to
+// `pos_settings.outlet_device_id` routes through settings/internal.
+
+type DeviceRow = {
+  _id: Id<"registered_devices">;
+  device_id: string;
+  label: string;
+  last_seen_at: number | null;
+  activated_at: number;
+};
+
+/**
+ * Manager-only: list active registered devices for the outlet picker, plus the
+ * currently-designated outlet device id. Explicit return type breaks the
+ * cross-module `ctx.runQuery` inference cycle (TS7022).
+ */
+export const listRegisteredDevices = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ devices: DeviceRow[]; outletDeviceId: string | null }> => {
+    await requireManagerSession(ctx, args.sessionId);
+    const rows = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    const settings = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      {},
+    );
+    return {
+      outletDeviceId: settings.outlet_device_id,
+      devices: rows.map((d) => ({
+        _id: d._id,
+        device_id: d.device_id,
+        label: d.label,
+        last_seen_at: d.last_seen_at ?? null,
+        activated_at: d.activated_at,
+      })),
+    };
+  },
+});
+
+/**
+ * Manager-only: designate the outlet device (or clear it with `deviceId: null`).
+ * Manager-SESSION, not PIN — low-stakes operational config (ADR-005 tiering,
+ * rule #22), same tier as receipt/ticker config. A non-null deviceId must be a
+ * REGISTERED ACTIVE device (can't designate a phantom). The write goes through
+ * settings/internal per ADR-034.
+ */
+export const setOutletDevice = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    deviceId: v.union(v.string(), v.null()),
+  },
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      sessionId: Id<"staff_sessions">;
+      deviceId: string | null;
+    },
+    { ok: true }
+  >(
+    "staff.setOutletDevice",
+    async (ctx, args) => {
+      const { staffId } = await requireManagerSession(ctx, args.sessionId);
+      if (args.deviceId !== null) {
+        const dev = await ctx.db
+          .query("registered_devices")
+          .withIndex("by_device_id", (q) =>
+            q.eq("device_id", args.deviceId as string),
+          )
+          .unique();
+        if (!dev || !dev.active) throw new Error("DEVICE_NOT_REGISTERED");
+      }
+      await ctx.runMutation(
+        internal.settings.internal._setOutletDevice_internal,
+        { outletDeviceId: args.deviceId, staffId },
+      );
+      return { ok: true as const };
+    },
+    {
+      authCheck: async (ctx, args) => {
+        await requireManagerSession(ctx, args.sessionId);
+      },
+    },
+  ),
+});

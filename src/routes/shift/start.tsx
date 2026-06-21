@@ -4,6 +4,8 @@ import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
+import { Button } from "@/components/ui/button";
+import { markManagerSkippedSOD } from "@/lib/shiftSkip";
 import { useT } from "@/lib/i18n";
 
 /**
@@ -92,6 +94,8 @@ export default function ShiftStart() {
   if (session.status === "loading") return null;
   if (session.status !== "active") return null; // RootLayout redirects
 
+  const isManager = session.staff.role === "manager";
+
   async function onComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
     if (!idempotencyKey || !sessionId) return;
     await completeStartOfDay({
@@ -103,12 +107,45 @@ export default function ShiftStart() {
     navigate("/", { replace: true });
   }
 
+  // Manager-only escape hatch: skip the SOP checklist and go straight to the
+  // menu. We mark the bypass flag FIRST so the RootLayout gate lets the manager
+  // through even if the booth never flips to "open" (e.g. completeStartOfDay
+  // throws on a stale-shift edge — the very failure that causes the loop). Then
+  // best-effort open the booth with an empty checklist so, when the backend is
+  // healthy, the shift is properly tracked and end-of-day sign-off still works.
+  async function onManagerSkip() {
+    if (!sessionId) return;
+    markManagerSkippedSOD(sessionId);
+    try {
+      if (idempotencyKey) {
+        await completeStartOfDay({ idempotencyKey, sessionId, steps: [] });
+      }
+    } catch {
+      /* swallow — the bypass flag above is the guaranteed escape */
+    }
+    navigate("/", { replace: true });
+  }
+
   return (
-    <ShiftWizard
-      title={t("shiftStart.title")}
-      steps={steps}
-      onComplete={onComplete}
-      terminalLabel={t("shiftStart.terminalLabel")}
-    />
+    <div className="flex flex-col">
+      <ShiftWizard
+        title={t("shiftStart.title")}
+        steps={steps}
+        onComplete={onComplete}
+        terminalLabel={t("shiftStart.terminalLabel")}
+      />
+      {isManager && (
+        <div className="px-4 pb-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={onManagerSkip}
+          >
+            {t("shiftStart.skipManager")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

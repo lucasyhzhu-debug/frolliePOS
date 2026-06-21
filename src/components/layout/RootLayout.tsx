@@ -7,6 +7,8 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
 import { useBoothState } from "@/hooks/useBoothState";
+import { useOutletStatus } from "@/hooks/useOutletStatus";
+import { hasManagerSkippedSOD } from "@/lib/shiftSkip";
 import { useT } from "@/lib/i18n";
 
 // SEC-03: session IDs already shown the forced-rotation prompt this app session.
@@ -36,6 +38,7 @@ export function RootLayout() {
   const deviceId = useDeviceId();
   const session = useSession();
   const boothState = useBoothState();
+  const outletStatus = useOutletStatus();
 
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
   // Skip query while deviceId is still resolving (null = IDB not yet read).
@@ -106,21 +109,40 @@ export function RootLayout() {
   }
 
 
+  // v1.2 outlet gating: the SOP gate applies ONLY to the designated outlet
+  // (booth) device. A viewer device (a manager's PC / personal phone used to
+  // watch transactions on the go) skips start-of-day entirely. `isOutlet` is
+  // backend-computed with the backward-compat policy (no outlet designated ⇒
+  // every device is an outlet). Defaults to FALSE while outletStatus loads so a
+  // viewer is never momentarily trapped in the SOP (the cost is a sub-second
+  // menu flash on the outlet device at start-of-day, which then redirects).
+  const deviceIsOutlet = outletStatus?.isOutlet ?? false;
+
   // Booth-state SOP gate: redirect to mandatory start-of-day / handover flows.
   // Only fires when: (a) there IS an active session (session gate above already
   // handled the no-session case), (b) boothState has resolved (not undefined —
-  // undefined = still loading, render children), (c) current path is not already
-  // the target route (loop-safety).
+  // undefined = still loading, render children), (c) this device is the outlet,
+  // (d) current path is not already the target route (loop-safety).
   // "locked" and "open" states: no forced shift redirect (normal app flow).
-  // "closed": mandatory /shift/start (start of day).
+  // "closed": mandatory /shift/start (start of day) — EXCEPT a manager who has
+  //   explicitly skipped it this session (escape hatch; see shiftSkip.ts). Normal
+  //   staff (role !== "manager") are always gated, so the first staff of the day
+  //   still walks the checklist.
   // "handover_pending": mandatory /shift/handover (incoming handover).
   // Routes outside these shift screens are NOT affected when state is open/locked.
   // /login and /activate are outside this layout entirely (see router.tsx comment).
   if (
     session.status === "active" &&
-    boothState !== undefined
+    boothState !== undefined &&
+    deviceIsOutlet
   ) {
-    if (boothState.state === "closed" && location.pathname !== "/shift/start") {
+    const managerSkipped =
+      session.staff.role === "manager" && hasManagerSkippedSOD(session.sessionId);
+    if (
+      boothState.state === "closed" &&
+      location.pathname !== "/shift/start" &&
+      !managerSkipped
+    ) {
       return <Navigate to="/shift/start" replace />;
     }
     if (boothPending && !onHandoverRoute) {
