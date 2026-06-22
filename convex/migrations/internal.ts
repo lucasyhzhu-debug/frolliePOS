@@ -72,6 +72,36 @@ export const seedDefaultOutlet = internalMutation({
   },
 });
 
+// ─── stripLegacyOutletDeviceId ───────────────────────────────────────────────
+
+/**
+ * One-off cleanup of the retired PR#124 `outlet_device_id` field on pos_settings.
+ *
+ * v2.0 dropped the field from the schema validator, but the existing prod row
+ * still carried it — which blocked the schema push ("extra field"). The field is
+ * re-tolerated as v.optional in settings/schema.ts so the deploy succeeds; this
+ * mutation strips it from every pos_settings row (patch field → undefined removes
+ * it) so the Task-12 enforce PR can drop the validator line cleanly.
+ *
+ * Idempotent (skips rows that no longer have the field). Returns rows stripped.
+ *
+ * Run command (prod): `npx convex run migrations/internal:stripLegacyOutletDeviceId --prod`
+ */
+export const stripLegacyOutletDeviceId = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const rows = await ctx.db.query("pos_settings").collect();
+    let stripped = 0;
+    for (const r of rows) {
+      if (r.outlet_device_id !== undefined) {
+        await ctx.db.patch(r._id, { outlet_device_id: undefined });
+        stripped++;
+      }
+    }
+    return stripped;
+  },
+});
+
 // ─── _stampPage_internal ────────────────────────────────────────────────────
 
 /**

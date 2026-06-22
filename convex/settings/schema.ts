@@ -31,6 +31,12 @@ export const settingsTables = {
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
     outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window; was singleton, now one row per outlet
+    // RETIRED (PR#124 device→outlet hotfix). v2.0 dropped this from the validator,
+    // but the existing prod pos_settings row still carried it → schema push failed
+    // ("extra field outlet_device_id"). Re-tolerated as optional so the deploy
+    // succeeds; `migrations.stripLegacyOutletDeviceId` clears the data, then the
+    // Task-12 enforce PR drops this line for good. Nothing reads/writes it.
+    outlet_device_id: v.optional(v.string()),
   })
     .index("by_outlet", ["outlet_id"]),
 };
