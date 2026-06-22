@@ -178,9 +178,24 @@ const rule = {
         if (body.type === "BlockStatement") return null; // no return found
       }
 
-      // Collect eq calls from outermost to innermost
+      // Collect eq calls from outermost to innermost.
+      // Range methods (gte, gt, lte, lt) may appear at the outer end of the
+      // chain (after the eq fields in the index definition) — skip past them
+      // before walking the eq chain.
+      const rangeNames = new Set(["gte", "gt", "lte", "lt"]);
       const eqCalls = [];
       let current = body;
+      // Skip any leading range methods (outermost calls)
+      while (
+        current &&
+        current.type === "CallExpression" &&
+        current.callee &&
+        current.callee.type === "MemberExpression" &&
+        rangeNames.has(current.callee.property?.name)
+      ) {
+        current = current.callee.object;
+      }
+      // Now collect the eq chain
       while (
         current &&
         current.type === "CallExpression" &&

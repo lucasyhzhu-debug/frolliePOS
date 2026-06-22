@@ -87,10 +87,17 @@ export const getById = query({
   handler: async (ctx, args) => {
     const txn = await resolveScopedTxn(ctx, args.sessionId, args.txnId);
     if (!txn) return null;
-    const lines = await ctx.db
-      .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-      .collect();
+    const lines = txn.outlet_id
+      ? await ctx.db
+          .query("pos_transaction_lines")
+          .withIndex("by_outlet_transaction", (q) =>
+            q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_transaction_lines")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+          .collect();
     // SEC-05: explicit projection — never spread the raw Doc (would leak
     // receipt_token + xendit_invoice_id_current). Enumerate only FE-consumed
     // fields (charge.tsx, charge-success.tsx, useXenditPayment).
@@ -123,12 +130,21 @@ export const listDrafts = query({
       { sessionId: args.sessionId },
     );
     if (!resolved) return [];
-    return await ctx.db
-      .query("pos_transactions")
-      .withIndex("by_staff_created", (q) => q.eq("staff_id", resolved.staffId))
-      .order("desc")
-      .filter((q) => q.eq(q.field("status"), "draft"))
-      .collect();
+    return resolved.outlet_id
+      ? await ctx.db
+          .query("pos_transactions")
+          .withIndex("by_outlet_staff_created", (q) =>
+            q.eq("outlet_id", resolved.outlet_id).eq("staff_id", resolved.staffId),
+          )
+          .order("desc")
+          .filter((q) => q.eq(q.field("status"), "draft"))
+          .collect()
+      : await ctx.db
+          .query("pos_transactions")
+          .withIndex("by_staff_created", (q) => q.eq("staff_id", resolved.staffId))
+          .order("desc")
+          .filter((q) => q.eq(q.field("status"), "draft"))
+          .collect();
   },
 });
 
@@ -141,14 +157,16 @@ export const listDrafts = query({
 export const listDayTransactions = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DayTxn[]> => {
-    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
-      sessionId: args.sessionId,
-    });
-    if (!who) return [];
+    const [who, sessionData] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, { sessionId: args.sessionId }),
+      ctx.runQuery(internal.auth.internal._resolveSession_internal, { sessionId: args.sessionId }),
+    ]);
+    if (!who || !sessionData) return [];
     const win = resolveWindow(args.day, who.role === "manager");
     return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
+      outletId: sessionData.outlet_id,
     });
   },
 });
@@ -163,14 +181,16 @@ export const listDayTransactions = query({
 export const dashboardSummary = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DaySummary> => {
-    await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
-      sessionId: args.sessionId,
-    });
+    const [, sessionData] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._requireManagerSession_internal, { sessionId: args.sessionId }),
+      ctx.runQuery(internal.auth.internal._resolveSession_internal, { sessionId: args.sessionId }),
+    ]);
     // Manager-gated above → allowOverride=true.
     const win = resolveWindow(args.day, true);
     const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
+      outletId: sessionData?.outlet_id,
     });
     return computeDaySummary(txns);
   },
@@ -398,10 +418,17 @@ export const resumeDraft = mutation({
       if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
 
-      const lines = await ctx.db
-        .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
-        .collect();
+      const lines = draft.outlet_id
+        ? await ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_outlet_transaction", (q) =>
+              q.eq("outlet_id", draft.outlet_id).eq("transaction_id", args.draftId),
+            )
+            .collect()
+        : await ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
+            .collect();
       const result = {
         lines: lines.map((l) => ({ productId: l.product_id, qty: l.qty })),
         voucherCode: draft.voucher_code_snapshot,
@@ -456,12 +483,19 @@ export const listRecentAwaitingPayment = query({
     if (!resolved) return [];
 
     const fiveMinAgo = Date.now() - 5 * 60_000;
-    return await ctx.db
-      .query("pos_transactions")
-      .withIndex("by_status_created", (q) =>
-        q.eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
-      )
-      .collect();
+    return resolved.outlet_id
+      ? await ctx.db
+          .query("pos_transactions")
+          .withIndex("by_outlet_status_created", (q) =>
+            q.eq("outlet_id", resolved.outlet_id).eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_transactions")
+          .withIndex("by_status_created", (q) =>
+            q.eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
+          )
+          .collect();
   },
 });
 
@@ -568,10 +602,17 @@ export const getTransactionDetail = query({
     if (!txn) return null;
     // Two independent reads given args.txnId — parallel to shave latency.
     const [lines, refunds] = await Promise.all([
-      ctx.db
-        .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-        .collect(),
+      txn.outlet_id
+        ? ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_outlet_transaction", (q) =>
+              q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+            )
+            .collect()
+        : ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+            .collect(),
       ctx.runQuery(
         internal.refunds.internal._listForTransaction_internal,
         { transactionId: args.txnId },
@@ -607,10 +648,17 @@ export const deleteDraft = mutation({
       // Ownership: only the staff who saved the draft may delete it (see resumeDraft).
       if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
-      const lines = await ctx.db
-        .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
-        .collect();
+      const lines = draft.outlet_id
+        ? await ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_outlet_transaction", (q) =>
+              q.eq("outlet_id", draft.outlet_id).eq("transaction_id", args.draftId),
+            )
+            .collect()
+        : await ctx.db
+            .query("pos_transaction_lines")
+            .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
+            .collect();
       for (const l of lines) await ctx.db.delete(l._id);
       await ctx.db.delete(args.draftId);
       await logAudit(ctx, {
