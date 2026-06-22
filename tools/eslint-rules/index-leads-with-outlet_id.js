@@ -1,36 +1,34 @@
 /**
  * ESLint rule: index-leads-with-outlet_id
  *
- * NARROW DESIGN (v2.0 Stream 8) — enforces that any Convex query against an
- * OUTLET_SCOPED table using a `by_outlet*` index MUST lead its callback with
- * `.eq("outlet_id", <value>)` as the first field in the chain.
+ * BROAD DESIGN (v2.0 Stream 8 — full defense-in-depth, user decision 2026-06-22).
+ * On an OUTLET_SCOPED table, EVERY `.withIndex("<name>", cb)`:
+ *   (a) if `<name>` matches `/^by_outlet/` → its callback MUST lead with
+ *       `.eq("outlet_id", …)` as the first field; else
+ *   (b) if `<name>` is in `keptIndexes` (the GLOBAL_UNIQUE + per-staff/token
+ *       allowlist of legitimately outlet-agnostic lookups) → allowed; else
+ *   (c) any OTHER index on a scoped table → ERROR ("must read via a by_outlet_*
+ *       index or a kept outlet-agnostic index"). This is what makes the fence a
+ *       true completeness oracle: a reader still on a pre-outlet scan index is a
+ *       lint failure, so Task 12 can safely drop those old indexes.
  *
- * WHY NARROW (not the spec's broad "flag any non-by_outlet / non-GLOBAL_UNIQUE
- * index" design):
- *   The broad design would false-flag legitimately-kept single-key indexes such
- *   as `by_staff`, `by_token`, `by_staff_active`, `by_staff_started` — queries
- *   that are correct and do not need an outlet_id prefix because they already
- *   anchor to a unique or per-staff dimension. Flagging those would make lint
- *   red before Task 9 migrates readers, turning the fence into noise.
+ * Deliberate per-call exceptions (legitimately cross-outlet, e.g. the Public API
+ * feeds, or readers awaiting an FE sessionId in a later task) use an
+ * `// eslint-disable-next-line frollie-internal/index-leads-with-outlet_id`
+ * comment with a reason.
  *
- *   The narrow check is exactly the Task-9 completeness oracle: "every
- *   by_outlet_* query leads with outlet_id." Completeness ("no un-migrated
- *   readers remain") is covered separately by Task 9's grep enumeration + Task
- *   12's old-index DROP (which turns any stale-index reader into a typecheck
- *   error). So no GLOBAL_UNIQUE allowlist is needed.
+ * (Earlier iterations of this rule used a NARROW design — by_outlet_* only — but
+ * that failed to force completeness: chunk migrations left ~34 readers on old
+ * indexes undetected. The broad design is the fix.)
  *
- * Behaviour:
- *   - On `.withIndex("<name>", cb)` where `<name>` matches `/^by_outlet/` AND
- *     the enclosing `.query("<table>")` table is in `scopedTables`, assert that
- *     the first `.eq(...)` call inside `cb` has `"outlet_id"` as its first arg.
- *   - Index names that do NOT match `/^by_outlet/` are silently ignored,
- *     regardless of whether the table is outlet-scoped.
  *   - Allowlisted caller modules (e.g. "migrations", "seed") skip the check
  *     entirely — migrations need to read old layout, and seed doesn't represent
  *     production coupling.
  *
  * Options:
  *   - scopedTables: string[]  — tables that must be queried with outlet scope.
+ *   - keptIndexes:  string[]  — non-by_outlet indexes allowed on scoped tables
+ *                               (GLOBAL_UNIQUE + per-staff/token lookups).
  *   - allowlist: string[]     — caller module names exempt from the rule.
  *
  * Caller-module derivation mirrors no-cross-module-db-access.js exactly:
@@ -62,6 +60,10 @@ const rule = {
             type: "array",
             items: { type: "string" },
           },
+          keptIndexes: {
+            type: "array",
+            items: { type: "string" },
+          },
           allowlist: {
             type: "array",
             items: { type: "string" },
@@ -73,12 +75,15 @@ const rule = {
     messages: {
       mustLeadOutlet:
         "Query on '{{table}}' using index '{{index}}' must lead with .eq(\"outlet_id\", …) as the first field (v2.0 outlet-scoped index rule).",
+      mustScopeByOutlet:
+        "Query on outlet-scoped table '{{table}}' uses index '{{index}}', which is neither a by_outlet_* index nor a kept outlet-agnostic lookup. Migrate it to the by_outlet_* variant (lead with .eq(\"outlet_id\", …)), or add an eslint-disable with a reason if it is intentionally cross-outlet (v2.0 outlet-scoped index rule).",
     },
   },
 
   create(context) {
     const options = context.options[0] || {};
     const scopedTables = new Set(options.scopedTables || []);
+    const keptIndexes = new Set(options.keptIndexes || []);
     const allowlist = new Set(options.allowlist || []);
 
     // Derive caller module from filename — mirrors no-cross-module-db-access.js
@@ -225,14 +230,25 @@ const rule = {
           return; // non-literal index name — gracefully skip
         }
         const indexName = indexNameArg.value;
-        if (!/^by_outlet/.test(indexName)) {
-          return; // narrow design: non-by_outlet indexes are ignored
-        }
 
-        // Resolve the queried table
+        // Resolve the queried table first — the broad check needs it for ALL
+        // index names, not just by_outlet_* ones.
         const table = resolveQueryTable(node);
         if (!table) return; // can't determine table — gracefully skip
         if (!scopedTables.has(table)) return; // not an outlet-scoped table
+
+        // BROAD check: a non-by_outlet index on a scoped table is only allowed
+        // if it's an explicitly-kept outlet-agnostic lookup (GLOBAL_UNIQUE +
+        // per-staff/token). Anything else is an un-migrated reader → error.
+        if (!/^by_outlet/.test(indexName)) {
+          if (keptIndexes.has(indexName)) return; // legitimately kept
+          context.report({
+            node,
+            messageId: "mustScopeByOutlet",
+            data: { table, index: indexName },
+          });
+          return;
+        }
 
         // Inspect the callback (2nd arg)
         const callbackArg = node.arguments[1];

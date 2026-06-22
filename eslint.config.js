@@ -83,9 +83,10 @@ const OWNERSHIP = {
 };
 
 // v2.0 outlet-scope fence: tables that must be queried through a by_outlet*
-// index when those indexes are used. The narrow rule (index-leads-with-outlet_id)
-// only fires when the index name matches /^by_outlet/ — other indexes on these
-// tables are not flagged (see rule header comment for rationale).
+// index (or an explicitly-kept outlet-agnostic index). The BROAD rule
+// (index-leads-with-outlet_id) flags ANY non-by_outlet/non-kept index on these
+// tables, making it a true completeness oracle (full defense-in-depth, user
+// decision 2026-06-22). See rule header for rationale.
 const OUTLET_SCOPED = [
   "staff_sessions",
   "pos_auth_attempts",
@@ -117,6 +118,28 @@ const OUTLET_SCOPED = [
 // migrations). "seed" is exempt because seeding doesn't represent production
 // coupling.
 const OUTLET_FENCE_ALLOWLIST = ["migrations", "seed"];
+
+// Non-by_outlet indexes that are LEGITIMATELY allowed on outlet-scoped tables:
+// GLOBAL_UNIQUE lookups (the value is globally unique → outlet-agnostic) plus
+// per-staff/token lookups that anchor to a business-level dimension. Any index
+// NOT here and NOT matching /^by_outlet/ on a scoped table is an un-migrated
+// reader (lint error). Deliberate cross-outlet readers (Public API feeds) use a
+// per-line eslint-disable with a reason instead.
+const OUTLET_KEPT_INDEXES = [
+  // GLOBAL_UNIQUE (value globally unique)
+  "by_token_hash",
+  "by_xendit_invoice_id",
+  "by_device_id",
+  "by_receipt_token",
+  "by_receipt_number",
+  "by_line_and_sku",
+  "by_signature_created",
+  // per-staff / token (business-level dimensions, not outlet-scoped)
+  "by_staff_active", // staff_sessions — staff is business-level
+  "by_staff", // pos_auth_attempts — lockout is per-staff
+  "by_staff_started", // pos_shift_events — kept per spec
+  "by_token", // pos_receipt_html_cache — token globally unique
+];
 
 // Modules exempt from the rule. These tend to be infrastructure-y crosscuts
 // (audit, idempotency) or single-file root utilities (seed) that legitimately
@@ -223,6 +246,7 @@ export default [
         "error",
         {
           scopedTables: OUTLET_SCOPED,
+          keptIndexes: OUTLET_KEPT_INDEXES,
           allowlist: OUTLET_FENCE_ALLOWLIST,
         },
       ],

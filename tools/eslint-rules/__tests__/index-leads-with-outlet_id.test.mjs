@@ -1,7 +1,8 @@
 // Tests for the index-leads-with-outlet_id ESLint rule.
 //
-// Narrow design: only by_outlet* indexes on outlet-scoped tables are checked.
-// Non-by_outlet indexes are ignored regardless of table. Allowlisted modules
+// Broad design (full defense-in-depth): on outlet-scoped tables, by_outlet*
+// indexes must lead with outlet_id; non-by_outlet indexes are an ERROR UNLESS
+// they're in keptIndexes (GLOBAL_UNIQUE + per-staff/token). Allowlisted modules
 // (migrations, seed) skip the check entirely.
 
 import { RuleTester } from "eslint";
@@ -25,6 +26,7 @@ const ruleTester = new RuleTester({
 const OPTIONS = [
   {
     scopedTables: ["pos_transactions", "pos_auth_attempts", "pos_receipt_html_cache"],
+    keptIndexes: ["by_staff", "by_token"],
     allowlist: ["migrations", "seed"],
   },
 ];
@@ -48,10 +50,9 @@ ruleTester.run("index-leads-with-outlet_id", rule, {
       options: OPTIONS,
     },
     {
-      // Narrow design: non-by_outlet indexes on outlet-scoped tables are ignored.
-      // by_staff on pos_auth_attempts is a legitimate single-key index for
-      // per-staff lockout lookups — no outlet_id needed there.
-      name: "by_staff index on pos_auth_attempts (non-by_outlet) — ignored by narrow design",
+      // Broad design: by_staff is in keptIndexes → allowed on a scoped table.
+      // per-staff lockout lookups anchor to a business-level dimension.
+      name: "by_staff index on pos_auth_attempts (kept) — allowed",
       filename: "convex/auth/internal.ts",
       code: `
         export const check = async (ctx, args) => {
@@ -64,9 +65,8 @@ ruleTester.run("index-leads-with-outlet_id", rule, {
       options: OPTIONS,
     },
     {
-      // Narrow design: by_token on pos_receipt_html_cache is a unique-key index —
-      // not a by_outlet_* name, so the rule ignores it entirely.
-      name: "by_token index on pos_receipt_html_cache (non-by_outlet) — ignored by narrow design",
+      // Broad design: by_token is in keptIndexes (token globally unique) → allowed.
+      name: "by_token index on pos_receipt_html_cache (kept) — allowed",
       filename: "convex/receipts/internal.ts",
       code: `
         export const get = async (ctx, args) => {
@@ -125,6 +125,28 @@ ruleTester.run("index-leads-with-outlet_id", rule, {
         {
           messageId: "mustLeadOutlet",
           data: { table: "pos_transactions", index: "by_outlet_status_created" },
+        },
+      ],
+    },
+    {
+      // Broad design: a non-by_outlet, non-kept index on a scoped table is an
+      // un-migrated reader → ERROR (this is what makes the fence a completeness
+      // oracle).
+      name: "by_status_paid_at on pos_transactions (non-by_outlet, non-kept) — ERROR",
+      filename: "convex/transactions/internal.ts",
+      code: `
+        export const list = async (ctx) => {
+          return await ctx.db
+            .query("pos_transactions")
+            .withIndex("by_status_paid_at", (q) => q.eq("status", "paid"))
+            .collect();
+        };
+      `,
+      options: OPTIONS,
+      errors: [
+        {
+          messageId: "mustScopeByOutlet",
+          data: { table: "pos_transactions", index: "by_status_paid_at" },
         },
       ],
     },
