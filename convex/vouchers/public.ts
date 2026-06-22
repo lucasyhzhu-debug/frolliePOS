@@ -14,15 +14,41 @@ import { logAudit } from "../audit/internal";
  *
  * Explicit return type: consumed cross-module via ctx.runQuery (catalog query),
  * so the annotation prevents tsc -b from collapsing the inferred element type.
+ *
+ * v2.0 Stream 5: when sessionId is provided, resolves outlet_id and uses the
+ * by_outlet_active_expires index. Falls back to the legacy unscoped index
+ * (migration-window tolerance — Task 12 enforces the hard gate).
  */
 export const getActiveVouchers = query({
-  args: {},
-  handler: async (ctx): Promise<Doc<"pos_vouchers">[]> => {
+  args: { sessionId: v.optional(v.id("staff_sessions")) },
+  handler: async (ctx, args): Promise<Doc<"pos_vouchers">[]> => {
     const now = Date.now();
-    const rows = await ctx.db
-      .query("pos_vouchers")
-      .withIndex("by_active_expires", (q) => q.eq("active", true))
-      .collect();
+    // Resolve outlet from session when provided (migration-tolerant window).
+    let outletId: import("../_generated/dataModel").Id<"outlets"> | undefined;
+    if (args.sessionId) {
+      const s = await ctx.db.get(args.sessionId);
+      if (s && s.ended_at == null) {
+        let oid = s.outlet_id as import("../_generated/dataModel").Id<"outlets"> | undefined;
+        if (!oid) {
+          // Route through outlets.internal (ADR-034: outlets table owned by outlets module).
+          const def = await ctx.runQuery(
+            internal.outlets.internal._getDefaultOutlet_internal,
+            {},
+          );
+          oid = def?._id;
+        }
+        outletId = oid;
+      }
+    }
+    const rows = outletId
+      ? await ctx.db
+          .query("pos_vouchers")
+          .withIndex("by_outlet_active_expires", (q) => q.eq("outlet_id", outletId).eq("active", true))
+          .collect()
+      : await ctx.db
+          .query("pos_vouchers")
+          .withIndex("by_active_expires", (q) => q.eq("active", true))
+          .collect();
     return rows.filter((voucher) => voucher.expires_at == null || voucher.expires_at > now);
   },
 });
@@ -49,6 +75,10 @@ export const validateVoucher = query({
     voucherId?: string;
     reason?: "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "MIN_CART_VALUE";
   }> => {
+    // v2.0 Stream 5: by_code is a legacy index; we keep it here because
+    // validateVoucher is a session-less query (no sessionId arg) — outlet
+    // scoping for this query migrates in a follow-up once a sessionId arg
+    // is added to the FE caller. by_code survives Task 12 as a fallback.
     const voucher = await ctx.db
       .query("pos_vouchers")
       .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))
@@ -248,14 +278,23 @@ export const getVoucherRedemptions = query({
     redeemed_at: number;
     receipt_number: string | null;
   }>> => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
     const limit = args.limit ?? 50;
     if (limit < 1 || limit > 500) throw new Error("LIMIT_OUT_OF_RANGE");
-    const redemptions = await ctx.db
-      .query("pos_voucher_redemptions")
-      .withIndex("by_voucher", (q) => q.eq("voucher_id", args.voucherId))
-      .order("desc")
-      .take(limit);
+    // v2.0 Stream 5: use by_outlet_voucher when outlet_id is available.
+    const redemptions = outlet_id
+      ? await ctx.db
+          .query("pos_voucher_redemptions")
+          .withIndex("by_outlet_voucher", (q) =>
+            q.eq("outlet_id", outlet_id).eq("voucher_id", args.voucherId),
+          )
+          .order("desc")
+          .take(limit)
+      : await ctx.db
+          .query("pos_voucher_redemptions")
+          .withIndex("by_voucher", (q) => q.eq("voucher_id", args.voucherId))
+          .order("desc")
+          .take(limit);
     const receipts = await ctx.runQuery(
       internal.transactions.internal._fetchReceiptByTxnIds_internal,
       { txnIds: redemptions.map((r) => r.transaction_id) },

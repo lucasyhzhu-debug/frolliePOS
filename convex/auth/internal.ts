@@ -668,6 +668,34 @@ export const _managerTakeoverSession_internal = internalMutation({
   },
 });
 
+/**
+ * Resolve the outlet bound to a device (window-tolerant).
+ *
+ * v2.0 Stream 5 helper for cross-module callers (e.g. shifts) that need the
+ * device's outlet_id without crossing ADR-034 module boundaries. Falls back to
+ * the first active outlet when the device has no binding yet.
+ *
+ * auth owns `registered_devices` and `outlets` (Decision 3), so this lives here.
+ */
+export const _getDeviceOutletId_internal = internalQuery({
+  args: { deviceId: v.string() },
+  handler: async (
+    ctx,
+    { deviceId },
+  ): Promise<import("../_generated/dataModel").Id<"outlets"> | undefined> => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
+      .first();
+    if (dev?.outlet_id) return dev.outlet_id;
+    const def = await ctx.db
+      .query("outlets")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .first();
+    return def?._id;
+  },
+});
+
 // ---------------------------------------------------------------------------
 // v2.0 Task 6: staff_outlet_access read helpers
 // auth owns the staff_outlet_access table (Decision 3) so these live here.

@@ -35,6 +35,7 @@ export const _createRequest_internal = internalMutation({
     triggered_at: v.number(),
     token_hash: v.string(),
     token_expires_at: v.number(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
     // INVARIANT: every writer validates context here — no bypass path.
@@ -54,6 +55,8 @@ export const _createRequest_internal = internalMutation({
       token_expires_at: args.token_expires_at,
       status: "pending",
       notification_channel: "telegram",
+      // v2.0 Stream 5: stamp outlet_id when provided.
+      ...(args.outletId !== undefined ? { outlet_id: args.outletId } : {}),
     });
 
     await logAudit(ctx, {
@@ -314,14 +317,23 @@ export const _listPendingByKind_internal = internalQuery({
       v.literal("spoilage"), // NEW v0.6: spoilage approval
     ),
     entityId: v.string(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("pos_approval_requests")
-      .withIndex("by_kind_status", (q) =>
-        q.eq("kind", args.kind).eq("status", "pending"),
-      )
-      .collect();
+    // v2.0 Stream 5: use by_outlet_kind_status when outletId is available.
+    const rows = args.outletId
+      ? await ctx.db
+          .query("pos_approval_requests")
+          .withIndex("by_outlet_kind_status", (q) =>
+            q.eq("outlet_id", args.outletId).eq("kind", args.kind).eq("status", "pending"),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_approval_requests")
+          .withIndex("by_kind_status", (q) =>
+            q.eq("kind", args.kind).eq("status", "pending"),
+          )
+          .collect();
     const now = Date.now();
     return rows.filter(
       (r) => r.entity_id === args.entityId && r.token_expires_at > now,
@@ -426,12 +438,20 @@ export const _markDeniedBySystem_internal = internalMutation({
  * at that point.
  */
 export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
-  args: { txnId: v.id("pos_transactions"), reason: v.string() },
+  args: { txnId: v.id("pos_transactions"), reason: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("pos_approval_requests")
-      .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
-      .collect();
+    // v2.0 Stream 5: use by_outlet_kind_status when outletId is available.
+    const rows = args.outletId
+      ? await ctx.db
+          .query("pos_approval_requests")
+          .withIndex("by_outlet_kind_status", (q) =>
+            q.eq("outlet_id", args.outletId).eq("kind", "manual_payment_override").eq("status", "pending"),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_approval_requests")
+          .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
+          .collect();
     const now = Date.now();
     for (const req of rows) {
       if (req.entity_id !== args.txnId) continue;

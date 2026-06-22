@@ -90,10 +90,17 @@ export const createVoucher = action({
           throw new Error("EXPIRES_IN_PAST");
         }
 
+        // ── Resolve outlet from session (v2.0 Stream 5: migration-tolerant) ──
+        const sessionRow = await ctx.runQuery(
+          internal.auth.internal._resolveSession_internal,
+          { sessionId: args.sessionId },
+        );
+        const outletId = sessionRow?.outlet_id;
+
         // ── Uniqueness (normalised code, before PIN — fail-cheap) ──
         const existing = await ctx.runQuery(
           internal.vouchers.internal._getVoucherByCode_internal,
-          { code },
+          { code, outletId },
         );
         if (existing) throw new Error("CODE_EXISTS");
 
@@ -114,6 +121,7 @@ export const createVoucher = action({
           expires_at: args.expires_at,
           createdBy: managerId,
           deviceId,
+          outletId,
         });
       },
     ),
