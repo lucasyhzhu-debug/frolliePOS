@@ -27,6 +27,12 @@ export const getSession = query({
     if (!s || s.ended_at != null) return null;
     const staff = await ctx.db.get(s.staff_id);
     if (!staff || !staff.active) return null;
+    // v2.0 Stream 5: resolve outlet via ctx.db directly (queries cannot runQuery).
+    // auth/ is allowlisted for cross-module db reads (ADR-034 §"Layer 1").
+    // Window-typed: unstamped sessions fall back to the single active outlet.
+    const outlet = s.outlet_id
+      ? await ctx.db.get(s.outlet_id)
+      : await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
     return {
       sessionId: s._id,
       // SEC-03: surface must_change_pin so the FE can force a rotation prompt.
@@ -36,6 +42,8 @@ export const getSession = query({
         role: staff.role,
         must_change_pin: staff.must_change_pin ?? false,
         locale: staff.locale ?? "en", // v1.2 #1: absent ⇒ English
+        outlet_id: outlet?._id,
+        outlet_label: outlet?.name,
       },
       deviceId: s.device_id,
       startedAt: s.started_at,
