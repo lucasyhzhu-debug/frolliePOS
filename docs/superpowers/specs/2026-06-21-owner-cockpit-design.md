@@ -3,7 +3,7 @@
 **Date:** 2026-06-21
 **Phase:** v2 (multi-tenancy program, Phase 1.5)
 **Branch (target):** feat/v2-owner-cockpit
-**Decomposition rationale:** brainstorm 2026-06-21 (multi-tenancy / SaaS program); staffreview at `/spec-plan-pipeline`
+**Decomposition rationale:** brainstorm 2026-06-21 (multi-outlet program); staffreview at `/spec-plan-pipeline`
 **Status:** Brainstorm
 
 > **No new ADR.** This spec implements decisions already recorded in the multi-tenancy program. It **depends on** and references:
@@ -17,7 +17,7 @@
 
 ## Identity
 
-The **owner cockpit** is a new, durable-session product surface for a business **owner** — distinct from the device-bound booth app and the Phase-2 platform console. It runs on the **same Convex deployment** as that business's outlets (mandatory: its whole job is cross-outlet reads inside the silo), under a **separate route tree** (`src/routes/cockpit/*`) gated by an owner session (Spec 2), served by **owner-scoped, outlet-UNSCOPED** Convex queries/mutations.
+The **owner cockpit** is a new, durable-session product surface for a business **owner** — distinct from the device-bound booth app (and from a future, deferred multi-business platform console). It runs on the **same Convex deployment** as that business's outlets (mandatory: its whole job is cross-outlet reads inside the one deployment), under a **separate route tree** (`src/routes/cockpit/*`) gated by an owner session (Spec 2), served by **owner-scoped, outlet-UNSCOPED** Convex queries/mutations.
 
 This slice ships concretely:
 
@@ -26,7 +26,7 @@ This slice ships concretely:
 3. **The owner clone mutation** — single-writer, idempotent, audited; copies/remaps/skips exactly the tables in the locked clone decision.
 4. **Owner-scoped query layer scaffolding** — the `requireOwnerSession`-gated read surface (`cockpit/*` Convex modules) that the dashboard roadmap builds on, with **one** dashboard landing page (`cockpit/index`) shipped to prove the cross-outlet read path.
 
-**Out of scope for this slice (roadmap, named below):** consolidated + per-outlet financial dashboards, cross-outlet transactions browser, product management, promotions management, staff-access management UI. Each is specced incrementally; this doc names their data sources and owner-scoped queries so the route tree and access layer don't get redesigned later. Also out of scope: the Phase-2 control plane (registry/billing/provisioning) and any cross-deployment behavior.
+**Out of scope for this slice (roadmap, named below):** consolidated + per-outlet financial dashboards, cross-outlet transactions browser, product management, promotions management, staff-access management UI. Each is specced incrementally; this doc names their data sources and owner-scoped queries so the route tree and access layer don't get redesigned later. Also out of scope: the multi-business control plane (registry/billing/provisioning) and any cross-deployment behavior — **deferred to a future roadmap** (ADR-051 *Future roadmap*).
 
 ---
 
@@ -361,7 +361,7 @@ No standalone migration in *this* spec — the outlet backfill (existing prod ro
 
 **OQ-1 — Cockpit route tree: separate Vercel project/subdomain, or same app?**
 - *Recommendation:* **Same Vite app, separate `/cockpit/*` route subtree** for v1 (locked decision says separate subdomain is OPTIONAL). One deploy, one PWA, shared component library; the session-key isolation already keeps booth and cockpit independent.
-- *Why:* A separate Vercel project doubles deploy/config surface for zero functional gain in Phase 1.5; the only real driver (a marketing-grade owner domain) is a Phase-2 polish item.
+- *Why:* A separate Vercel project doubles deploy/config surface for zero functional gain in Phase 1.5; the only real driver (a marketing-grade owner domain) is a future-roadmap polish item.
 
 **OQ-2 — Clone partial-failure resume rigor.**
 - *Recommendation:* Make the `createOutlet` action **resumable** under the same idempotency key: step 1 (create outlet) is the commit point; on re-run, if an outlet with that `code` exists *and* was created by this idempotency key (stamp the key on the row or in an action-cache blob), resume the remaining copy steps with per-step existence guards (skip skus/products/components/settings/access rows already present for the target outlet). Reject re-run if the `code` exists but belongs to a *different* key (`OUTLET_CODE_TAKEN`).

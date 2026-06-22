@@ -6,7 +6,7 @@
 
 ## Context
 
-The multi-tenancy / SaaS program (brainstorm 2026-06-21) introduces a **business owner** who manages *all outlets in their business*: cross-outlet financials, the new-outlet/clone wizard, staff-access management, promotions. This is a fundamentally different authentication subject from today's booth user:
+The multi-outlet program (brainstorm 2026-06-21) introduces a **business owner** who manages *all outlets in their business*: cross-outlet financials, the new-outlet/clone wizard, staff-access management, promotions. This is a fundamentally different authentication subject from today's booth user:
 
 | Axis | Booth user (today) | Owner (new) |
 |---|---|---|
