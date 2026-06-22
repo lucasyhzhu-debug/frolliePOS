@@ -50,6 +50,78 @@ export const setStaffRole = action({
 });
 
 /**
+ * Grant a staff member access to an outlet. Manager session + manager PIN required.
+ * Idempotent: if the access row already exists the action returns without error.
+ *
+ * Phase-1 stub; wired into the owner cockpit later.
+ */
+export const grantOutletAccess = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetStaffId: v.id("staff"),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.grantOutletAccess" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.auth.internal._grantOutletAccess_internal, {
+          staffId: args.targetStaffId,
+          outletId: args.targetOutletId,
+          grantedBy: managerId,
+          deviceId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
+
+/**
+ * Revoke a staff member's access to an outlet. Manager session + manager PIN required.
+ * Idempotent: if no access row exists the action returns without error.
+ *
+ * Phase-1 stub; wired into the owner cockpit later.
+ */
+export const revokeOutletAccess = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetStaffId: v.id("staff"),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.revokeOutletAccess" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.auth.internal._revokeOutletAccess_internal, {
+          staffId: args.targetStaffId,
+          outletId: args.targetOutletId,
+          revokedBy: managerId,
+          deviceId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
+
+/**
  * Deactivate a staff member. Manager session + manager PIN required.
  * Same withActionCache wrap as setStaffRole. SELF_DEACTIVATE +
  * LAST_ACTIVE_MANAGER guards live in the internal so the read+patch is atomic.

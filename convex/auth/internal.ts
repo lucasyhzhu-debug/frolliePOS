@@ -638,3 +638,124 @@ export const _managerTakeoverSession_internal = internalMutation({
     return { sessionId, displacedStaffId };
   },
 });
+
+// ---------------------------------------------------------------------------
+// v2.0 Task 6: staff_outlet_access read helpers
+// auth owns the staff_outlet_access table (Decision 3) so these live here.
+// ---------------------------------------------------------------------------
+
+/**
+ * List all active staff with an access row for a given outlet.
+ * Uses the by_outlet index to bound the scan, then fetches each staff doc
+ * and filters to active only. Inactive staff with a row are skipped — their
+ * access row is not deleted on deactivation (cheap, auditable, reversible).
+ */
+export const _listStaffForOutlet_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, { outletId }) => {
+    const access = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_outlet", (q) => q.eq("outlet_id", outletId))
+      .collect();
+    const staff = await Promise.all(access.map((a) => ctx.db.get(a.staff_id)));
+    return staff.filter((s): s is NonNullable<typeof s> => !!s && s.active);
+  },
+});
+
+/**
+ * Assert that a staff member has a `staff_outlet_access` row for the given outlet.
+ * Throws `NO_OUTLET_ACCESS` if no row is found — callers gate multi-outlet
+ * operations on this check so an unassigned staff member cannot act on an outlet.
+ */
+export const _assertStaffHasOutletAccess_internal = internalQuery({
+  args: { staffId: v.id("staff"), outletId: v.id("outlets") },
+  handler: async (ctx, { staffId, outletId }) => {
+    const row = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) => q.eq("staff_id", staffId).eq("outlet_id", outletId))
+      .first();
+    if (!row) throw new Error("NO_OUTLET_ACCESS");
+    return true;
+  },
+});
+
+/**
+ * Grant a staff member access to an outlet. Idempotent — if a row for the
+ * (staff_id, outlet_id) pair already exists, it is returned unchanged (no
+ * duplicate insert). Logs `staff.grantOutletAccess` for audit.
+ *
+ * Called by staff.actions.grantOutletAccess (manager-PIN action).
+ */
+export const _grantOutletAccess_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    outletId: v.id("outlets"),
+    grantedBy: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ accessId: Id<"staff_outlet_access">; created: boolean }> => {
+    // Idempotent: check if a row already exists before inserting.
+    const existing = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) =>
+        q.eq("staff_id", args.staffId).eq("outlet_id", args.outletId),
+      )
+      .first();
+    if (existing) {
+      return { accessId: existing._id, created: false };
+    }
+    const accessId = await ctx.db.insert("staff_outlet_access", {
+      staff_id: args.staffId,
+      outlet_id: args.outletId,
+      granted_at: Date.now(),
+      granted_by: args.grantedBy,
+    });
+    await logAudit(ctx, {
+      actor_id: args.grantedBy,
+      action: "staff.grantOutletAccess",
+      entity_type: "staff",
+      entity_id: args.staffId,
+      source: "booth_inline",
+      device_id: args.deviceId,
+      metadata: { outlet_id: args.outletId },
+    });
+    return { accessId, created: true };
+  },
+});
+
+/**
+ * Revoke a staff member's access to an outlet. Idempotent — if no row exists,
+ * no-ops silently. Logs `staff.revokeOutletAccess` only when a row is deleted.
+ *
+ * Called by staff.actions.revokeOutletAccess (manager-PIN action).
+ */
+export const _revokeOutletAccess_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    outletId: v.id("outlets"),
+    revokedBy: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ deleted: boolean }> => {
+    const existing = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) =>
+        q.eq("staff_id", args.staffId).eq("outlet_id", args.outletId),
+      )
+      .first();
+    if (!existing) {
+      return { deleted: false };
+    }
+    await ctx.db.delete(existing._id);
+    await logAudit(ctx, {
+      actor_id: args.revokedBy,
+      action: "staff.revokeOutletAccess",
+      entity_type: "staff",
+      entity_id: args.staffId,
+      source: "booth_inline",
+      device_id: args.deviceId,
+      metadata: { outlet_id: args.outletId },
+    });
+    return { deleted: true };
+  },
+});
