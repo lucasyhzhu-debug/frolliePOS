@@ -20,7 +20,15 @@ import { withIdempotency } from "../idempotency/internal";
  */
 export const getCurrentInvoice = query({
   args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    xendit_invoice_id: string;
+    method: "QRIS" | "BCA_VA";
+    qr_string?: string;
+    va_number?: string;
+    reference_id?: string;
+    created_at: number;
+    cancelled_at?: number;
+  } | null> => {
     // Day-scope gate mirrors transactions.resolveScopedTxn (single-writer there;
     // can't import a local fn cross-module). The two independent reads run in
     // parallel. Gates on the TRANSACTION's day, not the invoice's.
