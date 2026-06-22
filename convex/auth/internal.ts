@@ -616,21 +616,8 @@ export const _managerTakeoverSession_internal = internalMutation({
   ): Promise<{ sessionId: Id<"staff_sessions">; displacedStaffId: Id<"staff"> | null }> => {
     const now = Date.now();
 
-    // Step 1: Force-end all active sessions for the device.
-    // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
-    // collect via index then check in JS (by_device_active narrows on device_id).
-    const activeSessions = await ctx.db
-      .query("staff_sessions")
-      .withIndex("by_device_active", (q) =>
-        q.eq("device_id", args.deviceId).eq("ended_at", null),
-      )
-      .collect();
-    const displacedStaffId: Id<"staff"> | null = activeSessions[0]?.staff_id ?? null;
-    for (const sess of activeSessions) {
-      await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
-    }
-
-    // Step 2: Resolve outlet from device binding (window-tolerant, mirrors _loginCommit_internal).
+    // Step 1: Resolve outlet from device binding (window-tolerant, mirrors _loginCommit_internal).
+    // Must come BEFORE the session query so we can use by_outlet_device_active.
     // No throw/access-assert — deferred to Task 12. Falls back to default outlet when unbound.
     const dev = await ctx.db
       .query("registered_devices")
@@ -640,6 +627,28 @@ export const _managerTakeoverSession_internal = internalMutation({
     if (!outletId) {
       const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
       outletId = def?._id;
+    }
+
+    // Step 2: Force-end all active sessions for the device.
+    // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
+    // collect via index then check in JS (by_outlet_device_active narrows on outlet+device).
+    const activeSessions = outletId
+      ? await ctx.db
+          .query("staff_sessions")
+          .withIndex("by_outlet_device_active", (q) =>
+            q.eq("outlet_id", outletId).eq("device_id", args.deviceId).eq("ended_at", null),
+          )
+          .collect()
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via device outlet in Task 10; undefined means device not yet assigned (migration window) — falls back to by_device_active
+        await ctx.db
+          .query("staff_sessions")
+          .withIndex("by_device_active", (q) =>
+            q.eq("device_id", args.deviceId).eq("ended_at", null),
+          )
+          .collect();
+    const displacedStaffId: Id<"staff"> | null = activeSessions[0]?.staff_id ?? null;
+    for (const sess of activeSessions) {
+      await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
     }
 
     // Step 3: Create new manager session (mirrors _loginCommit_internal shape).

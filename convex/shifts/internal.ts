@@ -42,7 +42,6 @@ const shiftEventFields = {
 export const _latestShiftEvent_internal = internalQuery({
   args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, { deviceId, outletId }) => {
-    // v2.0 Stream 5: use by_outlet_device_created when outletId is available.
     if (outletId) {
       return ctx.db
         .query("pos_shift_events")
@@ -52,6 +51,7 @@ export const _latestShiftEvent_internal = internalQuery({
         .order("desc")
         .first();
     }
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
     return ctx.db
       .query("pos_shift_events")
       .withIndex("by_device_created", (q) => q.eq("device_id", deviceId))
@@ -86,7 +86,6 @@ export const _shiftStartAnchor_internal = internalQuery({
     // lives within today's WIB day; a day's event count is small enough to
     // collect in full. Walk back to the most recent shift-START event.
     const { dayStartMs } = wibDayWindow(Date.now());
-    // v2.0 Stream 5: use by_outlet_device_created when outletId is available.
     const today = outletId
       ? await ctx.db
           .query("pos_shift_events")
@@ -95,7 +94,8 @@ export const _shiftStartAnchor_internal = internalQuery({
           )
           .order("desc")
           .collect()
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
+        await ctx.db
           .query("pos_shift_events")
           .withIndex("by_device_created", (q) =>
             q.eq("device_id", deviceId).gte("created_at", dayStartMs),
@@ -235,7 +235,8 @@ export const _commitManagerTakeover_internal = internalMutation({
             )
             .order("desc")
             .first()
-        : await ctx.db
+        : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
+          await ctx.db
             .query("pos_shift_events")
             .withIndex("by_device_created", (q) => q.eq("device_id", args.deviceId))
             .order("desc")

@@ -35,7 +35,8 @@ export async function upsertStockLevel(
           q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
         )
         .first()
-    : await ctx.db
+    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means pre-migration row with no outlet (window-tolerant fallback)
+      await ctx.db
         .query("pos_stock_levels")
         .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
         .first();
@@ -140,6 +141,7 @@ export const _projectedOnHand_internal = internalQuery({
     // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
     const levels = await Promise.all(
       args.skuQtys.map(({ skuId }) =>
+        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (no outletId available at cart-validation call site)
         ctx.db
           .query("pos_stock_levels")
           .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
@@ -171,6 +173,7 @@ export const _getOnHandBySkus_internal = internalQuery({
     // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
     const levels = await Promise.all(
       args.skuIds.map((skuId) =>
+        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (cross-module internal, no outletId at NEG_STOCK check call site)
         ctx.db
           .query("pos_stock_levels")
           .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
@@ -330,7 +333,8 @@ async function checkLowStockOne(
           q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
         )
         .first()
-    : await ctx.db
+    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means cron/pre-migration context (window-tolerant fallback)
+      await ctx.db
         .query("pos_stock_levels")
         .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
         .first();
@@ -342,7 +346,8 @@ async function checkLowStockOne(
           q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
         )
         .first()
-    : await ctx.db
+    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means cron/pre-migration context (window-tolerant fallback)
+      await ctx.db
         .query("pos_low_stock_alerts")
         .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
         .first();
@@ -573,11 +578,13 @@ export const _runStockRecon_internal = internalMutation({
     const drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }> = [];
 
     for (const sku of skus) {
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron has no outlet context; runs globally across all outlets (per-outlet recon in Task 12)
       const movements = await ctx.db
         .query("pos_stock_movements")
         .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", sku._id))
         .collect();
       const reconstructed = reconstructOnHand(movements);
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron has no outlet context; runs globally across all outlets (per-outlet recon in Task 12)
       const level = await ctx.db
         .query("pos_stock_levels")
         .withIndex("by_sku", (q) => q.eq("inventory_sku_id", sku._id))

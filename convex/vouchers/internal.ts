@@ -25,6 +25,7 @@ export const _getVoucherByCode_internal = internalQuery({
         )
         .first();
     }
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined outletId means caller (transactions/public.commitCart) doesn't yet pass outlet context
     return await ctx.db
       .query("pos_vouchers")
       .withIndex("by_code", (q) => q.eq("code", code))
@@ -61,7 +62,6 @@ export const _redeemVoucher_internal = internalMutation({
   },
   handler: async (ctx, args): Promise<{ overRedeemed: boolean; alreadyRedeemed: boolean }> => {
     // Idempotency guard: if this transaction already has a redemption row, bail out.
-    // v2.0 Stream 5: use by_outlet_transaction when outletId is available.
     const existing = args.outletId
       ? await ctx.db
           .query("pos_voucher_redemptions")
@@ -69,7 +69,8 @@ export const _redeemVoucher_internal = internalMutation({
             q.eq("outlet_id", args.outletId).eq("transaction_id", args.transaction_id),
           )
           .first()
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means caller (transactions/internal) doesn't yet pass outlet context
+        await ctx.db
           .query("pos_voucher_redemptions")
           .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transaction_id))
           .first();

@@ -23,7 +23,8 @@ export const _getActiveSkuIds_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (FE not yet passing session); undefined outletId means global read for session-less callers (getStockLevels, cron)
+        await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))
           .collect();
@@ -53,7 +54,8 @@ export const _getActiveSkus_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10; undefined outletId means global read for cron callers (_runStockRecon_internal)
+        await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))
           .collect();
@@ -96,7 +98,8 @@ export const _getComponentsForProducts_internal = internalQuery({
                 q.eq("outlet_id", args.outletId).eq("product_id", productId),
               )
               .collect()
-          : await ctx.db
+          : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10; undefined outletId means global read for cross-module callers (transactions/internal without outlet context)
+            await ctx.db
               .query("pos_product_components")
               .withIndex("by_product", (q) => q.eq("product_id", productId))
               .collect();
@@ -290,12 +293,14 @@ export const _createInventorySkuCommit_internal = internalMutation({
 
       // Uniqueness checks remain GLOBAL (by_sku, by_code) — SKU slug and
       // external code must be system-wide unique even in a multi-outlet deployment.
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- global uniqueness: SKU slug must be system-wide unique (no two outlets share a slug)
       const existingSku = await ctx.db
         .query("pos_inventory_skus")
         .withIndex("by_sku", (q) => q.eq("sku", sku))
         .first();
       if (existingSku) throw new Error("SKU_EXISTS");
       if (code !== undefined) {
+        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- global uniqueness: external SKU code must be system-wide unique (API stable ID)
         const existingCode = await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_code", (q) => q.eq("code", code))
@@ -445,6 +450,7 @@ export const _createProductCommit_internal = internalMutation({
           throw new Error("QTY_INVALID");
         }
         bundledQty = args.inventorySkuComponentQty;
+        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- global uniqueness: SKU slug must be system-wide unique; bundled lookup-or-create reuses the existing row regardless of outlet
         const existing = await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_sku", (q) => q.eq("sku", skuSlug))

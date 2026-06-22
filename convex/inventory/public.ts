@@ -125,10 +125,18 @@ export const recordRecount = mutation({
         // error is specific.
         if (!Number.isInteger(entered)) throw new Error("NON_INTEGER_COUNT");
         if (entered < 0) throw new Error("NEGATIVE_COUNT");
-        const level = await ctx.db
-          .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-          .first();
+        const level = outlet_id
+          ? await ctx.db
+              .query("pos_stock_levels")
+              .withIndex("by_outlet_sku", (q) =>
+                q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+              )
+              .first()
+          : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window (no outlet assigned yet)
+            await ctx.db
+              .query("pos_stock_levels")
+              .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+              .first();
         const before = level?.on_hand ?? 0;
         const delta = entered - before;
         if (delta === 0) continue;
@@ -373,7 +381,7 @@ export const getSkuDetail = query({
     // rather than masking with String(skuId) / 0 fallbacks.
     const sku = skus[0];
     if (!sku) throw new Error("SKU_MISSING_INVARIANT");
-    // v2.0 Task 9B: scope stock level + movements by outlet when available.
+    // v2.0 Task 9B: scope stock level + movements by outlet.
     const level = outlet_id
       ? await ctx.db
           .query("pos_stock_levels")
@@ -381,7 +389,8 @@ export const getSkuDetail = query({
             q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
           )
           .first()
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window
+        await ctx.db
           .query("pos_stock_levels")
           .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
           .first();
@@ -393,7 +402,8 @@ export const getSkuDetail = query({
           )
           .order("desc")
           .take(30)
-      : await ctx.db
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window
+        await ctx.db
           .query("pos_stock_movements")
           .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", args.skuId))
           .order("desc")

@@ -35,6 +35,7 @@ export const _recordError_internal = internalMutation({
           q.eq("signature", signature).gte("created_at", now - DEDUP_WINDOW_MS),
         )
         .first(),
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- global storm cap: alert cooldown is business-wide (no per-outlet variant exists; system/cron errors have no outlet)
       ctx.db
         .query("pos_error_reports")
         .withIndex("by_alerted_created", (q) => q.eq("alerted", true))

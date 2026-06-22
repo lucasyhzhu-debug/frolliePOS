@@ -243,10 +243,16 @@ export const listRegisteredDevices = query({
     args,
   ): Promise<{ devices: DeviceRow[]; outletDeviceId: string | null }> => {
     const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
-    const rows = await ctx.db
-      .query("registered_devices")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
+    const rows = outlet_id
+      ? await ctx.db
+          .query("registered_devices")
+          .withIndex("by_outlet_active", (q) => q.eq("outlet_id", outlet_id).eq("active", true))
+          .collect()
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId; undefined outlet_id means migration window (manager session predates outlet assignment)
+        await ctx.db
+          .query("registered_devices")
+          .withIndex("by_active", (q) => q.eq("active", true))
+          .collect();
     const settings = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
       { outletId: outlet_id },
