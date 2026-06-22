@@ -46,11 +46,16 @@ templates and `(role)` for business-scoped ones. A new `getChatIdByRoleAndOutlet
 primitive performs the two-tier lookup; `getChatIdByRole(role)` is retained for business-wide kinds.
 
 **Out of scope (owned by sibling specs / deferred):**
-- `outlet_id` threading, `outlets` table, `staff_outlet_access`, session-derived scoping, the
-  `pending_device_setups.target_outlet_id` *column* and migration scaffolding →
+- `outlet_id` threading, `outlets` table, `staff_outlet_access`, session-derived scoping, and
+  **device→outlet binding** →
   [`2026-06-21-multi-tenancy-foundation-design.md`](./2026-06-21-multi-tenancy-foundation-design.md)
-  (Spec 1). This spec **populates** `target_outlet_id` from the per-outlet managers chat and
-  **consumes** the migration's default-outlet id; it does not define the column.
+  (Spec 1). **Device→outlet binding is Spec 1's post-activation manager-PIN assign (resolved OQ4):
+  devices activate UNBOUND and a manager binds the outlet afterward via `staff.assignDeviceOutlet`.**
+  Per RESOLVED decision C (plan gate, 2026-06-22) this spec does **NOT** add
+  `pending_device_setups.target_outlet_id` and does **NOT** pre-assign an outlet on activation — that
+  would contradict Spec 1's OQ4. `/activatepos` minting moves to per-outlet managers chats (gate change
+  only; see Workstream 6), but the minted setup code stays **outlet-less**. This spec **consumes** the
+  migration's default-outlet id for the backfill.
 - The **`owner_otp`** template kind + its private-DM routing — owned by
   [`2026-06-21-owner-auth-plane-design.md`](./2026-06-21-owner-auth-plane-design.md) (Spec 2). It is
   the **one kind that bypasses role routing entirely** (sent via `chatIdOverride =
@@ -425,25 +430,36 @@ is a **bind**, not a create:
 > The data-layer primitive is intentionally left **auth-gate-agnostic at the mutation boundary** beyond
 > "a privileged session" so a future cockpit/owner caller can reuse it without a second writer.
 
-This spec owns step 3's binding primitive; Spec 3 owns steps 1–2's wizard UX. The
-`pending_device_setups.target_outlet_id` population (so `/activatepos` in a per-outlet managers chat
-pre-assigns the outlet to the device) is **this spec's** concern wired onto Spec 1's column — see
-below.
+This spec owns step 3's binding primitive; Spec 3 owns steps 1–2's wizard UX.
 
-### `/activatepos` per-outlet pre-assignment
+### `/activatepos` — multi-managers-chat gate (NO outlet pre-assignment, RESOLVED decision C)
 
-`/activatepos` (managers-role chat → 6-digit device setup code, 15min TTL) is invoked **in a specific
-managers chat**, which is now bound to a `(managers, outlet_id)` pair. The command handler resolves the
-sending chat's `outlet_id` (look up the `telegramChats` row by `chatId`, read its `outlet_id`) and
-threads it into `issueDeviceSetupCode` so the minted `pending_device_setups` row carries
-`target_outlet_id = <that outlet>`. On activation, `_activateDeviceCommit_internal` (Spec 1) copies
-`target_outlet_id` → `registered_devices.outlet_id` — closing the "which outlet does this phone belong
-to" loop for the Telegram path. (Spec 1 Workstream 6 §"Telegram pre-assignment (primary)" names this
-spec as the populator.)
+> **Device→outlet pre-assignment is DROPPED (plan gate, 2026-06-22).** Honoring Spec 1's resolved OQ4
+> (devices activate **unbound**; a manager binds the outlet afterward via `staff.assignDeviceOutlet`),
+> this spec does **not** add `pending_device_setups.target_outlet_id` and does **not** pre-bind the
+> device on activation. `/activatepos` still mints an **outlet-less** setup code; the device's outlet is
+> assigned by the post-activation manager-PIN flow (Spec 1, Workstream 6). The *only* `/activatepos`
+> change is the chat-role gate (below), because there are now N managers chats instead of one.
 
-If `/activatepos` is run in a chat with **no** `outlet_id` (e.g. a still-unbound managers chat, or the
-business-wide owners chat by mistake), the command replies with an error ("This chat isn't bound to an
-outlet — assign it in /mgr/telegram-chats first") rather than minting an outlet-less code.
+Today the `/activatepos` gate (`convex/telegram/activatePos.ts:45-56`) resolves the **single** managers
+chat via `getChatIdByRole("managers")` and rejects any other chat. Under per-outlet routing there are
+**multiple** `(managers, outlet)` chats, so this gate must change:
+
+- **New gate:** resolve the sending chat's `telegramChats` row by `chatId` (existing
+  `chatRegistry.internal.getChatRow`) and accept it iff `row.role === "managers"` (any per-outlet
+  managers chat), instead of equality against the single `getChatIdByRole("managers")` result. A chat
+  whose role is not `managers` (owners/inventory/ops/dormant) → silent no-op as today.
+- The minted code is **outlet-less** — `_issueDeviceSetupCodeFromTelegram_internal`
+  (`convex/staff/internal.ts`) is **unchanged**; no `outlet_id`/`target_outlet_id` threading.
+- The reply text is unchanged (the 15-min setup-code card). After the manager activates the device on
+  the new phone, they bind its outlet via Spec 1's `staff.assignDeviceOutlet` (manager-PIN) — the same
+  one step every genuinely-new device hits.
+
+> **Why no "which outlet?" loop here.** Closing that loop on the Telegram path *was* the dropped
+> pre-assignment. With it dropped, the per-outlet managers chat still scopes **who can mint** a code
+> (operational containment — outlet B's managers mint codes from outlet B's chat) but the device's
+> outlet is set explicitly by the manager-assign step, keeping a single binding writer (Spec 1) and one
+> binding model across the manual `/activate` and Telegram paths.
 
 ---
 
@@ -543,8 +559,10 @@ legacy alias through the window so a rollback of the FE/resolver doesn't orphan 
   unchanged.
 - **Sibling specs:**
   - [`2026-06-21-multi-tenancy-foundation-design.md`](./2026-06-21-multi-tenancy-foundation-design.md)
-    (Spec 1) — defines `outlet_id`, `outlets`, `pending_device_setups.target_outlet_id` (this spec
-    populates it), the default-outlet migration (this spec's backfill depends on it).
+    (Spec 1) — defines `outlet_id`, `outlets`, session-derived scoping, and **device→outlet binding
+    (post-activation manager-PIN assign, OQ4)** which this spec defers to entirely. The default-outlet
+    migration (this spec's backfill depends on it). Per decision C (plan gate), this spec does **not**
+    add `pending_device_setups.target_outlet_id` and does **not** pre-assign on activation.
   - [`2026-06-21-owner-auth-plane-design.md`](./2026-06-21-owner-auth-plane-design.md) (Spec 2) — owns
     the `owner_otp` template kind + private-DM `chatIdOverride` bypass and the `/start <token>`
     binding; this spec's resolver leaves `owner_otp` untouched. **Naming distinction:** Spec 2's
@@ -621,3 +639,12 @@ Decision: keep `managers` (corrected in the routing table); no silent move to th
 Spec 2's resolved Q3 made `owner` cockpit-only. The user's decision (owners may also act as booth
 managers, plus a cockpit binding surface) is recorded as required cross-spec amendments to Spec 2 (Q3)
 and Spec 3 — NOT built in this routing slice. See Workstream 6 + Cross-references.
+
+**C. (Grounding catch, plan gate) `/activatepos` device pre-assignment → DROPPED; honor Spec 1 OQ4.**
+The brainstorm draft had `/activatepos` pre-assign the device's outlet via a new
+`pending_device_setups.target_outlet_id`, copied to the device on activation. This **contradicts Spec
+1's resolved OQ4** (devices activate UNBOUND; manager-PIN assigns the outlet afterward; "no Telegram
+pre-assignment") and Spec 1 adds no such column. Decision: **drop the pre-assignment.** This spec adds
+no `target_outlet_id`, mints an outlet-less code, and defers device→outlet binding entirely to Spec 1's
+`staff.assignDeviceOutlet`. The only `/activatepos` change is the chat-role gate (accept any
+`(managers, *)` chat instead of the single managers chat). See Workstream 6 §`/activatepos`.
