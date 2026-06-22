@@ -1,7 +1,7 @@
 # Owner auth plane — Telegram-OTP cockpit login distinct from booth PIN auth
 
 **Date:** 2026-06-21
-**Phase:** v2.0 (multi-tenancy / SaaS — Phase 1.5: owner cockpit)
+**Phase:** v2.0 (multi-outlet — Phase 1.5: owner cockpit)
 **Branch (target):** feat/v2.0-owner-auth-plane
 **Decomposition rationale:** multi-tenancy brainstorm 2026-06-21 (4-spec program)
 **Status:** Brainstorm — DRAFT for /spec-plan-pipeline review
@@ -23,7 +23,7 @@ This slice ships ONLY auth — it mints/validates/revokes cockpit sessions. It d
 - `outlet_id` threading, `staff_outlet_access`, owner bypass mechanics — [`2026-06-21-multi-tenancy-foundation-design.md`](./2026-06-21-multi-tenancy-foundation-design.md) (Spec 1) *(this spec consumes them)*.
 - Per-outlet Telegram routing — [`2026-06-21-per-outlet-telegram-routing-design.md`](./2026-06-21-per-outlet-telegram-routing-design.md) (Spec 4) *(this spec adds the `/start <token>` handler that Spec 4's webhook composes)*.
 - Mandatory passphrase / WebAuthn passkeys (ROADMAP); email/SMS OTP (ROADMAP).
-- Control-plane / platform console (Phase 2).
+- Control-plane / platform console (deferred future multi-business roadmap; ADR-051 *Future roadmap*).
 
 Reference ADR: [`../ADR/052-owner-auth-telegram-otp.md`](../ADR/052-owner-auth-telegram-otp.md) ("OTP authorises MANAGE", extends ADR-029).
 
@@ -276,8 +276,8 @@ Recommendation: use `staff.code` (e.g. `S-0001`) for v1 — it already exists, i
 Why: minimizes new surface; `staff.code` is already the external-stable id (API uses it). A username is a roadmap nicety, not a v1 need.
 
 **Q2 — Owner Telegram-account loss = lockout. What is the recovery path?**
-Recommendation: an admin-issued re-bind — another owner/manager (PIN-gated) issues a fresh `telegram_bind` deep-link to the locked-out owner's NEW Telegram account, which overwrites `telegram_user_id`. For a single-owner business, document the remembered-device quick-PIN as the same-device fallback and a break-glass "contact Frollie vendor" path (Phase 2 control-plane can re-seed).
-Why: full account-recovery infra is overkill for a tiny owner cohort; an admin re-bind covers the multi-manager case, and Phase 2 owns the true self-serve recovery.
+Recommendation: an admin-issued re-bind — another owner/manager (PIN-gated) issues a fresh `telegram_bind` deep-link to the locked-out owner's NEW Telegram account, which overwrites `telegram_user_id`. For a single-owner business, document the remembered-device quick-PIN as the same-device fallback and a break-glass "contact Frollie vendor" path (a future multi-business control plane could re-seed).
+Why: full account-recovery infra is overkill for a tiny owner cohort; an admin re-bind covers the multi-manager case; true self-serve recovery belongs to the deferred multi-business roadmap.
 
 **Q3 — Does the `owner` role also grant booth (manager) capabilities at a booth device?**
 Recommendation: NO for v1 — owner is a cockpit-plane role only; booth manager actions still require a `kind: "booth"` manager session. If an owner also staffs the booth, give them a separate `manager` staff record (or treat owner as manager-at-booth via a follow-up). Keep the planes clean in v1.

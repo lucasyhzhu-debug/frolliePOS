@@ -7,9 +7,10 @@
 **Status:** Reviewed — staffreview gate passed 2026-06-21 (decisions resolved; ready to plan)
 **Fulfils:** [ADR-051](../../ADR/051-multi-outlet-tenancy-silo.md)
 
-> This is the **bedrock** spec of the multi-tenancy program. The owner-cockpit, Telegram-per-outlet,
-> and Phase-2 control-plane specs all assume `outlet_id` threading, `staff_outlet_access`, and
-> session-derived scoping land here first. Three sibling drafts cross-reference this file by name.
+> This is the **bedrock** spec of the **multi-outlet** program (single business, many outlets). The
+> owner-cockpit and Telegram-per-outlet specs assume `outlet_id` threading, `staff_outlet_access`, and
+> session-derived scoping land here first. The multi-business / SaaS control plane is **deferred to a
+> future roadmap** and is not part of this program (ADR-051 *Future roadmap*).
 
 ---
 
@@ -30,8 +31,9 @@ outlet **"Frollie — Pakuwon"**.
 - The `owner` role, owner cockpit routes, Telegram-OTP auth, new-outlet/clone wizard, financial
   dashboards → **owner-cockpit spec** (Phase 1.5).
 - Per-outlet Telegram chat routing + OTP-to-DM binding → **Telegram-per-outlet spec**.
-- Control plane (business registry, billing, per-tenant provisioning) → **Phase-2 spec**.
-- The hybrid `business_id`-pooled escape hatch (kept as documented option only; ADR-051).
+- **Multi-business / SaaS** (control plane, business registry, billing, per-tenant provisioning, the
+  `business_id`-pooled hybrid) → **deferred to a future roadmap**, not this program (ADR-051 *Future
+  roadmap*; ADR-053 + SaaS spec retained as deferred artifacts only).
 - Cross-deployment `products` sync to Frollie Pro (already out of v1; unchanged).
 
 ---
@@ -137,7 +139,7 @@ still carries `outlet_id` for post-read assertion.
   rows have no session and therefore no outlet — scoping the indexes by outlet would orphan them. OQ-2
   reopens this; the answer is settled here. (See Open questions for the rationale.)
 - `api_tokens`, `api_rate_buckets`, `api_request_log` — global API governance (Frollie Pro sync);
-  the public API is business-level, not per-outlet. (Per-outlet API filtering is a Phase-2 concern.)
+  the public API is business-level, not per-outlet. (Per-outlet API filtering is a later-phase concern.)
 - `pos_settlements` — **business-level (Decision, 2026-06-21).** Xendit settles to **one merchant
   bank account per deployment** (`bca_account_destination`) and knows nothing about outlets;
   settlement is matched per-txn on `reference_id` then aggregated per *day* for the whole silo. The
@@ -539,20 +541,20 @@ rule; FE + backend together).
   binding is a post-activation **manager assign** (`staff.assignDeviceOutlet`), so **no
   `pending_device_setups.target_outlet_id`** is added in Phase 1; Telegram pre-assignment (if ever
   wanted) is deferred to the Telegram-per-outlet spec.
-- **Single shared `convex/` codebase** is the silo fan-out mitigation (ADR-051); Phase 1 has one
-  deployment so the orchestration script is a Phase-2 deliverable.
+- **Single deployment.** This program runs against Frollie's one deployment; multi-deployment fan-out
+  (multi-business) is a future-roadmap concern, not built here.
 
 ---
 
 ## Cross-references
 
-- **ADR:** [ADR-051](../../ADR/051-multi-outlet-tenancy-silo.md) (silo + `outlet_id`-as-sole-scoping rationale + hybrid escape hatch).
+- **ADR:** [ADR-051](../../ADR/051-multi-outlet-tenancy-silo.md) (`outlet_id`-as-sole-scoping rationale; multi-business deferred to *Future roadmap*).
 - **Amended ADRs:** ADR-003 (session carries outlet), ADR-031 (scope server-resolved, in spirit),
   ADR-039 (receipt `R-<outletcode>-YYYY-NNNN`), ADR-034 (new scoping lint fence).
 - **Sibling specs (depend on this):** owner-cockpit design (owner role, cockpit auth, clone wizard);
   Telegram-per-outlet design (`telegramChats.outlet_id`, per-outlet routing, OTP-to-DM; may add
-  `pending_device_setups.target_outlet_id` if Telegram pre-assignment is ever wanted — not in Phase 1 per OQ4); Phase-2 control-plane / SaaS design (registry,
-  billing, provisioning, deploy-orchestration fan-out, hybrid escape hatch).
+  `pending_device_setups.target_outlet_id` if Telegram pre-assignment is ever wanted — not in Phase 1 per OQ4).
+- **Deferred (future roadmap, not this program):** ADR-053 + SaaS control-plane / provisioning spec.
 - **Key files:** `convex/auth/sessions.ts`, `convex/auth/internal.ts` (`_loginCommit_internal`),
   `convex/auth/public.ts` (`getSession`), `convex/staff/internal.ts`
   (`_activateDeviceCommit_internal`), new `convex/outlets/`, new `convex/lib/outletScope.ts`, new

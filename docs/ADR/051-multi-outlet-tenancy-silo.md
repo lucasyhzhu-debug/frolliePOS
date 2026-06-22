@@ -4,51 +4,50 @@
 **Status:** Proposed
 **Group:** Strategic / Arch
 
-> Bedrock decision for the Frollie POS multi-tenancy / SaaS program. Three sibling specs depend on this:
-> `2026-06-21-multi-tenancy-foundation-design.md` (this ADR's implementation spec — data plane),
-> the owner-cockpit spec, the Telegram-per-outlet spec, and the Phase-2 control-plane spec.
+> Bedrock decision for the Frollie POS **multi-outlet** program (single business, many outlets).
+> Three sibling specs depend on this: `2026-06-21-multi-tenancy-foundation-design.md` (this ADR's
+> implementation spec — data plane), the owner-cockpit spec, and the Telegram-per-outlet spec.
 > Read this first; it sets the isolation model the others assume.
+>
+> **Scope note (2026-06-22):** the **multi-business / SaaS** axis (selling the POS to other
+> businesses — a shared control plane, business registry, billing, per-tenant provisioning) is
+> **deferred to a future roadmap** and is NOT part of this program. See *Future roadmap (multi-business)*
+> below. ADR-053 + the SaaS control-plane spec are retained as deferred design artifacts only.
 
 ---
 
 ## Context
 
 Frollie POS today is a **single-business, single-booth** internal tool running in its own Convex
-project (`savory-zebra-800` prod). The business wants to (a) run **multiple physical outlets**
-(a second Pakuwon booth, a Block M store) on the same data, and (b) eventually sell the POS to
-**other businesses** as a product (the SaaS arc). These are two different axes and conflating them
-is the classic multi-tenant trap.
+project (`savory-zebra-800` prod). The business wants to run **multiple physical outlets** (a second
+Pakuwon booth, a Block M store) on the same data. (Selling the POS to *other businesses* — the
+multi-business / SaaS axis — is a separate, later concern; see *Future roadmap* below. We design so
+that path stays open, but we do **not** build for it now.)
 
-Three concrete failure modes drive this ADR:
+The design must scope by outlet cleanly **without** prematurely adding a heavier multi-business
+column we don't yet need:
 
-1. **A `business_id` column threaded through 35 tables is a tax on every query forever.** Every
-   index must lead with it, every mutation must filter on it, and a single missed filter is a
-   cross-tenant data leak — the worst class of bug for a product that handles other people's money.
-2. **Convex has no row-level-security primitive.** Tenant isolation is purely a code discipline.
-   The more tenants share one deployment, the higher the blast radius of one missed `.eq("business_id", …)`.
-3. **The business already needs multi-outlet *now*** (second booth), but does **not** yet need
-   multi-business. Building the heavyweight multi-business column today, before a single paying
-   external customer exists, is speculative generality (YAGNI) — and it would still not solve the
-   isolation-blast-radius problem.
+1. **A `business_id` column threaded through every table would be a tax on every query forever** —
+   every index leading with it, every mutation filtering on it, one missed filter a cross-tenant
+   leak. There is no second business today, so adding it now is speculative generality (YAGNI).
+2. **Convex has no row-level-security primitive.** Tenant isolation is purely code discipline, so
+   the scoping column we *do* add (`outlet_id`) must be enforced mechanically, not by vigilance.
 
-We need an isolation model that ships multi-outlet for Frollie immediately, keeps cross-tenant
-blast radius near zero, and does not paint us into a corner when external customers arrive.
+We need an isolation model that ships multi-outlet for Frollie immediately, keeps cross-outlet
+blast radius near zero via a lint fence, and does not foreclose a future multi-business roadmap.
 
 ---
 
 ## Decision
 
-### Decision A — SILO: one Convex deployment per business. The deployment *is* the business.
+### Decision A — One Convex deployment = the business. No `business_id` column.
 
-Each business gets its **own Convex project (deployment)**. Frollie's existing prod deployment
-(`savory-zebra-800`) **becomes Frollie's silo unchanged** — except every operational table gains
-`outlet_id`. There is **no `business_id` column anywhere in the data plane.** The deployment
-boundary *is* the business boundary, enforced by Convex's project isolation (separate auth,
-separate storage, separate function namespace) rather than by a column we must never forget to filter.
-
-A future shared **control plane** (`frollie-platform`, Phase 2) holds the business registry,
-billing, and per-deployment routing — but it is a *separate* Convex project and never reaches into
-a business's data plane. (Control plane is out of scope for this ADR; see the Phase-2 spec.)
+Frollie's existing prod deployment (`savory-zebra-800`) stays as Frollie's single deployment — except
+every operational table gains `outlet_id`. There is **no `business_id` column anywhere in the data
+plane.** With one business, the deployment boundary trivially *is* the business boundary. Should a
+multi-business future arrive, this stays the natural unit (one deployment per business — a "silo");
+that path is preserved but unbuilt (see *Future roadmap*). No control plane, registry, or
+cross-deployment machinery is part of this program.
 
 ### Decision B — `outlet_id` is the SOLE tenant-scoping column in the data plane.
 
@@ -103,15 +102,14 @@ a shared receipt printer or in a consolidated owner report).
 
 ## Alternatives considered
 
-- **`business_id` column in a single shared deployment (pooled multi-tenant)** — *Rejected for v1.*
-  Highest isolation blast radius (one missed filter = cross-business leak), and not needed until a
-  paying external customer exists. Kept as the **hybrid escape hatch** (see Consequences) for small
-  tenants if silo fan-out hurts.
+- **A `business_id` multi-business column now** — *Deferred (not rejected).* No second business
+  exists, so it's YAGNI today; revisited only in the future multi-business roadmap. `outlet_id` is
+  additive and identical work in either world, so deferring costs nothing.
 - **A separate "location" level between business and outlet** — *Rejected.* Outlet already *is* the
   physical location. A third level is generality with no current consumer.
 - **Per-outlet Convex deployments (deployment-per-outlet)** — *Rejected.* Owner cross-outlet reads
   (consolidated financials) would require cross-deployment fan-out for the most common owner query.
-  Outlets must share a deployment so the cockpit can read them in one query.
+  Outlets must share one deployment so the cockpit can read them in a single query.
 - **Row-level filtering with no lint fence (discipline only)** — *Rejected.* "Never forget to filter"
   is exactly the human-error class we are trying to design out. The fence is load-bearing.
 
@@ -120,31 +118,37 @@ a shared receipt printer or in a consolidated owner report).
 ## Consequences
 
 *Easier:*
-- Multi-outlet ships for Frollie **in Phase 1** with one column + one join table.
-- Cross-business blast radius is **near zero** — a missed `outlet_id` filter leaks *within one
-  business*, never across businesses (the deployment wall holds).
-- Owner cross-outlet reads (cockpit) are a single in-deployment query, not cross-deployment fan-out.
+- Multi-outlet ships for Frollie with one column + one join table.
+- Cross-outlet blast radius is **near zero** — a missed `outlet_id` filter is caught by the lint
+  fence in CI, never reaching production.
+- Owner cross-outlet reads (cockpit) are a single in-deployment query.
 - New surfaces inherit scoping "for free" once they call `requireSession` + `withOutletScope`.
 
 *Harder:*
-- **Silo migration fan-out:** every schema change must be pushed to **N deployments** (one per
-  business). Mitigation: a single shared `convex/` codebase + a deploy-orchestration script that
-  iterates the control-plane registry's deployment list (Phase 2). For Phase 1 there is exactly one
-  deployment, so this cost is deferred and real only once external customers exist.
-- **Per-tenant provisioning** (creating a fresh Convex project + pushing schema + seeding a bootstrap
-  manager/default outlet on signup) is **not a turnkey Convex feature today** — it is the biggest
-  Phase-2 unknown and must be SPIKEd before promising self-serve signup. Options: Convex team API +
-  scoped deploy keys; a pre-provisioned pool of empty deployments the control plane hands out; or
-  manual provisioning for the first N enterprise customers.
 - Every operational query gains an `outlet_id` prefix on its index; existing indexes are restructured
   (see the foundation spec's index table). The migration is a three-step optional→backfill→enforce.
 
 *Reversal cost:*
-- **Low-to-moderate.** `outlet_id` is additive; the work is not wasted under the hybrid escape hatch.
-  If silo fan-out proves too painful, small tenants can be **pooled behind a `business_id` in a shared
-  deployment** while enterprise tenants keep silos — and the `outlet_id` threading is identical in both
-  worlds (a pooled tenant just also carries `business_id` at the deployment-routing layer). The hybrid
-  is the documented escape hatch; choosing silo first does not foreclose it.
+- **Low.** `outlet_id` is purely additive and is identical work whether or not a multi-business future
+  ever arrives; nothing here is wasted under any later direction.
+
+---
+
+## Future roadmap (multi-business) — out of scope for this program
+
+Deferred to a future roadmap (designed-for, not built). Captured so the multi-outlet work doesn't
+foreclose it; **none of this ships in the multi-outlet program**:
+
+- **Selling the POS to other businesses (SaaS).** Each business would get its own deployment (the
+  "silo" — one deployment = one business), keeping cross-business blast radius at the deployment wall.
+- **Shared control plane** (`frollie-platform`): business registry, billing, per-deployment routing —
+  a *separate* Convex project that never reaches into a business's data plane. (Deferred design:
+  ADR-053 + the SaaS control-plane spec, both retained as roadmap artifacts only.)
+- **Per-tenant provisioning** (fresh Convex project + schema push + bootstrap seed on signup) is not a
+  turnkey Convex feature; it must be SPIKEd (Convex team API + scoped deploy keys, a pre-provisioned
+  deployment pool, or manual provisioning) **before** any self-serve-signup work is planned.
+- **Silo fan-out** (pushing each schema change to N deployments) and a **`business_id`-pooled hybrid**
+  for small tenants are the open questions to resolve *if and when* that roadmap is picked up.
 
 *Affects other ADRs:*
 - **Supersedes the PR #124 `outlet_device_id` interim hotfix** (squash `144e43f`, prod 2026-06-21):
@@ -167,8 +171,8 @@ a shared receipt printer or in a consolidated owner report).
 ## Cross-references
 
 - **Implementation spec:** `docs/superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md`
-- **Sibling specs (same program):** owner-cockpit design, Telegram-per-outlet design, Phase-2
-  control-plane / SaaS design.
+- **Sibling specs (same program):** owner-cockpit design, Telegram-per-outlet design.
+- **Deferred roadmap artifacts (not in this program):** ADR-053 + SaaS control-plane / provisioning spec.
 - **Affected schema modules:** `auth/`, `catalog/`, `transactions/`, `payments/`, `receipts/`,
   `refunds/`, `inventory/`, `vouchers/`, `approvals/`, `settings/`, `shifts/`, `telegram/`.
 - **Affected helpers:** `convex/auth/sessions.ts` (`requireSession`), `convex/auth/internal.ts`

@@ -2783,9 +2783,9 @@ Plan not yet written for the broader hardening items. **Sales-ticker toggle slic
 - **Negative-stock discipline** — sales are allowed at zero stock with a flag (ADR-018). Requires manager actually reconciling, or counts drift. Reconciliation UI is v0.5.
 - **`/approve` per-token PIN brute** — a live approval token (60-min TTL) lets the holder argon2-verify manager PINs by code with no per-token failed-attempt cap. An attacker who obtains a token can iterate predictable manager codes (`S-0001`, `S-0002`, …) and burn 3 wrong PINs each, locking out every manager and triggering a notify→reset-link feedback loop into the same Telegram group. Mitigation in v0.5 stabilization backlog (per-token cap). Until then: managers should treat a leaked /approve link as P0 — rotate manager PINs and invalidate the request via Convex `_deleteRequest_internal`. _Surfaced 2026-05-30 by `/simplify` post-bf9b2cb._
 
-## v1.3.0 — multi-outlet tenancy + owner cockpit (+ SaaS foundation) 📋 PLANNED
-**Outcome:** Turn the single-booth POS into a multi-outlet, multi-business platform. One Convex deployment = one business (silo); `outlet_id` is the sole data-plane scoping column. Frollie's existing deployment becomes its own silo + outlets. A new **owner cockpit** (Telegram-OTP login, separate from booth PIN) lets an owner spin up and manage outlets across the business. Lays the SaaS control-plane foundation so the POS can later be sold to other businesses.
-Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs + ADR-051/052/053); entering `/spec-plan-pipeline`. **Supersedes the PR #124 `outlet_device_id` interim hotfix.**
+## v1.3.0 — multi-outlet tenancy + owner cockpit 📋 PLANNED
+**Outcome:** Turn the single-booth POS into a multi-outlet platform for Frollie. One Convex deployment runs Frollie's business; `outlet_id` is the sole data-plane scoping column threaded through every operational table. A new **owner cockpit** (Telegram-OTP login, separate from booth PIN) lets the owner spin up and manage all of Frollie's outlets from one place. **Multi-business / SaaS (selling the POS to other businesses) is deferred to a future roadmap — out of scope here.**
+Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs + ADR-051/052; ADR-053 + the SaaS control-plane spec retained as **deferred** future-roadmap artifacts). Spec 1 (data plane) ran `/spec-plan-pipeline` — plan landed (PR #126). **Supersedes the PR #124 `outlet_device_id` interim hotfix.**
 
 **Target:** Frollie runs 2+ outlets (e.g. Block M, Goldfinch) from one deployment; an owner clones a new outlet in minutes and sees consolidated financials — without a single line of booth-flow regression.
 
@@ -2796,7 +2796,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - See cross-outlet + per-outlet financials, transactions, and product/promotions management in the cockpit
 
 **Still not yet:**
-- Self-serve SaaS signup for other businesses (control plane is foundation-only — provisioning is a spike, not shipped)
+- Selling the POS to other businesses (multi-business / SaaS control plane, per-tenant provisioning, billing) — **deferred to a future roadmap**, not in this program
 - Owners operating a booth till from the cockpit (cockpit-plane only in v1)
 - Cross-business analytics / billing automation
 
@@ -2829,10 +2829,6 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlets-schema`
   - **docs:** [spec](./superpowers/specs/2026-06-21-per-outlet-telegram-routing-design.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)
-- 🗂️ **[v13-be-saas-control-plane]** `frollie-platform` control plane — businesses/billing/deployments registry + provisioning (Phase 2, gated on the spike)
-  - **agent:** `convex-expert`
-  - **deps:** `v13-xc-provisioning-spike`
-  - **docs:** [ADR-053](./ADR/053-saas-control-plane-provisioning.md), [spec](./superpowers/specs/2026-06-21-saas-control-plane-design.md)
 
 ### Frontend (`src/`)
 - 📋 **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet
@@ -2861,14 +2857,12 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
   - **agent:** `—`
   - **deps:** `v13-be-outlets-schema`, `v13-be-telegram-routing`
   - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
-- 📋 **[v13-xc-adrs]** land ADR-051/052/053 + 5 specs; ADR README index entries + CHANGELOG
+- 📋 **[v13-xc-adrs]** land ADR-051/052 + the 4 multi-outlet specs; ADR README index entries + CHANGELOG _(ADR-053 + SaaS control-plane spec are **deferred** future-roadmap artifacts — not part of this program)_
   - **agent:** `—`
   - **deps:** `none`
-  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [ADR-052](./ADR/052-owner-auth-telegram-otp.md), [ADR-053](./ADR/053-saas-control-plane-provisioning.md)
-- 🗂️ **[v13-xc-provisioning-spike]** verify programmatic Convex project + deploy-key creation (the gate on self-serve SaaS) — spike before any Phase-2 build
-  - **agent:** `—`
-  - **deps:** `none`
-  - **docs:** [ADR-053](./ADR/053-saas-control-plane-provisioning.md)
+  - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [ADR-052](./ADR/052-owner-auth-telegram-otp.md)
+
+> **Deferred — future multi-business roadmap (not scheduled):** selling the POS to other businesses (SaaS control plane `frollie-platform`, businesses/billing/deployments registry, per-tenant provisioning — which itself needs a programmatic-Convex-project + deploy-key spike before any build). Design retained in [ADR-053](./ADR/053-saas-control-plane-provisioning.md) + the [SaaS control-plane spec](./superpowers/specs/2026-06-21-saas-control-plane-design.md). Pick up only when multi-business is explicitly greenlit.
 
 ---
 

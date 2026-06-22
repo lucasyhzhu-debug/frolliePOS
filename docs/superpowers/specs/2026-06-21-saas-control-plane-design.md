@@ -1,10 +1,14 @@
 # Frollie POS — SaaS Control Plane & Per-Tenant Provisioning (Spec 4, Phase 2) — sell the POS to many businesses from a vendor console
 
 **Date:** 2026-06-21
-**Phase:** Phase 2 (SaaS / control plane) — the most exploratory of the four-spec multi-tenancy program
+**Phase:** Future multi-business roadmap (SaaS / control plane) — **deferred, not part of the multi-outlet program**
 **Branch (target):** `feat/phase2-saas-control-plane` (control plane is a **separate Convex project** — likely a sibling repo `frollie-platform/`, not a branch of `frolliepos`)
-**Status:** Brainstorm → DRAFT for `/spec-plan-pipeline` review
+**Status:** Deferred — retained as a future-roadmap design artifact only (2026-06-22)
 **ADR:** [`docs/ADR/053-saas-control-plane-provisioning.md`](../../ADR/053-saas-control-plane-provisioning.md)
+
+> **DEFERRED (2026-06-22).** Multi-business / SaaS is out of the current multi-outlet program (Frollie,
+> one deployment, many outlets). This spec is preserved for a future roadmap; nothing here is built or
+> planned until that roadmap is explicitly picked up. The §6 per-tenant-provisioning spike is the gate.
 
 **Sibling specs (one coherent program):**
 - Spec 1 — data plane / `outlet_id`: [`2026-06-21-multi-tenancy-foundation-design.md`](./2026-06-21-multi-tenancy-foundation-design.md) — **this spec provisions the silo that spec defines.**

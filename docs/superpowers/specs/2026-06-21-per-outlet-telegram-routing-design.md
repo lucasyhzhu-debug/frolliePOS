@@ -59,8 +59,9 @@ primitive performs the two-tier lookup; `getChatIdByRole(role)` is retained for 
   [`2026-06-21-owner-cockpit-design.md`](./2026-06-21-owner-cockpit-design.md) (Spec 3). This spec
   owns the *binding* primitive the wizard's `/register` deep-link lands on.
 - Multi-deployment provisioning / per-tenant bot tokens →
-  [`2026-06-21-saas-control-plane-design.md`](./2026-06-21-saas-control-plane-design.md) (Spec 4 /
-  Phase 2). In Phase 1 (one silo, one bot) all outlets share one `TELEGRAM_BOT_TOKEN`.
+  [`2026-06-21-saas-control-plane-design.md`](./2026-06-21-saas-control-plane-design.md) (**deferred
+  future multi-business roadmap**, not this program). In this program (one deployment, one bot) all
+  outlets share one `TELEGRAM_BOT_TOKEN`.
 
 ---
 
@@ -270,7 +271,7 @@ cron/system flows). The sweep:
   **default outlet's** (or any-outlet's) toggle? — **No.** Make the owners-summary opt-out a
   business-level flag. Recommendation: read the toggle from the **default/primary outlet's**
   `pos_settings` row for v2.0 (single source), and flag "where does a business-level toggle live" as an
-  Open question (the control-plane `businesses` row, Spec 4, is the proper long-term home).
+  Open question (a future multi-business `businesses` row — deferred roadmap — would be the long-term home).
 
 **Tests:** two outlets aggregate into a business total + per-outlet breakdown; single-outlet renders
 unchanged; `owners` role unbound → audited skip (no send, no throw); disabled toggle → audited skip.
@@ -415,8 +416,8 @@ legacy alias through the window so a rollback of the FE/resolver doesn't orphan 
 - **`logAudit` on every state change** — role bind/rebind (`telegram.role_assigned` +
   `telegram.chat_outlet_bound`), send-failure (`_auditSendFailed_internal` gains `outlet_id`). Append
   only.
-- **One bot, one token in Phase 1.** All outlets share `TELEGRAM_BOT_TOKEN`. Per-tenant bot tokens are
-  a Spec 4 / Phase-2 concern (multi-deployment provisioning).
+- **One bot, one token.** All outlets share `TELEGRAM_BOT_TOKEN`. Per-tenant bot tokens are a deferred
+  future multi-business concern (multi-deployment provisioning), not part of this program.
 
 ---
 
@@ -436,8 +437,8 @@ legacy alias through the window so a rollback of the FE/resolver doesn't orphan 
   - [`2026-06-21-owner-cockpit-design.md`](./2026-06-21-owner-cockpit-design.md) (Spec 3) — owns the
     clone wizard + `createOutlet`; this spec owns the `(managers, outlet)` binding the wizard's
     `/register` deep-link lands on.
-  - [`2026-06-21-saas-control-plane-design.md`](./2026-06-21-saas-control-plane-design.md) (Spec 4) —
-    per-tenant provisioning / per-tenant bot tokens (Phase 2); out of scope here.
+  - [`2026-06-21-saas-control-plane-design.md`](./2026-06-21-saas-control-plane-design.md) — per-tenant
+    provisioning / per-tenant bot tokens; **deferred future multi-business roadmap**, out of scope here.
 - **Key files:** `convex/telegram/config.ts` (`KNOWN_TELEGRAM_ROLES`, new `ROLE_SCOPE`),
   `convex/telegram/chatRegistry/internal.ts` (`getChatIdByRoleAndOutlet`, `assignRoleImpl`),
   `convex/telegram/chatRegistry/public.ts` (`mgrAssignRole` + `outletId`), `convex/telegram/send.ts`
@@ -486,8 +487,9 @@ explicit binding — rejected as unnecessary operator friction for the common si
 *Recommendation:* read it from the **default/primary outlet's** `pos_settings.founders_summary_enabled`
 for v2.0 (single deterministic source). *Why:* `pos_settings` is per-outlet after Spec 1, but the
 owners summary is business-wide — it needs **one** toggle, not N. The proper long-term home is a
-business-level row (`businesses` table, Spec 4 / control plane). Until that exists, the default outlet's
-flag is the pragmatic single source. *Flag:* migrate this to the `businesses` row when Spec 4 lands.
+business-level row (a `businesses` table in a future multi-business control plane — deferred roadmap).
+Until that exists, the default outlet's flag is the pragmatic single source. *Flag:* migrate to the
+`businesses` row if/when the multi-business roadmap lands.
 
 **6. `system_error` (ops) — business-wide is locked, but should multi-outlet errors carry an outlet tag?**
 *Recommendation:* keep `ops` **business-wide** (locked) but **include the originating `outlet_id` in the

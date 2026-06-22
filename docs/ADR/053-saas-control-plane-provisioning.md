@@ -1,8 +1,14 @@
 # ADR-053. Control-plane / data-plane split for multi-tenant SaaS; per-tenant provisioning is an open spike
 
 **Date:** 2026-06-21
-**Status:** Proposed
+**Status:** Deferred — future multi-business roadmap (not part of the multi-outlet program)
 **Group:** Strategic
+
+> **DEFERRED (2026-06-22).** The multi-business / SaaS axis is **out of scope** for the current
+> multi-outlet program (Frollie running multiple outlets in one deployment). This ADR is retained as a
+> **future-roadmap design artifact only** — nothing here is built until the multi-business roadmap is
+> explicitly picked up. The programmatic per-tenant provisioning spike (below) is the gate before any
+> self-serve-signup work. See ADR-051 *Future roadmap (multi-business)*.
 
 ## Context
 
