@@ -8,14 +8,25 @@ import { withIdempotency } from "../idempotency/internal";
  * Active inventory SKU ids. Exposed so other modules (e.g. inventory) can
  * filter by active status without reaching into catalog-owned tables
  * directly (ADR-034 module boundary).
+ *
+ * v2.0 Task 9B: when outletId is provided, uses the by_outlet_active index
+ * to scope to that outlet's SKUs. Falls back to the global by_active index
+ * when outletId is undefined (window-tolerant — old rows lack outlet_id).
  */
 export const _getActiveSkuIds_internal = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<Id<"pos_inventory_skus">[]> => {
-    const skus = await ctx.db
-      .query("pos_inventory_skus")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
+  args: { outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, args): Promise<Id<"pos_inventory_skus">[]> => {
+    const skus = args.outletId
+      ? await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_outlet_active", (q) =>
+            q.eq("outlet_id", args.outletId).eq("active", true),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_active", (q) => q.eq("active", true))
+          .collect();
     return skus.map((s) => s._id);
   },
 });
@@ -26,14 +37,26 @@ export const _getActiveSkuIds_internal = internalQuery({
  * pos_inventory_skus is OWNED BY catalog (ADR-034 + direct access at
  * catalog/public.ts). Other modules (inventory recon R4, reporting) read
  * the active set through this internal query — never via direct table access.
+ *
+ * v2.0 Task 9B: when outletId is provided, uses the by_outlet_active index
+ * to scope to that outlet's SKUs. Falls back to the global by_active index
+ * when outletId is undefined (window-tolerant). Cron callers (_runStockRecon_internal)
+ * pass no outletId — they process all SKUs globally; scoping is a TODO for a later task.
  */
 export const _getActiveSkus_internal = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
-    const rows = await ctx.db
-      .query("pos_inventory_skus")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
+  args: { outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, args): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
+    const rows = args.outletId
+      ? await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_outlet_active", (q) =>
+            q.eq("outlet_id", args.outletId).eq("active", true),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_inventory_skus")
+          .withIndex("by_active", (q) => q.eq("active", true))
+          .collect();
     return rows.map((r) => ({ _id: r._id, sku: r.sku, name: r.name }));
   },
 });
@@ -46,10 +69,16 @@ export const _getActiveSkus_internal = internalQuery({
  * Returns one row per (productId, skuId) component pair. If a product has no
  * components the product simply contributes no rows (caller treats it as zero
  * SKU demand).
+ *
+ * v2.0 Task 9B: when outletId is provided, uses the by_outlet_product index.
+ * Falls back to by_product when outletId is undefined (window-tolerant).
+ * Cross-module callers in other modules (transactions/internal) do NOT pass
+ * outletId — they get the old global behavior, which is correct for now.
  */
 export const _getComponentsForProducts_internal = internalQuery({
   args: {
     productIds: v.array(v.id("pos_products")),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<Array<{
     productId: Id<"pos_products">;
@@ -60,10 +89,17 @@ export const _getComponentsForProducts_internal = internalQuery({
     // N+1 await loop). Read-only, so order doesn't matter; flatten at the end.
     const perProduct = await Promise.all(
       args.productIds.map(async (productId) => {
-        const components = await ctx.db
-          .query("pos_product_components")
-          .withIndex("by_product", (q) => q.eq("product_id", productId))
-          .collect();
+        const components = args.outletId
+          ? await ctx.db
+              .query("pos_product_components")
+              .withIndex("by_outlet_product", (q) =>
+                q.eq("outlet_id", args.outletId).eq("product_id", productId),
+              )
+              .collect()
+          : await ctx.db
+              .query("pos_product_components")
+              .withIndex("by_product", (q) => q.eq("product_id", productId))
+              .collect();
         return components.map((c) => ({ productId, skuId: c.inventory_sku_id, qty: c.qty }));
       }),
     );
@@ -182,6 +218,7 @@ export async function insertInventorySku(
     code?: string;
     initials?: string;
     hue?: number;
+    outlet_id?: Id<"outlets">;
   },
 ): Promise<Id<"pos_inventory_skus">> {
   return ctx.db.insert("pos_inventory_skus", {
@@ -194,6 +231,7 @@ export async function insertInventorySku(
     hue: fields.hue,
     active: true,
     created_at: fields.now,
+    ...(fields.outlet_id ? { outlet_id: fields.outlet_id } : {}),
   });
 }
 
@@ -222,6 +260,7 @@ export const _createInventorySkuCommit_internal = internalMutation({
     code: v.optional(v.string()),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
+    outletId: v.optional(v.id("outlets")),  // v2.0 Task 9B: passed from action caller's session
   },
   handler: withIdempotency<
     {
@@ -234,6 +273,7 @@ export const _createInventorySkuCommit_internal = internalMutation({
       code?: string;
       initials?: string;
       hue?: number;
+      outletId?: Id<"outlets">;
     },
     { skuId: Id<"pos_inventory_skus"> }
   >(
@@ -248,6 +288,8 @@ export const _createInventorySkuCommit_internal = internalMutation({
       }
       const code = args.code?.trim() ? args.code.trim() : undefined;
 
+      // Uniqueness checks remain GLOBAL (by_sku, by_code) — SKU slug and
+      // external code must be system-wide unique even in a multi-outlet deployment.
       const existingSku = await ctx.db
         .query("pos_inventory_skus")
         .withIndex("by_sku", (q) => q.eq("sku", sku))
@@ -270,6 +312,7 @@ export const _createInventorySkuCommit_internal = internalMutation({
         initials: args.initials,
         hue: args.hue,
         now,
+        outlet_id: args.outletId,
       });
       await logAudit(ctx, {
         actor_id: args.mgrId,
@@ -329,6 +372,7 @@ export const _createProductCommit_internal = internalMutation({
     inventorySkuLowThreshold: v.optional(v.number()),
     inventorySkuComponentQty: v.optional(v.number()),
     deviceId: v.optional(v.string()),
+    outletId: v.optional(v.id("outlets")),  // v2.0 Task 9B: stamped on product + bundled SKU + component
   },
   handler: withIdempotency<
     {
@@ -347,6 +391,7 @@ export const _createProductCommit_internal = internalMutation({
       inventorySkuLowThreshold?: number;
       inventorySkuComponentQty?: number;
       deviceId?: string;
+      outletId?: Id<"outlets">;
     },
     {
       productId: Id<"pos_products">;
@@ -417,6 +462,7 @@ export const _createProductCommit_internal = internalMutation({
             name: skuName,
             low_threshold: args.inventorySkuLowThreshold,
             now,
+            outlet_id: args.outletId,
           });
           bundledSkuCreated = true;
         }
@@ -435,6 +481,7 @@ export const _createProductCommit_internal = internalMutation({
         active: true,
         created_at: now,
         updated_at: now,
+        ...(args.outletId ? { outlet_id: args.outletId } : {}),
       });
       await logAudit(ctx, {
         actor_id: args.mgrId,
@@ -469,6 +516,7 @@ export const _createProductCommit_internal = internalMutation({
           product_id: productId,
           inventory_sku_id: bundledSkuId,
           qty: bundledQty,
+          ...(args.outletId ? { outlet_id: args.outletId } : {}),
         });
         // Reuse setProductComponents' verb (product.updated +
         // components_changed) rather than minting product.components_set,

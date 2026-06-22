@@ -16,17 +16,29 @@ import { reconstructOnHand, computeDrift } from "./lib";
  *
  * Server time wins per ADR-031: caller passes `now` from a single `Date.now()`
  * snapshot so all rows in a single mutation share the same timestamp.
+ *
+ * v2.0 Task 9B: optional `outlet_id` arg. When present, uses the by_outlet_sku
+ * index for the read and stamps outlet_id on insert. Window-tolerant: when
+ * outlet_id is undefined, falls back to the global by_sku index.
  */
 export async function upsertStockLevel(
   ctx: MutationCtx,
   skuId: Id<"pos_inventory_skus">,
   delta: number,
   now: number,
+  outlet_id?: Id<"outlets">,
 ): Promise<void> {
-  const level = await ctx.db
-    .query("pos_stock_levels")
-    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-    .first();
+  const level = outlet_id
+    ? await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_outlet_sku", (q) =>
+          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+        )
+        .first()
+    : await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+        .first();
   if (level) {
     await ctx.db.patch(level._id, {
       on_hand: level.on_hand + delta,
@@ -37,6 +49,7 @@ export async function upsertStockLevel(
       inventory_sku_id: skuId,
       on_hand: delta,
       updated_at: now,
+      ...(outlet_id ? { outlet_id } : {}),
     });
   }
 }
@@ -55,12 +68,13 @@ export const _recordSaleMovement_internal = internalMutation({
       skuId: v.id("pos_inventory_skus"),
       qty: v.number(),
     })),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B: passed from transactions/internal
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const touched = new Set<Id<"pos_inventory_skus">>();
     for (const line of args.lines) {
-      // ADR-026: dedup guard — skip if movement for this (line, sku) pair exists.
+      // ADR-026: dedup guard — keep on global by_line_and_sku (GLOBAL_UNIQUE index).
       const existing = await ctx.db
         .query("pos_stock_movements")
         .withIndex("by_line_and_sku", (q) =>
@@ -75,10 +89,11 @@ export const _recordSaleMovement_internal = internalMutation({
         source: "sale",
         source_transaction_line_id: line.lineId,
         created_at: now,
+        ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
       });
 
       // Decrement the denormalised on_hand cache (ADR-018: negative allowed).
-      await upsertStockLevel(ctx, line.skuId, -line.qty, now);
+      await upsertStockLevel(ctx, line.skuId, -line.qty, now, args.outlet_id);
 
       // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
       await logAudit(ctx, {
@@ -217,6 +232,7 @@ export const _refundReCredit_internal = internalMutation({
                                 // to ratio the sale movements down to per-unit components.
       qty: v.number(),         // refund qty
     })),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -254,10 +270,11 @@ export const _refundReCredit_internal = internalMutation({
           source: "refund",
           source_transaction_line_id: line_id,
           created_at: now,
+          ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
         });
 
         // INCREMENT the denormalised on_hand cache (opposite of sale).
-        await upsertStockLevel(ctx, skuId, movementQty, now);
+        await upsertStockLevel(ctx, skuId, movementQty, now, args.outlet_id);
 
         // ADR-007: append-only audit row. action is a plain string; no enum extension needed.
         await logAudit(ctx, {
@@ -295,21 +312,40 @@ export const _refundReCredit_internal = internalMutation({
  * - `on_hand >= threshold` AND flag exists → delete flag (re-arm; silent — the
  *   operator already knows things recovered).
  * - Otherwise → no-op.
+ *
+ * v2.0 Task 9B: optional `outlet_id` arg. When present, uses by_outlet_sku
+ * for stock level + alert flag reads; stamps outlet_id on the flag insert.
+ * Window-tolerant: falls back to global indexes when outlet_id is undefined.
  */
 async function checkLowStockOne(
   ctx: MutationCtx,
   skuId: Id<"pos_inventory_skus">,
   sku: { name: string; low_threshold: number },
+  outlet_id?: Id<"outlets">,
 ): Promise<void> {
-  const level = await ctx.db
-    .query("pos_stock_levels")
-    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-    .first();
+  const level = outlet_id
+    ? await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_outlet_sku", (q) =>
+          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+        )
+        .first()
+    : await ctx.db
+        .query("pos_stock_levels")
+        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+        .first();
   const onHand = level?.on_hand ?? 0;
-  const flag = await ctx.db
-    .query("pos_low_stock_alerts")
-    .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-    .first();
+  const flag = outlet_id
+    ? await ctx.db
+        .query("pos_low_stock_alerts")
+        .withIndex("by_outlet_sku", (q) =>
+          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+        )
+        .first()
+    : await ctx.db
+        .query("pos_low_stock_alerts")
+        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+        .first();
 
   const below = onHand < sku.low_threshold;
   if (below && !flag) {
@@ -317,6 +353,7 @@ async function checkLowStockOne(
     await ctx.db.insert("pos_low_stock_alerts", {
       inventory_sku_id: skuId,
       alerted_at: now,
+      ...(outlet_id ? { outlet_id } : {}),
     });
     await logAudit(ctx, {
       actor_id: "system",
@@ -360,11 +397,14 @@ async function checkLowStockOne(
  * This single-id mutation is retained for ad-hoc callers + tests.
  */
 export const _checkLowStock_internal = internalMutation({
-  args: { skuId: v.id("pos_inventory_skus") },
-  handler: async (ctx, { skuId }) => {
+  args: {
+    skuId: v.id("pos_inventory_skus"),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+  },
+  handler: async (ctx, { skuId, outlet_id }) => {
     const [sku] = await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
     if (!sku) return;
-    await checkLowStockOne(ctx, skuId, sku);
+    await checkLowStockOne(ctx, skuId, sku, outlet_id);
   },
 });
 
@@ -375,8 +415,11 @@ export const _checkLowStock_internal = internalMutation({
  * recount paths.
  */
 export const _checkLowStockBatch_internal = internalMutation({
-  args: { skuIds: v.array(v.id("pos_inventory_skus")) },
-  handler: async (ctx, { skuIds }) => {
+  args: {
+    skuIds: v.array(v.id("pos_inventory_skus")),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+  },
+  handler: async (ctx, { skuIds, outlet_id }) => {
     if (skuIds.length === 0) return;
     const skus = await ctx.runQuery(
       internal.catalog.internal._getSkusByIds_internal,
@@ -388,7 +431,7 @@ export const _checkLowStockBatch_internal = internalMutation({
     for (const skuId of skuIds) {
       const sku = skuByIdStr.get(String(skuId));
       if (!sku) continue;
-      await checkLowStockOne(ctx, skuId, sku);
+      await checkLowStockOne(ctx, skuId, sku, outlet_id);
     }
   },
 });
@@ -431,6 +474,7 @@ export const _recordSpoilage_internal = internalMutation({
     actor_id: v.id("staff"),
     source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
     device_id: v.optional(v.string()),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
   },
   handler: async (
     ctx,
@@ -456,12 +500,13 @@ export const _recordSpoilage_internal = internalMutation({
         spoilage_reason: args.reason,
         recorded_by_staff_id: args.actor_id,
         created_at: now,
+        ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
       });
 
       // Decrement on_hand cache via the shared upsert helper — matches the
       // sale/refund paths and inserts a row when none exists yet (first-ever
       // SKU activity; ADR-018 allows negative on_hand).
-      await upsertStockLevel(ctx, line.inventory_sku_id, -line.qty, now);
+      await upsertStockLevel(ctx, line.inventory_sku_id, -line.qty, now, args.outlet_id);
 
       total += line.qty;
       lineLog.push({ sku_id: String(line.inventory_sku_id), qty: line.qty });
@@ -521,6 +566,8 @@ export const _runStockRecon_internal = internalMutation({
     scanned: number;
     drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }>;
   }> => {
+    // v2.0 Task 9B: cron has no outlet context — runs globally across all SKUs.
+    // TODO Task 12: scope per-outlet when multi-outlet recon is required.
     const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {});
     const now = Date.now();
     const drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }> = [];

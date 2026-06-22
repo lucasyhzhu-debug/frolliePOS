@@ -12,13 +12,17 @@ import { upsertStockLevel } from "./internal";
  * Active-status comes from catalog via its internal API (ADR-034: inventory
  * does not read catalog-owned pos_inventory_skus directly). Consumed by
  * useCart (live cart validation) and the catalog query.
+ *
+ * v2.0 Task 9B: this query has NO sessionId, so outlet_id is not available.
+ * The index reads remain global. TODO Task 12: inject sessionId so this can
+ * scope by outlet.
  */
 export const getStockLevels = query({
   args: {},
   handler: async (ctx): Promise<Record<string, number>> => {
     const activeIds = await ctx.runQuery(
       internal.catalog.internal._getActiveSkuIds_internal,
-      {},
+      {},  // outletId: undefined → falls back to global by_active index
     );
     const activeSet = new Set<Id<"pos_inventory_skus">>(activeIds);
 
@@ -195,8 +199,10 @@ export const recordRecount = mutation({
       //
       // v0.5.2 simplify: batched so one runQuery against catalog covers all
       // touched SKUs (was: one per SKU via the single-id _checkLowStock_internal).
+      // v2.0 Task 9B: pass outlet_id so checkLowStockOne uses outlet-scoped indexes.
       await ctx.runMutation(internal.inventory.internal._checkLowStockBatch_internal, {
         skuIds: touched,
+        outlet_id,
       });
       return { ok: true as const, changed: touched.length };
     },
@@ -305,16 +311,23 @@ type InventoryRow = {
 export const listInventory = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<InventoryRow[]> => {
-    await requireSession(ctx, args.sessionId);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    // v2.0 Task 9B: pass outlet_id to scope active SKU list by outlet when available.
     const activeIds: Id<"pos_inventory_skus">[] = await ctx.runQuery(
       internal.catalog.internal._getActiveSkuIds_internal,
-      {},
+      { outletId: outlet_id },
     );
     const skus: Array<{ skuId: Id<"pos_inventory_skus">; name: string; low_threshold: number }> =
       await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
         skuIds: activeIds,
       });
-    const levels = await ctx.db.query("pos_stock_levels").collect();
+    // v2.0 Task 9B: scope stock levels to outlet when available.
+    const levels = outlet_id
+      ? await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_outlet_sku", (q) => q.eq("outlet_id", outlet_id))
+          .collect()
+      : await ctx.db.query("pos_stock_levels").collect();
     // v0.5.2 simplify: Convex Ids ARE strings at runtime; Map.get works without
     // the String() cast. Drop the cast on both sides of the lookup.
     const levelBySku = new Map(levels.map((l) => [l.inventory_sku_id, l.on_hand]));
@@ -345,7 +358,7 @@ export const getSkuDetail = query({
     skuId: v.id("pos_inventory_skus"),
   },
   handler: async (ctx, args) => {
-    await requireSession(ctx, args.sessionId);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
     const skus: Array<{ skuId: Id<"pos_inventory_skus">; name: string; low_threshold: number }> =
       await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
         skuIds: [args.skuId],
@@ -355,15 +368,31 @@ export const getSkuDetail = query({
     // rather than masking with String(skuId) / 0 fallbacks.
     const sku = skus[0];
     if (!sku) throw new Error("SKU_MISSING_INVARIANT");
-    const level = await ctx.db
-      .query("pos_stock_levels")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
-      .first();
-    const movements = await ctx.db
-      .query("pos_stock_movements")
-      .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", args.skuId))
-      .order("desc")
-      .take(30);
+    // v2.0 Task 9B: scope stock level + movements by outlet when available.
+    const level = outlet_id
+      ? await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_outlet_sku", (q) =>
+            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+          )
+          .first()
+      : await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
+          .first();
+    const movements = outlet_id
+      ? await ctx.db
+          .query("pos_stock_movements")
+          .withIndex("by_outlet_sku_created", (q) =>
+            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+          )
+          .order("desc")
+          .take(30)
+      : await ctx.db
+          .query("pos_stock_movements")
+          .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", args.skuId))
+          .order("desc")
+          .take(30);
     return {
       name: sku.name,
       // on_hand ?? 0 stays — a missing level row legitimately means
@@ -414,8 +443,18 @@ export const listStockDrift = query({
     includeResolved: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Doc<"pos_stock_drift_log">[]> => {
-    await requireManagerSession(ctx, args.sessionId);
-    const rows = await ctx.db.query("pos_stock_drift_log").order("desc").take(100);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+    // v2.0 Task 9B: scope drift log by outlet when available.
+    // by_outlet_unresolved has fields [outlet_id, resolved_at]; we eq on outlet_id
+    // alone to get all drift rows for that outlet, then filter resolved_at in JS
+    // (Convex optional-field filter lesson — ADR-optional-field-gotcha).
+    const rows = outlet_id
+      ? await ctx.db
+          .query("pos_stock_drift_log")
+          .withIndex("by_outlet_unresolved", (q) => q.eq("outlet_id", outlet_id))
+          .order("desc")
+          .take(100)
+      : await ctx.db.query("pos_stock_drift_log").order("desc").take(100);
     return args.includeResolved ? rows : rows.filter((r) => r.resolved_at == null);
   },
 });

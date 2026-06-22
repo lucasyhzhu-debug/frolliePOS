@@ -20,6 +20,10 @@ import { logAudit } from "../audit/internal";
  * Vouchers are bundled for offline apply per ADR-009 (server re-validates at
  * commitCart). Active+unexpired rows are sourced via
  * api.vouchers.public.getActiveVouchers (ADR-034: vouchers owns pos_vouchers).
+ *
+ * v2.0 Task 9B: this query has NO sessionId, so outlet_id is not available.
+ * The index reads remain global (by_active_sort / by_active). Outlet scoping
+ * for the catalog query is deferred to Task 12 (full sessionId injection).
  */
 export const catalog = query({
   args: {},
@@ -96,15 +100,43 @@ export const listAllProducts = query({
     skus: Doc<"pos_inventory_skus">[];
     components: Doc<"pos_product_components">[];
   }> => {
-    await requireManagerSession(ctx, args.sessionId);
-    const [products, skus, components] = await Promise.all([
-      ctx.db.query("pos_products").collect(),
-      ctx.db
-        .query("pos_inventory_skus")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .collect(),
-      ctx.db.query("pos_product_components").collect(),
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+
+    // v2.0 Task 9B: scope reads to outlet when available.
+    // by_outlet_active_sort / by_outlet_active with only outlet_id eq returns
+    // all rows for that outlet regardless of active/sort_order — the extra
+    // index fields simply bound the scan range.
+    const [products, skus, allComponents] = await Promise.all([
+      outlet_id
+        ? ctx.db
+            .query("pos_products")
+            .withIndex("by_outlet_active_sort", (q) => q.eq("outlet_id", outlet_id))
+            .collect()
+        : ctx.db.query("pos_products").collect(),
+      outlet_id
+        ? ctx.db
+            .query("pos_inventory_skus")
+            .withIndex("by_outlet_active", (q) =>
+              q.eq("outlet_id", outlet_id).eq("active", true),
+            )
+            .collect()
+        : ctx.db
+            .query("pos_inventory_skus")
+            .withIndex("by_active", (q) => q.eq("active", true))
+            .collect(),
+      outlet_id
+        ? ctx.db
+            .query("pos_product_components")
+            .withIndex("by_outlet_product", (q) => q.eq("outlet_id", outlet_id))
+            .collect()
+        : ctx.db.query("pos_product_components").collect(),
     ]);
+
+    // When outlet_id is defined the component query already scoped to outlet;
+    // when undefined we collect all and the filter below is a no-op.
+    const productSet = new Set(products.map((p) => p._id));
+    const components = allComponents.filter((c) => productSet.has(c.product_id));
+
     // photo_url resolved server-side (mirror `catalog`); getUrl is a metadata
     // lookup, negligible at booth scale.
     const productsWithPhoto = await Promise.all(
@@ -254,7 +286,7 @@ export const setProductComponents = mutation({
   >(
     "catalog.setProductComponents",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId);
+      const { staffId: mgrId, deviceId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
       const product = await ctx.db.get(args.productId);
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
       // Validate each component first (fail before any write).
@@ -265,6 +297,7 @@ export const setProductComponents = mutation({
         if (!sku.active) throw new Error("SKU_INACTIVE");
       }
       // Replace-set: delete existing rows for this product, insert the new set.
+      // Delete reads by_product (point-lookup — correct regardless of outlet).
       const existing = await ctx.db
         .query("pos_product_components")
         .withIndex("by_product", (q) => q.eq("product_id", args.productId))
@@ -275,6 +308,9 @@ export const setProductComponents = mutation({
           product_id: args.productId,
           inventory_sku_id: c.inventory_sku_id,
           qty: c.qty,
+          // v2.0 Task 9B: stamp outlet_id on new component rows so by_outlet_product
+          // index is usable for outlet-scoped component reads.
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       await ctx.db.patch(args.productId, { updated_at: Date.now() });
