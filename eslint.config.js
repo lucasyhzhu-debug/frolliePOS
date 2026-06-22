@@ -18,6 +18,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 
 import noCrossModuleDbAccess from "./tools/eslint-rules/no-cross-module-db-access.js";
 import idempotencyRequired from "./tools/eslint-rules/idempotency-required.js";
+import indexLeadsWithOutletId from "./tools/eslint-rules/index-leads-with-outlet_id.js";
 
 // ADR-049 i18n selectors — declared once here because flat config does NOT merge
 // no-restricted-syntax arrays; the last matching config's array replaces earlier
@@ -45,6 +46,9 @@ const OWNERSHIP = {
   registered_devices: "auth",
   pending_device_setups: "auth",
   pos_device_activation_attempts: "auth", // SEC-04; written by allowlisted `staff` module
+  // v2.0 multi-outlet: outlets + staff_outlet_access (deferred from Task 5)
+  outlets: "outlets",
+  staff_outlet_access: "auth",
 
   // catalog module
   pos_inventory_skus: "catalog",
@@ -77,6 +81,42 @@ const OWNERSHIP = {
   // telegram module
   telegram_log: "telegram",
 };
+
+// v2.0 outlet-scope fence: tables that must be queried through a by_outlet*
+// index when those indexes are used. The narrow rule (index-leads-with-outlet_id)
+// only fires when the index name matches /^by_outlet/ — other indexes on these
+// tables are not flagged (see rule header comment for rationale).
+const OUTLET_SCOPED = [
+  "staff_sessions",
+  "pos_auth_attempts",
+  "registered_devices",
+  "pos_inventory_skus",
+  "pos_products",
+  "pos_product_components",
+  "pos_transactions",
+  "pos_transaction_lines",
+  "pos_xendit_invoices",
+  "pos_receipt_html_cache",
+  "pos_refunds",
+  "pos_stock_movements",
+  "pos_stock_levels",
+  "pos_low_stock_alerts",
+  "pos_stock_drift_log",
+  "pos_recount_state",
+  "pos_vouchers",
+  "pos_voucher_redemptions",
+  "pos_approval_requests",
+  "pos_shift_events",
+  "pos_settings",
+  "pos_error_reports",
+  "pos_receipt_counters",
+];
+
+// Caller modules exempt from the outlet-scope fence. "migrations" is forward-safe
+// (the module doesn't exist yet but will run full-table scans during data
+// migrations). "seed" is exempt because seeding doesn't represent production
+// coupling.
+const OUTLET_FENCE_ALLOWLIST = ["migrations", "seed"];
 
 // Modules exempt from the rule. These tend to be infrastructure-y crosscuts
 // (audit, idempotency) or single-file root utilities (seed) that legitimately
@@ -158,10 +198,15 @@ export default [
     files: ["convex/**/*.ts"],
     ignores: ["convex/**/__tests__/**"],
     plugins: {
+      // NOTE: This is a CUSTOM rule plugin — not no-restricted-syntax. ESLint
+      // flat config's last-wins hazard only applies to no-restricted-syntax
+      // (whose selector arrays are replaced by later matching config blocks).
+      // Custom plugin rules accumulate normally; no ordering concern here.
       "frollie-internal": {
         rules: {
           "no-cross-module-db-access": noCrossModuleDbAccess,
           "idempotency-required": idempotencyRequired,
+          "index-leads-with-outlet_id": indexLeadsWithOutletId,
         },
       },
     },
@@ -172,6 +217,13 @@ export default [
         {
           ownership: OWNERSHIP,
           allowlist: ALLOWLIST,
+        },
+      ],
+      "frollie-internal/index-leads-with-outlet_id": [
+        "error",
+        {
+          scopedTables: OUTLET_SCOPED,
+          allowlist: OUTLET_FENCE_ALLOWLIST,
         },
       ],
     },
