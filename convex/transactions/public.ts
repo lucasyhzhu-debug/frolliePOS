@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
+import { assertOutletKeyPrefix } from "../idempotency/outletPrefix";
 import { logAudit } from "../audit/internal";
 import { validateVoucherAgainst } from "../lib/voucherValidate";
 import { NEG_STOCK, withFlag } from "./flags";
@@ -377,7 +378,11 @@ export const commitCart = mutation({
       };
     },
     {
-      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+      authCheck: async (ctx, args) => {
+        const session = await resolveSessionStaff(ctx, args.sessionId);
+        // v2.0: assert the key's outlet prefix matches the session outlet.
+        assertOutletKeyPrefix(args.idempotencyKey, session.outlet_id);
+      },
     },
   ),
 });

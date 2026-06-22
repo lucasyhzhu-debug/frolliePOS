@@ -6,6 +6,7 @@ import { api, internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
+import { assertOutletKeyPrefix } from "../idempotency/outletPrefix";
 
 /**
  * Manager-PIN gated: create a new product (v0.5.3b Task 8). Uses
@@ -68,6 +69,9 @@ export const createProduct = action({
           sessionId: args.sessionId,
         });
         const outletId = session?.staff.outlet_id;
+        // v2.0 Task 9F: assert the idempotency key is outlet-prefixed for the
+        // session outlet (OUTLET_KEY_MISMATCH on cross-outlet replay).
+        assertOutletKeyPrefix(args.idempotencyKey, outletId);
         // Pass derived `:commit` key so the wrapped internal short-circuits an
         // action retry after a crash between commit and action-level cache write
         // (mirrors refunds._commitRefund_internal pattern).
@@ -138,6 +142,8 @@ export const createInventorySku = action({
           sessionId: args.sessionId,
         });
         const outletId = session?.staff.outlet_id;
+        // v2.0 Task 9F: assert the idempotency key is outlet-prefixed.
+        assertOutletKeyPrefix(args.idempotencyKey, outletId);
         return await ctx.runMutation(internal.catalog.internal._createInventorySkuCommit_internal, {
           idempotencyKey: `${args.idempotencyKey}:commit`,
           mgrId: managerId,
