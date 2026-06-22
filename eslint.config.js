@@ -18,6 +18,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 
 import noCrossModuleDbAccess from "./tools/eslint-rules/no-cross-module-db-access.js";
 import idempotencyRequired from "./tools/eslint-rules/idempotency-required.js";
+import indexLeadsWithOutletId from "./tools/eslint-rules/index-leads-with-outlet_id.js";
 
 // ADR-049 i18n selectors — declared once here because flat config does NOT merge
 // no-restricted-syntax arrays; the last matching config's array replaces earlier
@@ -45,6 +46,9 @@ const OWNERSHIP = {
   registered_devices: "auth",
   pending_device_setups: "auth",
   pos_device_activation_attempts: "auth", // SEC-04; written by allowlisted `staff` module
+  // v2.0 multi-outlet: outlets + staff_outlet_access (deferred from Task 5)
+  outlets: "outlets",
+  staff_outlet_access: "auth",
 
   // catalog module
   pos_inventory_skus: "catalog",
@@ -78,6 +82,65 @@ const OWNERSHIP = {
   telegram_log: "telegram",
 };
 
+// v2.0 outlet-scope fence: tables that must be queried through a by_outlet*
+// index (or an explicitly-kept outlet-agnostic index). The BROAD rule
+// (index-leads-with-outlet_id) flags ANY non-by_outlet/non-kept index on these
+// tables, making it a true completeness oracle (full defense-in-depth, user
+// decision 2026-06-22). See rule header for rationale.
+const OUTLET_SCOPED = [
+  "staff_sessions",
+  "pos_auth_attempts",
+  "registered_devices",
+  "pos_inventory_skus",
+  "pos_products",
+  "pos_product_components",
+  "pos_transactions",
+  "pos_transaction_lines",
+  "pos_xendit_invoices",
+  "pos_receipt_html_cache",
+  "pos_refunds",
+  "pos_stock_movements",
+  "pos_stock_levels",
+  "pos_low_stock_alerts",
+  "pos_stock_drift_log",
+  "pos_recount_state",
+  "pos_vouchers",
+  "pos_voucher_redemptions",
+  "pos_approval_requests",
+  "pos_shift_events",
+  "pos_settings",
+  "pos_error_reports",
+  "pos_receipt_counters",
+];
+
+// Caller modules exempt from the outlet-scope fence. "migrations" is forward-safe
+// (the module doesn't exist yet but will run full-table scans during data
+// migrations). "seed" is exempt because seeding doesn't represent production
+// coupling.
+const OUTLET_FENCE_ALLOWLIST = ["migrations", "seed"];
+
+// Non-by_outlet indexes that are LEGITIMATELY allowed on outlet-scoped tables:
+// GLOBAL_UNIQUE lookups (the value is globally unique → outlet-agnostic) plus
+// per-staff/token lookups that anchor to a business-level dimension. Any index
+// NOT here and NOT matching /^by_outlet/ on a scoped table is an un-migrated
+// reader (lint error). Deliberate cross-outlet readers (Public API feeds) use a
+// per-line eslint-disable with a reason instead.
+const OUTLET_KEPT_INDEXES = [
+  // GLOBAL_UNIQUE (value globally unique)
+  "by_token_hash",
+  "by_xendit_invoice_id",
+  "by_device_id",
+  "by_receipt_token",
+  "by_receipt_number",
+  "by_line_and_sku",
+  "by_signature_created",
+  // per-staff / token (business-level dimensions, not outlet-scoped)
+  "by_staff_active", // staff_sessions — staff is business-level
+  "by_staff", // pos_auth_attempts — lockout is per-staff
+  "by_staff_started", // pos_shift_events — kept per spec
+  "by_token", // pos_receipt_html_cache — token globally unique
+];
+
 // Modules exempt from the rule. These tend to be infrastructure-y crosscuts
 // (audit, idempotency) or single-file root utilities (seed) that legitimately
 // touch multiple tables. `staff` is exempt because device CRUD and staff CRUD
@@ -90,7 +153,7 @@ const OWNERSHIP = {
 // pos_transaction_lines / pos_xendit_invoices inline; v0.5.1 PR A review
 // pulled it back inside ADR-034 boundaries — reads now route through
 // transactions/internal + payments/internal aggregate helpers.)
-const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes"];
+const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes", "migrations"];
 
 export default [
   {
@@ -158,10 +221,15 @@ export default [
     files: ["convex/**/*.ts"],
     ignores: ["convex/**/__tests__/**"],
     plugins: {
+      // NOTE: This is a CUSTOM rule plugin — not no-restricted-syntax. ESLint
+      // flat config's last-wins hazard only applies to no-restricted-syntax
+      // (whose selector arrays are replaced by later matching config blocks).
+      // Custom plugin rules accumulate normally; no ordering concern here.
       "frollie-internal": {
         rules: {
           "no-cross-module-db-access": noCrossModuleDbAccess,
           "idempotency-required": idempotencyRequired,
+          "index-leads-with-outlet_id": indexLeadsWithOutletId,
         },
       },
     },
@@ -172,6 +240,14 @@ export default [
         {
           ownership: OWNERSHIP,
           allowlist: ALLOWLIST,
+        },
+      ],
+      "frollie-internal/index-leads-with-outlet_id": [
+        "error",
+        {
+          scopedTables: OUTLET_SCOPED,
+          keptIndexes: OUTLET_KEPT_INDEXES,
+          allowlist: OUTLET_FENCE_ALLOWLIST,
         },
       ],
     },

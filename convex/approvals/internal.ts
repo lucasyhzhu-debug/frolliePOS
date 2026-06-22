@@ -35,6 +35,7 @@ export const _createRequest_internal = internalMutation({
     triggered_at: v.number(),
     token_hash: v.string(),
     token_expires_at: v.number(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
     // INVARIANT: every writer validates context here — no bypass path.
@@ -54,6 +55,8 @@ export const _createRequest_internal = internalMutation({
       token_expires_at: args.token_expires_at,
       status: "pending",
       notification_channel: "telegram",
+      // v2.0 Stream 5: stamp outlet_id when provided.
+      ...(args.outletId !== undefined ? { outlet_id: args.outletId } : {}),
     });
 
     await logAudit(ctx, {
@@ -208,6 +211,7 @@ export const _markResolved_internal = internalMutation({
 export const _listPendingForStaff_internal = internalQuery({
   args: { staffId: v.id("staff") },
   handler: async (ctx, args) => {
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- by_subject_staff is a business-wide staff-PIN-reset index; dedup guard intentionally spans outlets (a staff member has one PIN across all outlets)
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
@@ -314,12 +318,14 @@ export const _listPendingByKind_internal = internalQuery({
       v.literal("spoilage"), // NEW v0.6: spoilage approval
     ),
     entityId: v.string(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const rows = await ctx.db
       .query("pos_approval_requests")
-      .withIndex("by_kind_status", (q) =>
-        q.eq("kind", args.kind).eq("status", "pending"),
+      .withIndex("by_outlet_kind_status", (q) =>
+        q.eq("outlet_id", args.outletId).eq("kind", args.kind).eq("status", "pending"),
       )
       .collect();
     const now = Date.now();
@@ -426,11 +432,14 @@ export const _markDeniedBySystem_internal = internalMutation({
  * at that point.
  */
 export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
-  args: { txnId: v.id("pos_transactions"), reason: v.string() },
+  args: { txnId: v.id("pos_transactions"), reason: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args) => {
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const rows = await ctx.db
       .query("pos_approval_requests")
-      .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
+      .withIndex("by_outlet_kind_status", (q) =>
+        q.eq("outlet_id", args.outletId).eq("kind", "manual_payment_override").eq("status", "pending"),
+      )
       .collect();
     const now = Date.now();
     for (const req of rows) {

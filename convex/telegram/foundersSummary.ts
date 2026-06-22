@@ -108,14 +108,22 @@ export const sendFoundersSummary = internalAction({
 
     // Step 3 + 3b: daily sales aggregate + manual-BCA tally (v1.2 #10) for the
     // same WIB day window. Independent reads — fetch in parallel.
+    // v2.0 Stream 5: resolve the default outlet so aggregates are outlet-scoped.
+    // Crons have no session, so we use _getDefaultOutlet_internal (first active outlet).
+    const defaultOutlet = await ctx.runQuery(
+      internal.outlets.internal._getDefaultOutlet_internal,
+      {},
+    );
+    const outletId = defaultOutlet?._id;
     const [summary, manualBca] = await Promise.all([
       ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
         dayStartMs,
         dayEndMs,
+        outletId,
       }),
       ctx.runQuery(
         internal.transactions.internal._manualBcaReconciliation_internal,
-        { dayStartMs, dayEndMs },
+        { dayStartMs, dayEndMs, outletId },
       ),
     ]);
 

@@ -2,7 +2,7 @@
 
 import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { withActionCache } from "../idempotency/action";
@@ -66,6 +66,13 @@ export const recordSpoilage = action({
           idempotencyKey: args.idempotencyKey,
         });
 
+        // v2.0 Task 9E: resolve outlet from the manager session so stock
+        // movements and the on_hand cache update are stamped with outlet_id.
+        const session = await ctx.runQuery(api.auth.public.getSession, {
+          sessionId: args.sessionId,
+        });
+        const outlet_id = session?.staff.outlet_id;
+
         // ── Mint event id (pure V8+Node portable; matches token convention) ──
         const event_id = mintUrlSafeToken(16);
 
@@ -79,6 +86,7 @@ export const recordSpoilage = action({
             actor_id: managerId,
             source: "booth_inline",
             device_id: deviceId,
+            outlet_id,
           },
         );
       },

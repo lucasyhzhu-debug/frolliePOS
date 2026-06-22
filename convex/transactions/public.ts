@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
+import { assertOutletKeyPrefix } from "../idempotency/outletPrefix";
 import { logAudit } from "../audit/internal";
 import { validateVoucherAgainst } from "../lib/voucherValidate";
 import { NEG_STOCK, withFlag } from "./flags";
@@ -35,7 +36,7 @@ function resolveWindow(
 async function resolveSessionStaff(
   ctx: MutationCtx,
   sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string }> {
+): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> {
   const resolved = await ctx.runQuery(
     internal.auth.internal._resolveSession_internal,
     { sessionId },
@@ -87,9 +88,12 @@ export const getById = query({
   handler: async (ctx, args) => {
     const txn = await resolveScopedTxn(ctx, args.sessionId, args.txnId);
     if (!txn) return null;
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lines = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
       .collect();
     // SEC-05: explicit projection — never spread the raw Doc (would leak
     // receipt_token + xendit_invoice_id_current). Enumerate only FE-consumed
@@ -123,9 +127,12 @@ export const listDrafts = query({
       { sessionId: args.sessionId },
     );
     if (!resolved) return [];
+    // v2.0: always use outlet-scoped index (window-tolerant: resolved.outlet_id may be undefined).
     return await ctx.db
       .query("pos_transactions")
-      .withIndex("by_staff_created", (q) => q.eq("staff_id", resolved.staffId))
+      .withIndex("by_outlet_staff_created", (q) =>
+        q.eq("outlet_id", resolved.outlet_id).eq("staff_id", resolved.staffId),
+      )
       .order("desc")
       .filter((q) => q.eq(q.field("status"), "draft"))
       .collect();
@@ -141,6 +148,8 @@ export const listDrafts = query({
 export const listDayTransactions = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DayTxn[]> => {
+    // v2.0: _resolveSessionRole_internal now returns outlet_id, so role+outlet
+    // come from a single resolve (was paired with _resolveSession_internal).
     const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
       sessionId: args.sessionId,
     });
@@ -149,6 +158,7 @@ export const listDayTransactions = query({
     return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
+      outletId: who.outlet_id,
     });
   },
 });
@@ -163,7 +173,9 @@ export const listDayTransactions = query({
 export const dashboardSummary = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DaySummary> => {
-    await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
+    // v2.0: _requireManagerSession_internal returns outlet_id (it gates AND
+    // resolves), so the separate _resolveSession_internal call is redundant.
+    const mgr = await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
       sessionId: args.sessionId,
     });
     // Manager-gated above → allowOverride=true.
@@ -171,6 +183,7 @@ export const dashboardSummary = query({
     const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
+      outletId: mgr.outlet_id,
     });
     return computeDaySummary(txns);
   },
@@ -239,7 +252,7 @@ export const commitCart = mutation({
         if (!Number.isInteger(qty) || qty <= 0) throw new Error("QTY_INVALID");
       }
 
-      const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id } = await resolveSessionStaff(ctx, args.sessionId);
 
       // Snapshot prices + names — fetch product details via catalog internal
       // surface (ADR-034). Returned rows may be in any order / skip missing ids,
@@ -308,12 +321,13 @@ export const commitCart = mutation({
       // NEG_STOCK projection (ADR-018, multi-product-same-SKU correct per staffreview T4)
       const flagged = await ctx.runQuery(
         internal.transactions.internal._projectedNegStockFlag_internal,
-        { lines: args.lines },
+        { lines: args.lines, outletId: outlet_id },
       );
       let flags = 0;
       if (flagged) flags = withFlag(flags, NEG_STOCK);
 
       // Insert txn + lines (transactions-owned tables — direct writes OK)
+      // v2.0 Task 5: stamp outlet_id from the session on txn + lines.
       const txnId = await ctx.db.insert("pos_transactions", {
         status: args.intent === "draft" ? "draft" : "awaiting_payment",
         subtotal,
@@ -323,6 +337,7 @@ export const commitCart = mutation({
         flags,
         staff_id: staffId,
         created_at: Date.now(),
+        ...(outlet_id ? { outlet_id } : {}),
       });
       for (const l of linesWithSnapshot) {
         await ctx.db.insert("pos_transaction_lines", {
@@ -334,6 +349,7 @@ export const commitCart = mutation({
           tax_rate_snapshot: l.tax_rate,
           qty: l.qty,
           line_subtotal: l.unit_price * l.qty,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
 
@@ -354,7 +370,11 @@ export const commitCart = mutation({
       };
     },
     {
-      authCheck: async (ctx, args) => { await resolveSessionStaff(ctx, args.sessionId); },
+      authCheck: async (ctx, args) => {
+        const session = await resolveSessionStaff(ctx, args.sessionId);
+        // v2.0: assert the key's outlet prefix matches the session outlet.
+        assertOutletKeyPrefix(args.idempotencyKey, session.outlet_id);
+      },
     },
   ),
 });
@@ -395,9 +415,12 @@ export const resumeDraft = mutation({
       if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
 
+      // v2.0: always use outlet-scoped index (window-tolerant: draft.outlet_id may be undefined).
       const lines = await ctx.db
         .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
+        .withIndex("by_outlet_transaction", (q) =>
+          q.eq("outlet_id", draft.outlet_id).eq("transaction_id", args.draftId),
+        )
         .collect();
       const result = {
         lines: lines.map((l) => ({ productId: l.product_id, qty: l.qty })),
@@ -453,10 +476,11 @@ export const listRecentAwaitingPayment = query({
     if (!resolved) return [];
 
     const fiveMinAgo = Date.now() - 5 * 60_000;
+    // v2.0: always use outlet-scoped index (window-tolerant: resolved.outlet_id may be undefined).
     return await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_created", (q) =>
-        q.eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
+      .withIndex("by_outlet_status_created", (q) =>
+        q.eq("outlet_id", resolved.outlet_id).eq("status", "awaiting_payment").gte("created_at", fiveMinAgo),
       )
       .collect();
   },
@@ -564,10 +588,13 @@ export const getTransactionDetail = query({
     const txn = await resolveScopedTxn(ctx, args.sessionId, args.txnId);
     if (!txn) return null;
     // Two independent reads given args.txnId — parallel to shave latency.
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const [lines, refunds] = await Promise.all([
       ctx.db
         .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+        .withIndex("by_outlet_transaction", (q) =>
+          q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+        )
         .collect(),
       ctx.runQuery(
         internal.refunds.internal._listForTransaction_internal,
@@ -604,9 +631,12 @@ export const deleteDraft = mutation({
       // Ownership: only the staff who saved the draft may delete it (see resumeDraft).
       if (draft.staff_id !== staffId) throw new Error("NOT_OWNER");
       if (draft.status !== "draft") throw new Error("INVALID_DRAFT_STATE");
+      // v2.0: always use outlet-scoped index (window-tolerant: draft.outlet_id may be undefined).
       const lines = await ctx.db
         .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", args.draftId))
+        .withIndex("by_outlet_transaction", (q) =>
+          q.eq("outlet_id", draft.outlet_id).eq("transaction_id", args.draftId),
+        )
         .collect();
       for (const l of lines) await ctx.db.delete(l._id);
       await ctx.db.delete(args.draftId);

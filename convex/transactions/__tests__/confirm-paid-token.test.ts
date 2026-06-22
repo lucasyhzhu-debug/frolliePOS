@@ -3,6 +3,7 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { describe, it, expect } from "vitest";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+import { seedDefaultOutlet } from "./_helpers";
 
 // v1.0.1: _confirmPaid now schedules sendTxnTicker; stub Telegram + drain to
 // avoid "Write outside of transaction" errors from the pending scheduled action.
@@ -11,6 +12,8 @@ setupTelegramStub();
 describe("_confirmPaid_internal mints receipt_token", () => {
   it("a confirmed paid txn has a 43-char base64url receipt_token", async () => {
     const t = convexTest(schema);
+    // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
+    await seedDefaultOutlet(t);
     const { txnId } = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
         code: "S-CP", name: "X", role: "staff", active: true,
@@ -42,6 +45,8 @@ describe("_confirmPaid_internal mints receipt_token", () => {
 
   it("re-fire after paid is a no-op — receipt_token stays stable", async () => {
     const t = convexTest(schema);
+    // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
+    await seedDefaultOutlet(t);
     const { txnId } = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
         code: "S-RF", name: "R", role: "staff", active: true,

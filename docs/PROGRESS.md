@@ -2801,7 +2801,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - Cross-business analytics / billing automation
 
 ### Backend (`convex/`)
-- 📋 **[v13-be-outlets-schema]** `outlets` + `staff_outlet_access` + `outlet_id` threading — new tenancy tables; thread `outlet_id` across the ~23 operational tables with `by_outlet_*` indexes leading with `outlet_id`
+- ✅ **[v13-be-outlets-schema]** `outlets` + `staff_outlet_access` + `outlet_id` threading — new tenancy tables; thread `outlet_id` across the ~23 operational tables with `by_outlet_*` indexes leading with `outlet_id` (ae84b7c)
   - **agent:** `convex-expert`
   - **deps:** `none`
   - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
@@ -2809,11 +2809,11 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
     - [ ] `outlets` table (code/name/address/geo/timezone/active) + `staff_outlet_access` join
     - [ ] `outlet_id` + `by_outlet_*` indexes on all operational tables
     - [ ] Per-outlet `pos_settings` / `pos_recount_state` / `pos_receipt_counters` (`R-<code>-YYYY-NNNN`)
-- 📋 **[v13-be-outlet-scoping]** session-derived outlet scoping — `requireSession` returns `outlet_id`; `withOutletScope` helper; index-leads-with-`outlet_id` ESLint fence
+- ✅ **[v13-be-outlet-scoping]** session-derived outlet scoping — `requireSession` returns `outlet_id`; `withOutletScope` helper; index-leads-with-`outlet_id` ESLint fence (10708b2)
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlets-schema`
   - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
-- 📋 **[v13-be-device-binding]** post-activation manager-PIN device→outlet assign (`assignDeviceOutlet`; devices activate unbound — OQ4); all 3 session writers stamp `outlet_id`; **retire `outlet_device_id`**
+- ✅ **[v13-be-device-binding]** post-activation manager-PIN device→outlet assign (`assignDeviceOutlet`; devices activate unbound — OQ4); all 3 session writers stamp `outlet_id`; **retire `outlet_device_id`** (da22a94)
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlets-schema`
   - **docs:** [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
@@ -2835,7 +2835,7 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
     - 2026-06-22: Spec→staffreview→plan→staffreview pipeline complete (worktree branch). Plan = 13 TDD tasks (T1 `telegramChats.outlet_id`+`by_role_outlet` · T2 `KNOWN_TELEGRAM_ROLES` owners-recast+`ROLE_SCOPE`+alias · T3 `getChatIdByRoleAndOutlet` · T4 `resolveOutletChatId` helper+`sendTemplate` scope dispatch+`managers_daily_summary` kind · T5 class-a callsite sweep · T6 class-b `chatIdOverride` sweep · T7 owners rollup+per-outlet managers summary+cron rename · T8 `system_error` outlet label · T9 mgr* outlet binding · T10 FE outlet picker · T11 `/activatepos` multi-managers gate · T12 backfill · T13 docs). 6 open Qs + 3 grounding catches resolved at the two gates. **⛔ BLOCKED-ON-SPEC-1 EXECUTION** — threads `outlet_id` everywhere; requires 2 Spec-1 amendments: keep `telegramChats` in the outlet-fence EXCLUSION list (its `by_role_outlet` leads with `role`) + add `outlets.internal._listActiveOutlets_internal`. Decisions: signoff→per-outlet managers; recount stays managers (code, not spec table); single-outlet fallback kept; owners summary = business rollup + per-outlet `managers_daily_summary` (both); `/activatepos` device pre-assign DROPPED (honor Spec-1 OQ4 — manager-assign only); owners-as-booth-manager + cockpit binding surface → recorded as Spec-2/Spec-3 amendments. Top catch: `chatIdOverride` callsites bypass the OUTLET_REQUIRED safety net — each needs its own per-outlet test.
 
 ### Frontend (`src/`)
-- 📋 **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet
+- ✅ **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet (20baadf)
   - **agent:** `frontend-integrator`
   - **deps:** `v13-be-device-binding`
   - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
@@ -2859,10 +2859,13 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
   - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
 
 ### Cross-cutting
-- 📋 **[v13-xc-migration]** prod migration — additive `outlet_id` → backfill all rows to default outlet **"Frollie — Pakuwon"** → enforce; rationalize the `outlet_device_id` hotfix state; backfill existing Telegram chats onto the default outlet
+- 🔄 **[v13-xc-migration]** prod migration — additive `outlet_id` → backfill all rows to default outlet **"Frollie — Pakuwon"** → enforce; rationalize the `outlet_device_id` hotfix state; backfill existing Telegram chats onto the default outlet
   - **agent:** `—`
+  - **owner:** `claude (this session)`
   - **deps:** `v13-be-outlets-schema`, `v13-be-telegram-routing`
   - **docs:** [spec](./superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md), [plan](./superpowers/plans/2026-06-21-v2.0-multi-outlet-foundation.md)
+  - **notes:**
+    - 2026-06-22: Additive + backfill SHIPPED on this branch — `migrations` module (`seedDefaultOutlet` / `backfillOutletId` / `assertZeroNullOutletIds`, c7ac7d7). Staying in-progress because the bundle's other two parts are NOT done: (1) the **enforce** step (flip `outlet_id` required, drop subsumed indexes, `SESSION_NO_OUTLET`/`DEVICE_HAS_NO_OUTLET` throws) is a deferred follow-up PR — can only ship after prod backfill runs (handoff `.claude/handoff/execute_v2.0-multi-outlet-ENFORCE-followup.md`); (2) the Telegram-chat backfill belongs to sibling spec `v13-be-telegram-routing` (not in this program's scope yet). OWNER must run `npx convex run migrations/internal:seedDefaultOutlet` then `:backfillOutletId` after deploy.
 - 📋 **[v13-xc-adrs]** land ADR-051/052 + the 4 multi-outlet specs; ADR README index entries + CHANGELOG _(ADR-053 + SaaS control-plane spec are **deferred** future-roadmap artifacts — not part of this program)_
   - **agent:** `—`
   - **deps:** `none`

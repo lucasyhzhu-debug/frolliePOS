@@ -32,6 +32,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
       productId: v.id("pos_products"),
       qty: v.number(),
     })),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<boolean> => {
     if (args.lines.length === 0) return false;
@@ -39,7 +40,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
     const productIds = args.lines.map((l) => l.productId);
     const components = await ctx.runQuery(
       internal.catalog.internal._getComponentsForProducts_internal,
-      { productIds },
+      { productIds, outletId: args.outletId },
     );
 
     // Build per-SKU demand totals (multi-product-same-SKU safe)
@@ -59,7 +60,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
     }));
     const projected = await ctx.runQuery(
       internal.inventory.internal._projectedOnHand_internal,
-      { skuQtys },
+      { skuQtys, outletId: args.outletId },
     );
 
     for (const val of Object.values(projected)) {
@@ -70,20 +71,26 @@ export const _projectedNegStockFlag_internal = internalQuery({
 });
 
 /**
- * Atomic receipt-number allocator. Returns "R-{wibYear}-{NNNN}" where the
- * year is the WIB calendar year (UTC+7, no DST) — see staffreview Critical #2
- * + convex/lib/time.ts.
+ * Atomic receipt-number allocator. Returns "R-{code}-{year}-{NNNN}" where:
+ *   - code  = outlet.code (e.g. "PKW" for Pakuwon Mall)
+ *   - year  = WIB calendar year (UTC+7, no DST) — see staffreview Critical #2
+ *             + convex/lib/time.ts; computed by caller (_confirmPaid) and
+ *             threaded in so the allocator is pure (testable without real-time).
  *
- * Convex optimistic concurrency handles concurrent _confirmPaid calls in the
- * same year: one retries with the updated next_number.
+ * Counter is keyed by (outlet_id, year) via by_outlet_year index.
+ * Convex optimistic concurrency handles concurrent _confirmPaid calls:
+ * one retries with the updated next_number.
  */
 export const _allocateReceiptNumber_internal = internalMutation({
-  args: {},
-  handler: async (ctx): Promise<string> => {
-    const year = wibYear(Date.now());
+  args: { outletId: v.id("outlets"), year: v.number() },
+  handler: async (ctx, { outletId, year }): Promise<string> => {
+    const code = await ctx.runQuery(
+      internal.outlets.internal._requireOutletCode_internal,
+      { outletId },
+    );
     const counter = await ctx.db
       .query("pos_receipt_counters")
-      .withIndex("by_year", (q) => q.eq("year", year))
+      .withIndex("by_outlet_year", (q) => q.eq("outlet_id", outletId).eq("year", year))
       .first();
     let n: number;
     if (counter) {
@@ -91,9 +98,9 @@ export const _allocateReceiptNumber_internal = internalMutation({
       await ctx.db.patch(counter._id, { next_number: n + 1 });
     } else {
       n = 1;
-      await ctx.db.insert("pos_receipt_counters", { year, next_number: 2 });
+      await ctx.db.insert("pos_receipt_counters", { outlet_id: outletId, year, next_number: 2 });
     }
-    return `R-${year}-${String(n).padStart(4, "0")}`;
+    return `R-${code}-${year}-${String(n).padStart(4, "0")}`;
   },
 });
 
@@ -196,23 +203,29 @@ export const _confirmPaid_internal = internalMutation({
       return;
     }
 
-    // 1. Receipt number
+    // 1. Receipt number — resolve outlet (migration-tolerant: txn.outlet_id may be null)
+    const rawOutletId = txn.outlet_id
+      ?? (await ctx.runQuery(internal.outlets.internal._getDefaultOutlet_internal, {}))?._id;
+    if (!rawOutletId) throw new Error("NO_DEFAULT_OUTLET");
+    const year = wibYear(Date.now());
     const receiptNumber = await ctx.runMutation(
       internal.transactions.internal._allocateReceiptNumber_internal,
-      {},
+      { outletId: rawOutletId, year },
     );
 
-    // 2. Lines
+    // 2. Lines — v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lines = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
       .collect();
 
     // 3. Expand lines → SKU components via catalog internal API (ADR-034)
     const productIds = lines.map((l) => l.product_id);
     const components = await ctx.runQuery(
       internal.catalog.internal._getComponentsForProducts_internal,
-      { productIds },
+      { productIds, outletId: txn.outlet_id },
     );
 
     // Build movement entries (one per line × component) and per-SKU totals
@@ -238,7 +251,7 @@ export const _confirmPaid_internal = internalMutation({
 
     // 4. Record movements (paid-only decrement, ADR-026 dedup)
     await ctx.runMutation(internal.inventory.internal._recordSaleMovement_internal, {
-      transactionId: args.txnId, lines: movementLines,
+      transactionId: args.txnId, lines: movementLines, outlet_id: txn.outlet_id,
     });
 
     // 5. Re-check NEG_STOCK after decrement — read current on_hand via inventory internal API
@@ -247,7 +260,7 @@ export const _confirmPaid_internal = internalMutation({
       const skuIds = Object.keys(perSku).map((k) => k as Id<"pos_inventory_skus">);
       const onHandMap = await ctx.runQuery(
         internal.inventory.internal._getOnHandBySkus_internal,
-        { skuIds },
+        { skuIds, outletId: txn.outlet_id },
       );
       for (const onHand of Object.values(onHandMap)) {
         if (onHand < 0) {
@@ -335,20 +348,22 @@ export const _confirmPaid_internal = internalMutation({
  * counts as flagged for manager review.
  */
 export const _dailySalesSummary_internal = internalQuery({
-  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.optional(v.id("outlets")) },
   handler: async (
     ctx,
     args,
   ): Promise<{ totalSalesIdr: number; txnCount: number; flaggedCount: number }> => {
-    // by_status_paid_at indexes paid rows by the timestamp the summary cares
+    // by_outlet_status_paid_at indexes paid rows by the timestamp the summary cares
     // about (paid_at). Earlier versions used by_status_created with a 1h
     // backstop, which silently dropped cross-midnight late-paid sales (cart
     // opened day N, paid >1h into day N+1). paid_at is server-set inside
     // _confirmPaid (ADR-031), so for status="paid" rows it is always present.
+    // v2.0: always use the outlet-scoped index (window-tolerant: outletId may be undefined).
     const paid = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_paid_at", (q) =>
+      .withIndex("by_outlet_status_paid_at", (q) =>
         q
+          .eq("outlet_id", args.outletId)
           .eq("status", "paid")
           .gte("paid_at", args.dayStartMs)
           .lt("paid_at", args.dayEndMs),
@@ -428,9 +443,12 @@ export const _getPaidTxnWithLinesForReceipt_internal = internalQuery({
     const txn = await ctx.db.get(args.transactionId);
     if (!txn) return null;
     if (txn.status !== "paid") return null;
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lines = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.transactionId),
+      )
       .collect();
     return { txn, lines };
   },
@@ -457,9 +475,12 @@ export const _getPaidTxnWithLinesByToken_internal = internalQuery({
       .first();
     if (!txn) return null;
     if (txn.status !== "paid") return null;
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lines = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", txn._id))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", txn._id),
+      )
       .collect();
     return { txn, lines };
   },
@@ -563,12 +584,13 @@ export const _cancelCommit_internal = internalMutation({
  * refunds/public routes here rather than querying directly.
  */
 export const _listPaidTxnsSince_internal = internalQuery({
-  args: { sinceMs: v.number() },
+  args: { sinceMs: v.number(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
+    // v2.0: always use the outlet-scoped index (window-tolerant: outletId may be undefined).
     return await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_paid_at", (q) =>
-        q.eq("status", "paid").gte("paid_at", args.sinceMs),
+      .withIndex("by_outlet_status_paid_at", (q) =>
+        q.eq("outlet_id", args.outletId).eq("status", "paid").gte("paid_at", args.sinceMs),
       )
       .order("desc")
       .collect();
@@ -595,16 +617,21 @@ export const _listPaidTxnsSince_internal = internalQuery({
  * day window to pass.
  */
 export const _fetchDayWindow_internal = internalQuery({
-  args: { dayStartMs: v.number(), dayEndMs: v.number() },
+  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args): Promise<DayTxn[]> => {
     // Window by paid_at (not created_at) so cross-midnight late confirmations
     // land in the day they paid, matching _dailySalesSummary_internal (founders
     // shift-summary). created_at would silently drop carts opened on day N and
     // paid past midnight on day N+1.
+    // v2.0: always use the outlet-scoped index (window-tolerant: outletId may be undefined).
     const txns = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_paid_at", (q) =>
-        q.eq("status", "paid").gte("paid_at", args.dayStartMs).lt("paid_at", args.dayEndMs),
+      .withIndex("by_outlet_status_paid_at", (q) =>
+        q
+          .eq("outlet_id", args.outletId)
+          .eq("status", "paid")
+          .gte("paid_at", args.dayStartMs)
+          .lt("paid_at", args.dayEndMs),
       )
       .order("desc")
       .collect();
@@ -622,17 +649,20 @@ export const _fetchDayWindow_internal = internalQuery({
       // instrumentFromInvoice normaliser (v0.5.3a consolidation — the previous
       // _instrumentForTxn_internal was identical SQL).
       const [lines, refundRows, invoice] = await Promise.all([
+        // v2.0: always use outlet-scoped index (window-tolerant: t.outlet_id may be undefined).
         ctx.db
           .query("pos_transaction_lines")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+          .withIndex("by_outlet_transaction", (q) =>
+            q.eq("outlet_id", t.outlet_id).eq("transaction_id", t._id),
+          )
           .collect(),
         ctx.runQuery(
           internal.refunds.internal._listForTransaction_internal,
-          { transactionId: t._id },
+          { transactionId: t._id, outletId: t.outlet_id },
         ),
         ctx.runQuery(
           internal.payments.internal._getPaidInvoiceForTxn_internal,
-          { transactionId: t._id },
+          { transactionId: t._id, outletId: t.outlet_id },
         ),
       ]);
       const refundsTotal = refundRows.reduce((s, r) => s + r.total_refund, 0);
@@ -745,9 +775,12 @@ export const _getTxnById_internal = internalQuery({
   ): Promise<(Doc<"pos_transactions"> & { lines: Doc<"pos_transaction_lines">[] }) | null> => {
     const txn = await ctx.db.get(args.txnId);
     if (!txn) return null;
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lines = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
       .collect();
     return { ...txn, lines };
   },
@@ -770,13 +803,17 @@ export const _getTxnForTicker_internal = internalQuery({
     paid_at: number;
     staff_id: Id<"staff">;
     confirmed_via: "webhook" | "polling" | "manual" | "manual_bca" | null;
+    outlet_id: Id<"outlets"> | undefined;
     lines: Array<{ name: string; qty: number }>;
   } | null> => {
     const txn = await ctx.db.get(args.txnId);
     if (!txn || txn.status !== "paid") return null;
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const lineRows = await ctx.db
       .query("pos_transaction_lines")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
       .collect();
     return {
       receipt_number: txn.receipt_number ?? "—",
@@ -786,6 +823,7 @@ export const _getTxnForTicker_internal = internalQuery({
       paid_at: txn.paid_at!,
       staff_id: txn.staff_id,
       confirmed_via: txn.confirmed_via ?? null,
+      outlet_id: txn.outlet_id,
       lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
     };
   },
@@ -826,6 +864,7 @@ export const _manualBcaReconciliation_internal = internalQuery({
   args: {
     dayStartMs: v.number(),
     dayEndMs: v.number(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (
     ctx,
@@ -844,10 +883,12 @@ export const _manualBcaReconciliation_internal = internalQuery({
     //    paid_at is guaranteed present for status="paid" rows (_confirmPaid
     //    sets it server-side, ADR-031) — the bang assertions below are
     //    invariant-backed, not defensive.
+    // v2.0: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const paid = await ctx.db
       .query("pos_transactions")
-      .withIndex("by_status_paid_at", (q) =>
+      .withIndex("by_outlet_status_paid_at", (q) =>
         q
+          .eq("outlet_id", args.outletId)
           .eq("status", "paid")
           .gte("paid_at", args.dayStartMs)
           .lt("paid_at", args.dayEndMs),
@@ -1013,6 +1054,7 @@ export const _listPaidTxnsForApi_internal = internalQuery({
     // _creationTime is the implicit tiebreak; rows at the exact watermark ms
     // are filtered by (paidAt, _creationTime) > cursor in strictlyAfter below.
     // toMs (exclusive) is bounded at the index so over-fetch stays in-window.
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- Public API feed is intentionally cross-outlet (business-level sync to Frollie Pro)
     const candidates = await ctx.db
       .query("pos_transactions")
       .withIndex("by_status_paid_at", (q) => {
@@ -1052,9 +1094,12 @@ export const _listPaidTxnsForApi_internal = internalQuery({
 
     const rows: ApiTxnRow[] = [];
     for (const t of page) {
+      // v2.0: always use outlet-scoped index (window-tolerant: t.outlet_id may be undefined).
       const lines = await ctx.db
         .query("pos_transaction_lines")
-        .withIndex("by_transaction", (q) => q.eq("transaction_id", t._id))
+        .withIndex("by_outlet_transaction", (q) =>
+          q.eq("outlet_id", t.outlet_id).eq("transaction_id", t._id),
+        )
         .collect();
 
       const staffCode = codeByStaffId.get(String(t.staff_id));

@@ -34,6 +34,7 @@ async function buildVmFromTxnWithLines(
       voucher_discount: number;
       total: number;
       confirmed_via?: "webhook" | "polling" | "manual" | "manual_bca";
+      outlet_id?: import("../_generated/dataModel").Id<"outlets">;
     };
     lines: Array<{
       product_name_snapshot: string;
@@ -87,11 +88,14 @@ async function buildVmFromTxnWithLines(
   );
 
   // v0.5.3b T13: read branding from pos_settings (formerly a hardcoded const).
+  // v2.0 Task 5: pass the txn's outlet_id so receipt branding is per-outlet.
   // One extra single-row read on the cache-MISS render path only — negligible
   // (the 24h pos_receipt_html_cache covers most /r/<token> hits). Defaults in
   // settings/internal.RECEIPT_DEFAULTS are byte-identical to the pre-v0.5.3b
   // hardcoded strings so receipt-shape tests are unaffected.
-  const s = await ctx.runQuery(internal.settings.internal._getSettings_internal, {});
+  const s = await ctx.runQuery(internal.settings.internal._getSettings_internal, {
+    outletId: txn.outlet_id,
+  });
   let logo_url = s.receipt.logo_storage_id
     ? await ctx.storage.getUrl(s.receipt.logo_storage_id)
     : null;

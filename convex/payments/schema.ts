@@ -20,7 +20,9 @@ export const paymentsTables = {
     cancelled_at: v.optional(v.number()),
     cancelled_reason: v.optional(v.string()),
     replaced_by_invoice_id: v.optional(v.id("pos_xendit_invoices")),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     .index("by_transaction", ["transaction_id"])
-    .index("by_xendit_invoice_id", ["xendit_invoice_id"]),  // webhook dedup
+    .index("by_xendit_invoice_id", ["xendit_invoice_id"])  // webhook dedup (GLOBAL_UNIQUE — keep)
+    .index("by_outlet_transaction", ["outlet_id", "transaction_id"]),
 };

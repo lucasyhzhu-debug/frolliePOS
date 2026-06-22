@@ -115,14 +115,17 @@ export const _sendSignoffSummary = internalAction({
     manualBcaCount: v.number(),
     manualBcaTotalIdr: v.number(),
     idempotencyKeySuffix: v.string(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<void> => {
     // Resolve staff display name and fetch manual-BCA items in parallel.
+    // v2.0 Stream 5: pass outletId so the BCA tally is outlet-scoped.
     const [staffNames, manualBca] = await Promise.all([
       ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
       ctx.runQuery(internal.transactions.internal._manualBcaReconciliation_internal, {
         dayStartMs: args.shiftStartMs,
         dayEndMs: args.shiftEndMs,
+        outletId: args.outletId,
       }),
     ]);
     const staffName = resolveStaffName(staffNames, args.staffId);
@@ -172,20 +175,24 @@ export const _sendTakeoverSummary = internalAction({
     displacedShiftStartMs: v.number(),
     displacedShiftEndMs: v.number(),
     idempotencyKeySuffix: v.string(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<void> => {
     // Resolve displaced staff name + build sales aggregate in parallel.
     // The window was pre-computed from the lock event in the mutation, so it
     // correctly spans [displaced-staff-shift-start, lock-time].
+    // v2.0 Stream 5: pass outletId so the aggregates are outlet-scoped.
     const [staffNames, sales, manualBca] = await Promise.all([
       ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
       ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
         dayStartMs: args.displacedShiftStartMs,
         dayEndMs: args.displacedShiftEndMs,
+        outletId: args.outletId,
       }),
       ctx.runQuery(internal.transactions.internal._manualBcaReconciliation_internal, {
         dayStartMs: args.displacedShiftStartMs,
         dayEndMs: args.displacedShiftEndMs,
+        outletId: args.outletId,
       }),
     ]);
     // Displaced staff name (may be null if no one was on shift).

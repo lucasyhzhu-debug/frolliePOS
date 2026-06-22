@@ -22,10 +22,12 @@ export const opsTables = {
     signature: v.string(),         // pure hash(kind + route + normalized message)
     alerted: v.boolean(),          // did this row trigger a Telegram send?
     created_at: v.number(),        // server time (ADR-031)
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional (system/cron errors have no outlet)
   })
-    .index("by_signature_created", ["signature", "created_at"])
+    .index("by_signature_created", ["signature", "created_at"])  // GLOBAL_UNIQUE (dedup is business-wide) — keep
     .index("by_created", ["created_at"])
     // Storm-cap lookup: newest alerted row. Composite avoids scanning the
     // (potentially large) prefix of suppressed alerted:false rows during a storm.
-    .index("by_alerted_created", ["alerted", "created_at"]),
+    .index("by_alerted_created", ["alerted", "created_at"])
+    .index("by_outlet_created", ["outlet_id", "created_at"]),
 };

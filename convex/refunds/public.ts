@@ -21,11 +21,11 @@ import { wibDayWindow } from "../lib/time";
 export const listTodaysRefundable = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
-    await requireSession(ctx, args.sessionId);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
     const { dayStartMs } = wibDayWindow(Date.now());
     return await ctx.runQuery(
       internal.transactions.internal._listPaidTxnsSince_internal,
-      { sinceMs: dayStartMs },
+      { sinceMs: dayStartMs, outletId: outlet_id },
     );
   },
 });
@@ -277,11 +277,12 @@ export const listPendingSettlement = query({
       created_at: number;
     }>
   > => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+    // v2.0: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
     const rows = await ctx.db
       .query("pos_refunds")
-      .withIndex("by_settlement_status", (q) =>
-        q.eq("settlement_status", "pending"),
+      .withIndex("by_outlet_settlement_status", (q) =>
+        q.eq("outlet_id", outlet_id).eq("settlement_status", "pending"),
       )
       .order("asc")
       .take(200);

@@ -40,26 +40,37 @@ const shiftEventFields = {
 };
 
 export const _latestShiftEvent_internal = internalQuery({
-  args: { deviceId: v.string() },
-  handler: async (ctx, { deviceId }) =>
-    ctx.db
+  args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, { deviceId, outletId }) => {
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+    return ctx.db
       .query("pos_shift_events")
-      .withIndex("by_device_created", (q) => q.eq("device_id", deviceId))
+      .withIndex("by_outlet_device_created", (q) =>
+        q.eq("outlet_id", outletId).eq("device_id", deviceId),
+      )
       .order("desc")
-      .first(),
+      .first();
+  },
 });
 
 export const _recordShiftEvent_internal = internalMutation({
-  args: shiftEventFields,
-  handler: async (ctx, args) =>
-    ctx.db.insert("pos_shift_events", { ...args, created_at: Date.now() }),
+  args: { ...shiftEventFields, outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, args) => {
+    const { outletId, ...fields } = args;
+    return ctx.db.insert("pos_shift_events", {
+      ...fields,
+      created_at: Date.now(),
+      // v2.0 Stream 5: stamp outlet_id when provided.
+      ...(outletId !== undefined ? { outlet_id: outletId } : {}),
+    });
+  },
 });
 
 export const _shiftStartAnchor_internal = internalQuery({
-  args: { deviceId: v.string() },
+  args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (
     ctx,
-    { deviceId },
+    { deviceId, outletId },
   ): Promise<{ shift_started_at: number; staff_id: Id<"staff"> } | null> => {
     // C4: bound the scan to TODAY's WIB window instead of an arbitrary .take(50)
     // ceiling (a busy day could push the anchor past 50 rows → silent miss →
@@ -68,10 +79,11 @@ export const _shiftStartAnchor_internal = internalQuery({
     // lives within today's WIB day; a day's event count is small enough to
     // collect in full. Walk back to the most recent shift-START event.
     const { dayStartMs } = wibDayWindow(Date.now());
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const today = await ctx.db
       .query("pos_shift_events")
-      .withIndex("by_device_created", (q) =>
-        q.eq("device_id", deviceId).gte("created_at", dayStartMs),
+      .withIndex("by_outlet_device_created", (q) =>
+        q.eq("outlet_id", outletId).eq("device_id", deviceId).gte("created_at", dayStartMs),
       )
       .order("desc")
       .collect();
@@ -108,10 +120,11 @@ export const _buildSignoffSummary_internal = internalQuery({
   args: {
     shiftStartMs: v.number(),
     endMs: v.number(),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (
     ctx,
-    { shiftStartMs, endMs },
+    { shiftStartMs, endMs, outletId },
   ): Promise<{
     durationMs: number;
     totalSalesIdr: number;
@@ -119,14 +132,15 @@ export const _buildSignoffSummary_internal = internalQuery({
     manualBcaCount: number;
     manualBcaTotalIdr: number;
   }> => {
+    // v2.0 Stream 5: pass outletId so the aggregates are outlet-scoped.
     const [sales, manualBca] = await Promise.all([
       ctx.runQuery(
         internal.transactions.internal._dailySalesSummary_internal,
-        { dayStartMs: shiftStartMs, dayEndMs: endMs },
+        { dayStartMs: shiftStartMs, dayEndMs: endMs, outletId },
       ),
       ctx.runQuery(
         internal.transactions.internal._manualBcaReconciliation_internal,
-        { dayStartMs: shiftStartMs, dayEndMs: endMs },
+        { dayStartMs: shiftStartMs, dayEndMs: endMs, outletId },
       ),
     ]);
     return {
@@ -184,9 +198,26 @@ export const _commitManagerTakeover_internal = internalMutation({
       // takeover flow. It carries:
       //   lock.shift_started_at  = displaced staff's ORIGINAL shift start
       //   lock.shift_ended_at    = the moment the booth was locked
+      //
+      // v2.0 Stream 5: resolve outlet from device binding (window-tolerant).
+      // Route through auth._getDeviceOutletId_internal (ADR-034: registered_devices
+      // and outlets are owned by auth, not shifts).
+      // Keeps by_device_created as fallback when outletId is unavailable —
+      // noted for Task 12 (the by_outlet_device_created index is preferred).
+      // Normalize null → undefined: Convex query returns may infer nullable
+      // for optional fields; v.optional validators only accept undefined.
+      const outletIdRaw = await ctx.runQuery(
+        internal.auth.internal._getDeviceOutletId_internal,
+        { deviceId: args.deviceId },
+      );
+      const outletId = outletIdRaw ?? undefined;
+
+      // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
       const latestBeforeTakeover = await ctx.db
         .query("pos_shift_events")
-        .withIndex("by_device_created", (q) => q.eq("device_id", args.deviceId))
+        .withIndex("by_outlet_device_created", (q) =>
+          q.eq("outlet_id", outletId).eq("device_id", args.deviceId),
+        )
         .order("desc")
         .first();
 
@@ -219,6 +250,7 @@ export const _commitManagerTakeover_internal = internalMutation({
       // shift_started_at = now (fresh shift for the manager).
       // outgoing_uncounted: true — the displaced staff's count was never handed
       // over; Task 9 dispatches the deferred Founders summary.
+      // v2.0 Stream 5: stamp outlet_id resolved from device binding above.
       const eventId: Id<"pos_shift_events"> = await ctx.db.insert(
         "pos_shift_events",
         {
@@ -235,6 +267,7 @@ export const _commitManagerTakeover_internal = internalMutation({
           linked_event_id: null,
           summary: null,
           created_at: now,
+          ...(outletId !== undefined ? { outlet_id: outletId } : {}),
         },
       );
 
@@ -250,6 +283,7 @@ export const _commitManagerTakeover_internal = internalMutation({
       });
 
       // Schedule deferred Founders summary for the displaced staff (v1.2 #6).
+      // v2.0 Stream 5: pass outletId so the aggregates are outlet-scoped.
       await ctx.scheduler.runAfter(
         0,
         internal.shifts.actions._sendTakeoverSummary,
@@ -260,6 +294,7 @@ export const _commitManagerTakeover_internal = internalMutation({
           displacedShiftStartMs,
           displacedShiftEndMs,
           idempotencyKeySuffix: eventId,
+          outletId,
         },
       );
 

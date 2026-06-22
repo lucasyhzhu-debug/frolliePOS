@@ -62,9 +62,12 @@ export const approvalsTables = {
     notification_channel: v.optional(v.literal("telegram")),
     telegram_message_id: v.optional(v.number()),
     telegram_chat_id: v.optional(v.string()),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
-    .index("by_token_hash", ["token_hash"])
+    .index("by_token_hash", ["token_hash"])  // GLOBAL_UNIQUE — keep
     .index("by_status_triggered", ["status", "triggered_at"])
     .index("by_subject_staff", ["subject_staff_id"])
-    .index("by_kind_status", ["kind", "status"]),   // NEW in v0.4
+    .index("by_kind_status", ["kind", "status"])   // NEW in v0.4
+    .index("by_outlet_status_triggered", ["outlet_id", "status", "triggered_at"])
+    .index("by_outlet_kind_status", ["outlet_id", "kind", "status"]),
 };

@@ -40,7 +40,9 @@ export const shiftsTables = {
       v.null(),
     ),
     created_at: v.number(),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     .index("by_device_created", ["device_id", "created_at"])
-    .index("by_staff_started", ["staff_id", "shift_started_at"]),
+    .index("by_staff_started", ["staff_id", "shift_started_at"])
+    .index("by_outlet_device_created", ["outlet_id", "device_id", "created_at"]),
 };

@@ -1,3 +1,17 @@
+/**
+ * Outlet-device binding tests (v2.0 Task 10).
+ *
+ * PR#124 hotfix (outletStatus / setOutletDevice / pos_settings.outlet_device_id)
+ * has been retired. The v2.0 approach binds devices via registered_devices.outlet_id
+ * (set by staff.actions.assignDeviceOutlet) and exposes the outlet gate via
+ * auth.public.isDeviceOutlet (migration-tolerant during Task 10 window).
+ *
+ * These tests verify:
+ *   - isDeviceOutlet returns false for unregistered/inactive devices
+ *   - isDeviceOutlet returns true for registered, active devices (migration window:
+ *     every registered device is an outlet until Task 12 enforces hard binding)
+ *   - listRegisteredDevices no longer returns outletDeviceId
+ */
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import schema from "../../schema";
@@ -19,85 +33,44 @@ async function seedDevice(
   );
 }
 
-test("outletStatus defaults to every-device-is-outlet when none designated", async () => {
+test("isDeviceOutlet returns false for an unknown device", async () => {
   const t = convexTest(schema);
-  const s = await t.query(api.settings.public.outletStatus, { deviceId: "anything" });
-  expect(s.outletDeviceId).toBeNull();
-  expect(s.isOutlet).toBe(true); // backward compat — no outlet set
+  const result = await t.query(api.auth.public.isDeviceOutlet, { deviceId: "ghost" });
+  expect(result).toBe(false);
 });
 
-test("setOutletDevice designates the outlet; viewers report isOutlet=false", async () => {
+test("isDeviceOutlet returns true for a registered, active device (migration window: unbound = outlet)", async () => {
   const t = convexTest(schema);
-  const { sessionId } = await seedManagerSession(t);
   await seedDevice(t, "booth-phone", "Booth phone");
-
-  await t.mutation(api.staff.public.setOutletDevice, {
-    idempotencyKey: "k-set",
-    sessionId,
-    deviceId: "booth-phone",
-  });
-
-  // The outlet device sees isOutlet=true...
-  const outlet = await t.query(api.settings.public.outletStatus, {
-    deviceId: "booth-phone",
-  });
-  expect(outlet.outletDeviceId).toBe("booth-phone");
-  expect(outlet.isOutlet).toBe(true);
-
-  // ...a viewer (manager's PC) sees isOutlet=false.
-  const viewer = await t.query(api.settings.public.outletStatus, {
-    deviceId: "managers-pc",
-  });
-  expect(viewer.outletDeviceId).toBe("booth-phone");
-  expect(viewer.isOutlet).toBe(false);
+  const result = await t.query(api.auth.public.isDeviceOutlet, { deviceId: "booth-phone" });
+  expect(result).toBe(true);
 });
 
-test("setOutletDevice rejects an unregistered device", async () => {
+test("isDeviceOutlet returns false for a deactivated device", async () => {
   const t = convexTest(schema);
-  const { sessionId } = await seedManagerSession(t);
-  await expect(
-    t.mutation(api.staff.public.setOutletDevice, {
-      idempotencyKey: "k-bad",
-      sessionId,
-      deviceId: "ghost-device",
+  await t.run((ctx) =>
+    ctx.db.insert("registered_devices", {
+      device_id: "stale-tablet",
+      label: "Stale tablet",
+      activated_at: Date.now() - 1_000_000,
+      active: false,
     }),
-  ).rejects.toThrow(/DEVICE_NOT_REGISTERED/);
+  );
+  const result = await t.query(api.auth.public.isDeviceOutlet, { deviceId: "stale-tablet" });
+  expect(result).toBe(false);
 });
 
-test("setOutletDevice(null) clears the designation", async () => {
-  const t = convexTest(schema);
-  const { sessionId } = await seedManagerSession(t);
-  await seedDevice(t, "booth-phone", "Booth phone");
-  await t.mutation(api.staff.public.setOutletDevice, {
-    idempotencyKey: "k1",
-    sessionId,
-    deviceId: "booth-phone",
-  });
-  await t.mutation(api.staff.public.setOutletDevice, {
-    idempotencyKey: "k2",
-    sessionId,
-    deviceId: null,
-  });
-  const s = await t.query(api.settings.public.outletStatus, { deviceId: "x" });
-  expect(s.outletDeviceId).toBeNull();
-  expect(s.isOutlet).toBe(true);
-});
-
-test("listRegisteredDevices returns active devices + the current outlet id", async () => {
+test("listRegisteredDevices returns devices without outletDeviceId (PR#124 field retired)", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedManagerSession(t);
   await seedDevice(t, "booth-phone", "Booth phone");
   await seedDevice(t, "managers-pc", "Manager PC");
-  await t.mutation(api.staff.public.setOutletDevice, {
-    idempotencyKey: "k-set",
-    sessionId,
-    deviceId: "booth-phone",
-  });
 
   const res = await t.query(api.staff.public.listRegisteredDevices, { sessionId });
-  expect(res.outletDeviceId).toBe("booth-phone");
-  expect(res.devices.map((d) => d.device_id).sort()).toEqual([
+  expect(res.devices.map((d: { device_id: string }) => d.device_id).sort()).toEqual([
     "booth-phone",
     "managers-pc",
   ]);
+  // outletDeviceId is retired — v2.0 uses registered_devices.outlet_id instead.
+  expect((res as Record<string, unknown>).outletDeviceId).toBeUndefined();
 });

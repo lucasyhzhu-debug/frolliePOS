@@ -4,7 +4,8 @@ import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
-import { requireManagerSession } from "./sessions";
+import { requireManagerSession, resolveDeviceOutletId } from "./sessions";
+import { resolveDefaultOutletId } from "../outlets/internal";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -271,18 +272,26 @@ export const _loginCommit_internal = internalMutation({
         await ctx.db.patch(attempt._id, { fail_count: 0, locked_until: null, last_attempt_at: now });
       }
 
+      // v2.0 Task 7 (C2): resolve outlet from device binding (window-tolerant).
+      // Throws/access-deny deferred to Task 12 (lives in resolveDeviceOutletId).
+      // Falls back to the default outlet when the device is unbound so ALL
+      // logins succeed during the migration window.
+      const outletId = await resolveDeviceOutletId(ctx, args.deviceId);
+
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: args.staffId,
         device_id: args.deviceId,
         started_at: now,
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       });
       await ctx.db.patch(args.staffId, { last_login_at: now });
       await logAudit(ctx, {
         actor_id: args.staffId, action: "staff.login",
         entity_type: "staff_session", entity_id: sessionId,
         source: "booth_inline", device_id: args.deviceId,
+        metadata: { outlet_id: outletId },
       });
 
       return { sessionId, role: staff.role };
@@ -327,12 +336,15 @@ export const _resolveSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string } | null> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    return { staffId: session.staff_id, deviceId: session.device_id };
+    // v2.0 Task 5: mirror requireSession outlet resolution (migration-tolerant window).
+    const outlet_id =
+      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
+    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id };
   },
 });
 
@@ -352,12 +364,21 @@ export const _resolveSessionRole_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" } | null> => {
+  ): Promise<{
+    staffId: Id<"staff">;
+    deviceId: string;
+    role: "staff" | "manager";
+    outlet_id: Id<"outlets"> | undefined;
+  } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role };
+    // v2.0: surface outlet_id (window-tolerant) so callers needing role+outlet
+    // resolve the session ONCE instead of pairing this with _resolveSession_internal.
+    const outlet_id =
+      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id };
   },
 });
 
@@ -476,7 +497,7 @@ export const _requireManagerSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string }> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> => {
     return await requireManagerSession(ctx, args.sessionId);
   },
 });
@@ -595,13 +616,19 @@ export const _managerTakeoverSession_internal = internalMutation({
   ): Promise<{ sessionId: Id<"staff_sessions">; displacedStaffId: Id<"staff"> | null }> => {
     const now = Date.now();
 
-    // Step 1: Force-end all active sessions for the device.
+    // Step 1: Resolve outlet from device binding (window-tolerant, mirrors _loginCommit_internal).
+    // Must come BEFORE the session query so we can use by_outlet_device_active.
+    // No throw/access-assert — deferred to Task 12 (lives in resolveDeviceOutletId).
+    const outletId = await resolveDeviceOutletId(ctx, args.deviceId);
+
+    // Step 2: Force-end all active sessions for the device.
     // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
-    // collect via index then check in JS (by_device_active narrows on device_id).
+    // collect via index then check in JS (by_outlet_device_active narrows on outlet+device).
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const activeSessions = await ctx.db
       .query("staff_sessions")
-      .withIndex("by_device_active", (q) =>
-        q.eq("device_id", args.deviceId).eq("ended_at", null),
+      .withIndex("by_outlet_device_active", (q) =>
+        q.eq("outlet_id", outletId).eq("device_id", args.deviceId).eq("ended_at", null),
       )
       .collect();
     const displacedStaffId: Id<"staff"> | null = activeSessions[0]?.staff_id ?? null;
@@ -609,16 +636,17 @@ export const _managerTakeoverSession_internal = internalMutation({
       await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
     }
 
-    // Step 2: Create new manager session (mirrors _loginCommit_internal shape).
+    // Step 3: Create new manager session (mirrors _loginCommit_internal shape).
     const sessionId: Id<"staff_sessions"> = await ctx.db.insert("staff_sessions", {
       staff_id: args.managerStaffId,
       device_id: args.deviceId,
       started_at: now,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     });
 
-    // Step 3: Record last_login_at + staff.login audit (parity with _loginCommit_internal).
+    // Step 4: Record last_login_at + staff.login audit (parity with _loginCommit_internal).
     await ctx.db.patch(args.managerStaffId, { last_login_at: now });
     await logAudit(ctx, {
       actor_id: args.managerStaffId,
@@ -627,8 +655,148 @@ export const _managerTakeoverSession_internal = internalMutation({
       entity_id: sessionId,
       source: "booth_inline",
       device_id: args.deviceId,
+      metadata: { outlet_id: outletId }, // parity with _loginCommit_internal (audit outlet context where a session exists)
     });
 
     return { sessionId, displacedStaffId };
+  },
+});
+
+/**
+ * Resolve the outlet bound to a device (window-tolerant).
+ *
+ * v2.0 Stream 5 helper for cross-module callers (e.g. shifts) that need the
+ * device's outlet_id without crossing ADR-034 module boundaries. Falls back to
+ * the first active outlet when the device has no binding yet.
+ *
+ * auth owns `registered_devices` and `outlets` (Decision 3), so this lives here.
+ */
+export const _getDeviceOutletId_internal = internalQuery({
+  args: { deviceId: v.string() },
+  handler: async (
+    ctx,
+    { deviceId },
+  ): Promise<import("../_generated/dataModel").Id<"outlets"> | undefined> =>
+    resolveDeviceOutletId(ctx, deviceId),
+});
+
+// ---------------------------------------------------------------------------
+// v2.0 Task 6: staff_outlet_access read helpers
+// auth owns the staff_outlet_access table (Decision 3) so these live here.
+// ---------------------------------------------------------------------------
+
+/**
+ * List all active staff with an access row for a given outlet.
+ * Uses the by_outlet index to bound the scan, then fetches each staff doc
+ * and filters to active only. Inactive staff with a row are skipped — their
+ * access row is not deleted on deactivation (cheap, auditable, reversible).
+ */
+export const _listStaffForOutlet_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, { outletId }) => {
+    const access = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_outlet", (q) => q.eq("outlet_id", outletId))
+      .collect();
+    const staff = await Promise.all(access.map((a) => ctx.db.get(a.staff_id)));
+    return staff.filter((s): s is NonNullable<typeof s> => !!s && s.active);
+  },
+});
+
+/**
+ * Assert that a staff member has a `staff_outlet_access` row for the given outlet.
+ * Throws `NO_OUTLET_ACCESS` if no row is found — callers gate multi-outlet
+ * operations on this check so an unassigned staff member cannot act on an outlet.
+ */
+export const _assertStaffHasOutletAccess_internal = internalQuery({
+  args: { staffId: v.id("staff"), outletId: v.id("outlets") },
+  handler: async (ctx, { staffId, outletId }) => {
+    const row = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) => q.eq("staff_id", staffId).eq("outlet_id", outletId))
+      .first();
+    if (!row) throw new Error("NO_OUTLET_ACCESS");
+    return true;
+  },
+});
+
+/**
+ * Grant a staff member access to an outlet. Idempotent — if a row for the
+ * (staff_id, outlet_id) pair already exists, it is returned unchanged (no
+ * duplicate insert). Logs `staff.grantOutletAccess` for audit.
+ *
+ * Called by staff.actions.grantOutletAccess (manager-PIN action).
+ */
+export const _grantOutletAccess_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    outletId: v.id("outlets"),
+    grantedBy: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ accessId: Id<"staff_outlet_access">; created: boolean }> => {
+    // Idempotent: check if a row already exists before inserting.
+    const existing = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) =>
+        q.eq("staff_id", args.staffId).eq("outlet_id", args.outletId),
+      )
+      .first();
+    if (existing) {
+      return { accessId: existing._id, created: false };
+    }
+    const accessId = await ctx.db.insert("staff_outlet_access", {
+      staff_id: args.staffId,
+      outlet_id: args.outletId,
+      granted_at: Date.now(),
+      granted_by: args.grantedBy,
+    });
+    await logAudit(ctx, {
+      actor_id: args.grantedBy,
+      action: "staff.grantOutletAccess",
+      entity_type: "staff",
+      entity_id: args.staffId,
+      source: "booth_inline",
+      device_id: args.deviceId,
+      metadata: { outlet_id: args.outletId },
+    });
+    return { accessId, created: true };
+  },
+});
+
+/**
+ * Revoke a staff member's access to an outlet. Idempotent — if no row exists,
+ * no-ops silently. Logs `staff.revokeOutletAccess` only when a row is deleted.
+ *
+ * Called by staff.actions.revokeOutletAccess (manager-PIN action).
+ */
+export const _revokeOutletAccess_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    outletId: v.id("outlets"),
+    revokedBy: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ deleted: boolean }> => {
+    const existing = await ctx.db
+      .query("staff_outlet_access")
+      .withIndex("by_staff_outlet", (q) =>
+        q.eq("staff_id", args.staffId).eq("outlet_id", args.outletId),
+      )
+      .first();
+    if (!existing) {
+      return { deleted: false };
+    }
+    await ctx.db.delete(existing._id);
+    await logAudit(ctx, {
+      actor_id: args.revokedBy,
+      action: "staff.revokeOutletAccess",
+      entity_type: "staff",
+      entity_id: args.staffId,
+      source: "booth_inline",
+      device_id: args.deviceId,
+      metadata: { outlet_id: args.outletId },
+    });
+    return { deleted: true };
   },
 });

@@ -109,9 +109,68 @@ For manager-only mutations, replace both `requireSession` calls with `requireMan
 
 It does **not** enforce the inline re-call (too hard to lint statically), but code review catches omissions because the handler won't compile without the session object.
 
+## v2.0 outlet-prefix extension
+
+As of v2.0 (Stream 5, Task 9F), idempotency keys are **outlet-prefixed** when a
+session has an outlet:
+
+```
+"${outlet_id}:${intent}:${uuid}"
+```
+
+Pre-login or window sessions use the legacy format `"${intent}:${uuid}"` (no prefix),
+which remains backward compatible.
+
+### FE side
+
+`useIdempotency(intent, outletId?)` accepts an optional second argument. Pass
+`useSession().staff.outlet_id` when available:
+
+```typescript
+const session = useSession();
+const key = useIdempotency(
+  `commitCart:${sessionId}`,
+  session.status === "active" ? session.staff.outlet_id : undefined,
+);
+```
+
+### Backend assertion (`assertOutletKeyPrefix`)
+
+`convex/idempotency/outletPrefix.ts` exports a pure helper that enforces the
+prefix matches the session outlet. Wire it into the dual-call `authCheck` and/or
+the handler body **right after** `require*Session(...)` resolves:
+
+```typescript
+authCheck: async (ctx, args) => {
+  const session = await requireSession(ctx, args.sessionId);
+  assertOutletKeyPrefix(args.idempotencyKey, session.outlet_id);
+},
+```
+
+### Leniency rules (backward compatible)
+
+| Key format | `sessionOutletId` | Result |
+|---|---|---|
+| No `:` in key | any | PASS (pre-v2.0 format) |
+| Has `:` prefix | `undefined` | PASS (window session) |
+| Has `:` prefix, prefix matches | session outlet | PASS |
+| Has `:` prefix, prefix mismatches | session outlet | **OUTLET_KEY_MISMATCH** |
+
+Keys with no `:` separator always pass so that in-flight keys minted before the
+v2.0 deploy are not rejected during the rolling upgrade window.
+
+### Wired mutations (representative set — full fan-out is a follow-up task)
+
+- `transactions.commitCart` — wired in `authCheck` after `resolveSessionStaff`
+- `catalog.createProduct` — wired in `fn` body after `getSession` resolves outletId
+- `catalog.createInventorySku` — wired in `fn` body after `getSession` resolves outletId
+
+All other public mutations are a follow-up fan-out once the v2.0 deploy is stable.
+
 ## Related
 
 - [ADR-013](../ADR/013-idempotency-keys.md) — idempotency key design
 - [ADR-029](../ADR/029-token-authorizes-view-pin-authorizes-act.md) — token/PIN authority model (same defence-in-depth philosophy)
 - `convex/idempotency/internal.ts` — `withIdempotency` implementation
+- `convex/idempotency/outletPrefix.ts` — `assertOutletKeyPrefix` helper (v2.0)
 - `convex/auth/sessions.ts` — `requireSession` / `requireManagerSession`

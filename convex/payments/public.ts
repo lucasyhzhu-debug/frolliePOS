@@ -20,7 +20,15 @@ import { withIdempotency } from "../idempotency/internal";
  */
 export const getCurrentInvoice = query({
   args: { sessionId: v.id("staff_sessions"), txnId: v.id("pos_transactions") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    xendit_invoice_id: string;
+    method: "QRIS" | "BCA_VA";
+    qr_string?: string;
+    va_number?: string;
+    reference_id?: string;
+    created_at: number;
+    cancelled_at?: number;
+  } | null> => {
     // Day-scope gate mirrors transactions.resolveScopedTxn (single-writer there;
     // can't import a local fn cross-module). The two independent reads run in
     // parallel. Gates on the TRANSACTION's day, not the invoice's.
@@ -39,9 +47,12 @@ export const getCurrentInvoice = query({
     // optional column: Convex's null-vs-undefined matching of an absent optional
     // field is ambiguous and differs between convex-test and prod. A txn has only
     // a handful of invoices, so collecting them is cheap and unambiguously correct.
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
     const invoices = await ctx.db
       .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
       .order("desc")
       .collect();
     const inv = invoices.find((i) => !i.cancelled_at);

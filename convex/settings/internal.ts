@@ -1,5 +1,6 @@
 import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 // Receipt-config defaults — equal to the pre-v0.5.3b hardcoded values so an
@@ -29,15 +30,32 @@ export const MANUAL_BCA_DEFAULTS = {
 } as const;
 
 export const _getSettings_internal = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const row = await ctx.db.query("pos_settings").first();
+  args: { outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, args) => {
+    // When outletId is provided, look up the per-outlet row via the by_outlet index.
+    // When absent (cron / session-less callers), fall back to .first() for the
+    // legacy singleton row (pre-v2.0 or default-outlet path).
+    let row;
+    if (args.outletId !== undefined) {
+      // Per-outlet lookup: read the row keyed to this specific outlet.
+      // If no per-outlet row exists yet, row stays undefined → all fields fall
+      // back to RECEIPT_DEFAULTS / MANUAL_BCA_DEFAULTS below.
+      // We deliberately do NOT fall back to `.first()` here because that would
+      // bleed outlet A's settings into outlet B (isolation invariant).
+      row = await ctx.db
+        .query("pos_settings")
+        .withIndex("by_outlet", (q) => q.eq("outlet_id", args.outletId as Id<"outlets">))
+        .first();
+    } else {
+      // Defensive path: no outletId supplied → legacy .first() (cron / session-less
+      // callers during the migration window, or pre-outlets deployments where the
+      // row has no outlet_id). This preserves backward-compat for the singleton.
+      row = await ctx.db.query("pos_settings").first();
+    }
     return {
       founders_summary_enabled: row?.founders_summary_enabled ?? true,
       // v1.0.1: read-time default true — no migration needed for existing prod row
       txn_ticker_enabled: row?.txn_ticker_enabled ?? true,
-      // v1.2: null when no outlet designated ⇒ every device acts as the outlet.
-      outlet_device_id: row?.outlet_device_id ?? null,
       receipt: {
         business_name: row?.receipt_business_name ?? RECEIPT_DEFAULTS.business_name,
         address: row?.receipt_address ?? RECEIPT_DEFAULTS.address,
@@ -109,46 +127,3 @@ export const _updateManualBcaConfig_internal = internalMutation({
   },
 });
 
-/**
- * v1.2 — designate (or clear) the OUTLET device on the singleton settings row.
- * Cross-module writer: `pos_settings` is owned by settings/ (ADR-034), so the
- * manager-facing `staff.setOutletDevice` mutation — which lives where
- * `registered_devices` is validated — routes the WRITE through here.
- *
- * `outletDeviceId: null` CLEARS the designation (patch with `undefined` removes
- * the optional field, so the read-time default null restores backward-compatible
- * "every device is the outlet" behaviour). `staffId` is the validated manager for
- * audit attribution.
- */
-export const _setOutletDevice_internal = internalMutation({
-  args: {
-    outletDeviceId: v.union(v.string(), v.null()),
-    staffId: v.id("staff"),
-  },
-  handler: async (ctx, args): Promise<{ ok: true }> => {
-    const patch = {
-      // null → undefined deletes the field (Convex patch semantics) → read
-      // default null. A string sets it.
-      outlet_device_id: args.outletDeviceId ?? undefined,
-      updated_at: Date.now(),
-      updated_by: args.staffId,
-    };
-    const row = await ctx.db.query("pos_settings").first();
-    if (row) {
-      await ctx.db.patch(row._id, patch);
-    } else {
-      await ctx.db.insert("pos_settings", {
-        founders_summary_enabled: true,
-        ...patch,
-      });
-    }
-    await logAudit(ctx, {
-      actor_id: args.staffId,
-      action: "settings.outlet_device_set",
-      entity_type: "pos_settings",
-      source: "booth_inline",
-      metadata: { outlet_device_id: args.outletDeviceId },
-    });
-    return { ok: true as const };
-  },
-});

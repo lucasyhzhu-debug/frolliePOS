@@ -43,6 +43,7 @@ export const transactionsTables = {
     )),
     confirmed_mgr_approver_id: v.optional(v.id("staff")),
     confirmed_manual_reason: v.optional(v.string()),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     .index("by_status_created", ["status", "created_at"])   // ADR-026 reconciliation
     // by_status_paid_at scopes the founders shift-summary aggregate to paid rows
@@ -52,7 +53,10 @@ export const transactionsTables = {
     .index("by_status_paid_at", ["status", "paid_at"])
     .index("by_receipt_number", ["receipt_number"])
     .index("by_receipt_token", ["receipt_token"])
-    .index("by_staff_created", ["staff_id", "created_at"]),
+    .index("by_staff_created", ["staff_id", "created_at"])
+    .index("by_outlet_status_created", ["outlet_id", "status", "created_at"])
+    .index("by_outlet_status_paid_at", ["outlet_id", "status", "paid_at"])
+    .index("by_outlet_staff_created", ["outlet_id", "staff_id", "created_at"]),
 
   pos_transaction_lines: defineTable({
     transaction_id: v.id("pos_transactions"),
@@ -67,8 +71,10 @@ export const transactionsTables = {
     // stay schema-valid. All reads go through helper `lineRefundedQty(line) =
     // line.refunded_qty ?? 0`. Patch writes set a number, not undefined.
     refunded_qty: v.optional(v.number()),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
-    .index("by_transaction", ["transaction_id"]),
+    .index("by_transaction", ["transaction_id"])
+    .index("by_outlet_transaction", ["outlet_id", "transaction_id"]),
 
   pos_receipt_counters: defineTable({
     year: v.number(),                            // WIB calendar year (UTC+7, no DST) — NOT UTC year.
@@ -76,6 +82,8 @@ export const transactionsTables = {
                                                  //   and the new WIB year takes effect at 17:00 UTC Dec 31.
                                                  //   Booth + accounting + customers all expect WIB calendar.
     next_number: v.number(),                     // monotonic; allocated atomically inside _confirmPaid
+    outlet_id: v.optional(v.id("outlets")),      // v2.0 Stream 4: per-outlet counter; optional during migration window
   })
-    .index("by_year", ["year"]),
+    .index("by_year", ["year"])
+    .index("by_outlet_year", ["outlet_id", "year"]),
 };

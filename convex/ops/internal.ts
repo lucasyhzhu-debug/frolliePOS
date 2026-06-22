@@ -35,6 +35,7 @@ export const _recordError_internal = internalMutation({
           q.eq("signature", signature).gte("created_at", now - DEDUP_WINDOW_MS),
         )
         .first(),
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- global alert storm-cap is intentionally cross-outlet (system/cron errors have no outlet; a per-outlet cap would allow a broken outlet to spam while others are silent)
       ctx.db
         .query("pos_error_reports")
         .withIndex("by_alerted_created", (q) => q.eq("alerted", true))

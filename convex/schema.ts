@@ -2,6 +2,7 @@ import { defineSchema } from "convex/server";
 import { apiTables } from "./api/v1/schema";
 import { opsTables } from "./ops/schema";
 import { authTables } from "./auth/schema";
+import { outletsTables } from "./outlets/schema";
 import { catalogTables } from "./catalog/schema";
 import { idempotencyTables } from "./idempotency/schema";
 import { auditTables } from "./audit/schema";
@@ -16,11 +17,13 @@ import { approvalsTables } from "./approvals/schema";
 import { settingsTables } from "./settings/schema";
 import { settlementsTables } from "./settlements/schema";
 import { shiftsTables } from "./shifts/schema";
+import { migrationsTables } from "./migrations/schema";
 
 export default defineSchema({
   ...apiTables,
   ...opsTables,
   ...authTables,
+  ...outletsTables,
   ...catalogTables,
   ...idempotencyTables,
   ...auditTables,
@@ -35,4 +38,5 @@ export default defineSchema({
   ...settingsTables,
   ...settlementsTables,
   ...shiftsTables,
+  ...migrationsTables,
 });

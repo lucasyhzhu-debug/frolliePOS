@@ -1,11 +1,26 @@
 import { v } from "convex/values";
-import { query, mutation } from "../_generated/server";
-import type { QueryCtx } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
+import { query, mutation, MutationCtx } from "../_generated/server";
+import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+
+/**
+ * v2.0: the per-outlet pos_settings row lookup — by_outlet when the session has
+ * an outlet, else the lone singleton during the migration window. Shared by the
+ * three write-path mutations below so the window-tolerant branch lives once.
+ * (The read path `_getSettings_internal` deliberately does NOT singleton-fall-
+ * back — outlet isolation — so this helper is write-path only.)
+ */
+function settingsRowForOutlet(
+  ctx: MutationCtx,
+  outlet_id: Id<"outlets"> | undefined,
+): Promise<Doc<"pos_settings"> | null> {
+  return outlet_id
+    ? ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+    : ctx.db.query("pos_settings").first();
+}
 
 // Intentionally unauthenticated — returns only two non-sensitive notification
 // booleans (not PII/financial). The toggle components need this before the
@@ -18,25 +33,6 @@ export const getSettings = query({
       founders_summary_enabled: row?.founders_summary_enabled ?? true,
       txn_ticker_enabled: row?.txn_ticker_enabled ?? true,
     };
-  },
-});
-
-// Unauthenticated by design — `outlet_device_id` is a non-sensitive device
-// identifier (not PII/financial), and RootLayout must read it for the CURRENT
-// device to decide whether the start-of-day SOP gate applies, before any
-// session-scoped query. Returns `isOutlet` pre-computed with the backward-compat
-// policy baked in (null designation ⇒ every device behaves as the outlet) so the
-// gate stays a single boolean check.
-export const outletStatus = query({
-  args: { deviceId: v.string() },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ outletDeviceId: string | null; isOutlet: boolean }> => {
-    const row = await ctx.db.query("pos_settings").first();
-    const outletDeviceId = row?.outlet_device_id ?? null;
-    const isOutlet = outletDeviceId === null || outletDeviceId === args.deviceId;
-    return { outletDeviceId, isOutlet };
   },
 });
 
@@ -63,8 +59,8 @@ export const setFoundersSummaryEnabled = mutation({
       // Re-resolve the session inside the handler so the staffId for audit
       // attribution comes from the validated session. authCheck (below) has
       // already proven manager-ness; this read is the typed source for staffId.
-      const { staffId } = await requireManagerSession(ctx, args.sessionId);
-      const row = await ctx.db.query("pos_settings").first();
+      const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, {
           founders_summary_enabled: args.enabled,
@@ -79,6 +75,7 @@ export const setFoundersSummaryEnabled = mutation({
           txn_ticker_enabled: true,
           updated_at: Date.now(),
           updated_by: staffId,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       await logAudit(ctx, {
@@ -114,8 +111,8 @@ export const setTxnTickerEnabled = mutation({
   >(
     "settings.setTxnTickerEnabled",
     async (ctx, args) => {
-      const { staffId } = await requireManagerSession(ctx, args.sessionId);
-      const row = await ctx.db.query("pos_settings").first();
+      const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, {
           txn_ticker_enabled: args.enabled,
@@ -131,6 +128,7 @@ export const setTxnTickerEnabled = mutation({
           txn_ticker_enabled: args.enabled,
           updated_at: Date.now(),
           updated_by: staffId,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       await logAudit(ctx, {
@@ -174,10 +172,10 @@ type ReceiptConfigView = {
 export const getReceiptConfig = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ReceiptConfigView> => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
     const s = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
-      {},
+      { outletId: outlet_id },
     );
     const logo_url = s.receipt.logo_storage_id
       ? await ctx.storage.getUrl(s.receipt.logo_storage_id)
@@ -249,7 +247,7 @@ export const updateReceiptConfig = mutation({
   >(
     "settings.updateReceiptConfig",
     async (ctx, args) => {
-      const { staffId: mgrId } = await requireManagerSession(ctx, args.sessionId);
+      const { staffId: mgrId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
       // Bound each user-supplied receipt string at 120 chars — keeps printed
       // receipts visually sane; UI Task 16 mirrors this bound client-side.
       for (const [k, val] of Object.entries({
@@ -273,13 +271,14 @@ export const updateReceiptConfig = mutation({
         updated_at: Date.now(),
         updated_by: mgrId,
       };
-      const row = await ctx.db.query("pos_settings").first();
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, patch);
       } else {
         await ctx.db.insert("pos_settings", {
           founders_summary_enabled: true,
           ...patch,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       // Purge the receipt HTML cache so the next /r/<token> render picks up
@@ -322,22 +321,16 @@ type ManualBcaView = {
   account_number: string;
 };
 
-// Both reads return the same view (defaults single-sourced in _getSettings_internal);
-// they differ only in the auth gate, so share the read body.
-async function readManualBca(ctx: QueryCtx): Promise<ManualBcaView> {
-  const s = await ctx.runQuery(
-    internal.settings.internal._getSettings_internal,
-    {},
-  );
-  return { ...s.manual_bca };
-}
-
 /** Manager-only read — settings screen. */
 export const getManualBcaConfig = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
-    await requireManagerSession(ctx, args.sessionId);
-    return readManualBca(ctx);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      { outletId: outlet_id },
+    );
+    return { ...s.manual_bca };
   },
 });
 
@@ -345,8 +338,12 @@ export const getManualBcaConfig = query({
 export const getManualBcaAccount = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
-    await requireSession(ctx, args.sessionId);
-    return readManualBca(ctx);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      { outletId: outlet_id },
+    );
+    return { ...s.manual_bca };
   },
 });
 

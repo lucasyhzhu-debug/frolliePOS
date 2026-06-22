@@ -258,6 +258,8 @@ export const requestManualPaymentApproval = action({
     );
     if (!requester) throw new Error("NO_SESSION");
 
+    const outletId = requester.outlet_id;
+
     const requesterInfo = await ctx.runQuery(
       internal.auth.internal._getStaffNameCode_internal,
       { staffId: requester.staffId },
@@ -273,9 +275,10 @@ export const requestManualPaymentApproval = action({
     }
 
     // Step 4: dedup — one live request per txn
+    // v2.0 Stream 5: pass outletId for outlet-scoped dedup lookup.
     const existing = await ctx.runQuery(
       internal.approvals.internal._listPendingByKind_internal,
-      { kind: "manual_payment_override", entityId: args.txnId as unknown as string },
+      { kind: "manual_payment_override", entityId: args.txnId as unknown as string, outletId },
     );
     if (existing.length > 0) return { requestId: existing[0]._id };
 
@@ -288,6 +291,7 @@ export const requestManualPaymentApproval = action({
     const now = Date.now();
 
     // Step 6: create request row
+    // v2.0 Stream 5: pass outletId to stamp the approval row.
     const { requestId } = await ctx.runMutation(
       internal.approvals.internal._createRequest_internal,
       {
@@ -305,6 +309,7 @@ export const requestManualPaymentApproval = action({
         triggered_at: now,
         token_hash: tokenHash,
         token_expires_at: now + TOKEN_TTL_MS,
+        outletId,
       },
     );
 
@@ -788,13 +793,19 @@ export const requestSpoilageApproval = action({
   handler: async (ctx, args): Promise<{ requestId: Id<"pos_approval_requests"> }> => {
     // I5 (auth BEFORE cache; rule #21): resolve session + manager-role check
     // is one indexed query — cheap. Closes the cached-response-to-unauthorised
-    // caller hole. Use _resolveSessionRole_internal so we get role in one shot.
+    // caller hole. Use _resolveSession_internal so we get role + outlet_id in one shot.
     const requester = await ctx.runQuery(
-      internal.auth.internal._resolveSessionRole_internal,
+      internal.auth.internal._resolveSession_internal,
       { sessionId: args.sessionId },
     );
     if (!requester) throw new Error("NO_SESSION");
-    if (requester.role !== "manager") throw new Error("NOT_MANAGER");
+    // Fetch role separately for the manager check (_resolveSession_internal returns staffId+deviceId+outlet_id).
+    const requesterRole = await ctx.runQuery(
+      internal.auth.internal._resolveSessionRole_internal,
+      { sessionId: args.sessionId },
+    );
+    if (!requesterRole || requesterRole.role !== "manager") throw new Error("NOT_MANAGER");
+    const outletId = requester.outlet_id;
 
     // Step 1: action-level idempotency pre-check (after auth)
     const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
@@ -830,6 +841,7 @@ export const requestSpoilageApproval = action({
     // render a preview BEFORE the manager enters PIN (validateContext in
     // kinds.ts cross-checks total_qty against the line sum to catch
     // tampering at the manager-display layer).
+    // v2.0 Stream 5: stamp outletId from session.
     const { requestId } = await ctx.runMutation(
       internal.approvals.internal._createRequest_internal,
       {
@@ -852,6 +864,7 @@ export const requestSpoilageApproval = action({
         triggered_at: now,
         token_hash: tokenHash,
         token_expires_at: now + TOKEN_TTL_MS,
+        outletId,
       },
     );
 
@@ -1021,6 +1034,10 @@ export const approveSpoilage = action({
     // Step 8: commit via the single writer (S3). source="telegram_approval"
     // threads through to the stock.spoilage audit row so dashboards can tell
     // off-booth approvals apart from booth-inline (S4).
+    // v2.0 Task 9E: thread outlet_id from the approval request row so the
+    // stock movements and on_hand cache row are outlet-stamped. The request row
+    // inherited outlet_id from the requester session when requestSpoilageApproval
+    // was called — pulling it here keeps the commit consistent with the request.
     const result = await ctx.runMutation(
       internal.inventory.internal._recordSpoilage_internal,
       {
@@ -1032,6 +1049,7 @@ export const approveSpoilage = action({
         reason: ctxBag.reason,
         actor_id: manager._id,
         source: "telegram_approval",
+        outlet_id: req.outlet_id,
       },
     );
 

@@ -32,14 +32,30 @@ export const sendTxnTicker = internalAction({
     ctx,
     args,
   ): Promise<{ ok: true } | { skipped: "disabled" | "role_unbound" | "not_found" }> => {
-    // 1. Toggle check — silent skip, NO audit.
+    // 1. Read txn first — needed for outlet_id, and lets the disabled/not_found
+    //    paths short-circuit BEFORE the names + invoice reads (per-sale volume,
+    //    so don't pay for them when the ticker is off).
+    const txn = await ctx.runQuery(internal.transactions.internal._getTxnForTicker_internal, {
+      txnId: args.txnId,
+    });
+    if (!txn) return { skipped: "not_found" };
+
+    // 2. Toggle check — per-outlet settings read; silent skip, NO audit.
     const settings = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
-      {},
+      { outletId: txn.outlet_id },
     );
     if (!settings.txn_ticker_enabled) return { skipped: "disabled" };
 
-    // 2. Role resolve — narrow-catch (foundersSummary.ts pattern): unbound → silent
+    // 3. Enabled — fetch the remaining inputs in parallel.
+    const [names, inv] = await Promise.all([
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
+      ctx.runQuery(internal.payments.internal._getPaidInvoiceForTxn_internal, {
+        transactionId: args.txnId,
+      }),
+    ]);
+
+    // 4. Role resolve — narrow-catch (foundersSummary.ts pattern): unbound → silent
     //    skip; transient/unknown → rethrow so platform surfaces it.
     let chatId: string;
     try {
@@ -55,26 +71,11 @@ export const sendTxnTicker = internalAction({
       throw err;
     }
 
-    // 3. Read txn + staff names + invoice. These three are independent, so fire
-    //    them in parallel (per-sale hot path — Promise.all over serial awaits).
-    //    _listStaffNames_internal args: {} → Array<{ _id; name }> (resolve by .find).
-    //    _getPaidInvoiceForTxn_internal arg is `transactionId` (NOT txnId).
-    const [txn, names, inv] = await Promise.all([
-      ctx.runQuery(internal.transactions.internal._getTxnForTicker_internal, {
-        txnId: args.txnId,
-      }),
-      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
-      ctx.runQuery(internal.payments.internal._getPaidInvoiceForTxn_internal, {
-        transactionId: args.txnId,
-      }),
-    ]);
-    if (!txn) return { skipped: "not_found" };
-
     const staffName = names.find((s) => s._id === txn.staff_id)?.name ?? "Staff";
     const isManualBca = txn.confirmed_via === "manual_bca";
     const instrument = instrumentLabel(txn.confirmed_via, instrumentFromInvoice(inv));
 
-    // 4. Send — disableNotification so it's a silent running feed. paid_at is the
+    // 5. Send — disableNotification so it's a silent running feed. paid_at is the
     //    transaction's real settlement time (server-set in _confirmPaid), not the
     //    ticker send time.
     await ctx.runAction(api.telegram.send.sendTemplate, {

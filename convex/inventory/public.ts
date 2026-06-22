@@ -12,13 +12,17 @@ import { upsertStockLevel } from "./internal";
  * Active-status comes from catalog via its internal API (ADR-034: inventory
  * does not read catalog-owned pos_inventory_skus directly). Consumed by
  * useCart (live cart validation) and the catalog query.
+ *
+ * v2.0 Task 9B: this query has NO sessionId, so outlet_id is not available.
+ * The index reads remain global. TODO Task 12: inject sessionId so this can
+ * scope by outlet.
  */
 export const getStockLevels = query({
   args: {},
   handler: async (ctx): Promise<Record<string, number>> => {
     const activeIds = await ctx.runQuery(
       internal.catalog.internal._getActiveSkuIds_internal,
-      {},
+      {},  // outletId: undefined → falls back to global by_active index
     );
     const activeSet = new Set<Id<"pos_inventory_skus">>(activeIds);
 
@@ -86,7 +90,7 @@ export const recordRecount = mutation({
   >(
     "inventory.recordRecount",
     async (ctx, args) => {
-      const { staffId } = await requireSession(ctx, args.sessionId);
+      const { staffId, outlet_id } = await requireSession(ctx, args.sessionId);
       const staff = await ctx.db.get(staffId);
       // Invariant: requireSession proved an active session bound to this
       // staffId — if the row vanished between session-check and now,
@@ -121,9 +125,12 @@ export const recordRecount = mutation({
         // error is specific.
         if (!Number.isInteger(entered)) throw new Error("NON_INTEGER_COUNT");
         if (entered < 0) throw new Error("NEGATIVE_COUNT");
+        // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
         const level = await ctx.db
           .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .withIndex("by_outlet_sku", (q) =>
+            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+          )
           .first();
         const before = level?.on_hand ?? 0;
         const delta = entered - before;
@@ -135,12 +142,17 @@ export const recordRecount = mutation({
           source: "recount",
           created_at: now,
           recorded_by_staff_id: staffId,
+          // v2.0 Task 9E: stamp outlet_id on recount movements (mirrors
+          // sale/refund/spoilage paths). outlet_id is resolved from the session
+          // at the top of the handler; undefined for pre-migration rows.
+          ...(outlet_id ? { outlet_id } : {}),
         });
         // v0.5.2 simplify: call the shared upsertStockLevel helper directly
         // (was: _applyLevelDelta_internal sub-transaction). Saves a runMutation
         // round-trip AND the helper's own duplicate level-row lookup — the
         // outer loop already read `level` two lines up.
-        await upsertStockLevel(ctx, skuId, delta, now);
+        // v2.0 Task 9E: pass outlet_id so the level row is stamped/scoped correctly.
+        await upsertStockLevel(ctx, skuId, delta, now, outlet_id);
         await logAudit(ctx, {
           actor_id: staffId,
           action: "stock.recount",
@@ -161,11 +173,17 @@ export const recordRecount = mutation({
 
       if (touched.length === 0) return { ok: true as const, changed: 0 };
 
-      const state = await ctx.db.query("pos_recount_state").first();
+      // v2.0 Task 5: recount state is per-outlet.
+      const state = outlet_id
+        ? await ctx.db.query("pos_recount_state").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+        : await ctx.db.query("pos_recount_state").first();
       if (state) {
         await ctx.db.patch(state._id, { last_recount_at: now });
       } else {
-        await ctx.db.insert("pos_recount_state", { last_recount_at: now });
+        await ctx.db.insert("pos_recount_state", {
+          last_recount_at: now,
+          ...(outlet_id ? { outlet_id } : {}),
+        });
       }
 
       // ADR-041: Telegram dispatch is scheduled — never inline — so the
@@ -189,8 +207,10 @@ export const recordRecount = mutation({
       //
       // v0.5.2 simplify: batched so one runQuery against catalog covers all
       // touched SKUs (was: one per SKU via the single-id _checkLowStock_internal).
+      // v2.0 Task 9B: pass outlet_id so checkLowStockOne uses outlet-scoped indexes.
       await ctx.runMutation(internal.inventory.internal._checkLowStockBatch_internal, {
         skuIds: touched,
+        outlet_id,
       });
       return { ok: true as const, changed: touched.length };
     },
@@ -299,16 +319,23 @@ type InventoryRow = {
 export const listInventory = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<InventoryRow[]> => {
-    await requireSession(ctx, args.sessionId);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    // v2.0 Task 9B: pass outlet_id to scope active SKU list by outlet when available.
     const activeIds: Id<"pos_inventory_skus">[] = await ctx.runQuery(
       internal.catalog.internal._getActiveSkuIds_internal,
-      {},
+      { outletId: outlet_id },
     );
     const skus: Array<{ skuId: Id<"pos_inventory_skus">; name: string; low_threshold: number }> =
       await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
         skuIds: activeIds,
       });
-    const levels = await ctx.db.query("pos_stock_levels").collect();
+    // v2.0 Task 9B: scope stock levels to outlet when available.
+    const levels = outlet_id
+      ? await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_outlet_sku", (q) => q.eq("outlet_id", outlet_id))
+          .collect()
+      : await ctx.db.query("pos_stock_levels").collect();
     // v0.5.2 simplify: Convex Ids ARE strings at runtime; Map.get works without
     // the String() cast. Drop the cast on both sides of the lookup.
     const levelBySku = new Map(levels.map((l) => [l.inventory_sku_id, l.on_hand]));
@@ -339,7 +366,7 @@ export const getSkuDetail = query({
     skuId: v.id("pos_inventory_skus"),
   },
   handler: async (ctx, args) => {
-    await requireSession(ctx, args.sessionId);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
     const skus: Array<{ skuId: Id<"pos_inventory_skus">; name: string; low_threshold: number }> =
       await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, {
         skuIds: [args.skuId],
@@ -349,13 +376,20 @@ export const getSkuDetail = query({
     // rather than masking with String(skuId) / 0 fallbacks.
     const sku = skus[0];
     if (!sku) throw new Error("SKU_MISSING_INVARIANT");
+    // v2.0 Task 9B: scope stock level + movements by outlet.
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
     const level = await ctx.db
       .query("pos_stock_levels")
-      .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
+      .withIndex("by_outlet_sku", (q) =>
+        q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+      )
       .first();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
     const movements = await ctx.db
       .query("pos_stock_movements")
-      .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", args.skuId))
+      .withIndex("by_outlet_sku_created", (q) =>
+        q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+      )
       .order("desc")
       .take(30);
     return {
@@ -377,8 +411,11 @@ export const getSkuDetail = query({
 export const getRecountState = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args) => {
-    await requireSession(ctx, args.sessionId);
-    const row = await ctx.db.query("pos_recount_state").first();
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    // v2.0 Task 5: per-outlet recount state.
+    const row = outlet_id
+      ? await ctx.db.query("pos_recount_state").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+      : await ctx.db.query("pos_recount_state").first();
     return { last_recount_at: row?.last_recount_at ?? null };
   },
 });
@@ -405,8 +442,18 @@ export const listStockDrift = query({
     includeResolved: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Doc<"pos_stock_drift_log">[]> => {
-    await requireManagerSession(ctx, args.sessionId);
-    const rows = await ctx.db.query("pos_stock_drift_log").order("desc").take(100);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+    // v2.0 Task 9B: scope drift log by outlet when available.
+    // by_outlet_unresolved has fields [outlet_id, resolved_at]; we eq on outlet_id
+    // alone to get all drift rows for that outlet, then filter resolved_at in JS
+    // (Convex optional-field filter lesson — ADR-optional-field-gotcha).
+    const rows = outlet_id
+      ? await ctx.db
+          .query("pos_stock_drift_log")
+          .withIndex("by_outlet_unresolved", (q) => q.eq("outlet_id", outlet_id))
+          .order("desc")
+          .take(100)
+      : await ctx.db.query("pos_stock_drift_log").order("desc").take(100);
     return args.includeResolved ? rows : rows.filter((r) => r.resolved_at == null);
   },
 });

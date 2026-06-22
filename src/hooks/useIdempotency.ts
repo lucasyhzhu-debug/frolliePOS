@@ -75,14 +75,23 @@ export function __resetForTests(): void {
 /**
  * Returns the persisted key for `intent`, or creates a new one if absent or
  * expired. The key is formatted `"${intent}:${crypto.randomUUID()}"`.
+ *
+ * v2.0 outlet-prefix: if `outletId` is provided the stored key is prefixed with
+ * it so keys are namespaced per outlet: `"${outletId}:${intent}:${uuid}"`.
+ * Pre-login (no session/outlet) the plain `"${intent}:${uuid}"` format is used
+ * to stay backward compatible. The backend asserts the prefix matches the
+ * session outlet and rejects cross-outlet replays with `OUTLET_KEY_MISMATCH`.
  */
-async function getOrCreate(intent: string): Promise<string> {
+async function getOrCreate(intent: string, outletId?: string): Promise<string> {
   const db = await getDb();
   const row = (await db.get(STORE, intent)) as IdemRow | undefined;
   if (row && row.expires_at > Date.now()) {
     return row.key;
   }
-  const key = `${intent}:${crypto.randomUUID()}`;
+  const uuid = crypto.randomUUID();
+  const key = outletId
+    ? `${outletId}:${intent}:${uuid}`
+    : `${intent}:${uuid}`;
   await db.put(STORE, { key, expires_at: Date.now() + TTL_MS } satisfies IdemRow, intent);
   return key;
 }
@@ -126,20 +135,31 @@ export async function clearIntent(intent: string): Promise<void> {
  * A `clearIntent(intent)` call rotates this key in place (no remount needed):
  * `key` drops to `undefined` for one paint while the fresh UUID is minted, so
  * the standard `if (!key) return` guard also disables the control mid-rotation.
+ *
+ * v2.0 outlet-prefix: pass `outletId` (from `useSession().staff.outlet_id`) so
+ * new keys are prefixed `"${outletId}:${intent}:${uuid}"`. Pre-login callers
+ * omit it and get the legacy `"${intent}:${uuid}"` format (backward compatible).
  */
-export function useIdempotency(intent: string): string | undefined {
+export function useIdempotency(intent: string, outletId?: string): string | undefined {
   const [key, setKey] = useState<string | undefined>(undefined);
   // Bumped by clearIntent (via the rotate subscription) to force regeneration.
   const [rotation, setRotation] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    getOrCreate(intent).then((k) => {
+    getOrCreate(intent, outletId).then((k) => {
       if (!cancelled) setKey(k);
     });
     return () => {
       cancelled = true;
     };
+  // outletId intentionally excluded: the intent string uniquely identifies the
+  // slot; the outletId only shapes the key value at creation time. Rotating on
+  // outletId change would invalidate a live key mid-flow on session switch,
+  // causing an unnecessary server round-trip. On a new session mount the intent
+  // string itself changes (new staffId/sessionId composite), so a fresh key is
+  // minted naturally without watching outletId here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intent, rotation]);
 
   // Subscribe to clearIntent(intent) so a same-mount retry rotates the key.

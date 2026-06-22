@@ -3,11 +3,14 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+import { seedDefaultOutlet } from "../../transactions/__tests__/_helpers";
 
 // v1.0.1: _confirmPaid now schedules sendTxnTicker; stub Telegram + drain.
 setupTelegramStub();
 
 async function seedAwaiting(t: ReturnType<typeof convexTest>) {
+  // v2.0 Stream 4: _confirmPaid needs an active outlet for receipt number allocation
+  await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
       name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -97,7 +100,7 @@ describe("payments/internal", () => {
       txnId: s.txn, reason: "BCA cleared manually", mgr_approver_id: s.staff,
     });
     expect(r.confirmed).toBe(true);
-    expect(r.receiptNumber).toMatch(/^R-\d{4}-\d{4}$/);
+    expect(r.receiptNumber).toMatch(/^R-[A-Z]+-\d{4}-\d{4}$/);
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.confirmed_via).toBe("manual");
     expect(txn?.confirmed_mgr_approver_id).toBe(s.staff);
@@ -207,7 +210,7 @@ describe("payments/internal", () => {
       txnId: s.txn,
     });
     expect(r.confirmed).toBe(true);
-    expect(r.receiptNumber).toMatch(/^R-\d{4}-\d{4}$/);
+    expect(r.receiptNumber).toMatch(/^R-[A-Z]+-\d{4}-\d{4}$/);
     const txn = await t.run((ctx) => ctx.db.get(s.txn));
     expect(txn?.status).toBe("paid");
     expect(txn?.confirmed_via).toBe("manual_bca");

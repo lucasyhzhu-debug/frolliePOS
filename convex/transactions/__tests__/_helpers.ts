@@ -10,6 +10,26 @@
 import { convexTest } from "convex-test";
 import type { Id } from "../../_generated/dataModel";
 
+/**
+ * Seeds the default outlet (PKW / Pakuwon Mall) for tests that exercise
+ * _confirmPaid_internal, which now requires at least one active outlet to
+ * allocate a receipt number.
+ */
+export async function seedDefaultOutlet(
+  t: ReturnType<typeof convexTest>,
+): Promise<Id<"outlets">> {
+  return await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW",
+      name: "x",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: Date.now(),
+      created_by: null,
+    } as any),
+  );
+}
+
 export async function seedStaff(
   t: ReturnType<typeof convexTest>,
   args: { name: string; role: "staff" | "manager"; code: string },

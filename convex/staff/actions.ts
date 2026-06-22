@@ -50,6 +50,78 @@ export const setStaffRole = action({
 });
 
 /**
+ * Grant a staff member access to an outlet. Manager session + manager PIN required.
+ * Idempotent: if the access row already exists the action returns without error.
+ *
+ * Phase-1 stub; wired into the owner cockpit later.
+ */
+export const grantOutletAccess = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetStaffId: v.id("staff"),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.grantOutletAccess" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.auth.internal._grantOutletAccess_internal, {
+          staffId: args.targetStaffId,
+          outletId: args.targetOutletId,
+          grantedBy: managerId,
+          deviceId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
+
+/**
+ * Revoke a staff member's access to an outlet. Manager session + manager PIN required.
+ * Idempotent: if no access row exists the action returns without error.
+ *
+ * Phase-1 stub; wired into the owner cockpit later.
+ */
+export const revokeOutletAccess = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetStaffId: v.id("staff"),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.revokeOutletAccess" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.auth.internal._revokeOutletAccess_internal, {
+          staffId: args.targetStaffId,
+          outletId: args.targetOutletId,
+          revokedBy: managerId,
+          deviceId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
+
+/**
  * Deactivate a staff member. Manager session + manager PIN required.
  * Same withActionCache wrap as setStaffRole. SELF_DEACTIVATE +
  * LAST_ACTIVE_MANAGER guards live in the internal so the read+patch is atomic.
@@ -79,6 +151,45 @@ export const deactivateStaff = action({
           idempotencyKey: `${args.idempotencyKey}:commit`,
           staffId: args.staffId,
           mgrId: managerId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
+
+/**
+ * v2.0 Task 7 (C2): Bind a registered device to an outlet.
+ * Manager session + manager PIN required (identity-level — controls which outlet
+ * sessions belong to going forward).
+ *
+ * If the device was previously bound to a DIFFERENT outlet, active sessions on
+ * that device are force-logged out by the internal mutation so they never carry
+ * a stale outlet_id. Same-outlet re-assign is idempotent (no session disruption).
+ */
+export const assignDeviceOutlet = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetDeviceId: v.string(),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.assignDeviceOutlet" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.staff.internal._assignDeviceOutlet_internal, {
+          deviceId: args.targetDeviceId,
+          targetOutletId: args.targetOutletId,
+          mgrId: managerId,
+          mgrDeviceId: deviceId,
         });
         return { ok: true } as const;
       },

@@ -76,6 +76,9 @@ export const _persistInvoiceCommit_internal = internalMutation({
   >(
     "payments._persistInvoiceCommit",
     async (ctx, args) => {
+      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      const txnRow = await ctx.db.get(args.txnId);
+      const txnOutletId = txnRow?.outlet_id;
       const invoiceId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.xendit_invoice_id,
@@ -86,6 +89,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
+        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
       });
       await ctx.runMutation(internal.transactions.internal._setCurrentInvoice_internal, {
         txnId: args.txnId,
@@ -159,6 +163,9 @@ export const _replaceInvoiceCommit_internal = internalMutation({
   >(
     "payments._replaceInvoiceCommit",
     async (ctx, args) => {
+      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      const txnRow = await ctx.db.get(args.txnId);
+      const txnOutletId = txnRow?.outlet_id;
       const newId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.new_xendit_id,
@@ -169,6 +176,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
+        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
       });
       await ctx.db.patch(args.prev_invoice_id, {
         cancelled_at: Date.now(),
@@ -229,13 +237,18 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
     // queries filtering by staff or device_id surface the invoice-cancel half too.
     actor_id: v.optional(v.union(v.id("staff"), v.literal("system"))),
     source: v.optional(v.union(v.literal("booth_inline"), v.literal("system"))),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outlet_id: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
     // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
     // absent optional fields (own MEMORY: convex-optional-field-filter-gotcha).
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outlet_id may be undefined).
     const candidates = await ctx.db
       .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outlet_id).eq("transaction_id", args.txnId),
+      )
       .collect();
     // F10: Cancel ALL active (no cancelled_at stamp) invoices, not just the first.
     // Invariant: at most one active invoice per txn at any time. If more exist,
@@ -397,11 +410,18 @@ export const _onPaidManual_internal = internalMutation({
  * `_instrumentForTxn_internal` ran identical SQL and was deleted.
  */
 export const _getPaidInvoiceForTxn_internal = internalQuery({
-  args: { transactionId: v.id("pos_transactions") },
+  args: {
+    transactionId: v.id("pos_transactions"),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outletId: v.optional(v.id("outlets")),
+  },
   handler: async (ctx, args) => {
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
     const invoices = await ctx.db
       .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
+      )
       .collect();
     // Reduce-pick-max instead of slice+sort — O(n) single pass, no extra
     // allocation. cancelled_at is NOT filtered out: a refund commit may stamp
@@ -423,11 +443,18 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
  * Same selection logic as the public query (latest non-cancelled invoice).
  */
 export const _getCurrentInvoice_internal = internalQuery({
-  args: { txnId: v.id("pos_transactions") },
+  args: {
+    txnId: v.id("pos_transactions"),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outletId: v.optional(v.id("outlets")),
+  },
   handler: async (ctx, args): Promise<Doc<"pos_xendit_invoices"> | null> => {
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
     const invoices = await ctx.db
       .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.txnId),
+      )
       .order("desc")
       .collect();
     return invoices.find((inv) => !inv.cancelled_at) ?? null;

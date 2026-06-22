@@ -2,10 +2,11 @@
 
 import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
+import { assertOutletKeyPrefix } from "../idempotency/outletPrefix";
 
 /**
  * Manager-PIN gated: create a new product (v0.5.3b Task 8). Uses
@@ -62,6 +63,15 @@ export const createProduct = action({
           managerPin: args.managerPin,
           idempotencyKey: args.idempotencyKey,
         });
+        // v2.0 Task 9E: resolve outlet from the manager session so the product
+        // and any bundled SKU/component row are stamped with outlet_id.
+        const session = await ctx.runQuery(api.auth.public.getSession, {
+          sessionId: args.sessionId,
+        });
+        const outletId = session?.staff.outlet_id;
+        // v2.0 Task 9F: assert the idempotency key is outlet-prefixed for the
+        // session outlet (OUTLET_KEY_MISMATCH on cross-outlet replay).
+        assertOutletKeyPrefix(args.idempotencyKey, outletId);
         // Pass derived `:commit` key so the wrapped internal short-circuits an
         // action retry after a crash between commit and action-level cache write
         // (mirrors refunds._commitRefund_internal pattern).
@@ -81,6 +91,7 @@ export const createProduct = action({
           withInventorySku: args.withInventorySku,
           inventorySkuLowThreshold: args.inventorySkuLowThreshold,
           inventorySkuComponentQty: args.inventorySkuComponentQty,
+          outletId,
         });
       },
     ),
@@ -123,6 +134,16 @@ export const createInventorySku = action({
           managerPin: args.managerPin,
           idempotencyKey: args.idempotencyKey,
         });
+        // v2.0 Task 9E: resolve outlet from the manager session so the SKU row
+        // is stamped with outlet_id. verifyManagerPinOrThrow already called
+        // getSession internally; re-calling it here is cheap (one indexed query)
+        // and keeps the resolution explicit at the commit call site.
+        const session = await ctx.runQuery(api.auth.public.getSession, {
+          sessionId: args.sessionId,
+        });
+        const outletId = session?.staff.outlet_id;
+        // v2.0 Task 9F: assert the idempotency key is outlet-prefixed.
+        assertOutletKeyPrefix(args.idempotencyKey, outletId);
         return await ctx.runMutation(internal.catalog.internal._createInventorySkuCommit_internal, {
           idempotencyKey: `${args.idempotencyKey}:commit`,
           mgrId: managerId,
@@ -133,6 +154,7 @@ export const createInventorySku = action({
           code: args.code,
           initials: args.initials,
           hue: args.hue,
+          outletId,
         });
       },
     ),

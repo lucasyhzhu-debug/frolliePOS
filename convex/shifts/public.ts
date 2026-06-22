@@ -28,10 +28,11 @@ async function assertBoothState(
   deviceId: string,
   required: BoothState,
   errorCode: string,
+  outletId?: import("../_generated/dataModel").Id<"outlets">,
 ): Promise<ReturnType<typeof deriveBoothState>> {
   const latest = await ctx.runQuery(
     internal.shifts.internal._latestShiftEvent_internal,
-    { deviceId },
+    { deviceId, outletId },
   );
   const { dayStartMs } = wibDayWindow(Date.now());
   const derived = deriveBoothState(latest, dayStartMs);
@@ -53,6 +54,9 @@ type HandoverArgs = {
 };
 
 export const boothState = query({
+  // outlet_id is SERVER-DERIVED from the device, never a client arg (ADR-051
+  // Decision D). This is a pre-login query (no session), so resolve the device's
+  // outlet via the auth helper rather than trusting a client-supplied value.
   args: { deviceId: v.string() },
   handler: async (
     ctx,
@@ -63,9 +67,14 @@ export const boothState = query({
     staffName: string | null;
     staleAutoclose: boolean;
   }> => {
+    const outletId =
+      (await ctx.runQuery(
+        internal.auth.internal._getDeviceOutletId_internal,
+        { deviceId },
+      )) ?? undefined;
     const latest = await ctx.runQuery(
       internal.shifts.internal._latestShiftEvent_internal,
-      { deviceId },
+      { deviceId, outletId },
     );
     const { dayStartMs } = wibDayWindow(Date.now());
     const derived = deriveBoothState(latest, dayStartMs);
@@ -116,16 +125,17 @@ export const completeStartOfDay = mutation({
   handler: withIdempotency<CompleteStartOfDayArgs, CompleteStartOfDayResult>(
     "shifts.completeStartOfDay",
     async (ctx, args): Promise<CompleteStartOfDayResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // C-2 write-side guard: start-of-day is only valid from CLOSED.
       // `deriveBoothState` returns state:"closed" (with staleAutoclose:true) for a
       // non-closed event left over from a PRIOR WIB day, so the stale case PASSES
       // this guard and is handled below. A still-open SAME-DAY booth is rejected.
+      // v2.0 Stream 5: pass outletId for outlet-scoped index lookup.
       const latest = await ctx.runQuery(
         internal.shifts.internal._latestShiftEvent_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const { dayStartMs } = wibDayWindow(now);
       const derived = deriveBoothState(latest, dayStartMs);
@@ -149,7 +159,7 @@ export const completeStartOfDay = mutation({
         // endOfDaySignOff stores on the event).
         const summary = await ctx.runQuery(
           internal.shifts.internal._buildSignoffSummary_internal,
-          { shiftStartMs: staleStart, endMs: staleEnd },
+          { shiftStartMs: staleStart, endMs: staleEnd, outletId },
         );
 
         const staleEventId: Id<"pos_shift_events"> = await ctx.runMutation(
@@ -173,6 +183,7 @@ export const completeStartOfDay = mutation({
               manualBcaCount: summary.manualBcaCount,
               manualBcaTotalIdr: summary.manualBcaTotalIdr,
             },
+            outletId,
           },
         );
 
@@ -201,6 +212,7 @@ export const completeStartOfDay = mutation({
             manualBcaCount: summary.manualBcaCount,
             manualBcaTotalIdr: summary.manualBcaTotalIdr,
             idempotencyKeySuffix: staleEventId,
+            outletId,
           },
         );
       }
@@ -220,6 +232,7 @@ export const completeStartOfDay = mutation({
           stale_autoclose: null,
           linked_event_id: null,
           summary: null,
+          outletId,
         },
       );
       await logAudit(ctx, {
@@ -281,7 +294,7 @@ export const endOfDaySignOff = mutation({
   handler: withIdempotency<EndOfDaySignOffArgs, EndOfDaySignOffResult>(
     "shifts.endOfDaySignOff",
     async (ctx, args): Promise<EndOfDaySignOffResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // Idempotent close (v1.2): closing an already-CLOSED booth is a safe no-op
@@ -291,9 +304,10 @@ export const endOfDaySignOff = mutation({
       // "close" reliably logs out, but write NO duplicate signoff event/summary/
       // Founders ping. `locked`/`handover_pending` still throw — those have their
       // own dedicated flows (resume / handover-in) and must not be silently closed.
+      // v2.0 Stream 5: pass outletId for outlet-scoped shift event reads.
       const latestForState = await ctx.runQuery(
         internal.shifts.internal._latestShiftEvent_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const { dayStartMs } = wibDayWindow(now);
       const currentState = deriveBoothState(latestForState, dayStartMs).state;
@@ -309,14 +323,14 @@ export const endOfDaySignOff = mutation({
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const shiftStartMs = anchor?.shift_started_at ?? now;
 
       // Build the shift summary (sales aggregate + manual-BCA totals).
       const summary = await ctx.runQuery(
         internal.shifts.internal._buildSignoffSummary_internal,
-        { shiftStartMs, endMs: now },
+        { shiftStartMs, endMs: now, outletId },
       );
 
       // Record the signoff_close shift event (transitions booth → "closed").
@@ -341,6 +355,7 @@ export const endOfDaySignOff = mutation({
             manualBcaCount: summary.manualBcaCount,
             manualBcaTotalIdr: summary.manualBcaTotalIdr,
           },
+          outletId,
         },
       );
 
@@ -362,6 +377,7 @@ export const endOfDaySignOff = mutation({
       });
 
       // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
+      // v2.0 Stream 5: pass outletId for outlet-scoped aggregates.
       await ctx.scheduler.runAfter(
         0,
         internal.shifts.actions._sendSignoffSummary,
@@ -375,6 +391,7 @@ export const endOfDaySignOff = mutation({
           manualBcaCount: summary.manualBcaCount,
           manualBcaTotalIdr: summary.manualBcaTotalIdr,
           idempotencyKeySuffix: eventId,
+          outletId,
         },
       );
 
@@ -411,23 +428,23 @@ export const handoverOut = mutation({
   handler: withIdempotency<HandoverArgs, HandoverOutResult>(
     "shifts.handoverOut",
     async (ctx, args): Promise<HandoverOutResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // C-2 write-side guard: handover-out is only valid from an OPEN booth.
-      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN", outletId);
 
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const shiftStartMs = anchor?.shift_started_at ?? now;
 
       // Build the shift summary (sales aggregate + manual-BCA totals).
       const summary = await ctx.runQuery(
         internal.shifts.internal._buildSignoffSummary_internal,
-        { shiftStartMs, endMs: now },
+        { shiftStartMs, endMs: now, outletId },
       );
 
       // Record the handover_out shift event (transitions booth → "handover_pending").
@@ -452,6 +469,7 @@ export const handoverOut = mutation({
             manualBcaCount: summary.manualBcaCount,
             manualBcaTotalIdr: summary.manualBcaTotalIdr,
           },
+          outletId,
         },
       );
 
@@ -472,6 +490,7 @@ export const handoverOut = mutation({
       });
 
       // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
+      // v2.0 Stream 5: pass outletId for outlet-scoped aggregates.
       await ctx.scheduler.runAfter(
         0,
         internal.shifts.actions._sendSignoffSummary,
@@ -485,6 +504,7 @@ export const handoverOut = mutation({
           manualBcaCount: summary.manualBcaCount,
           manualBcaTotalIdr: summary.manualBcaTotalIdr,
           idempotencyKeySuffix: eventId,
+          outletId,
         },
       );
 
@@ -525,16 +545,16 @@ export const lockShift = mutation({
   handler: withIdempotency<LockShiftArgs, LockShiftResult>(
     "shifts.lockShift",
     async (ctx, args): Promise<LockShiftResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // C-2 write-side guard: lock is only valid from an OPEN booth.
-      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN");
+      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN", outletId);
 
       // Preserve the original shift start so accumulated hours survive the lock.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const shiftStartMs = anchor?.shift_started_at ?? now;
 
@@ -553,6 +573,7 @@ export const lockShift = mutation({
           stale_autoclose: null,
           linked_event_id: null,
           summary: null,
+          outletId,
         },
       );
 
@@ -613,18 +634,18 @@ export const recordResume = mutation({
   handler: withIdempotency<RecordResumeArgs, RecordResumeResult>(
     "shifts.recordResume",
     async (ctx, args): Promise<RecordResumeResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // C-2 write-side guard: resume is only valid from a LOCKED booth.
-      await assertBoothState(ctx, deviceId, "locked", "BOOTH_NOT_LOCKED");
+      await assertBoothState(ctx, deviceId, "locked", "BOOTH_NOT_LOCKED", outletId);
 
       // Recover the original shift start — _shiftStartAnchor_internal skips
       // `lock` events and returns the most recent start_of_day / handover_in /
       // manager_takeover, so hours accumulated before the lock are preserved.
       const anchor = await ctx.runQuery(
         internal.shifts.internal._shiftStartAnchor_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
       const shiftStartMs = anchor?.shift_started_at ?? now;
 
@@ -643,6 +664,7 @@ export const recordResume = mutation({
           stale_autoclose: null,
           linked_event_id: null,
           summary: null,
+          outletId,
         },
       );
 
@@ -690,13 +712,14 @@ export const completeHandoverIn = mutation({
   handler: withIdempotency<HandoverArgs, CompleteHandoverInResult>(
     "shifts.completeHandoverIn",
     async (ctx, args): Promise<CompleteHandoverInResult> => {
-      const { staffId, deviceId } = await requireSession(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
       // Fetch the latest shift event to link to the pending handover_out.
+      // v2.0 Stream 5: pass outletId for outlet-scoped index lookup.
       const pending = await ctx.runQuery(
         internal.shifts.internal._latestShiftEvent_internal,
-        { deviceId },
+        { deviceId, outletId },
       );
 
       // C-2 write-side guard: handover-in is only valid from a HANDOVER_PENDING
@@ -714,6 +737,7 @@ export const completeHandoverIn = mutation({
 
       // Record the handover_in shift event (transitions booth → "open").
       // shift_started_at = now: marks the beginning of the new staff's shift.
+      // v2.0 Stream 5: stamp outletId from session.
       const eventId: Id<"pos_shift_events"> = await ctx.runMutation(
         internal.shifts.internal._recordShiftEvent_internal,
         {
@@ -729,6 +753,7 @@ export const completeHandoverIn = mutation({
           stale_autoclose: null,
           linked_event_id: linkedEventId,
           summary: null,
+          outletId,
         },
       );
 
