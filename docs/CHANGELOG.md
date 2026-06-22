@@ -2,6 +2,22 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-22 — v2.0 Multi-outlet foundation (additive data plane)
+
+**Scope:** This phase is purely additive — `outlet_id` is `optional` on all new indexes, old indexes are kept alongside new `by_outlet_*` ones, and session scoping is window-tolerant (default-outlet fallback). The enforce step (required flip, index drop, hard `SESSION_NO_OUTLET` / `DEVICE_HAS_NO_OUTLET` throws) is a documented follow-up gated on prod backfill completion (`assertZeroNullOutletIds`).
+
+- **New `outlets` + `staff_outlet_access` tables** (`convex/outlets/`). `outlets.code` is the outlet prefix used in receipt numbers. `staff_outlet_access` is the staff→outlet grant join (business-level staff row, access scoped by join).
+- **`outlet_id` threaded across 22 operational tables** — each gains a `by_outlet_*` index alongside the old index. Tables affected: `staff_sessions`, `registered_devices`, `pos_transactions`, `pos_transaction_lines`, `pos_xendit_invoices`, `pos_refunds`, `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts`, `pos_recount_state`, `pos_stock_drift_log`, `pos_vouchers`, `pos_voucher_redemptions`, `pos_approval_requests`, `pos_settings`, `pos_shift_events`, `pos_receipt_counters`, `pos_drafts`, `pos_receipt_html_cache`, `pos_error_reports`, `pos_settlements`, `pos_xendit_invoices` (+ `telegramChats` / `telegram_log` carry field-only, no outlet index).
+- **Session-derived outlet scoping** — `requireSession` / `requireManagerSession` / `getSession` return `outlet_id` (`Id<"outlets"> | undefined`, window-tolerant). `_loginCommit_internal`, `managerTakeover`, and seed writers all resolve + stamp outlet. `outletScoped` helper (`convex/lib/outletScope.ts`) replaces ad-hoc ternary patterns.
+- **`index-leads-with-outlet_id` ESLint fence** (`tools/eslint-rules/index-leads-with-outlet_id.js`) — all `by_outlet_*` index queries must lead with `.eq("outlet_id", ...)`. 16 justified `// eslint-disable` exceptions (Public API feeds, session-less catalog/stock, global external IDs, ops storm-cap).
+- **Per-outlet singletons** — `pos_settings` and `pos_recount_state` now one row per outlet; `_getSettings_internal` takes `outletId?`. `pos_receipt_counters` re-keyed to `(outlet_id, year)`; receipt numbers now `R-<outletcode>-YYYY-NNNN`.
+- **Device→outlet binding** — `assignDeviceOutlet` (manager-PIN action, `staff/actions.ts`) binds a registered device post-activation. `grantOutletAccess` / `revokeOutletAccess` (manager-PIN actions) manage `staff_outlet_access`. `listStaffForDevice` returns the outlet-filtered roster for the login screen.
+- **Login FE** — account-first roster via `listStaffForDevice`, outlet chip in the header, `useSession` projects `outlet_label`, `mgr/device.tsx` panel for manager outlet-assign.
+- **Zero-downtime migration** (`convex/migrations/`) — `seedDefaultOutlet` (idempotent, creates the `"Default"` outlet + backfills access), `backfillOutletId` (paginated/resumable, stamps all operational rows), `assertZeroNullOutletIds` (gate before enforce). Exclusion list (no outlet_id stamped): `pos_settlements`, `audit_log`, `api_*`, `pos_idempotency`, `pos_device_activation_attempts`, `telegram_*`, `staff`, `pending_device_setups`.
+- **New audit verbs**: `device.assignOutlet`, `staff.grantOutletAccess`, `staff.revokeOutletAccess`.
+- **PR #124 hotfix retired**: `pos_settings.outlet_device_id`, `settings.outletStatus`, `staff.setOutletDevice`, `useOutletStatus.ts`, and the RootLayout SOP-gate that depended on them are removed. Real device→outlet binding (`registered_devices.outlet_id` + `assignDeviceOutlet`) replaces them.
+- **Enforce deferred (Task 12)** — ships as a separate PR after prod backfill: flip `outlet_id` to required (except `pos_error_reports`); drop subsumed old indexes; add `DEVICE_HAS_NO_OUTLET` throw in `_loginCommit` + `managerTakeover`; add `_assertStaffHasOutletAccess_internal` call; big test-fixture sweep.
+
 ## 2026-06-21 — v1.2.1: shift-loop fixes + outlet device identity
 
 - **Manager skip start-of-day:** a manager on `/shift/start` can skip the SOP and go straight to the menu (normal staff still walk the checklist as the first staff of the day). The skip sets a per-session bypass flag (`src/lib/shiftSkip.ts`) *before* a best-effort `completeStartOfDay`, so the manager escapes even if the open-mutation itself throws.

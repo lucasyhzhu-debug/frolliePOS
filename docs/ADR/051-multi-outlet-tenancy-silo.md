@@ -1,7 +1,7 @@
 # ADR-051. Multi-outlet tenancy — silo deployment + `outlet_id` as the sole data-plane scoping column
 
 **Date:** 2026-06-21
-**Status:** Proposed
+**Status:** Accepted
 **Group:** Strategic / Arch
 
 > Bedrock decision for the Frollie POS **multi-outlet** program (single business, many outlets).

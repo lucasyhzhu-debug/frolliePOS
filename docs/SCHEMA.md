@@ -8,6 +8,8 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 
 | Module | Tables owned |
 |---|---|
+| `outlets/` *(v2.0)* | `outlets`, `staff_outlet_access` |
+| `migrations/` *(v2.0)* | `migration_state` |
 | `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
 | `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components` |
 | `inventory/` *(v0.3, extended v0.5.2, v0.6)* | `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts` *(v0.5.2)*, `pos_recount_state` *(v0.5.2)*, `pos_stock_drift_log` *(v0.6)* (moved from `catalog/` in v0.3 per ADR-034) |
@@ -43,6 +45,49 @@ Cross-module direct `ctx.db` access is a CI lint block (see `tools/eslint-rules/
 
 (Existing per-table sections continue below — unchanged.)
 
+### `outlets` *(v2.0 — owned by `outlets/`)*
+Physical outlet (store/booth) registry. One row per outlet within this business's deployment silo ([ADR-051](./ADR/051-multi-outlet-tenancy-silo.md)). The hierarchy is: deployment = business; outlet row = physical location.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"outlets">` | |
+| `name` | `string` | Display name e.g. `"Pakuwon"` |
+| `code` | `string` | Short slug used in receipt numbers e.g. `"PKW"`. Immutable after first use — used as a prefix in `R-<code>-YYYY-NNNN`. |
+| `active` | `boolean` | Soft delete |
+| `created_at` | `number` | ms epoch |
+| `created_by` | `Id<"staff"> \| null` | Manager who created the outlet; `null` for seed-created default outlet |
+
+Indexes: `by_active` on `active`, `by_code` on `code` (unique).
+
+### `staff_outlet_access` *(v2.0 — owned by `outlets/`)*
+Join table granting a staff member access to a specific outlet. A manager with the future `owner` role bypasses this join (implicit access to all outlets).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"staff_outlet_access">` | |
+| `staff_id` | `Id<"staff">` | |
+| `outlet_id` | `Id<"outlets">` | |
+| `granted_at` | `number` | ms epoch |
+| `granted_by` | `Id<"staff"> \| null` | Manager who granted access; `null` for seed-created default rows |
+
+Indexes: `by_staff` on `staff_id`, `by_outlet` on `outlet_id`, `by_staff_outlet` on `[staff_id, outlet_id]` (unique — prevents duplicate grants).
+
+### `migration_state` *(v2.0 — owned by `migrations/`)*
+Tracks the progress of the multi-step outlet backfill migration. One key per named migration step.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"migration_state">` | |
+| `key` | `string` | Migration identifier e.g. `"backfillOutletId"` |
+| `status` | `"running" \| "done"` | |
+| `cursor` | `string?` | Convex pagination cursor for resumable paginated migrations |
+| `processed_count` | `number?` | Running total of rows processed |
+| `updated_at` | `number` | |
+
+Indexes: `by_key` on `key` (unique).
+
+---
+
 ### `staff`
 Booth employees and managers.
 
@@ -72,8 +117,9 @@ Active and historical sessions. Multiple concurrent sessions allowed on the same
 | `started_at` | `number` | |
 | `ended_at` | `number?` | Null while active |
 | `end_reason` | `"manual_lock" \| "timeout" \| "force_logout"` \| null | |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Resolved from the device's bound outlet at login. Window-tolerant: unbound devices get the default outlet. SESSION_NO_OUTLET throw deferred to Task 12 (enforce phase). |
 
-Indexes: `by_staff_active` on `[staff_id, ended_at]`, `by_device_active` on `[device_id, ended_at]`.
+Indexes: `by_staff_active` on `[staff_id, ended_at]`, `by_device_active` on `[device_id, ended_at]`, `by_outlet_active` on `[outlet_id, ended_at]` *(v2.0)*.
 
 Stale sessions reaped nightly.
 
@@ -120,8 +166,9 @@ Devices authorised to run the POS. Activated via one-time setup code from a mana
 | `activated_at` | `number` | |
 | `last_seen_at` | `number?` | |
 | `active` | `boolean` | |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Bound outlet. Set post-activation by `assignDeviceOutlet` (manager-PIN). Absent = unbound (device shows full roster; session writers use the default outlet as a window fallback until bound). The DEVICE_HAS_NO_OUTLET throw at login + the required-flip are deferred to Task 12 (enforce phase). |
 
-Indexes: `by_device_id` on `device_id` (unique).
+Indexes: `by_device_id` on `device_id` (unique), `by_outlet_active` on `[outlet_id, active]` *(v2.0)*.
 
 ### `pending_device_setups`
 One-time 6-digit device setup codes (1h TTL), minted by a booth manager or off-booth via Telegram `/activatepos` ([strategic foundations §6](./ADR/000-strategic-foundations.md#6-device-registration-before-login-security-control)).
@@ -208,7 +255,8 @@ Core sale record. The v0.3 shape below is what ships in `convex/transactions/sch
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_transactions">` | |
-| `receipt_number` | `string?` | `R-YYYY-NNNN`; allocated **only at `_confirmPaid`** ([ADR-023](./ADR/023-receipt-number-format.md)) |
+| `receipt_number` | `string?` | **`R-<outletcode>-YYYY-NNNN`** *(v2.0 — [ADR-039 amended](./ADR/051-multi-outlet-tenancy-silo.md))*; allocated **only at `_confirmPaid`** ([ADR-023](./ADR/023-receipt-number-format.md)). Pre-v2.0 rows carry `R-YYYY-NNNN` (no outlet prefix). |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Derived from session at `commitCart` time. Optional in this additive phase; required-flip deferred to Task 12. |
 | `status` | `"draft" \| "awaiting_payment" \| "paid" \| "cancelled"` | v0.3 states. v0.5 adds `"voided"` (refund-derived statuses computed on read per [ADR-008](./ADR/008-refunds-as-new-rows.md)) |
 | `subtotal` | `number` | Sum of line subtotals (integer rupiah per [ADR-015](./ADR/015-idr-integer-rupiah.md)) |
 | `voucher_code_snapshot` | `string?` | Snapshot of the applied voucher code |
@@ -227,10 +275,12 @@ Core sale record. The v0.3 shape below is what ships in `convex/transactions/sch
 | `receipt_token` | `string?` | *(v0.5.1 PR A)* 32-byte URL-safe base64url; unique-by-mint-entropy. Minted in `_confirmPaid` via `mintUrlSafeToken()` ([ADR-021](./ADR/021-receipt-url-convex-http-action.md)). Immutable once set; powers `/r/<token>` |
 
 Indexes:
-- `by_status_created` on `[status, created_at]` (ADR-026 reconciliation)
+- `by_status_created` on `[status, created_at]` (ADR-026 reconciliation — kept; Public API uses it cross-outlet)
 - `by_receipt_number` on `receipt_number`
 - `by_staff_created` on `[staff_id, created_at]`
 - `by_receipt_token` on `receipt_token` *(v0.5.1 PR A)*
+- `by_outlet_status_created` on `[outlet_id, status, created_at]` *(v2.0 — primary per-outlet scan)*
+- `by_outlet_paid_at` on `[outlet_id, paid_at]` *(v2.0)*
 
 ### `pos_transaction_lines` — v0.3 shipped *(owned by `transactions/`)*
 Line items. **Prices snapshotted at sale time** (never recomputed). The v0.5 design adds per-line discounts, computed tax amount, line total, and `refunded_qty` — none of those columns exist in v0.3.
@@ -362,14 +412,15 @@ Lifecycle: Inserted by `_checkLowStock_internal` when `on_hand < low_threshold` 
 
 ### `pos_recount_state` *(v0.5.2 — owned by `inventory/`, ADR-041)*
 
-Singleton holding the timestamp of the most recent recount. Drives the hourly recount nudge banner on the home screen.
+Per-outlet singleton holding the timestamp of the most recent recount. Drives the hourly recount nudge banner on the home screen. **v2.0:** scoped to `outlet_id`; reads via `by_outlet` index.
 
 | Field | Type | Note |
 |---|---|---|
 | `_id` | `Id<"pos_recount_state">` | |
 | `last_recount_at` | `number` | ms epoch. Actor identity lives on the matching `audit_log` row (`stock.recount`). |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Outlet scope. Optional during additive phase. |
 
-No index — singleton (always one row, fetched via `.first()`).
+Indexes: `by_outlet` on `outlet_id` *(v2.0)*.
 
 ### `pos_stock_drift_log` *(v0.6 — owned by `inventory/`, [ADR-044](./ADR/044-nightly-stock-reconciliation.md))*
 
@@ -567,7 +618,8 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `manual_bca_bank_name` | `string?` | *(v1.2 #10)* Display label for the bank. Read-time default `"BCA"` when absent. |
 | `manual_bca_account_name` | `string?` | *(v1.2 #10)* Account holder name shown to staff for verification. Read-time default `"PT Malo Group Bahagia"` when absent. |
 | `manual_bca_account_number` | `string?` | *(v1.2 #10)* Account number shown to staff — stored as a **string** (leading-zero safe, never coerced). Read-time default `"6044830994"` when absent. |
-| `outlet_device_id` | `string?` | *(v1.2)* The designated booth **outlet** device_id. When set, ONLY this device is subject to the start-of-day / handover SOP gate (`RootLayout`); every other registered device is a "viewer" that skips the SOP. Read-time default `null` when absent ⇒ every device acts as the outlet (backward compatible). Written via manager-session `staff.setOutletDevice` (validates the device is registered+active) → `settings/internal._setOutletDevice_internal`. Read by the unauthenticated `settings.outletStatus({ deviceId })`. |
+| `outlet_device_id` | `string?` | *(v1.2 — **RETIRED in v2.0**)* Was the designated booth outlet device_id for the PR #124 SOP gate. **Replaced by `registered_devices.outlet_id` + `assignDeviceOutlet`.** Existing rows are ignored; `settings.outletStatus` and `staff.setOutletDevice` have been deleted. |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Scopes this settings row to a specific outlet. `_getSettings_internal` takes an `outletId?` arg and reads `by_outlet`. Pre-v2.0 singleton row has no `outlet_id` and is the fallback. |
 | `updated_at` | `number` | |
 | `updated_by` | `Id<"staff">?` | Optional — row may be updated by a system action |
 
@@ -594,15 +646,16 @@ Per-day payout aggregate ([strategic foundations §7](./ADR/000-strategic-founda
 Indexes: `by_settlement_date` on `settlement_date`, `by_settlement_key` on `settlement_key`.
 
 ### `pos_receipt_counters` — v0.3 shipped *(owned by `transactions/`)*
-Atomic counter for `R-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-format.md)). The `next_number` is allocated atomically inside `_confirmPaid`.
+Atomic counter for `R-<outletcode>-YYYY-NNNN` allocation ([ADR-023](./ADR/023-receipt-number-format.md), [ADR-051](./ADR/051-multi-outlet-tenancy-silo.md)). The `next_number` is allocated atomically inside `_confirmPaid`. **v2.0:** re-keyed to `(outlet_id, year)`; old `by_year` index kept for backward compat during additive phase; `by_outlet_year` is the live index.
 
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_receipt_counters">` | |
 | `year` | `number` | **WIB calendar year** (UTC+7, no DST) — not the UTC year. The new WIB year takes effect at 17:00 UTC on Dec 31; booth + accounting + customers all expect the WIB calendar |
 | `next_number` | `number` | Monotonic; next NNNN to allocate |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Scopes the counter to a specific outlet. Optional during additive phase. |
 
-Indexes: `by_year` on `year`.
+Indexes: `by_year` on `year` (legacy — kept during additive phase), `by_outlet_year` on `[outlet_id, year]` *(v2.0 — primary)*.
 
 ### `pos_receipt_html_cache` *(v0.5.1 PR A — owned by `receipts/`)*
 Per-token cache of rendered receipt HTML. 24h TTL with lazy regenerate on miss (no reaper cron — Convex storage is cheap; lazy is always correct). One row per `receipt_token`. Cache is purged on refund commit in PR B so the receipt re-projects refund state ([ADR-039](./ADR/039-receipt-after-refund.md)).
@@ -774,7 +827,11 @@ settings.founders_summary_toggled  # (v0.4) setFoundersSummaryEnabled — manage
 settings.txn_ticker_toggled        # setTxnTickerEnabled (v1.0.2) — manager-session; metadata={ enabled: boolean }; source=booth_inline
 settings.receipt_updated    # updateReceiptConfig — manager-session; metadata={ logo_changed: boolean }; triggers _purgeAllReceiptCache_internal
 settings.manual_bca_updated # (v1.2 #10) settings.internal._updateManualBcaConfig_internal — INTERNAL ONLY (ops/dashboard; no public writer — the settlement account is not client-editable); actor_id=system; metadata={ enabled: boolean, via: "backend" }; source=system
-settings.outlet_device_set  # (v1.2) staff.setOutletDevice → settings.internal._setOutletDevice_internal — manager-session; designates/clears the booth outlet device; metadata={ outlet_device_id: string|null }; source=booth_inline
+settings.outlet_device_set  # (v1.2) RETIRED in v2.0 — was staff.setOutletDevice; replaced by device.assignOutlet below
+# v2.0 outlet management
+device.assignOutlet         # assignDeviceOutlet (staff/actions.ts) — manager-PIN gated; binds registered_devices.outlet_id to a specific outlet; ends all existing sessions on the device when re-assigning; source=booth_inline; metadata={ device_id, outlet_id, outlet_name }
+staff.grantOutletAccess     # grantOutletAccess (staff/actions.ts) — manager-PIN gated; inserts staff_outlet_access row (idempotent); source=booth_inline; metadata={ staff_id, outlet_id }
+staff.revokeOutletAccess    # revokeOutletAccess (staff/actions.ts) — manager-PIN gated; deletes staff_outlet_access row; source=booth_inline; metadata={ staff_id, outlet_id }
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
 voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
 voucher.edited              # updateVoucher — metadata captures changed fields
