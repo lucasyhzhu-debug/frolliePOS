@@ -82,6 +82,8 @@ export const transactionsTables = {
                                                  //   and the new WIB year takes effect at 17:00 UTC Dec 31.
                                                  //   Booth + accounting + customers all expect WIB calendar.
     next_number: v.number(),                     // monotonic; allocated atomically inside _confirmPaid
+    outlet_id: v.optional(v.id("outlets")),      // v2.0 Stream 4: per-outlet counter; optional during migration window
   })
-    .index("by_year", ["year"]),
+    .index("by_year", ["year"])
+    .index("by_outlet_year", ["outlet_id", "year"]),
 };

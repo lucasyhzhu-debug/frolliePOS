@@ -4,6 +4,7 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { VOUCHER_OVER_REDEEMED, PAYMENT_AMOUNT_MISMATCH } from "../flags";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+import { seedDefaultOutlet } from "./_helpers";
 
 // v1.0.1: task 10 — ticker hook test uses drainScheduled to flush ticker
 // after asserting the scheduled count, so setupTelegramStub is also needed here.
@@ -15,6 +16,8 @@ import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
 setupTelegramStub();
 
 async function seedTxnAwaiting(t: ReturnType<typeof convexTest>) {
+  // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
+  await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const dubai = await ctx.db.insert("pos_inventory_skus", {
       sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0,
@@ -65,6 +68,8 @@ async function seedTxnAwaitingWithVoucher(
   },
   voucherDiscount: number,
 ) {
+  // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
+  await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const dubai = await ctx.db.insert("pos_inventory_skus", {
       sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0,
@@ -120,7 +125,7 @@ describe("_confirmPaid_internal funnel", () => {
       return { txn, movements };
     });
     expect(after.txn?.status).toBe("paid");
-    expect(after.txn?.receipt_number).toMatch(/^R-\d{4}-\d{4}$/);
+    expect(after.txn?.receipt_number).toMatch(/^R-[A-Z]+-\d{4}-\d{4}$/);
     expect(after.txn?.confirmed_via).toBe("webhook");
     expect(after.txn?.paid_at).toBeGreaterThan(0);
     expect(after.movements.length).toBe(1);

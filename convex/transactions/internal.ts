@@ -70,20 +70,26 @@ export const _projectedNegStockFlag_internal = internalQuery({
 });
 
 /**
- * Atomic receipt-number allocator. Returns "R-{wibYear}-{NNNN}" where the
- * year is the WIB calendar year (UTC+7, no DST) — see staffreview Critical #2
- * + convex/lib/time.ts.
+ * Atomic receipt-number allocator. Returns "R-{code}-{year}-{NNNN}" where:
+ *   - code  = outlet.code (e.g. "PKW" for Pakuwon Mall)
+ *   - year  = WIB calendar year (UTC+7, no DST) — see staffreview Critical #2
+ *             + convex/lib/time.ts; computed by caller (_confirmPaid) and
+ *             threaded in so the allocator is pure (testable without real-time).
  *
- * Convex optimistic concurrency handles concurrent _confirmPaid calls in the
- * same year: one retries with the updated next_number.
+ * Counter is keyed by (outlet_id, year) via by_outlet_year index.
+ * Convex optimistic concurrency handles concurrent _confirmPaid calls:
+ * one retries with the updated next_number.
  */
 export const _allocateReceiptNumber_internal = internalMutation({
-  args: {},
-  handler: async (ctx): Promise<string> => {
-    const year = wibYear(Date.now());
+  args: { outletId: v.id("outlets"), year: v.number() },
+  handler: async (ctx, { outletId, year }): Promise<string> => {
+    const code = await ctx.runQuery(
+      internal.outlets.internal._requireOutletCode_internal,
+      { outletId },
+    );
     const counter = await ctx.db
       .query("pos_receipt_counters")
-      .withIndex("by_year", (q) => q.eq("year", year))
+      .withIndex("by_outlet_year", (q) => q.eq("outlet_id", outletId).eq("year", year))
       .first();
     let n: number;
     if (counter) {
@@ -91,9 +97,9 @@ export const _allocateReceiptNumber_internal = internalMutation({
       await ctx.db.patch(counter._id, { next_number: n + 1 });
     } else {
       n = 1;
-      await ctx.db.insert("pos_receipt_counters", { year, next_number: 2 });
+      await ctx.db.insert("pos_receipt_counters", { outlet_id: outletId, year, next_number: 2 });
     }
-    return `R-${year}-${String(n).padStart(4, "0")}`;
+    return `R-${code}-${year}-${String(n).padStart(4, "0")}`;
   },
 });
 
@@ -196,10 +202,14 @@ export const _confirmPaid_internal = internalMutation({
       return;
     }
 
-    // 1. Receipt number
+    // 1. Receipt number — resolve outlet (migration-tolerant: txn.outlet_id may be null)
+    const rawOutletId = txn.outlet_id
+      ?? (await ctx.runQuery(internal.outlets.internal._getDefaultOutlet_internal, {}))?._id;
+    if (!rawOutletId) throw new Error("NO_DEFAULT_OUTLET");
+    const year = wibYear(Date.now());
     const receiptNumber = await ctx.runMutation(
       internal.transactions.internal._allocateReceiptNumber_internal,
-      {},
+      { outletId: rawOutletId, year },
     );
 
     // 2. Lines

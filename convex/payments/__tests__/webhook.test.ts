@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { PAYMENT_AMOUNT_MISMATCH } from "../../transactions/flags";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+import { seedDefaultOutlet } from "../../transactions/__tests__/_helpers";
 
 // v1.0.1: webhook now triggers _confirmPaid which schedules sendTxnTicker.
 // Stub Telegram + drain to avoid "Write outside of transaction" errors.
@@ -17,6 +18,8 @@ async function seedAwaitingWithInvoice(
   xendit_invoice_id: string,
   method: "QRIS" | "BCA_VA" = "QRIS",
 ) {
+  // v2.0 Stream 4: _confirmPaid needs an active outlet for receipt number allocation
+  await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
       name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),

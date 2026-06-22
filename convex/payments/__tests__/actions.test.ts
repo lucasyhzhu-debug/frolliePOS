@@ -9,6 +9,7 @@ import {
   _xenditMockCalls,
 } from "./_xenditMock";
 import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
+import { seedDefaultOutlet } from "../../transactions/__tests__/_helpers";
 
 // v1.0.1: manuallyConfirmPayment completes paid transition → schedules sendTxnTicker.
 // Stub Telegram + drain to avoid "Write outside of transaction" errors.
@@ -22,6 +23,8 @@ beforeEach(() => {
 });
 
 async function seedAwaiting(t: ReturnType<typeof convexTest>) {
+  // v2.0 Stream 4: manuallyConfirmPayment → _confirmPaid needs an active outlet
+  await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
       name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
