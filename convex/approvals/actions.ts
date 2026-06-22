@@ -1034,6 +1034,10 @@ export const approveSpoilage = action({
     // Step 8: commit via the single writer (S3). source="telegram_approval"
     // threads through to the stock.spoilage audit row so dashboards can tell
     // off-booth approvals apart from booth-inline (S4).
+    // v2.0 Task 9E: thread outlet_id from the approval request row so the
+    // stock movements and on_hand cache row are outlet-stamped. The request row
+    // inherited outlet_id from the requester session when requestSpoilageApproval
+    // was called — pulling it here keeps the commit consistent with the request.
     const result = await ctx.runMutation(
       internal.inventory.internal._recordSpoilage_internal,
       {
@@ -1045,6 +1049,7 @@ export const approveSpoilage = action({
         reason: ctxBag.reason,
         actor_id: manager._id,
         source: "telegram_approval",
+        outlet_id: req.outlet_id,
       },
     );
 

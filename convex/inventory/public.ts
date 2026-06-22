@@ -139,12 +139,17 @@ export const recordRecount = mutation({
           source: "recount",
           created_at: now,
           recorded_by_staff_id: staffId,
+          // v2.0 Task 9E: stamp outlet_id on recount movements (mirrors
+          // sale/refund/spoilage paths). outlet_id is resolved from the session
+          // at the top of the handler; undefined for pre-migration rows.
+          ...(outlet_id ? { outlet_id } : {}),
         });
         // v0.5.2 simplify: call the shared upsertStockLevel helper directly
         // (was: _applyLevelDelta_internal sub-transaction). Saves a runMutation
         // round-trip AND the helper's own duplicate level-row lookup — the
         // outer loop already read `level` two lines up.
-        await upsertStockLevel(ctx, skuId, delta, now);
+        // v2.0 Task 9E: pass outlet_id so the level row is stamped/scoped correctly.
+        await upsertStockLevel(ctx, skuId, delta, now, outlet_id);
         await logAudit(ctx, {
           actor_id: staffId,
           action: "stock.recount",
