@@ -23,7 +23,7 @@ export const _getActiveSkuIds_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less callers (getStockLevels, cron) pass no outletId and need a global read; outlet scoping deferred to Task 12 when sessionId is injected
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less callers (getStockLevels) pass no outletId and need a global read; outlet scoping deferred to Task 12 when sessionId is injected
         await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))
@@ -47,6 +47,10 @@ export const _getActiveSkuIds_internal = internalQuery({
 export const _getActiveSkus_internal = internalQuery({
   args: { outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
+    // v2.0 Task 11: cron callers (_runStockRecon_internal) now resolve the
+    // default outlet and pass outletId — use the by_outlet_active index when
+    // present. Falls back to by_active for the pre-backfill window (outletId
+    // absent means no outlets table row exists yet).
     const rows = args.outletId
       ? await ctx.db
           .query("pos_inventory_skus")
@@ -54,7 +58,7 @@ export const _getActiveSkus_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron callers (_runStockRecon_internal) pass no outletId and need a global read across all outlets; per-outlet recon scoped in Task 12
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- pre-backfill window fallback: no outlets row exists yet so outletId is undefined; safe to read globally until backfill completes
         await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))

@@ -561,23 +561,35 @@ export const _runStockRecon_internal = internalMutation({
     scanned: number;
     drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }>;
   }> => {
-    // v2.0 Task 9B: cron has no outlet context — runs globally across all SKUs.
-    // TODO Task 12: scope per-outlet when multi-outlet recon is required.
-    const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {});
+    // v2.0 Task 11: resolve the default outlet so cron reads are outlet-scoped.
+    const defaultOutlet = await ctx.runQuery(
+      internal.outlets.internal._getDefaultOutlet_internal,
+      {},
+    );
+    const outletId = defaultOutlet?._id;
+
+    // Scope to the default outlet's active SKUs (window-tolerant: outletId may
+    // be undefined during the backfill window — _getActiveSkus_internal falls
+    // back to the global by_active index in that case).
+    const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {
+      outletId,
+    });
     const now = Date.now();
     const drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }> = [];
 
     for (const sku of skus) {
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron caller (_runStockRecon_internal) has no outlet context; runs cross-outlet globally (per-outlet recon scoped in Task 12)
       const movements = await ctx.db
         .query("pos_stock_movements")
-        .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", sku._id))
+        .withIndex("by_outlet_sku_created", (q) =>
+          q.eq("outlet_id", outletId).eq("inventory_sku_id", sku._id),
+        )
         .collect();
       const reconstructed = reconstructOnHand(movements);
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron caller (_runStockRecon_internal) has no outlet context; runs cross-outlet globally (per-outlet recon scoped in Task 12)
       const level = await ctx.db
         .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", sku._id))
+        .withIndex("by_outlet_sku", (q) =>
+          q.eq("outlet_id", outletId).eq("inventory_sku_id", sku._id),
+        )
         .first();
       const cached = level?.on_hand ?? 0;
       const { drift, delta } = computeDrift(cached, reconstructed);
@@ -589,6 +601,7 @@ export const _runStockRecon_internal = internalMutation({
           reconstructed_on_hand: reconstructed,
           delta,
           detected_at: now,
+          ...(outletId ? { outlet_id: outletId } : {}),
         });
         await logAudit(ctx, {
           actor_id: "system",

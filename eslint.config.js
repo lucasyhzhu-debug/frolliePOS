@@ -153,7 +153,7 @@ const OUTLET_KEPT_INDEXES = [
 // pos_transaction_lines / pos_xendit_invoices inline; v0.5.1 PR A review
 // pulled it back inside ADR-034 boundaries — reads now route through
 // transactions/internal + payments/internal aggregate helpers.)
-const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes"];
+const ALLOWLIST = ["auth", "idempotency", "audit", "seed", "staff", "_codes", "migrations"];
 
 export default [
   {

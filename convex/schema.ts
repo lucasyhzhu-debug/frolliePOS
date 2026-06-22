@@ -17,6 +17,7 @@ import { approvalsTables } from "./approvals/schema";
 import { settingsTables } from "./settings/schema";
 import { settlementsTables } from "./settlements/schema";
 import { shiftsTables } from "./shifts/schema";
+import { migrationsTables } from "./migrations/schema";
 
 export default defineSchema({
   ...apiTables,
@@ -37,4 +38,5 @@ export default defineSchema({
   ...settingsTables,
   ...settlementsTables,
   ...shiftsTables,
+  ...migrationsTables,
 });
