@@ -76,6 +76,9 @@ export const _persistInvoiceCommit_internal = internalMutation({
   >(
     "payments._persistInvoiceCommit",
     async (ctx, args) => {
+      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      const txnRow = await ctx.db.get(args.txnId);
+      const txnOutletId = txnRow?.outlet_id;
       const invoiceId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.xendit_invoice_id,
@@ -86,6 +89,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
+        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
       });
       await ctx.runMutation(internal.transactions.internal._setCurrentInvoice_internal, {
         txnId: args.txnId,
@@ -159,6 +163,9 @@ export const _replaceInvoiceCommit_internal = internalMutation({
   >(
     "payments._replaceInvoiceCommit",
     async (ctx, args) => {
+      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      const txnRow = await ctx.db.get(args.txnId);
+      const txnOutletId = txnRow?.outlet_id;
       const newId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.new_xendit_id,
@@ -169,6 +176,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
+        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
       });
       await ctx.db.patch(args.prev_invoice_id, {
         cancelled_at: Date.now(),

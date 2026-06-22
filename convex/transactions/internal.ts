@@ -780,6 +780,7 @@ export const _getTxnForTicker_internal = internalQuery({
     paid_at: number;
     staff_id: Id<"staff">;
     confirmed_via: "webhook" | "polling" | "manual" | "manual_bca" | null;
+    outlet_id: Id<"outlets"> | undefined;
     lines: Array<{ name: string; qty: number }>;
   } | null> => {
     const txn = await ctx.db.get(args.txnId);
@@ -796,6 +797,7 @@ export const _getTxnForTicker_internal = internalQuery({
       paid_at: txn.paid_at!,
       staff_id: txn.staff_id,
       confirmed_via: txn.confirmed_via ?? null,
+      outlet_id: txn.outlet_id,
       lines: lineRows.map((l) => ({ name: l.product_name_snapshot, qty: l.qty })),
     };
   },

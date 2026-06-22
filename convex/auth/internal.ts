@@ -327,12 +327,18 @@ export const _resolveSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string } | null> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    return { staffId: session.staff_id, deviceId: session.device_id };
+    // v2.0 Task 5: mirror requireSession outlet resolution (migration-tolerant window).
+    let outlet_id = session.outlet_id as Id<"outlets"> | undefined;
+    if (!outlet_id) {
+      const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
+      outlet_id = def?._id;
+    }
+    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id };
   },
 });
 

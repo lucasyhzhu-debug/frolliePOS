@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { query, mutation } from "../_generated/server";
-import type { QueryCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireManagerSession, requireSession } from "../auth/sessions";
@@ -63,8 +62,10 @@ export const setFoundersSummaryEnabled = mutation({
       // Re-resolve the session inside the handler so the staffId for audit
       // attribution comes from the validated session. authCheck (below) has
       // already proven manager-ness; this read is the typed source for staffId.
-      const { staffId } = await requireManagerSession(ctx, args.sessionId);
-      const row = await ctx.db.query("pos_settings").first();
+      const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
+      const row = outlet_id
+        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+        : await ctx.db.query("pos_settings").first();
       if (row) {
         await ctx.db.patch(row._id, {
           founders_summary_enabled: args.enabled,
@@ -79,6 +80,7 @@ export const setFoundersSummaryEnabled = mutation({
           txn_ticker_enabled: true,
           updated_at: Date.now(),
           updated_by: staffId,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       await logAudit(ctx, {
@@ -114,8 +116,10 @@ export const setTxnTickerEnabled = mutation({
   >(
     "settings.setTxnTickerEnabled",
     async (ctx, args) => {
-      const { staffId } = await requireManagerSession(ctx, args.sessionId);
-      const row = await ctx.db.query("pos_settings").first();
+      const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
+      const row = outlet_id
+        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+        : await ctx.db.query("pos_settings").first();
       if (row) {
         await ctx.db.patch(row._id, {
           txn_ticker_enabled: args.enabled,
@@ -131,6 +135,7 @@ export const setTxnTickerEnabled = mutation({
           txn_ticker_enabled: args.enabled,
           updated_at: Date.now(),
           updated_by: staffId,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       await logAudit(ctx, {
@@ -174,10 +179,10 @@ type ReceiptConfigView = {
 export const getReceiptConfig = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ReceiptConfigView> => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
     const s = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
-      {},
+      { outletId: outlet_id },
     );
     const logo_url = s.receipt.logo_storage_id
       ? await ctx.storage.getUrl(s.receipt.logo_storage_id)
@@ -249,7 +254,7 @@ export const updateReceiptConfig = mutation({
   >(
     "settings.updateReceiptConfig",
     async (ctx, args) => {
-      const { staffId: mgrId } = await requireManagerSession(ctx, args.sessionId);
+      const { staffId: mgrId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
       // Bound each user-supplied receipt string at 120 chars — keeps printed
       // receipts visually sane; UI Task 16 mirrors this bound client-side.
       for (const [k, val] of Object.entries({
@@ -273,13 +278,16 @@ export const updateReceiptConfig = mutation({
         updated_at: Date.now(),
         updated_by: mgrId,
       };
-      const row = await ctx.db.query("pos_settings").first();
+      const row = outlet_id
+        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+        : await ctx.db.query("pos_settings").first();
       if (row) {
         await ctx.db.patch(row._id, patch);
       } else {
         await ctx.db.insert("pos_settings", {
           founders_summary_enabled: true,
           ...patch,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
       // Purge the receipt HTML cache so the next /r/<token> render picks up
@@ -322,22 +330,16 @@ type ManualBcaView = {
   account_number: string;
 };
 
-// Both reads return the same view (defaults single-sourced in _getSettings_internal);
-// they differ only in the auth gate, so share the read body.
-async function readManualBca(ctx: QueryCtx): Promise<ManualBcaView> {
-  const s = await ctx.runQuery(
-    internal.settings.internal._getSettings_internal,
-    {},
-  );
-  return { ...s.manual_bca };
-}
-
 /** Manager-only read — settings screen. */
 export const getManualBcaConfig = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
-    await requireManagerSession(ctx, args.sessionId);
-    return readManualBca(ctx);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      { outletId: outlet_id },
+    );
+    return { ...s.manual_bca };
   },
 });
 
@@ -345,8 +347,12 @@ export const getManualBcaConfig = query({
 export const getManualBcaAccount = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args): Promise<ManualBcaView> => {
-    await requireSession(ctx, args.sessionId);
-    return readManualBca(ctx);
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    const s = await ctx.runQuery(
+      internal.settings.internal._getSettings_internal,
+      { outletId: outlet_id },
+    );
+    return { ...s.manual_bca };
   },
 });
 

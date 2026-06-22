@@ -242,14 +242,14 @@ export const listRegisteredDevices = query({
     ctx,
     args,
   ): Promise<{ devices: DeviceRow[]; outletDeviceId: string | null }> => {
-    await requireManagerSession(ctx, args.sessionId);
+    const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
     const rows = await ctx.db
       .query("registered_devices")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
     const settings = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
-      {},
+      { outletId: outlet_id },
     );
     return {
       outletDeviceId: settings.outlet_device_id,

@@ -1,5 +1,6 @@
 import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 
 // Receipt-config defaults — equal to the pre-v0.5.3b hardcoded values so an
@@ -29,9 +30,28 @@ export const MANUAL_BCA_DEFAULTS = {
 } as const;
 
 export const _getSettings_internal = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const row = await ctx.db.query("pos_settings").first();
+  args: { outletId: v.optional(v.id("outlets")) },
+  handler: async (ctx, args) => {
+    // When outletId is provided, look up the per-outlet row via the by_outlet index.
+    // When absent (cron / session-less callers), fall back to .first() for the
+    // legacy singleton row (pre-v2.0 or default-outlet path).
+    let row;
+    if (args.outletId !== undefined) {
+      // Per-outlet lookup: read the row keyed to this specific outlet.
+      // If no per-outlet row exists yet, row stays undefined → all fields fall
+      // back to RECEIPT_DEFAULTS / MANUAL_BCA_DEFAULTS below.
+      // We deliberately do NOT fall back to `.first()` here because that would
+      // bleed outlet A's settings into outlet B (isolation invariant).
+      row = await ctx.db
+        .query("pos_settings")
+        .withIndex("by_outlet", (q) => q.eq("outlet_id", args.outletId as Id<"outlets">))
+        .first();
+    } else {
+      // Defensive path: no outletId supplied → legacy .first() (cron / session-less
+      // callers during the migration window, or pre-outlets deployments where the
+      // row has no outlet_id). This preserves backward-compat for the singleton.
+      row = await ctx.db.query("pos_settings").first();
+    }
     return {
       founders_summary_enabled: row?.founders_summary_enabled ?? true,
       // v1.0.1: read-time default true — no migration needed for existing prod row

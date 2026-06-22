@@ -86,7 +86,7 @@ export const recordRecount = mutation({
   >(
     "inventory.recordRecount",
     async (ctx, args) => {
-      const { staffId } = await requireSession(ctx, args.sessionId);
+      const { staffId, outlet_id } = await requireSession(ctx, args.sessionId);
       const staff = await ctx.db.get(staffId);
       // Invariant: requireSession proved an active session bound to this
       // staffId — if the row vanished between session-check and now,
@@ -161,11 +161,17 @@ export const recordRecount = mutation({
 
       if (touched.length === 0) return { ok: true as const, changed: 0 };
 
-      const state = await ctx.db.query("pos_recount_state").first();
+      // v2.0 Task 5: recount state is per-outlet.
+      const state = outlet_id
+        ? await ctx.db.query("pos_recount_state").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+        : await ctx.db.query("pos_recount_state").first();
       if (state) {
         await ctx.db.patch(state._id, { last_recount_at: now });
       } else {
-        await ctx.db.insert("pos_recount_state", { last_recount_at: now });
+        await ctx.db.insert("pos_recount_state", {
+          last_recount_at: now,
+          ...(outlet_id ? { outlet_id } : {}),
+        });
       }
 
       // ADR-041: Telegram dispatch is scheduled — never inline — so the
@@ -377,8 +383,11 @@ export const getSkuDetail = query({
 export const getRecountState = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (ctx, args) => {
-    await requireSession(ctx, args.sessionId);
-    const row = await ctx.db.query("pos_recount_state").first();
+    const { outlet_id } = await requireSession(ctx, args.sessionId);
+    // v2.0 Task 5: per-outlet recount state.
+    const row = outlet_id
+      ? await ctx.db.query("pos_recount_state").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+      : await ctx.db.query("pos_recount_state").first();
     return { last_recount_at: row?.last_recount_at ?? null };
   },
 });

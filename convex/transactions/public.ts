@@ -35,7 +35,7 @@ function resolveWindow(
 async function resolveSessionStaff(
   ctx: MutationCtx,
   sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string }> {
+): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> {
   const resolved = await ctx.runQuery(
     internal.auth.internal._resolveSession_internal,
     { sessionId },
@@ -239,7 +239,7 @@ export const commitCart = mutation({
         if (!Number.isInteger(qty) || qty <= 0) throw new Error("QTY_INVALID");
       }
 
-      const { staffId, deviceId } = await resolveSessionStaff(ctx, args.sessionId);
+      const { staffId, deviceId, outlet_id } = await resolveSessionStaff(ctx, args.sessionId);
 
       // Snapshot prices + names — fetch product details via catalog internal
       // surface (ADR-034). Returned rows may be in any order / skip missing ids,
@@ -314,6 +314,7 @@ export const commitCart = mutation({
       if (flagged) flags = withFlag(flags, NEG_STOCK);
 
       // Insert txn + lines (transactions-owned tables — direct writes OK)
+      // v2.0 Task 5: stamp outlet_id from the session on txn + lines.
       const txnId = await ctx.db.insert("pos_transactions", {
         status: args.intent === "draft" ? "draft" : "awaiting_payment",
         subtotal,
@@ -323,6 +324,7 @@ export const commitCart = mutation({
         flags,
         staff_id: staffId,
         created_at: Date.now(),
+        ...(outlet_id ? { outlet_id } : {}),
       });
       for (const l of linesWithSnapshot) {
         await ctx.db.insert("pos_transaction_lines", {
@@ -334,6 +336,7 @@ export const commitCart = mutation({
           tax_rate_snapshot: l.tax_rate,
           qty: l.qty,
           line_subtotal: l.unit_price * l.qty,
+          ...(outlet_id ? { outlet_id } : {}),
         });
       }
 
