@@ -54,16 +54,24 @@ type HandoverArgs = {
 };
 
 export const boothState = query({
-  args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
+  // outlet_id is SERVER-DERIVED from the device, never a client arg (ADR-051
+  // Decision D). This is a pre-login query (no session), so resolve the device's
+  // outlet via the auth helper rather than trusting a client-supplied value.
+  args: { deviceId: v.string() },
   handler: async (
     ctx,
-    { deviceId, outletId },
+    { deviceId },
   ): Promise<{
     state: BoothState;
     staffId: Id<"staff"> | null;
     staffName: string | null;
     staleAutoclose: boolean;
   }> => {
+    const outletId =
+      (await ctx.runQuery(
+        internal.auth.internal._getDeviceOutletId_internal,
+        { deviceId },
+      )) ?? undefined;
     const latest = await ctx.runQuery(
       internal.shifts.internal._latestShiftEvent_internal,
       { deviceId, outletId },
