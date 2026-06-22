@@ -2820,7 +2820,9 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-be-owner-auth]** owner role + Telegram-OTP cockpit login + `/start` binding + durable cockpit sessions (`staff_sessions.kind`)
   - **agent:** `convex-expert`
   - **deps:** `v13-be-outlet-scoping`
-  - **docs:** [ADR-052](./ADR/052-owner-auth-telegram-otp.md), [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md)
+  - **docs:** [ADR-052](./ADR/052-owner-auth-telegram-otp.md), [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md), [plan](./superpowers/plans/2026-06-22-v2.0-owner-auth-plane.md), [spec-review](./reviews/staffreview-owner-auth-plane-spec-2026-06-22.md), [plan-review](./reviews/staffreview-owner-auth-plane-plan-2026-06-22.md)
+  - **notes:**
+    - 2026-06-22: Spec→staffreview→plan→staffreview pipeline complete (worktree branch). Plan = 8 TDD tasks (T1 schema · T2 cockpit-session helpers · T3 `/start` binding · T4 OTP req/verify · T5 quick-PIN · T6 promotion+cron · T7 FE · T8 docs); covers FE task `v13-fe-cockpit-login`. Spec review resolved 5 Critical + 5 Improvements; plan review resolved PL-1 (sha256 helper) + PL-2 (setRole commit validator). **⛔ BLOCKED-ON-SPEC-1 EXECUTION** — consumes owner role + `requireSession` `outlet_id`; requires 2 Spec-1 amendments: keep `staff_sessions.outlet_id` optional (Task-12) + exclude `owner_auth_*` from the outlet fence. Top catches: strict `/start` matcher can't match `/start <token>` (acceptsArgs fix); OTP code leaked into `telegram_log` (redact); OTP throttle must not touch `pos_auth_attempts` (SEC-07).
 - 📋 **[v13-be-cockpit-queries]** owner-scoped cross-outlet readers + `createOutlet`/clone action (single-writer, idempotent, audited)
   - **agent:** `convex-expert`
   - **deps:** `v13-be-owner-auth`
@@ -2838,7 +2840,9 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
 - 📋 **[v13-fe-cockpit-login]** `/cockpit/login` Telegram-OTP flow + remembered-device quick-PIN
   - **agent:** `frontend-integrator`
   - **deps:** `v13-be-owner-auth`
-  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md)
+  - **docs:** [spec](./superpowers/specs/2026-06-21-owner-auth-plane-design.md), [plan](./superpowers/plans/2026-06-22-v2.0-owner-auth-plane.md)
+  - **notes:**
+    - 2026-06-22: planned as Task 7 (WS6) of the owner-auth plan — route-owned phase machine (identifier→OTP→remember), reuses `NumericKeypad` + `FieldMessage`; `useSession`/`RootLayout` gain a `kind`-aware cockpit gate. e2e deferred to the Spec-3 cockpit harness.
 - 📋 **[v13-fe-cockpit-shell]** `/cockpit/*` route tree + owner-session gate + outlet switcher _(use `/frontend-design`)_
   - **agent:** `ui-component-builder`
   - **deps:** `v13-fe-cockpit-login`
