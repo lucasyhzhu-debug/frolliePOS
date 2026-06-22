@@ -2,6 +2,7 @@ import { defineSchema } from "convex/server";
 import { apiTables } from "./api/v1/schema";
 import { opsTables } from "./ops/schema";
 import { authTables } from "./auth/schema";
+import { outletsTables } from "./outlets/schema";
 import { catalogTables } from "./catalog/schema";
 import { idempotencyTables } from "./idempotency/schema";
 import { auditTables } from "./audit/schema";
@@ -21,6 +22,7 @@ export default defineSchema({
   ...apiTables,
   ...opsTables,
   ...authTables,
+  ...outletsTables,
   ...catalogTables,
   ...idempotencyTables,
   ...auditTables,
