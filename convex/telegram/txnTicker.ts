@@ -52,6 +52,7 @@ export const sendTxnTicker = internalAction({
       ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
       ctx.runQuery(internal.payments.internal._getPaidInvoiceForTxn_internal, {
         transactionId: args.txnId,
+        outletId: txn.outlet_id,
       }),
     ]);
 

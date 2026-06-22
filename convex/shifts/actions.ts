@@ -115,7 +115,7 @@ export const _sendSignoffSummary = internalAction({
     manualBcaCount: v.number(),
     manualBcaTotalIdr: v.number(),
     idempotencyKeySuffix: v.string(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<void> => {
     // Resolve staff display name and fetch manual-BCA items in parallel.
@@ -175,7 +175,7 @@ export const _sendTakeoverSummary = internalAction({
     displacedShiftStartMs: v.number(),
     displacedShiftEndMs: v.number(),
     idempotencyKeySuffix: v.string(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<void> => {
     // Resolve displaced staff name + build sales aggregate in parallel.

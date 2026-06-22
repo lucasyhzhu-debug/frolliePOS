@@ -5,7 +5,6 @@ import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, resolveDeviceOutletId } from "./sessions";
-import { resolveDefaultOutletId } from "../outlets/internal";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -272,11 +271,22 @@ export const _loginCommit_internal = internalMutation({
         await ctx.db.patch(attempt._id, { fail_count: 0, locked_until: null, last_attempt_at: now });
       }
 
-      // v2.0 Task 7 (C2): resolve outlet from device binding (window-tolerant).
-      // Throws/access-deny deferred to Task 12 (lives in resolveDeviceOutletId).
-      // Falls back to the default outlet when the device is unbound so ALL
-      // logins succeed during the migration window.
+      // v2.0 Task 12 (ENFORCE): resolve outlet from the device binding —
+      // resolveDeviceOutletId now throws DEVICE_HAS_NO_OUTLET on an unbound
+      // device (the migration-window default fallback is gone).
       const outletId = await resolveDeviceOutletId(ctx, args.deviceId);
+
+      // v2.0 Task 12 (ENFORCE): a staff member must have a staff_outlet_access
+      // row for this outlet before a session is minted. Mirrors
+      // _assertStaffHasOutletAccess_internal (inlined: this is a mutation, which
+      // cannot runQuery). Manager takeover BYPASSES this (escape hatch).
+      const access = await ctx.db
+        .query("staff_outlet_access")
+        .withIndex("by_staff_outlet", (q) =>
+          q.eq("staff_id", args.staffId).eq("outlet_id", outletId),
+        )
+        .first();
+      if (!access) throw new Error("NO_OUTLET_ACCESS");
 
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: args.staffId,
@@ -336,15 +346,15 @@ export const _resolveSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined } | null> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0 Task 5: mirror requireSession outlet resolution (migration-tolerant window).
-    const outlet_id =
-      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
-    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id };
+    // v2.0 Task 12 (ENFORCE): mirror requireSession — every live session is
+    // backfill-stamped, so an absent outlet is a hard throw.
+    if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
+    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id: session.outlet_id };
   },
 });
 
@@ -368,17 +378,15 @@ export const _resolveSessionRole_internal = internalQuery({
     staffId: Id<"staff">;
     deviceId: string;
     role: "staff" | "manager";
-    outlet_id: Id<"outlets"> | undefined;
+    outlet_id: Id<"outlets">;
   } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0: surface outlet_id (window-tolerant) so callers needing role+outlet
-    // resolve the session ONCE instead of pairing this with _resolveSession_internal.
-    const outlet_id =
-      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
-    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id };
+    // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped. Absent ⇒ throw.
+    if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id: session.outlet_id };
   },
 });
 
@@ -497,7 +505,7 @@ export const _requireManagerSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> }> => {
     return await requireManagerSession(ctx, args.sessionId);
   },
 });
@@ -666,8 +674,9 @@ export const _managerTakeoverSession_internal = internalMutation({
  * Resolve the outlet bound to a device (window-tolerant).
  *
  * v2.0 Stream 5 helper for cross-module callers (e.g. shifts) that need the
- * device's outlet_id without crossing ADR-034 module boundaries. Falls back to
- * the first active outlet when the device has no binding yet.
+ * device's outlet_id without crossing ADR-034 module boundaries. v2.0 Task 12
+ * (ENFORCE): throws DEVICE_HAS_NO_OUTLET on an unbound device (via
+ * resolveDeviceOutletId) — the default fallback is gone.
  *
  * auth owns `registered_devices` and `outlets` (Decision 3), so this lives here.
  */
@@ -676,7 +685,7 @@ export const _getDeviceOutletId_internal = internalQuery({
   handler: async (
     ctx,
     { deviceId },
-  ): Promise<import("../_generated/dataModel").Id<"outlets"> | undefined> =>
+  ): Promise<import("../_generated/dataModel").Id<"outlets">> =>
     resolveDeviceOutletId(ctx, deviceId),
 });
 

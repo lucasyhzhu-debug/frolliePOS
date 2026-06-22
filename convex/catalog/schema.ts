@@ -13,7 +13,7 @@ export const catalogTables = {
     photo_storage_id: v.optional(v.id("_storage")),
     active: v.boolean(),
     created_at: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_sku", ["sku"])
     .index("by_code", ["code"])
@@ -35,7 +35,7 @@ export const catalogTables = {
     tax_rate: v.number(),
     created_at: v.number(),
     updated_at: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_active_sort", ["active", "sort_order"])
     .index("by_family", ["sku_family"])
@@ -48,7 +48,7 @@ export const catalogTables = {
     product_id: v.id("pos_products"),
     inventory_sku_id: v.id("pos_inventory_skus"),
     qty: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_product", ["product_id"])
     .index("by_sku", ["inventory_sku_id"])

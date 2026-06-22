@@ -85,6 +85,13 @@ export const seedDefaultOutlet = internalMutation({
  *
  * Idempotent (skips rows that no longer have the field). Returns rows stripped.
  *
+ * v2.0 Task 12 (ENFORCE): the `outlet_device_id` validator line is now dropped
+ * from settings/schema.ts (prod data was already cleared by this migration), so
+ * the field is no longer on the typed Doc. We retain this function as a defensive
+ * idempotent sweep — accessing the legacy field via an `unknown` cast and
+ * patching with a cast literal, since TS no longer models it. Kept for break-glass
+ * re-run / historical reference.
+ *
  * Run command (prod): `npx convex run migrations/internal:stripLegacyOutletDeviceId --prod`
  */
 export const stripLegacyOutletDeviceId = internalMutation({
@@ -93,8 +100,8 @@ export const stripLegacyOutletDeviceId = internalMutation({
     const rows = await ctx.db.query("pos_settings").collect();
     let stripped = 0;
     for (const r of rows) {
-      if (r.outlet_device_id !== undefined) {
-        await ctx.db.patch(r._id, { outlet_device_id: undefined });
+      if ((r as unknown as { outlet_device_id?: string }).outlet_device_id !== undefined) {
+        await ctx.db.patch(r._id, { outlet_device_id: undefined } as unknown as Partial<typeof r>);
         stripped++;
       }
     }

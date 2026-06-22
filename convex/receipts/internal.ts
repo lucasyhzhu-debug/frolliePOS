@@ -34,7 +34,7 @@ async function buildVmFromTxnWithLines(
       voucher_discount: number;
       total: number;
       confirmed_via?: "webhook" | "polling" | "manual" | "manual_bca";
-      outlet_id?: import("../_generated/dataModel").Id<"outlets">;
+      outlet_id: import("../_generated/dataModel").Id<"outlets">;
     };
     lines: Array<{
       product_name_snapshot: string;
@@ -75,7 +75,7 @@ async function buildVmFromTxnWithLines(
     // ADR-034 — receipts must not query pos_xendit_invoices directly.
     const invoice = await ctx.runQuery(
       internal.payments.internal._getPaidInvoiceForTxn_internal,
-      { transactionId: txn._id },
+      { transactionId: txn._id, outletId: txn.outlet_id },
     );
     payment_method = invoice ? humanMethodFromInvoice(invoice) : "—";
     rrn = invoice?.receipt_id ?? undefined;
@@ -84,7 +84,7 @@ async function buildVmFromTxnWithLines(
   // Cross-module per ADR-034 — refunds module owns pos_refunds.
   const refundRows = await ctx.runQuery(
     internal.refunds.internal._listForTransaction_internal,
-    { transactionId: txn._id },
+    { transactionId: txn._id, outletId: txn.outlet_id },
   );
 
   // v0.5.3b T13: read branding from pos_settings (formerly a hardcoded const).
@@ -158,7 +158,7 @@ export const _buildViewModel_internal = internalQuery({
 
 export const _renderReceiptByToken_internal = internalQuery({
   args: { token: v.string() },
-  handler: async (ctx, args): Promise<{ html: string } | null> => {
+  handler: async (ctx, args): Promise<{ html: string; outletId: import("../_generated/dataModel").Id<"outlets"> } | null> => {
     const txnWithLines = await ctx.runQuery(
       internal.transactions.internal._getPaidTxnWithLinesByToken_internal,
       { token: args.token },
@@ -169,7 +169,9 @@ export const _renderReceiptByToken_internal = internalQuery({
     // cross-module read for txn+lines + one for invoice.
     const vm = await buildVmFromTxnWithLines(ctx, txnWithLines);
     if (!vm) return null;
-    return { html: renderReceipt(vm) };
+    // v2.0 Task 12 (ENFORCE): surface the txn's outlet so the http caller can
+    // stamp the cache row (pos_receipt_html_cache.outlet_id is required).
+    return { html: renderReceipt(vm), outletId: txnWithLines.txn.outlet_id };
   },
 });
 
@@ -187,7 +189,7 @@ export const _getCachedReceipt_internal = internalQuery({
 });
 
 export const _writeCacheEntry_internal = internalMutation({
-  args: { token: v.string(), html: v.string() },
+  args: { token: v.string(), html: v.string(), outletId: v.id("outlets") },
   handler: async (ctx, args) => {
     // Idempotent upsert: delete prior entry (if any) then insert. Convex serialises
     // per-document writes; the delete+insert is atomic within the mutation.
@@ -200,6 +202,7 @@ export const _writeCacheEntry_internal = internalMutation({
       token: args.token,
       html: args.html,
       expires_at: Date.now() + CACHE_TTL_MS,
+      outlet_id: args.outletId,  // v2.0 Task 12 (ENFORCE): cache row carries the txn's outlet
     });
   },
 });

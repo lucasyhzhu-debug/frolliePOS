@@ -121,8 +121,11 @@ export const retryWithFreshInvoice = action({
     // Auth: a valid (non-ended) session is required to mint a fresh invoice.
     const session = await ctx.runQuery(api.auth.public.getSession, { sessionId: args.sessionId });
     if (!session) throw new Error("SESSION_INVALID");
+    // v2.0 Task 12 (ENFORCE): the session always carries an outlet now.
+    const outletId = session.staff.outlet_id;
+    if (!outletId) throw new Error("SESSION_NO_OUTLET");
 
-    const prev = await ctx.runQuery(internal.payments.internal._getCurrentInvoice_internal, { txnId: args.txnId });
+    const prev = await ctx.runQuery(internal.payments.internal._getCurrentInvoice_internal, { txnId: args.txnId, outletId });
     if (!prev) throw new Error("PREV_INVOICE_MISSING");
 
     const txn = await ctx.runQuery(internal.transactions.internal._getTxnById_internal, { txnId: args.txnId });

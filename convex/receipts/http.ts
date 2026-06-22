@@ -65,6 +65,7 @@ export const handleReceiptRoute = httpAction(async (ctx, req) => {
     await ctx.runMutation(internal.receipts.internal._writeCacheEntry_internal, {
       token,
       html: rendered.html,
+      outletId: rendered.outletId,
     });
   } catch (e) {
     console.error("Receipt cache write failed (non-fatal):", e);

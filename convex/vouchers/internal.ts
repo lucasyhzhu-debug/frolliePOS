@@ -14,7 +14,7 @@ import { logAudit } from "../audit/internal";
  * v2.0 Stream 5: uses by_outlet_code when outletId is provided.
  */
 export const _getVoucherByCode_internal = internalQuery({
-  args: { code: v.string(), outletId: v.optional(v.id("outlets")) },
+  args: { code: v.string(), outletId: v.id("outlets") },
   handler: async (ctx, args): Promise<Doc<"pos_vouchers"> | null> => {
     const code = args.code.toUpperCase();
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
@@ -52,7 +52,7 @@ export const _redeemVoucher_internal = internalMutation({
     transaction_id: v.id("pos_transactions"),
     code_snapshot: v.string(),
     discount_amount: v.number(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<{ overRedeemed: boolean; alreadyRedeemed: boolean }> => {
     // Idempotency guard: if this transaction already has a redemption row, bail out.
@@ -96,7 +96,7 @@ export const _redeemVoucher_internal = internalMutation({
       code_snapshot: args.code_snapshot,
       discount_amount: args.discount_amount,
       redeemed_at: Date.now(),
-      ...(args.outletId !== undefined ? { outlet_id: args.outletId } : {}),
+      outlet_id: args.outletId,
     });
     await ctx.db.patch(args.voucher_id, { used_count: voucher.used_count + 1 });
 
@@ -141,7 +141,7 @@ export const _createVoucher_internal = internalMutation({
     expires_at: v.optional(v.number()),
     createdBy: v.id("staff"),
     deviceId: v.string(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Id<"pos_vouchers">> => {
     const id = await ctx.db.insert("pos_vouchers", {
@@ -157,7 +157,7 @@ export const _createVoucher_internal = internalMutation({
       ...(args.max_redemptions !== undefined ? { max_redemptions: args.max_redemptions } : {}),
       ...(args.expires_at !== undefined ? { expires_at: args.expires_at } : {}),
       // v2.0 Stream 5: stamp outlet_id when provided.
-      ...(args.outletId !== undefined ? { outlet_id: args.outletId } : {}),
+      outlet_id: args.outletId,
     });
     await logAudit(ctx, {
       actor_id: args.createdBy,

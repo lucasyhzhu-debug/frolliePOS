@@ -72,6 +72,8 @@ export const recordSpoilage = action({
           sessionId: args.sessionId,
         });
         const outlet_id = session?.staff.outlet_id;
+        // v2.0 Task 12 (ENFORCE): the session always carries an outlet now.
+        if (!outlet_id) throw new Error("SESSION_NO_OUTLET");
 
         // ── Mint event id (pure V8+Node portable; matches token convention) ──
         const event_id = mintUrlSafeToken(16);

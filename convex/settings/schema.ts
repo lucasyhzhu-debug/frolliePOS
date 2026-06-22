@@ -30,13 +30,9 @@ export const settingsTables = {
     manual_bca_account_number: v.optional(v.string()),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window; was singleton, now one row per outlet
-    // RETIRED (PR#124 device→outlet hotfix). v2.0 dropped this from the validator,
-    // but the existing prod pos_settings row still carried it → schema push failed
-    // ("extra field outlet_device_id"). Re-tolerated as optional so the deploy
-    // succeeds; `migrations.stripLegacyOutletDeviceId` clears the data, then the
-    // Task-12 enforce PR drops this line for good. Nothing reads/writes it.
-    outlet_device_id: v.optional(v.string()),
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced; was singleton, now one row per outlet
+    // outlet_device_id (RETIRED PR#124) DROPPED in v2.0 Task 12 — prod data was
+    // already cleared by migrations.stripLegacyOutletDeviceId. Nothing reads/writes it.
   })
     .index("by_outlet", ["outlet_id"]),
 };

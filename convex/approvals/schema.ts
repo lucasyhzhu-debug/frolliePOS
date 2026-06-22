@@ -62,7 +62,7 @@ export const approvalsTables = {
     notification_channel: v.optional(v.literal("telegram")),
     telegram_message_id: v.optional(v.number()),
     telegram_chat_id: v.optional(v.string()),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_token_hash", ["token_hash"])  // GLOBAL_UNIQUE — keep
     .index("by_status_triggered", ["status", "triggered_at"])

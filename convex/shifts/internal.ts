@@ -40,7 +40,7 @@ const shiftEventFields = {
 };
 
 export const _latestShiftEvent_internal = internalQuery({
-  args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
+  args: { deviceId: v.string(), outletId: v.id("outlets") },
   handler: async (ctx, { deviceId, outletId }) => {
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     return ctx.db
@@ -54,20 +54,19 @@ export const _latestShiftEvent_internal = internalQuery({
 });
 
 export const _recordShiftEvent_internal = internalMutation({
-  args: { ...shiftEventFields, outletId: v.optional(v.id("outlets")) },
+  args: { ...shiftEventFields, outletId: v.id("outlets") },
   handler: async (ctx, args) => {
     const { outletId, ...fields } = args;
     return ctx.db.insert("pos_shift_events", {
       ...fields,
       created_at: Date.now(),
-      // v2.0 Stream 5: stamp outlet_id when provided.
-      ...(outletId !== undefined ? { outlet_id: outletId } : {}),
+      outlet_id: outletId,  // v2.0 Task 12 (ENFORCE): always stamped
     });
   },
 });
 
 export const _shiftStartAnchor_internal = internalQuery({
-  args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
+  args: { deviceId: v.string(), outletId: v.id("outlets") },
   handler: async (
     ctx,
     { deviceId, outletId },
@@ -120,7 +119,7 @@ export const _buildSignoffSummary_internal = internalQuery({
   args: {
     shiftStartMs: v.number(),
     endMs: v.number(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (
     ctx,
@@ -199,18 +198,13 @@ export const _commitManagerTakeover_internal = internalMutation({
       //   lock.shift_started_at  = displaced staff's ORIGINAL shift start
       //   lock.shift_ended_at    = the moment the booth was locked
       //
-      // v2.0 Stream 5: resolve outlet from device binding (window-tolerant).
-      // Route through auth._getDeviceOutletId_internal (ADR-034: registered_devices
-      // and outlets are owned by auth, not shifts).
-      // Keeps by_device_created as fallback when outletId is unavailable —
-      // noted for Task 12 (the by_outlet_device_created index is preferred).
-      // Normalize null → undefined: Convex query returns may infer nullable
-      // for optional fields; v.optional validators only accept undefined.
-      const outletIdRaw = await ctx.runQuery(
+      // v2.0 Task 12 (ENFORCE): resolve outlet from device binding —
+      // _getDeviceOutletId_internal now throws DEVICE_HAS_NO_OUTLET on an unbound
+      // device (ADR-034: registered_devices/outlets are auth-owned, not shifts).
+      const outletId = await ctx.runQuery(
         internal.auth.internal._getDeviceOutletId_internal,
         { deviceId: args.deviceId },
       );
-      const outletId = outletIdRaw ?? undefined;
 
       // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
       const latestBeforeTakeover = await ctx.db
@@ -267,7 +261,7 @@ export const _commitManagerTakeover_internal = internalMutation({
           linked_event_id: null,
           summary: null,
           created_at: now,
-          ...(outletId !== undefined ? { outlet_id: outletId } : {}),
+          outlet_id: outletId,  // v2.0 Task 12 (ENFORCE): always stamped
         },
       );
 

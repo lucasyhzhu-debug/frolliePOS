@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { issueDeviceSetupCode } from "../staff/internal";
 import { insertInventorySku } from "../catalog/internal";
+import { getDefaultOutletDoc } from "../outlets/internal";
 
 /**
  * POS prod deployment slug per CLAUDE.md §"Convex deployment". Update this
@@ -208,9 +209,11 @@ export const _reset_internal = internalMutation({
       const id = await ctx.db.insert("pos_inventory_skus", {
         sku, code, name, unit: "piece", low_threshold: threshold,
         initials: name.slice(0, 2), hue, active: true, created_at: now,
+        outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
         inventory_sku_id: id, on_hand: onHand, updated_at: now,
+        outlet_id: outletId,
       });
       skus[sku] = id;
       inserted += 2; // 1 SKU + 1 stock level
@@ -251,11 +254,13 @@ export const _reset_internal = internalMutation({
         tax_rate: 0,
         created_at: now,
         updated_at: now,
+        outlet_id: outletId,
       });
       inserted++;
       for (const [skuKey, qty] of comps) {
         await ctx.db.insert("pos_product_components", {
           product_id: productId, inventory_sku_id: skus[skuKey], qty,
+          outlet_id: outletId,
         });
         inserted++;
       }
@@ -303,6 +308,7 @@ export const _reset_internal = internalMutation({
       linked_event_id: null,
       summary: null,
       created_at: now,
+      outlet_id: outletId,
     });
     inserted++;
 
@@ -316,6 +322,7 @@ export const _reset_internal = internalMutation({
       active: true,
       created_at: now,
       created_by_staff_id: lucasId,
+      outlet_id: outletId,
     });
     inserted++;
 
@@ -415,6 +422,12 @@ export const _seedLaunchCatalog_internal = internalMutation({
       throw new Error("catalog_already_populated");
     }
 
+    // v2.0 Task 12 (ENFORCE): catalog rows must carry an outlet. The default
+    // outlet is seeded by _bootstrapCommit_internal / backfill before this runs.
+    const defaultOutlet = await getDefaultOutletDoc(ctx);
+    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+    const outletId = defaultOutlet._id;
+
     const now = Date.now();
 
     // ── 1. Inventory SKUs (no stock-level rows — lazy-init, see doc above) ──
@@ -434,7 +447,7 @@ export const _seedLaunchCatalog_internal = internalMutation({
     for (const def of skuDefs) {
       // Canonical insert (catalog/internal.ts) — same single-writer shape as
       // the manager-PIN createInventorySku/createProduct paths (v0.5.5 lesson).
-      skuIds[def.sku] = await insertInventorySku(ctx, { ...def, now });
+      skuIds[def.sku] = await insertInventorySku(ctx, { ...def, now, outlet_id: outletId });
     }
 
     // ── 2. Products + components ────────────────────────────────────────────
@@ -494,12 +507,14 @@ export const _seedLaunchCatalog_internal = internalMutation({
         tax_rate: 0,
         created_at: now,
         updated_at: now,
+        outlet_id: outletId,
       });
       for (const comp of def.components) {
         await ctx.db.insert("pos_product_components", {
           product_id: productId,
           inventory_sku_id: skuIds[comp.sku],
           qty: comp.qty,
+          outlet_id: outletId,
         });
       }
     }

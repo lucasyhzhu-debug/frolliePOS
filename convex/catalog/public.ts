@@ -309,7 +309,7 @@ export const setProductComponents = mutation({
           qty: c.qty,
           // v2.0 Task 9B: stamp outlet_id on new component rows so by_outlet_product
           // index is usable for outlet-scoped component reads.
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
       await ctx.db.patch(args.productId, { updated_at: Date.now() });

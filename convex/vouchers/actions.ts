@@ -90,12 +90,13 @@ export const createVoucher = action({
           throw new Error("EXPIRES_IN_PAST");
         }
 
-        // ── Resolve outlet from session (v2.0 Stream 5: migration-tolerant) ──
+        // ── Resolve outlet from session (v2.0 Task 12: enforced) ──
         const sessionRow = await ctx.runQuery(
           internal.auth.internal._resolveSession_internal,
           { sessionId: args.sessionId },
         );
-        const outletId = sessionRow?.outlet_id;
+        if (!sessionRow) throw new Error("NO_SESSION");
+        const outletId = sessionRow.outlet_id;
 
         // ── Uniqueness (normalised code, before PIN — fail-cheap) ──
         const existing = await ctx.runQuery(

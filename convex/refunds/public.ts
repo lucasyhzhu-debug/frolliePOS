@@ -106,7 +106,7 @@ export const listForTransaction = query({
 
     const rawRefunds = await ctx.runQuery(
       internal.refunds.internal._listForTransaction_internal,
-      { transactionId: args.transactionId },
+      { transactionId: args.transactionId, outletId: result.txn.outlet_id },
     );
 
     // Project to display-needed fields. line_id stripped per the existing

@@ -35,7 +35,7 @@ export const _createRequest_internal = internalMutation({
     triggered_at: v.number(),
     token_hash: v.string(),
     token_expires_at: v.number(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args) => {
     // INVARIANT: every writer validates context here — no bypass path.
@@ -56,7 +56,7 @@ export const _createRequest_internal = internalMutation({
       status: "pending",
       notification_channel: "telegram",
       // v2.0 Stream 5: stamp outlet_id when provided.
-      ...(args.outletId !== undefined ? { outlet_id: args.outletId } : {}),
+      outlet_id: args.outletId,
     });
 
     await logAudit(ctx, {
@@ -318,7 +318,7 @@ export const _listPendingByKind_internal = internalQuery({
       v.literal("spoilage"), // NEW v0.6: spoilage approval
     ),
     entityId: v.string(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args) => {
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
@@ -432,7 +432,7 @@ export const _markDeniedBySystem_internal = internalMutation({
  * at that point.
  */
 export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
-  args: { txnId: v.id("pos_transactions"), reason: v.string(), outletId: v.optional(v.id("outlets")) },
+  args: { txnId: v.id("pos_transactions"), reason: v.string(), outletId: v.id("outlets") },
   handler: async (ctx, args) => {
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const rows = await ctx.db

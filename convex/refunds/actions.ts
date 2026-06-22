@@ -208,7 +208,7 @@ export const requestRefundApproval = action({
     // if a pending+unexpired refund request already exists.
     const existing = await ctx.runQuery(
       internal.refunds.internal._findPendingRefundForTxn_internal,
-      { transactionId: args.transactionId },
+      { transactionId: args.transactionId, outletId: requester.outlet_id },
     );
     if (existing) {
       // N5: if the pending request's context differs from this request's
@@ -277,6 +277,7 @@ export const requestRefundApproval = action({
         triggered_at: now,
         token_hash: tokenHash,
         token_expires_at: now + TOKEN_TTL_MS,
+        outletId: requester.outlet_id,  // v2.0 Task 12 (ENFORCE): session outlet
       },
     );
 

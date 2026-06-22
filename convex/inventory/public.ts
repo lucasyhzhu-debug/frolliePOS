@@ -145,7 +145,7 @@ export const recordRecount = mutation({
           // v2.0 Task 9E: stamp outlet_id on recount movements (mirrors
           // sale/refund/spoilage paths). outlet_id is resolved from the session
           // at the top of the handler; undefined for pre-migration rows.
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
         // v0.5.2 simplify: call the shared upsertStockLevel helper directly
         // (was: _applyLevelDelta_internal sub-transaction). Saves a runMutation
@@ -182,7 +182,7 @@ export const recordRecount = mutation({
       } else {
         await ctx.db.insert("pos_recount_state", {
           last_recount_at: now,
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
 

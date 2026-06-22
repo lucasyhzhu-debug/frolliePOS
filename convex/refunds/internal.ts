@@ -18,7 +18,7 @@ import { encodeCursor } from "../lib/apiCursor";
 export const _listForTransaction_internal = internalQuery({
   args: {
     transactionId: v.id("pos_transactions"),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Doc<"pos_refunds">[]> => {
     // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
@@ -43,7 +43,7 @@ export const _listForTransaction_internal = internalQuery({
  * entity_id, so refunds never touches pos_approval_requests directly.
  */
 export const _findPendingRefundForTxn_internal = internalQuery({
-  args: { transactionId: v.id("pos_transactions") },
+  args: { transactionId: v.id("pos_transactions"), outletId: v.id("outlets") },
   handler: async (
     ctx,
     args,
@@ -56,7 +56,7 @@ export const _findPendingRefundForTxn_internal = internalQuery({
   } | null> => {
     const rows = await ctx.runQuery(
       internal.approvals.internal._listPendingByKind_internal,
-      { kind: "refund", entityId: args.transactionId },
+      { kind: "refund", entityId: args.transactionId, outletId: args.outletId },
     );
     const first = rows[0];
     if (!first) return null;
@@ -278,8 +278,9 @@ export const _commitRefund_internal = internalMutation({
     const now = Date.now();
 
     // 3. INSERT refund row (pos_refunds is refunds-owned per ADR-034).
-    // v2.0 Stream 5: stamp outlet_id from the source transaction (window-tolerant).
-    const outletId = txn.outlet_id as Id<"outlets"> | undefined;
+    // v2.0 Task 12 (ENFORCE): stamp outlet_id from the source transaction
+    // (txn.outlet_id is required now).
+    const outletId = txn.outlet_id;
     const refundId = await ctx.db.insert("pos_refunds", {
       transaction_id: args.transactionId,
       lines: refundLineRows,
@@ -291,7 +292,7 @@ export const _commitRefund_internal = internalMutation({
       approval_request_id: args.approvalRequestId,
       settlement_status: "pending",
       created_at: now,
-      ...(outletId ? { outlet_id: outletId } : {}),
+      outlet_id: outletId,
     });
 
     // 4. PATCH refunded_qty per line — routed through transactions module
@@ -317,7 +318,7 @@ export const _commitRefund_internal = internalMutation({
         line_qty: line.qty,
         qty,
       })),
-      ...(outletId ? { outlet_id: outletId } : {}),
+      outlet_id: outletId,
     });
 
     // 6. Purge cached receipt. Throws if no receipt_token (v0.5.1 invariant

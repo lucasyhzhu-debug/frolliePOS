@@ -15,7 +15,7 @@ export const vouchersTables = {
     created_by_staff_id: v.optional(v.id("staff")),  // optional: vouchers created via Convex
                                                       // dashboard (v0.3-v0.5 manager workflow) have no
                                                       // staff context. v0.5/v0.6 manager portal supplies it.
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window; voucher codes unique per outlet post-v2.0
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced; voucher codes unique per outlet post-v2.0
   })
     .index("by_code", ["code"])
     .index("by_active_expires", ["active", "expires_at"])
@@ -28,7 +28,7 @@ export const vouchersTables = {
     code_snapshot: v.string(),
     discount_amount: v.number(),
     redeemed_at: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_voucher", ["voucher_id"])
     .index("by_transaction", ["transaction_id"])  // ADR-010 uniqueness (one voucher per txn)

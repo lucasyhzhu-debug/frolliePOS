@@ -138,6 +138,7 @@ export const confirmManualBcaPayment = mutation({
             cancel_reason: "manual_bca_confirmed",
             actor_id: staffId,
             source: "booth_inline",
+            outlet_id: txn.outlet_id,
           },
         );
       }
