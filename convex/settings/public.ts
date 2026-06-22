@@ -1,10 +1,26 @@
 import { v } from "convex/values";
-import { query, mutation } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
+import { query, mutation, MutationCtx } from "../_generated/server";
+import { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireManagerSession, requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
+
+/**
+ * v2.0: the per-outlet pos_settings row lookup — by_outlet when the session has
+ * an outlet, else the lone singleton during the migration window. Shared by the
+ * three write-path mutations below so the window-tolerant branch lives once.
+ * (The read path `_getSettings_internal` deliberately does NOT singleton-fall-
+ * back — outlet isolation — so this helper is write-path only.)
+ */
+function settingsRowForOutlet(
+  ctx: MutationCtx,
+  outlet_id: Id<"outlets"> | undefined,
+): Promise<Doc<"pos_settings"> | null> {
+  return outlet_id
+    ? ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
+    : ctx.db.query("pos_settings").first();
+}
 
 // Intentionally unauthenticated — returns only two non-sensitive notification
 // booleans (not PII/financial). The toggle components need this before the
@@ -44,9 +60,7 @@ export const setFoundersSummaryEnabled = mutation({
       // attribution comes from the validated session. authCheck (below) has
       // already proven manager-ness; this read is the typed source for staffId.
       const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
-      const row = outlet_id
-        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
-        : await ctx.db.query("pos_settings").first();
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, {
           founders_summary_enabled: args.enabled,
@@ -98,9 +112,7 @@ export const setTxnTickerEnabled = mutation({
     "settings.setTxnTickerEnabled",
     async (ctx, args) => {
       const { staffId, outlet_id } = await requireManagerSession(ctx, args.sessionId);
-      const row = outlet_id
-        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
-        : await ctx.db.query("pos_settings").first();
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, {
           txn_ticker_enabled: args.enabled,
@@ -259,9 +271,7 @@ export const updateReceiptConfig = mutation({
         updated_at: Date.now(),
         updated_by: mgrId,
       };
-      const row = outlet_id
-        ? await ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
-        : await ctx.db.query("pos_settings").first();
+      const row = await settingsRowForOutlet(ctx, outlet_id);
       if (row) {
         await ctx.db.patch(row._id, patch);
       } else {

@@ -4,7 +4,8 @@ import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
-import { requireManagerSession } from "./sessions";
+import { requireManagerSession, resolveDeviceOutletId } from "./sessions";
+import { resolveDefaultOutletId } from "../outlets/internal";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -272,17 +273,10 @@ export const _loginCommit_internal = internalMutation({
       }
 
       // v2.0 Task 7 (C2): resolve outlet from device binding (window-tolerant).
-      // Throws/access-deny deferred to Task 12. Falls back to the default outlet
-      // when the device is unbound so ALL logins succeed during the migration window.
-      const dev = await ctx.db
-        .query("registered_devices")
-        .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
-        .first();
-      let outletId = dev?.outlet_id as Id<"outlets"> | undefined;
-      if (!outletId) {
-        const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
-        outletId = def?._id; // window-tolerant fallback to the single default outlet
-      }
+      // Throws/access-deny deferred to Task 12 (lives in resolveDeviceOutletId).
+      // Falls back to the default outlet when the device is unbound so ALL
+      // logins succeed during the migration window.
+      const outletId = await resolveDeviceOutletId(ctx, args.deviceId);
 
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: args.staffId,
@@ -348,11 +342,8 @@ export const _resolveSession_internal = internalQuery({
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
     // v2.0 Task 5: mirror requireSession outlet resolution (migration-tolerant window).
-    let outlet_id = session.outlet_id as Id<"outlets"> | undefined;
-    if (!outlet_id) {
-      const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
-      outlet_id = def?._id;
-    }
+    const outlet_id =
+      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
     return { staffId: session.staff_id, deviceId: session.device_id, outlet_id };
   },
 });
@@ -373,12 +364,21 @@ export const _resolveSessionRole_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" } | null> => {
+  ): Promise<{
+    staffId: Id<"staff">;
+    deviceId: string;
+    role: "staff" | "manager";
+    outlet_id: Id<"outlets"> | undefined;
+  } | null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role };
+    // v2.0: surface outlet_id (window-tolerant) so callers needing role+outlet
+    // resolve the session ONCE instead of pairing this with _resolveSession_internal.
+    const outlet_id =
+      (session.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id };
   },
 });
 
@@ -497,7 +497,7 @@ export const _requireManagerSession_internal = internalQuery({
   handler: async (
     ctx,
     args,
-  ): Promise<{ staffId: Id<"staff">; deviceId: string }> => {
+  ): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> => {
     return await requireManagerSession(ctx, args.sessionId);
   },
 });
@@ -618,16 +618,8 @@ export const _managerTakeoverSession_internal = internalMutation({
 
     // Step 1: Resolve outlet from device binding (window-tolerant, mirrors _loginCommit_internal).
     // Must come BEFORE the session query so we can use by_outlet_device_active.
-    // No throw/access-assert — deferred to Task 12. Falls back to default outlet when unbound.
-    const dev = await ctx.db
-      .query("registered_devices")
-      .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
-      .first();
-    let outletId = dev?.outlet_id as Id<"outlets"> | undefined;
-    if (!outletId) {
-      const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
-      outletId = def?._id;
-    }
+    // No throw/access-assert — deferred to Task 12 (lives in resolveDeviceOutletId).
+    const outletId = await resolveDeviceOutletId(ctx, args.deviceId);
 
     // Step 2: Force-end all active sessions for the device.
     // Convex optional-field filter gotcha: ended_at is v.union(number, null) —
@@ -684,18 +676,8 @@ export const _getDeviceOutletId_internal = internalQuery({
   handler: async (
     ctx,
     { deviceId },
-  ): Promise<import("../_generated/dataModel").Id<"outlets"> | undefined> => {
-    const dev = await ctx.db
-      .query("registered_devices")
-      .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
-      .first();
-    if (dev?.outlet_id) return dev.outlet_id;
-    const def = await ctx.db
-      .query("outlets")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .first();
-    return def?._id;
-  },
+  ): Promise<import("../_generated/dataModel").Id<"outlets"> | undefined> =>
+    resolveDeviceOutletId(ctx, deviceId),
 });
 
 // ---------------------------------------------------------------------------

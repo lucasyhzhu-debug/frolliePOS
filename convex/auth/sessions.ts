@@ -1,5 +1,6 @@
 import { QueryCtx, MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
+import { resolveDefaultOutletId } from "../outlets/internal";
 
 /**
  * Resolve a session id to its staff context. Throws NO_SESSION if the session
@@ -23,11 +24,7 @@ export async function requireSession(
   const staff = await ctx.db.get(s.staff_id);
   if (!staff || !staff.active) throw new Error("NO_SESSION");
   // Migration-tolerant window (I4): unstamped old sessions fall back to the single default outlet.
-  let outlet_id = s.outlet_id as Id<"outlets"> | undefined;
-  if (!outlet_id) {
-    const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
-    outlet_id = def?._id;
-  }
+  const outlet_id = (s.outlet_id as Id<"outlets"> | undefined) ?? (await resolveDefaultOutletId(ctx));
   return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role, outlet_id };
 }
 
@@ -38,4 +35,24 @@ export async function requireManagerSession(
   const { staffId, deviceId, role, outlet_id } = await requireSession(ctx, sessionId);
   if (role !== "manager") throw new Error("MANAGER_ONLY");
   return { staffId, deviceId, outlet_id };
+}
+
+/**
+ * Resolve the outlet a device is bound to, falling back to the single active
+ * outlet during the migration window (device unbound). auth owns
+ * `registered_devices`, so this device→outlet mapping lives here. Shared by
+ * _loginCommit_internal, managerTakeover, and _getDeviceOutletId_internal so
+ * the Task-12 enforce step replaces the fallback with a DEVICE_HAS_NO_OUTLET
+ * throw in exactly this function.
+ */
+export async function resolveDeviceOutletId(
+  ctx: QueryCtx | MutationCtx,
+  deviceId: string,
+): Promise<Id<"outlets"> | undefined> {
+  const dev = await ctx.db
+    .query("registered_devices")
+    .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
+    .first();
+  if (dev?.outlet_id) return dev.outlet_id as Id<"outlets">;
+  return resolveDefaultOutletId(ctx);
 }

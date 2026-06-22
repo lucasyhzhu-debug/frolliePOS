@@ -148,16 +148,17 @@ export const listDrafts = query({
 export const listDayTransactions = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DayTxn[]> => {
-    const [who, sessionData] = await Promise.all([
-      ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, { sessionId: args.sessionId }),
-      ctx.runQuery(internal.auth.internal._resolveSession_internal, { sessionId: args.sessionId }),
-    ]);
-    if (!who || !sessionData) return [];
+    // v2.0: _resolveSessionRole_internal now returns outlet_id, so role+outlet
+    // come from a single resolve (was paired with _resolveSession_internal).
+    const who = await ctx.runQuery(internal.auth.internal._resolveSessionRole_internal, {
+      sessionId: args.sessionId,
+    });
+    if (!who) return [];
     const win = resolveWindow(args.day, who.role === "manager");
     return await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
-      outletId: sessionData.outlet_id,
+      outletId: who.outlet_id,
     });
   },
 });
@@ -172,16 +173,17 @@ export const listDayTransactions = query({
 export const dashboardSummary = query({
   args: { sessionId: v.id("staff_sessions"), day: v.optional(v.string()) },
   handler: async (ctx, args): Promise<DaySummary> => {
-    const [, sessionData] = await Promise.all([
-      ctx.runQuery(internal.auth.internal._requireManagerSession_internal, { sessionId: args.sessionId }),
-      ctx.runQuery(internal.auth.internal._resolveSession_internal, { sessionId: args.sessionId }),
-    ]);
+    // v2.0: _requireManagerSession_internal returns outlet_id (it gates AND
+    // resolves), so the separate _resolveSession_internal call is redundant.
+    const mgr = await ctx.runQuery(internal.auth.internal._requireManagerSession_internal, {
+      sessionId: args.sessionId,
+    });
     // Manager-gated above → allowOverride=true.
     const win = resolveWindow(args.day, true);
     const txns = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, {
       dayStartMs: win.dayStartMs,
       dayEndMs: win.dayEndMs,
-      outletId: sessionData?.outlet_id,
+      outletId: mgr.outlet_id,
     });
     return computeDaySummary(txns);
   },

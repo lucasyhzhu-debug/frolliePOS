@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { internal } from "../_generated/api";
+import { getDefaultOutletDoc } from "../outlets/internal";
 
 /**
  * List active staff for the login screen.
@@ -96,7 +97,7 @@ export const getSession = query({
     // Window-typed: unstamped sessions fall back to the single active outlet.
     const outlet = s.outlet_id
       ? await ctx.db.get(s.outlet_id)
-      : await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
+      : await getDefaultOutletDoc(ctx);
     return {
       sessionId: s._id,
       // SEC-03: surface must_change_pin so the FE can force a rotation prompt.
