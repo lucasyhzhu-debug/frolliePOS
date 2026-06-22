@@ -28,18 +28,13 @@ export async function upsertStockLevel(
   now: number,
   outlet_id?: Id<"outlets">,
 ): Promise<void> {
-  const level = outlet_id
-    ? await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_outlet_sku", (q) =>
-          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
-        )
-        .first()
-    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means pre-migration row with no outlet (window-tolerant fallback)
-      await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-        .first();
+  // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+  const level = await ctx.db
+    .query("pos_stock_levels")
+    .withIndex("by_outlet_sku", (q) =>
+      q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+    )
+    .first();
   if (level) {
     await ctx.db.patch(level._id, {
       on_hand: level.on_hand + delta,
@@ -122,6 +117,7 @@ export const _recordSaleMovement_internal = internalMutation({
     if (touched.size > 0) {
       await ctx.runMutation(internal.inventory.internal._checkLowStockBatch_internal, {
         skuIds: Array.from(touched),
+        outlet_id: args.outlet_id,
       });
     }
   },
@@ -136,15 +132,17 @@ export const _recordSaleMovement_internal = internalMutation({
 export const _projectedOnHand_internal = internalQuery({
   args: {
     skuQtys: v.array(v.object({ skuId: v.id("pos_inventory_skus"), qty: v.number() })),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
-    // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const levels = await Promise.all(
       args.skuQtys.map(({ skuId }) =>
-        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (no outletId available at cart-validation call site)
         ctx.db
           .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .withIndex("by_outlet_sku", (q) =>
+            q.eq("outlet_id", args.outletId).eq("inventory_sku_id", skuId),
+          )
           .first(),
       ),
     );
@@ -168,15 +166,17 @@ export const _projectedOnHand_internal = internalQuery({
 export const _getOnHandBySkus_internal = internalQuery({
   args: {
     skuIds: v.array(v.id("pos_inventory_skus")),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
-    // Parallel per-SKU level reads (I8 — was a sequential N+1 loop). Read-only.
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     const levels = await Promise.all(
       args.skuIds.map((skuId) =>
-        // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (cross-module internal, no outletId at NEG_STOCK check call site)
         ctx.db
           .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
+          .withIndex("by_outlet_sku", (q) =>
+            q.eq("outlet_id", args.outletId).eq("inventory_sku_id", skuId),
+          )
           .first(),
       ),
     );
@@ -326,31 +326,21 @@ async function checkLowStockOne(
   sku: { name: string; low_threshold: number },
   outlet_id?: Id<"outlets">,
 ): Promise<void> {
-  const level = outlet_id
-    ? await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_outlet_sku", (q) =>
-          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
-        )
-        .first()
-    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means cron/pre-migration context (window-tolerant fallback)
-      await ctx.db
-        .query("pos_stock_levels")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-        .first();
+  // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+  const level = await ctx.db
+    .query("pos_stock_levels")
+    .withIndex("by_outlet_sku", (q) =>
+      q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+    )
+    .first();
   const onHand = level?.on_hand ?? 0;
-  const flag = outlet_id
-    ? await ctx.db
-        .query("pos_low_stock_alerts")
-        .withIndex("by_outlet_sku", (q) =>
-          q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
-        )
-        .first()
-    : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from caller; undefined means cron/pre-migration context (window-tolerant fallback)
-      await ctx.db
-        .query("pos_low_stock_alerts")
-        .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-        .first();
+  // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+  const flag = await ctx.db
+    .query("pos_low_stock_alerts")
+    .withIndex("by_outlet_sku", (q) =>
+      q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+    )
+    .first();
 
   const below = onHand < sku.low_threshold;
   if (below && !flag) {
@@ -578,13 +568,13 @@ export const _runStockRecon_internal = internalMutation({
     const drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }> = [];
 
     for (const sku of skus) {
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron has no outlet context; runs globally across all outlets (per-outlet recon in Task 12)
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron caller (_runStockRecon_internal) has no outlet context; runs cross-outlet globally (per-outlet recon scoped in Task 12)
       const movements = await ctx.db
         .query("pos_stock_movements")
         .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", sku._id))
         .collect();
       const reconstructed = reconstructOnHand(movements);
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron has no outlet context; runs globally across all outlets (per-outlet recon in Task 12)
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron caller (_runStockRecon_internal) has no outlet context; runs cross-outlet globally (per-outlet recon scoped in Task 12)
       const level = await ctx.db
         .query("pos_stock_levels")
         .withIndex("by_sku", (q) => q.eq("inventory_sku_id", sku._id))

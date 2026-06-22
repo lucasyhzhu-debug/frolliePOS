@@ -23,7 +23,7 @@ export const _getActiveSkuIds_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (FE not yet passing session); undefined outletId means global read for session-less callers (getStockLevels, cron)
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less callers (getStockLevels, cron) pass no outletId and need a global read; outlet scoping deferred to Task 12 when sessionId is injected
         await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))
@@ -54,7 +54,7 @@ export const _getActiveSkus_internal = internalQuery({
             q.eq("outlet_id", args.outletId).eq("active", true),
           )
           .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10; undefined outletId means global read for cron callers (_runStockRecon_internal)
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- cron callers (_runStockRecon_internal) pass no outletId and need a global read across all outlets; per-outlet recon scoped in Task 12
         await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_active", (q) => q.eq("active", true))
@@ -91,18 +91,13 @@ export const _getComponentsForProducts_internal = internalQuery({
     // N+1 await loop). Read-only, so order doesn't matter; flatten at the end.
     const perProduct = await Promise.all(
       args.productIds.map(async (productId) => {
-        const components = args.outletId
-          ? await ctx.db
-              .query("pos_product_components")
-              .withIndex("by_outlet_product", (q) =>
-                q.eq("outlet_id", args.outletId).eq("product_id", productId),
-              )
-              .collect()
-          : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10; undefined outletId means global read for cross-module callers (transactions/internal without outlet context)
-            await ctx.db
-              .query("pos_product_components")
-              .withIndex("by_product", (q) => q.eq("product_id", productId))
-              .collect();
+        // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+        const components = await ctx.db
+          .query("pos_product_components")
+          .withIndex("by_outlet_product", (q) =>
+            q.eq("outlet_id", args.outletId).eq("product_id", productId),
+          )
+          .collect();
         return components.map((c) => ({ productId, skuId: c.inventory_sku_id, qty: c.qty }));
       }),
     );

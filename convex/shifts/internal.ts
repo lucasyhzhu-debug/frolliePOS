@@ -42,19 +42,12 @@ const shiftEventFields = {
 export const _latestShiftEvent_internal = internalQuery({
   args: { deviceId: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, { deviceId, outletId }) => {
-    if (outletId) {
-      return ctx.db
-        .query("pos_shift_events")
-        .withIndex("by_outlet_device_created", (q) =>
-          q.eq("outlet_id", outletId).eq("device_id", deviceId),
-        )
-        .order("desc")
-        .first();
-    }
-    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     return ctx.db
       .query("pos_shift_events")
-      .withIndex("by_device_created", (q) => q.eq("device_id", deviceId))
+      .withIndex("by_outlet_device_created", (q) =>
+        q.eq("outlet_id", outletId).eq("device_id", deviceId),
+      )
       .order("desc")
       .first();
   },
@@ -86,22 +79,14 @@ export const _shiftStartAnchor_internal = internalQuery({
     // lives within today's WIB day; a day's event count is small enough to
     // collect in full. Walk back to the most recent shift-START event.
     const { dayStartMs } = wibDayWindow(Date.now());
-    const today = outletId
-      ? await ctx.db
-          .query("pos_shift_events")
-          .withIndex("by_outlet_device_created", (q) =>
-            q.eq("outlet_id", outletId).eq("device_id", deviceId).gte("created_at", dayStartMs),
-          )
-          .order("desc")
-          .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
-        await ctx.db
-          .query("pos_shift_events")
-          .withIndex("by_device_created", (q) =>
-            q.eq("device_id", deviceId).gte("created_at", dayStartMs),
-          )
-          .order("desc")
-          .collect();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+    const today = await ctx.db
+      .query("pos_shift_events")
+      .withIndex("by_outlet_device_created", (q) =>
+        q.eq("outlet_id", outletId).eq("device_id", deviceId).gte("created_at", dayStartMs),
+      )
+      .order("desc")
+      .collect();
     const anchor = today.find(
       (e) =>
         e.type === "start_of_day" ||
@@ -227,20 +212,14 @@ export const _commitManagerTakeover_internal = internalMutation({
       );
       const outletId = outletIdRaw ?? undefined;
 
-      const latestBeforeTakeover = outletId
-        ? await ctx.db
-            .query("pos_shift_events")
-            .withIndex("by_outlet_device_created", (q) =>
-              q.eq("outlet_id", outletId).eq("device_id", args.deviceId),
-            )
-            .order("desc")
-            .first()
-        : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means device not yet assigned to an outlet (migration window)
-          await ctx.db
-            .query("pos_shift_events")
-            .withIndex("by_device_created", (q) => q.eq("device_id", args.deviceId))
-            .order("desc")
-            .first();
+      // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+      const latestBeforeTakeover = await ctx.db
+        .query("pos_shift_events")
+        .withIndex("by_outlet_device_created", (q) =>
+          q.eq("outlet_id", outletId).eq("device_id", args.deviceId),
+        )
+        .order("desc")
+        .first();
 
       // Defensive fallback: if the latest event is not a `lock` (unexpected —
       // takeover should only come from locked), fall back to whatever anchor we

@@ -40,12 +40,12 @@ export const catalog = query({
     vouchers: Doc<"pos_vouchers">[];
   }> => {
     const [products, skus, allComponents, stockLevelMap, vouchers] = await Promise.all([
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (FE not yet passing session)
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less query; outlet scoping deferred to Task 12 when sessionId is injected into FE catalog subscription
       ctx.db
         .query("pos_products")
         .withIndex("by_active_sort", (q) => q.eq("active", true))
         .collect(),
-      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (FE not yet passing session)
+      // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less query; outlet scoping deferred to Task 12 when sessionId is injected into FE catalog subscription
       ctx.db
         .query("pos_inventory_skus")
         .withIndex("by_active", (q) => q.eq("active", true))
@@ -115,18 +115,13 @@ export const listAllProducts = query({
             .withIndex("by_outlet_active_sort", (q) => q.eq("outlet_id", outlet_id))
             .collect()
         : ctx.db.query("pos_products").collect(),
-      outlet_id
-        ? ctx.db
-            .query("pos_inventory_skus")
-            .withIndex("by_outlet_active", (q) =>
-              q.eq("outlet_id", outlet_id).eq("active", true),
-            )
-            .collect()
-        : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId; undefined outlet_id means migration window (manager session predates outlet assignment)
-          ctx.db
-            .query("pos_inventory_skus")
-            .withIndex("by_active", (q) => q.eq("active", true))
-            .collect(),
+      // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+      ctx.db
+        .query("pos_inventory_skus")
+        .withIndex("by_outlet_active", (q) =>
+          q.eq("outlet_id", outlet_id).eq("active", true),
+        )
+        .collect(),
       outlet_id
         ? ctx.db
             .query("pos_product_components")
@@ -301,16 +296,11 @@ export const setProductComponents = mutation({
       }
       // Replace-set: delete existing rows for this product, insert the new set.
       // Scoped to outlet so components are per-outlet (mirrors the by_outlet_product read paths).
-      const existing = outlet_id
-        ? await ctx.db
-            .query("pos_product_components")
-            .withIndex("by_outlet_product", (q) => q.eq("outlet_id", outlet_id).eq("product_id", args.productId))
-            .collect()
-        : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId; undefined outlet_id means migration window (manager session predates outlet assignment)
-          await ctx.db
-            .query("pos_product_components")
-            .withIndex("by_product", (q) => q.eq("product_id", args.productId))
-            .collect();
+      // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+      const existing = await ctx.db
+        .query("pos_product_components")
+        .withIndex("by_outlet_product", (q) => q.eq("outlet_id", outlet_id).eq("product_id", args.productId))
+        .collect();
       for (const row of existing) await ctx.db.delete(row._id);
       for (const c of args.components) {
         await ctx.db.insert("pos_product_components", {

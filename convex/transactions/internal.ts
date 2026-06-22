@@ -32,6 +32,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
       productId: v.id("pos_products"),
       qty: v.number(),
     })),
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<boolean> => {
     if (args.lines.length === 0) return false;
@@ -39,7 +40,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
     const productIds = args.lines.map((l) => l.productId);
     const components = await ctx.runQuery(
       internal.catalog.internal._getComponentsForProducts_internal,
-      { productIds },
+      { productIds, outletId: args.outletId },
     );
 
     // Build per-SKU demand totals (multi-product-same-SKU safe)
@@ -59,7 +60,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
     }));
     const projected = await ctx.runQuery(
       internal.inventory.internal._projectedOnHand_internal,
-      { skuQtys },
+      { skuQtys, outletId: args.outletId },
     );
 
     for (const val of Object.values(projected)) {
@@ -224,7 +225,7 @@ export const _confirmPaid_internal = internalMutation({
     const productIds = lines.map((l) => l.product_id);
     const components = await ctx.runQuery(
       internal.catalog.internal._getComponentsForProducts_internal,
-      { productIds },
+      { productIds, outletId: txn.outlet_id },
     );
 
     // Build movement entries (one per line × component) and per-SKU totals
@@ -250,7 +251,7 @@ export const _confirmPaid_internal = internalMutation({
 
     // 4. Record movements (paid-only decrement, ADR-026 dedup)
     await ctx.runMutation(internal.inventory.internal._recordSaleMovement_internal, {
-      transactionId: args.txnId, lines: movementLines,
+      transactionId: args.txnId, lines: movementLines, outlet_id: txn.outlet_id,
     });
 
     // 5. Re-check NEG_STOCK after decrement — read current on_hand via inventory internal API
@@ -259,7 +260,7 @@ export const _confirmPaid_internal = internalMutation({
       const skuIds = Object.keys(perSku).map((k) => k as Id<"pos_inventory_skus">);
       const onHandMap = await ctx.runQuery(
         internal.inventory.internal._getOnHandBySkus_internal,
-        { skuIds },
+        { skuIds, outletId: txn.outlet_id },
       );
       for (const onHand of Object.values(onHandMap)) {
         if (onHand < 0) {

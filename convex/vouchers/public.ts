@@ -45,7 +45,7 @@ export const getActiveVouchers = query({
           .query("pos_vouchers")
           .withIndex("by_outlet_active_expires", (q) => q.eq("outlet_id", outletId).eq("active", true))
           .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10; undefined outletId means no session provided (catalog offline-cache call without session)
+      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less offline-cache path (catalog query calls getActiveVouchers with no sessionId); outlet scoping deferred to Task 12 when sessionId injection is added to the FE catalog subscription
         await ctx.db
           .query("pos_vouchers")
           .withIndex("by_active_expires", (q) => q.eq("active", true))
@@ -80,7 +80,7 @@ export const validateVoucher = query({
     // validateVoucher is a session-less query (no sessionId arg) — outlet
     // scoping for this query migrates in a follow-up once a sessionId arg
     // is added to the FE caller. by_code survives Task 12 as a fallback.
-    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via sessionId in Task 10 (session-less query; no outletId available at live-UX validation call site)
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less query; no sessionId arg at live-UX validation call site; outlet scoping deferred to Task 12
     const voucher = await ctx.db
       .query("pos_vouchers")
       .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))

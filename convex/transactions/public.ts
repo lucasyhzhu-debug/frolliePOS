@@ -319,7 +319,7 @@ export const commitCart = mutation({
       // NEG_STOCK projection (ADR-018, multi-product-same-SKU correct per staffreview T4)
       const flagged = await ctx.runQuery(
         internal.transactions.internal._projectedNegStockFlag_internal,
-        { lines: args.lines },
+        { lines: args.lines, outletId: outlet_id },
       );
       let flags = 0;
       if (flagged) flags = withFlag(flags, NEG_STOCK);

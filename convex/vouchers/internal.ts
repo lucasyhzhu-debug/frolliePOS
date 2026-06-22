@@ -17,18 +17,12 @@ export const _getVoucherByCode_internal = internalQuery({
   args: { code: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args): Promise<Doc<"pos_vouchers"> | null> => {
     const code = args.code.toUpperCase();
-    if (args.outletId) {
-      return await ctx.db
-        .query("pos_vouchers")
-        .withIndex("by_outlet_code", (q) =>
-          q.eq("outlet_id", args.outletId).eq("code", code),
-        )
-        .first();
-    }
-    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined outletId means caller (transactions/public.commitCart) doesn't yet pass outlet context
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
     return await ctx.db
       .query("pos_vouchers")
-      .withIndex("by_code", (q) => q.eq("code", code))
+      .withIndex("by_outlet_code", (q) =>
+        q.eq("outlet_id", args.outletId).eq("code", code),
+      )
       .first();
   },
 });
@@ -62,18 +56,13 @@ export const _redeemVoucher_internal = internalMutation({
   },
   handler: async (ctx, args): Promise<{ overRedeemed: boolean; alreadyRedeemed: boolean }> => {
     // Idempotency guard: if this transaction already has a redemption row, bail out.
-    const existing = args.outletId
-      ? await ctx.db
-          .query("pos_voucher_redemptions")
-          .withIndex("by_outlet_transaction", (q) =>
-            q.eq("outlet_id", args.outletId).eq("transaction_id", args.transaction_id),
-          )
-          .first()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means caller (transactions/internal) doesn't yet pass outlet context
-        await ctx.db
-          .query("pos_voucher_redemptions")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transaction_id))
-          .first();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+    const existing = await ctx.db
+      .query("pos_voucher_redemptions")
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.transaction_id),
+      )
+      .first();
     if (existing) {
       return { overRedeemed: false, alreadyRedeemed: true };
     }

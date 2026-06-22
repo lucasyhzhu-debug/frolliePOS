@@ -211,7 +211,7 @@ export const _markResolved_internal = internalMutation({
 export const _listPendingForStaff_internal = internalQuery({
   args: { staffId: v.id("staff") },
   handler: async (ctx, args) => {
-    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- staff-level lookup: pin reset requests are per-staff across outlets (no by_outlet_subject_staff index exists; dedup guard is business-wide)
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- by_subject_staff is a business-wide staff-PIN-reset index; dedup guard intentionally spans outlets (a staff member has one PIN across all outlets)
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
@@ -321,20 +321,13 @@ export const _listPendingByKind_internal = internalQuery({
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
-    const rows = args.outletId
-      ? await ctx.db
-          .query("pos_approval_requests")
-          .withIndex("by_outlet_kind_status", (q) =>
-            q.eq("outlet_id", args.outletId).eq("kind", args.kind).eq("status", "pending"),
-          )
-          .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means caller (approval request flow) doesn't yet thread outlet context
-        await ctx.db
-          .query("pos_approval_requests")
-          .withIndex("by_kind_status", (q) =>
-            q.eq("kind", args.kind).eq("status", "pending"),
-          )
-          .collect();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_outlet_kind_status", (q) =>
+        q.eq("outlet_id", args.outletId).eq("kind", args.kind).eq("status", "pending"),
+      )
+      .collect();
     const now = Date.now();
     return rows.filter(
       (r) => r.entity_id === args.entityId && r.token_expires_at > now,
@@ -441,18 +434,13 @@ export const _markDeniedBySystem_internal = internalMutation({
 export const _cancelPendingManualPaymentForTxn_internal = internalMutation({
   args: { txnId: v.id("pos_transactions"), reason: v.string(), outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args) => {
-    const rows = args.outletId
-      ? await ctx.db
-          .query("pos_approval_requests")
-          .withIndex("by_outlet_kind_status", (q) =>
-            q.eq("outlet_id", args.outletId).eq("kind", "manual_payment_override").eq("status", "pending"),
-          )
-          .collect()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outletId in Task 10; undefined means caller (cancelAwaitingPayment) doesn't yet thread outlet context
-        await ctx.db
-          .query("pos_approval_requests")
-          .withIndex("by_kind_status", (q) => q.eq("kind", "manual_payment_override").eq("status", "pending"))
-          .collect();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
+    const rows = await ctx.db
+      .query("pos_approval_requests")
+      .withIndex("by_outlet_kind_status", (q) =>
+        q.eq("outlet_id", args.outletId).eq("kind", "manual_payment_override").eq("status", "pending"),
+      )
+      .collect();
     const now = Date.now();
     for (const req of rows) {
       if (req.entity_id !== args.txnId) continue;

@@ -548,20 +548,13 @@ export const _assignDeviceOutlet_internal = internalMutation({
     // index is outlet-scoped — a device moving outlets only has sessions on the old outlet.
     if (isReassign) {
       const fromOutletIdOrUndef = fromOutletId ?? undefined;
-      const activeSessions = fromOutletIdOrUndef
-        ? await ctx.db
-            .query("staff_sessions")
-            .withIndex("by_outlet_device_active", (q) =>
-              q.eq("outlet_id", fromOutletIdOrUndef).eq("device_id", args.deviceId).eq("ended_at", null),
-            )
-            .collect()
-        : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- device had no outlet binding (pre-migration); fall back to by_device_active to catch any unscoped sessions
-          await ctx.db
-            .query("staff_sessions")
-            .withIndex("by_device_active", (q) =>
-              q.eq("device_id", args.deviceId).eq("ended_at", null),
-            )
-            .collect();
+      // v2.0 Task 9: always use outlet-scoped index (window-tolerant: fromOutletIdOrUndef may be undefined).
+      const activeSessions = await ctx.db
+        .query("staff_sessions")
+        .withIndex("by_outlet_device_active", (q) =>
+          q.eq("outlet_id", fromOutletIdOrUndef).eq("device_id", args.deviceId).eq("ended_at", null),
+        )
+        .collect();
       for (const sess of activeSessions) {
         await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
       }

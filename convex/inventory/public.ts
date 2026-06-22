@@ -125,18 +125,13 @@ export const recordRecount = mutation({
         // error is specific.
         if (!Number.isInteger(entered)) throw new Error("NON_INTEGER_COUNT");
         if (entered < 0) throw new Error("NEGATIVE_COUNT");
-        const level = outlet_id
-          ? await ctx.db
-              .query("pos_stock_levels")
-              .withIndex("by_outlet_sku", (q) =>
-                q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
-              )
-              .first()
-          : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window (no outlet assigned yet)
-            await ctx.db
-              .query("pos_stock_levels")
-              .withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId))
-              .first();
+        // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+        const level = await ctx.db
+          .query("pos_stock_levels")
+          .withIndex("by_outlet_sku", (q) =>
+            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", skuId),
+          )
+          .first();
         const before = level?.on_hand ?? 0;
         const delta = entered - before;
         if (delta === 0) continue;
@@ -382,32 +377,21 @@ export const getSkuDetail = query({
     const sku = skus[0];
     if (!sku) throw new Error("SKU_MISSING_INVARIANT");
     // v2.0 Task 9B: scope stock level + movements by outlet.
-    const level = outlet_id
-      ? await ctx.db
-          .query("pos_stock_levels")
-          .withIndex("by_outlet_sku", (q) =>
-            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
-          )
-          .first()
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window
-        await ctx.db
-          .query("pos_stock_levels")
-          .withIndex("by_sku", (q) => q.eq("inventory_sku_id", args.skuId))
-          .first();
-    const movements = outlet_id
-      ? await ctx.db
-          .query("pos_stock_movements")
-          .withIndex("by_outlet_sku_created", (q) =>
-            q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
-          )
-          .order("desc")
-          .take(30)
-      : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- scoped via outlet_id from session; undefined means pre-migration window
-        await ctx.db
-          .query("pos_stock_movements")
-          .withIndex("by_sku_created", (q) => q.eq("inventory_sku_id", args.skuId))
-          .order("desc")
-          .take(30);
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+    const level = await ctx.db
+      .query("pos_stock_levels")
+      .withIndex("by_outlet_sku", (q) =>
+        q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+      )
+      .first();
+    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+    const movements = await ctx.db
+      .query("pos_stock_movements")
+      .withIndex("by_outlet_sku_created", (q) =>
+        q.eq("outlet_id", outlet_id).eq("inventory_sku_id", args.skuId),
+      )
+      .order("desc")
+      .take(30);
     return {
       name: sku.name,
       // on_hand ?? 0 stays — a missing level row legitimately means

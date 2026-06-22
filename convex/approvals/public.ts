@@ -408,7 +408,7 @@ export const getRecentPinResetForStaff = query({
     // promote to a composite `["subject_staff_id", "triggered_at"]` index and
     // switch to `.gt("triggered_at", cutoff).order("desc").first()`.
     //
-    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- staff-level lookup: pin reset history is per-staff across outlets (no by_outlet_subject_staff index; scoping would miss cross-outlet resets for same staff member)
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- by_subject_staff is a business-wide staff-PIN-reset index; a staff member has one PIN across all outlets, so denial-history lookups are intentionally cross-outlet
     const rows = await ctx.db
       .query("pos_approval_requests")
       .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", args.staffId))
