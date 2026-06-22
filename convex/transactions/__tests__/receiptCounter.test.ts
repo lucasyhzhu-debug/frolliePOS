@@ -43,7 +43,7 @@ describe("_allocateReceiptNumber_internal", () => {
     expect(r2).toBe("R-PKW-2026-0002");
   });
 
-  it("staffreview Critical #2 regression: 23:30 WIB Dec 31 still old year; 00:01 WIB Jan 1 new year", async () => {
+  it("formats the caller-supplied year independently (year is now a param; WIB-boundary itself is covered in lib/time wibYear)", async () => {
     const t = convexTest(schema);
     const outletId = await t.run((ctx) =>
       ctx.db.insert("outlets", {

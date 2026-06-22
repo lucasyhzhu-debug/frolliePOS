@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { isoDaysAgo } from "../time";
+import { isoDaysAgo, wibYear } from "../time";
+
+describe("lib/time wibYear", () => {
+  // staffreview Critical #2 regression: the WIB-year boundary. Moved here in v2.0
+  // when _allocateReceiptNumber_internal took `year` as a param (the receipt test
+  // no longer exercises wibYear(Date.now())); this guards the pure function that
+  // _confirmPaid_internal now calls to compute the year.
+  it("23:30 WIB Dec 31 is still the old year; 00:01 WIB Jan 1 is the new year", () => {
+    // 23:30 WIB = 16:30 UTC Dec 31 2025 → WIB year 2025
+    expect(wibYear(Date.UTC(2025, 11, 31, 16, 30, 0))).toBe(2025);
+    // 00:01 WIB Jan 1 2026 = 17:01 UTC Dec 31 2025 → WIB year 2026
+    expect(wibYear(Date.UTC(2025, 11, 31, 17, 1, 0))).toBe(2026);
+  });
+});
 
 describe("lib/time isoDaysAgo", () => {
   it("returns an RFC3339 UTC date-time exactly N days before now, not a bare YYYY-MM-DD", () => {
