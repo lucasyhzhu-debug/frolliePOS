@@ -11,10 +11,24 @@ import { encodeCursor } from "../lib/apiCursor";
  * Cross-module read surface: receipts module calls this to list refunds for a
  * txn when rendering the receipt (ADR-039). Returns the rows ordered oldest-
  * first so the receipt's refund block reads chronologically.
+ *
+ * v2.0 Stream 5: when outletId is provided, uses by_outlet_transaction index;
+ * falls back to by_transaction for window-tolerance (no new throws).
  */
 export const _listForTransaction_internal = internalQuery({
-  args: { transactionId: v.id("pos_transactions") },
+  args: {
+    transactionId: v.id("pos_transactions"),
+    outletId: v.optional(v.id("outlets")),
+  },
   handler: async (ctx, args): Promise<Doc<"pos_refunds">[]> => {
+    if (args.outletId) {
+      return await ctx.db
+        .query("pos_refunds")
+        .withIndex("by_outlet_transaction", (q) =>
+          q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
+        )
+        .collect();
+    }
     return await ctx.db
       .query("pos_refunds")
       .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
@@ -269,6 +283,8 @@ export const _commitRefund_internal = internalMutation({
     const now = Date.now();
 
     // 3. INSERT refund row (pos_refunds is refunds-owned per ADR-034).
+    // v2.0 Stream 5: stamp outlet_id from the source transaction (window-tolerant).
+    const outletId = txn.outlet_id as Id<"outlets"> | undefined;
     const refundId = await ctx.db.insert("pos_refunds", {
       transaction_id: args.transactionId,
       lines: refundLineRows,
@@ -280,6 +296,7 @@ export const _commitRefund_internal = internalMutation({
       approval_request_id: args.approvalRequestId,
       settlement_status: "pending",
       created_at: now,
+      ...(outletId ? { outlet_id: outletId } : {}),
     });
 
     // 4. PATCH refunded_qty per line — routed through transactions module
@@ -296,6 +313,7 @@ export const _commitRefund_internal = internalMutation({
     //    line_qty (snapshotted at sale time, immutable) so inventory can
     //    derive per-unit components from the historic sale movements rather
     //    than re-reading the current recipe (I3 — recipe-drift safety).
+    //    v2.0 Stream 5: pass outletId so the re-credit movement is stamped.
     await ctx.runMutation(internal.inventory.internal._refundReCredit_internal, {
       refundId,
       transactionId: args.transactionId,
@@ -304,6 +322,7 @@ export const _commitRefund_internal = internalMutation({
         line_qty: line.qty,
         qty,
       })),
+      ...(outletId ? { outlet_id: outletId } : {}),
     });
 
     // 6. Purge cached receipt. Throws if no receipt_token (v0.5.1 invariant

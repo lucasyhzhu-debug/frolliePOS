@@ -237,14 +237,24 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
     // queries filtering by staff or device_id surface the invoice-cancel half too.
     actor_id: v.optional(v.union(v.id("staff"), v.literal("system"))),
     source: v.optional(v.union(v.literal("booth_inline"), v.literal("system"))),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outlet_id: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
     // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
     // absent optional fields (own MEMORY: convex-optional-field-filter-gotcha).
-    const candidates = await ctx.db
-      .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-      .collect();
+    // v2.0 Stream 5: use by_outlet_transaction when outlet_id is available.
+    const candidates = args.outlet_id
+      ? await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_outlet_transaction", (q) =>
+            q.eq("outlet_id", args.outlet_id).eq("transaction_id", args.txnId),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+          .collect();
     // F10: Cancel ALL active (no cancelled_at stamp) invoices, not just the first.
     // Invariant: at most one active invoice per txn at any time. If more exist,
     // cancel them all to converge state — the divergence is visible in forensic
@@ -405,12 +415,24 @@ export const _onPaidManual_internal = internalMutation({
  * `_instrumentForTxn_internal` ran identical SQL and was deleted.
  */
 export const _getPaidInvoiceForTxn_internal = internalQuery({
-  args: { transactionId: v.id("pos_transactions") },
+  args: {
+    transactionId: v.id("pos_transactions"),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outletId: v.optional(v.id("outlets")),
+  },
   handler: async (ctx, args) => {
-    const invoices = await ctx.db
-      .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
-      .collect();
+    // v2.0 Stream 5: use by_outlet_transaction when outletId is available.
+    const invoices = args.outletId
+      ? await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_outlet_transaction", (q) =>
+            q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
+          )
+          .collect()
+      : await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+          .collect();
     // Reduce-pick-max instead of slice+sort — O(n) single pass, no extra
     // allocation. cancelled_at is NOT filtered out: a refund commit may stamp
     // cancelled_at on the original paying invoice, but the receipt still needs
@@ -431,13 +453,26 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
  * Same selection logic as the public query (latest non-cancelled invoice).
  */
 export const _getCurrentInvoice_internal = internalQuery({
-  args: { txnId: v.id("pos_transactions") },
+  args: {
+    txnId: v.id("pos_transactions"),
+    // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
+    outletId: v.optional(v.id("outlets")),
+  },
   handler: async (ctx, args): Promise<Doc<"pos_xendit_invoices"> | null> => {
-    const invoices = await ctx.db
-      .query("pos_xendit_invoices")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-      .order("desc")
-      .collect();
+    // v2.0 Stream 5: use by_outlet_transaction when outletId is available.
+    const invoices = args.outletId
+      ? await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_outlet_transaction", (q) =>
+            q.eq("outlet_id", args.outletId).eq("transaction_id", args.txnId),
+          )
+          .order("desc")
+          .collect()
+      : await ctx.db
+          .query("pos_xendit_invoices")
+          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
+          .order("desc")
+          .collect();
     return invoices.find((inv) => !inv.cancelled_at) ?? null;
   },
 });
