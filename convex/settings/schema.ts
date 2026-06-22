@@ -37,5 +37,7 @@ export const settingsTables = {
     outlet_device_id: v.optional(v.string()),
     updated_at: v.number(),
     updated_by: v.optional(v.id("staff")),
-  }),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window; was singleton, now one row per outlet
+  })
+    .index("by_outlet", ["outlet_id"]),
 };

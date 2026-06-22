@@ -32,15 +32,18 @@ export const authTables = {
       v.literal("force_logout"),
       v.null(),
     ),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     .index("by_staff_active", ["staff_id", "ended_at"])
-    .index("by_device_active", ["device_id", "ended_at"]),
+    .index("by_device_active", ["device_id", "ended_at"])
+    .index("by_outlet_device_active", ["outlet_id", "device_id", "ended_at"]),
 
   pos_auth_attempts: defineTable({
     staff_id: v.id("staff"),
     fail_count: v.number(),
     locked_until: v.union(v.number(), v.null()),
     last_attempt_at: v.number(),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: audit context only; no by_outlet index (lockout is per-staff)
   }).index("by_staff", ["staff_id"]),
 
   // SEC-04: brute-force throttle for /activate device-setup-code entry.
@@ -62,9 +65,11 @@ export const authTables = {
     activated_at: v.number(),
     last_seen_at: v.optional(v.number()),
     active: v.boolean(),
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     .index("by_device_id", ["device_id"])
-    .index("by_active", ["active"]),
+    .index("by_active", ["active"])
+    .index("by_outlet_active", ["outlet_id", "active"]),
 
   pending_device_setups: defineTable({
     setup_code: v.string(),

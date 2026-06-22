@@ -10,6 +10,7 @@ export const receiptsTables = {
     token: v.string(),
     html: v.string(),
     expires_at: v.number(),                      // created_at + 24h, server-set per ADR-031
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional; no new scan index (token globally unique; outlet for purge scoping)
   })
-    .index("by_token", ["token"]),
+    .index("by_token", ["token"]),  // GLOBAL_UNIQUE — keep
 };

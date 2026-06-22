@@ -29,11 +29,15 @@ export const refundsTables = {
     settled_at: v.optional(v.number()),
 
     created_at: v.number(),                      // server-set per ADR-031
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
   })
     // For receipt rendering: "get all refunds for this txn"
     .index("by_transaction", ["transaction_id"])
     // For /mgr/refunds-pending: list pending refunds oldest-first
     .index("by_settlement_status", ["settlement_status", "created_at"])
     // For Public API v1 ascending feed — scanned by _listRefundsForApi_internal
-    .index("by_created_at", ["created_at"]),
+    .index("by_created_at", ["created_at"])
+    .index("by_outlet_transaction", ["outlet_id", "transaction_id"])
+    .index("by_outlet_settlement_status", ["outlet_id", "settlement_status", "created_at"])
+    .index("by_outlet_created_at", ["outlet_id", "created_at"]),
 };
