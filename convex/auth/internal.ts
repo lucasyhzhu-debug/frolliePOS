@@ -271,18 +271,33 @@ export const _loginCommit_internal = internalMutation({
         await ctx.db.patch(attempt._id, { fail_count: 0, locked_until: null, last_attempt_at: now });
       }
 
+      // v2.0 Task 7 (C2): resolve outlet from device binding (window-tolerant).
+      // Throws/access-deny deferred to Task 12. Falls back to the default outlet
+      // when the device is unbound so ALL logins succeed during the migration window.
+      const dev = await ctx.db
+        .query("registered_devices")
+        .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
+        .first();
+      let outletId = dev?.outlet_id as Id<"outlets"> | undefined;
+      if (!outletId) {
+        const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
+        outletId = def?._id; // window-tolerant fallback to the single default outlet
+      }
+
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: args.staffId,
         device_id: args.deviceId,
         started_at: now,
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       });
       await ctx.db.patch(args.staffId, { last_login_at: now });
       await logAudit(ctx, {
         actor_id: args.staffId, action: "staff.login",
         entity_type: "staff_session", entity_id: sessionId,
         source: "booth_inline", device_id: args.deviceId,
+        metadata: { outlet_id: outletId },
       });
 
       return { sessionId, role: staff.role };
@@ -615,16 +630,29 @@ export const _managerTakeoverSession_internal = internalMutation({
       await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
     }
 
-    // Step 2: Create new manager session (mirrors _loginCommit_internal shape).
+    // Step 2: Resolve outlet from device binding (window-tolerant, mirrors _loginCommit_internal).
+    // No throw/access-assert — deferred to Task 12. Falls back to default outlet when unbound.
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
+      .first();
+    let outletId = dev?.outlet_id as Id<"outlets"> | undefined;
+    if (!outletId) {
+      const def = await ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).first();
+      outletId = def?._id;
+    }
+
+    // Step 3: Create new manager session (mirrors _loginCommit_internal shape).
     const sessionId: Id<"staff_sessions"> = await ctx.db.insert("staff_sessions", {
       staff_id: args.managerStaffId,
       device_id: args.deviceId,
       started_at: now,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     });
 
-    // Step 3: Record last_login_at + staff.login audit (parity with _loginCommit_internal).
+    // Step 4: Record last_login_at + staff.login audit (parity with _loginCommit_internal).
     await ctx.db.patch(args.managerStaffId, { last_login_at: now });
     await logAudit(ctx, {
       actor_id: args.managerStaffId,
@@ -633,6 +661,7 @@ export const _managerTakeoverSession_internal = internalMutation({
       entity_id: sessionId,
       source: "booth_inline",
       device_id: args.deviceId,
+      metadata: { outlet_id: outletId }, // parity with _loginCommit_internal (audit outlet context where a session exists)
     });
 
     return { sessionId, displacedStaffId };

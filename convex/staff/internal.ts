@@ -241,6 +241,7 @@ export const _activateDeviceCommit_internal = internalMutation({
         }
         reactivated = true;
       } else {
+        // v2.0 OQ4: devices activate unbound; a manager binds via assignDeviceOutlet.
         deviceRowId = await ctx.db.insert("registered_devices", {
           device_id: args.deviceId,
           label: args.deviceLabel,
@@ -248,6 +249,7 @@ export const _activateDeviceCommit_internal = internalMutation({
           activated_at: now,
           last_seen_at: now,
           active: true,
+          // outlet_id intentionally absent — unbound at activation
         });
       }
 
@@ -503,6 +505,71 @@ export const _deactivateStaffCommit_internal = internalMutation({
       return { ok: true as const };
     },
   ),
+});
+
+/**
+ * v2.0 Task 7 (C2): Bind (or re-bind) a registered_devices row to an outlet.
+ * Called by staff.actions.assignDeviceOutlet (manager-PIN action).
+ *
+ * - Patches `registered_devices.outlet_id` to `targetOutletId`.
+ * - If the device was ALREADY bound to a DIFFERENT outlet, force-logs out all
+ *   active sessions on that device (`end_reason: "force_logout"`) so those
+ *   sessions don't silently carry a stale outlet_id.
+ * - Same-outlet re-assign is a no-op (no session disruption).
+ * - Logs `device.assignOutlet` audit with from/to outlet IDs.
+ * - Lives in staff/internal.ts: staff already owns registered_devices writes
+ *   (ADR-034; the allowlist covers this module).
+ */
+export const _assignDeviceOutlet_internal = internalMutation({
+  args: {
+    deviceId: v.string(),
+    targetOutletId: v.id("outlets"),
+    mgrId: v.id("staff"),
+    mgrDeviceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", args.deviceId))
+      .first();
+    if (!dev) throw new Error("DEVICE_NOT_FOUND");
+
+    const fromOutletId = (dev.outlet_id as typeof args.targetOutletId | undefined) ?? null;
+    const isReassign = fromOutletId !== null && fromOutletId !== args.targetOutletId;
+
+    // Patch the outlet binding first.
+    await ctx.db.patch(dev._id, { outlet_id: args.targetOutletId });
+
+    // If the device moved to a different outlet, end all active sessions so they
+    // don't carry the old outlet_id. Same-outlet assign skips this (no disruption).
+    if (isReassign) {
+      const activeSessions = await ctx.db
+        .query("staff_sessions")
+        .withIndex("by_device_active", (q) =>
+          q.eq("device_id", args.deviceId).eq("ended_at", null),
+        )
+        .collect();
+      for (const sess of activeSessions) {
+        await ctx.db.patch(sess._id, { ended_at: now, end_reason: "force_logout" });
+      }
+    }
+
+    await logAudit(ctx, {
+      actor_id: args.mgrId,
+      action: "device.assignOutlet",
+      entity_type: "device",
+      entity_id: dev._id,
+      source: "booth_inline",
+      device_id: args.mgrDeviceId,
+      metadata: {
+        device_id: args.deviceId,
+        from_outlet_id: fromOutletId,
+        to_outlet_id: args.targetOutletId,
+      },
+    });
+  },
 });
 
 export const _createStaffCommit_internal = internalMutation({

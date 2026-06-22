@@ -120,6 +120,8 @@ export const _reset_internal = internalMutation({
       "pos_vouchers", "pos_approval_requests",
       "pos_low_stock_alerts", "pos_recount_state",
       "pos_stock_levels", "pos_product_components", "pos_products", "pos_inventory_skus",
+      // v2.0: wipe outlet tables (children first)
+      "staff_outlet_access", "outlets",
       "staff",
     ] as const) {
       const all = await ctx.db.query(table).collect();
@@ -128,14 +130,30 @@ export const _reset_internal = internalMutation({
 
     let inserted = 0;
 
+    // v2.0 Task 7 (C2): seed the default outlet (Pakuwon — the single booth in v1).
+    // All seeded staff get an access row; the dev device is bound here so that dev
+    // loads boot with a correctly-stamped session and outlet_id propagates through
+    // the full login commit flow during development.
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW",
+      name: "Frollie — Pakuwon",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: now,
+      created_by: null, // house null-convention for the backfilled default outlet
+    });
+    inserted++;
+
     // Staff: 4 crew (PIN 0000) + 1 manager (PIN 9999)
     // staffCode allocated sequentially as "S-NNNN" per ADR-034 stable IDs.
     let staffCounter = 1;
+    const seededStaffIds: Id<"staff">[] = [];
     for (const name of args.staffNames) {
       const code = `S-${String(staffCounter).padStart(4, "0")}`;
-      await ctx.db.insert("staff", {
+      const staffId = await ctx.db.insert("staff", {
         name, code, pin_hash: args.staffPinHash, role: "staff", active: true, created_at: now,
       });
+      seededStaffIds.push(staffId);
       staffCounter++;
       inserted++;
     }
@@ -144,13 +162,27 @@ export const _reset_internal = internalMutation({
       name: "Lucas", code: mgrCode, pin_hash: args.mgrPinHash, role: "manager",
       active: true, created_at: now,
     });
+    seededStaffIds.push(lucasId);
     inserted++;
+
+    // v2.0 Task 7: grant every seeded staff member access to the default outlet.
+    for (const staffId of seededStaffIds) {
+      await ctx.db.insert("staff_outlet_access", {
+        staff_id: staffId,
+        outlet_id: outletId,
+        granted_at: now,
+        granted_by: null, // house null-convention for seed-granted access
+      });
+      inserted++;
+    }
 
     // DEV-ONLY: pre-register a fixed device so dev / Chrome-MCP loads skip the
     // /activate gate. The id matches DEV_DEVICE_ID in src/lib/storage-keys.ts
     // (the two runtimes cannot share a module — keep them in sync). registered_devices
     // is wiped above, so re-running reset replaces this row. Never seeded by
     // `bootstrap` (the prod path), and `reset` is prod-guarded by deployment slug.
+    // v2.0 Task 7: bind the dev device to the default outlet so the seeded
+    // manager session carries a correct outlet_id from the start.
     await ctx.db.insert("registered_devices", {
       device_id: "dev-booth-device",
       label: "Dev Booth Device",
@@ -158,6 +190,7 @@ export const _reset_internal = internalMutation({
       activated_at: now,
       last_seen_at: now,
       active: true,
+      outlet_id: outletId, // v2.0 OQ4: dev device is bound at seed time
     });
     inserted++;
 
@@ -239,12 +272,15 @@ export const _reset_internal = internalMutation({
     // Active, non-ended manager session for the seeded manager (Lucas), shaped
     // exactly like a real session row (ended_at/end_reason null while active),
     // bound to the pre-registered dev device.
+    // v2.0 Task 7: stamp outlet_id so the session carries the correct outlet from
+    // the start — mirrors what _loginCommit_internal does for production logins.
     const managerSessionId = await ctx.db.insert("staff_sessions", {
       staff_id: lucasId,
       device_id: "dev-booth-device",
       started_at: now,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId, // v2.0 Task 7 (C2)
     });
     inserted++;
 

@@ -156,3 +156,42 @@ export const deactivateStaff = action({
       },
     ),
 });
+
+/**
+ * v2.0 Task 7 (C2): Bind a registered device to an outlet.
+ * Manager session + manager PIN required (identity-level — controls which outlet
+ * sessions belong to going forward).
+ *
+ * If the device was previously bound to a DIFFERENT outlet, active sessions on
+ * that device are force-logged out by the internal mutation so they never carry
+ * a stale outlet_id. Same-outlet re-assign is idempotent (no session disruption).
+ */
+export const assignDeviceOutlet = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    targetDeviceId: v.string(),
+    targetOutletId: v.id("outlets"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "staff.assignDeviceOutlet" },
+      () => assertManagerSessionInAction(ctx, args.sessionId),
+      async () => {
+        const { managerId, deviceId } = await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        await ctx.runMutation(internal.staff.internal._assignDeviceOutlet_internal, {
+          deviceId: args.targetDeviceId,
+          targetOutletId: args.targetOutletId,
+          mgrId: managerId,
+          mgrDeviceId: deviceId,
+        });
+        return { ok: true } as const;
+      },
+    ),
+});
