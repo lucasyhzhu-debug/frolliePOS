@@ -20,25 +20,6 @@ export const getSettings = query({
   },
 });
 
-// Unauthenticated by design — `outlet_device_id` is a non-sensitive device
-// identifier (not PII/financial), and RootLayout must read it for the CURRENT
-// device to decide whether the start-of-day SOP gate applies, before any
-// session-scoped query. Returns `isOutlet` pre-computed with the backward-compat
-// policy baked in (null designation ⇒ every device behaves as the outlet) so the
-// gate stays a single boolean check.
-export const outletStatus = query({
-  args: { deviceId: v.string() },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ outletDeviceId: string | null; isOutlet: boolean }> => {
-    const row = await ctx.db.query("pos_settings").first();
-    const outletDeviceId = row?.outlet_device_id ?? null;
-    const isOutlet = outletDeviceId === null || outletDeviceId === args.deviceId;
-    return { outletDeviceId, isOutlet };
-  },
-});
-
 // withIdempotency serializes the handler return via JSON.stringify so the
 // cache row's response_blob is non-null. Match the chatRegistry mgr* shape.
 type ToggleResult = { ok: true };

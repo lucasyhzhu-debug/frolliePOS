@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
 import { hasShownDenial, markDenialShown } from "@/lib/pinResetDenials";
 import { errorMessage } from "@/lib/errors";
+import { useSession } from "@/hooks/useSession";
 
 type Stage =
   | { kind: "list" }
@@ -32,8 +33,19 @@ export default function LoginRoute() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
   const boothState = useBoothState();
+  const session = useSession();
   const t = useT();
-  const staff = useQuery(api.auth.public.getActiveStaff, {});
+  // v2.0 Task 10: roster scoped to the device's bound outlet. Falls back while
+  // deviceId resolves (skip → undefined). The outlet chip below derives from the
+  // active session's outlet_label so it persists across re-renders.
+  const staff = useQuery(
+    api.auth.public.listStaffForDevice,
+    deviceId ? { deviceId } : "skip",
+  );
+  // Outlet label from an existing active session (survives between pre-stage + PIN entry),
+  // or from a completed login before navigation completes.
+  const outletLabel =
+    session.status === "active" ? session.staff.outlet_label : undefined;
   const login = useAction(api.auth.actions.loginWithPin);
   const recordResume = useMutation(api.shifts.public.recordResume);
   const [stage, setStage] = useState<Stage>({ kind: "list" });
@@ -218,7 +230,14 @@ export default function LoginRoute() {
         <h1 className="text-xl font-semibold text-foreground">
           {stage.kind === "list" ? t("login.whoIsWorking") : stage.staff.name}
         </h1>
-        <ConnDot />
+        <div className="flex items-center gap-2">
+          {outletLabel && (
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+              {t("login.outletChip", { outlet: outletLabel })}
+            </span>
+          )}
+          <ConnDot />
+        </div>
       </header>
 
       {stage.kind === "list" ? (

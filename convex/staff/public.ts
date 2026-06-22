@@ -216,12 +216,10 @@ export const activateDevice = action({
   },
 });
 
-// ─── Outlet device designation (v1.2) ────────────────────────────────────────
-// A manager picks WHICH registered device is the booth "outlet". Only the outlet
-// is subject to the start-of-day / handover SOP gate (RootLayout); every other
-// device is a viewer that skips the SOP. `registered_devices` is owned by this
-// module (ADR-034), so the device LIST + validation live here; the WRITE to
-// `pos_settings.outlet_device_id` routes through settings/internal.
+// ─── Registered device list (v2.0) ───────────────────────────────────────────
+// Manager lists registered devices for the outlet-assignment panel (mgr/device).
+// The old `outlet_device_id` field in pos_settings was retired with PR#124's
+// hotfix (Task 10); outlet binding now lives on `registered_devices.outlet_id`.
 
 type DeviceRow = {
   _id: Id<"registered_devices">;
@@ -232,28 +230,22 @@ type DeviceRow = {
 };
 
 /**
- * Manager-only: list active registered devices for the outlet picker, plus the
- * currently-designated outlet device id. Explicit return type breaks the
- * cross-module `ctx.runQuery` inference cycle (TS7022).
+ * Manager-only: list active registered devices for the outlet-assignment panel.
+ * Explicit return type breaks the cross-module `ctx.runQuery` inference cycle (TS7022).
  */
 export const listRegisteredDevices = query({
   args: { sessionId: v.id("staff_sessions") },
   handler: async (
     ctx,
     args,
-  ): Promise<{ devices: DeviceRow[]; outletDeviceId: string | null }> => {
+  ): Promise<{ devices: DeviceRow[] }> => {
     const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
     const rows = await ctx.db
       .query("registered_devices")
       .withIndex("by_outlet_active", (q) => q.eq("outlet_id", outlet_id).eq("active", true))
       .collect();
-    const settings = await ctx.runQuery(
-      internal.settings.internal._getSettings_internal,
-      { outletId: outlet_id },
-    );
     return {
-      outletDeviceId: settings.outlet_device_id,
       devices: rows.map((d) => ({
         _id: d._id,
         device_id: d.device_id,
@@ -263,51 +255,4 @@ export const listRegisteredDevices = query({
       })),
     };
   },
-});
-
-/**
- * Manager-only: designate the outlet device (or clear it with `deviceId: null`).
- * Manager-SESSION, not PIN — low-stakes operational config (ADR-005 tiering,
- * rule #22), same tier as receipt/ticker config. A non-null deviceId must be a
- * REGISTERED ACTIVE device (can't designate a phantom). The write goes through
- * settings/internal per ADR-034.
- */
-export const setOutletDevice = mutation({
-  args: {
-    idempotencyKey: v.string(),
-    sessionId: v.id("staff_sessions"),
-    deviceId: v.union(v.string(), v.null()),
-  },
-  handler: withIdempotency<
-    {
-      idempotencyKey: string;
-      sessionId: Id<"staff_sessions">;
-      deviceId: string | null;
-    },
-    { ok: true }
-  >(
-    "staff.setOutletDevice",
-    async (ctx, args) => {
-      const { staffId } = await requireManagerSession(ctx, args.sessionId);
-      if (args.deviceId !== null) {
-        const dev = await ctx.db
-          .query("registered_devices")
-          .withIndex("by_device_id", (q) =>
-            q.eq("device_id", args.deviceId as string),
-          )
-          .unique();
-        if (!dev || !dev.active) throw new Error("DEVICE_NOT_REGISTERED");
-      }
-      await ctx.runMutation(
-        internal.settings.internal._setOutletDevice_internal,
-        { outletDeviceId: args.deviceId, staffId },
-      );
-      return { ok: true as const };
-    },
-    {
-      authCheck: async (ctx, args) => {
-        await requireManagerSession(ctx, args.sessionId);
-      },
-    },
-  ),
 });

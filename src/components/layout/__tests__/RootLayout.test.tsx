@@ -5,13 +5,19 @@ import { MemoryRouter, Routes, Route } from "react-router";
 // ---------------------------------------------------------------------------
 // Hoist mock factories — must reference these before module init.
 // ---------------------------------------------------------------------------
-const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState, mockUseOutletStatus } = vi.hoisted(() => ({
+const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState } = vi.hoisted(() => ({
   mockUseSession: vi.fn(),
   mockUseDeviceId: vi.fn(() => "dev-001"),
-  mockUseQuery: vi.fn(() => true), // deviceRegistered = true by default
+  // useQuery is called for multiple queries: isDeviceRegistered + isDeviceOutlet.
+  // Default: deviceRegistered=true, isDeviceOutlet=true (outlet device by default).
+  mockUseQuery: vi.fn((query: unknown) => {
+    // Distinguish by the function reference name. Convex generated functions
+    // are objects; their toString() includes the path.
+    const q = String(query);
+    if (q.includes("isDeviceOutlet")) return true;
+    return true; // isDeviceRegistered default
+  }),
   mockUseBoothState: vi.fn(() => undefined), // undefined = loading by default
-  // Default: this device IS the outlet (no designation ⇒ every device is outlet).
-  mockUseOutletStatus: vi.fn(() => ({ isOutlet: true, outletDeviceId: null })),
 }));
 
 vi.mock("@/hooks/useSession", () => ({
@@ -29,9 +35,6 @@ vi.mock("convex/react", async (importOriginal) => {
 });
 vi.mock("@/hooks/useBoothState", () => ({
   useBoothState: mockUseBoothState,
-}));
-vi.mock("@/hooks/useOutletStatus", () => ({
-  useOutletStatus: mockUseOutletStatus,
 }));
 vi.mock("@/components/pos/PrinterProvider", () => ({
   PrinterProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -59,6 +62,9 @@ const ACTIVE_SESSION = {
     name: "Budi",
     role: "staff" as const,
     must_change_pin: false,
+    locale: "en" as const,
+    outlet_id: undefined,
+    outlet_label: undefined,
   },
 };
 
@@ -93,10 +99,10 @@ describe("RootLayout — booth-state gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseDeviceId.mockReturnValue("dev-001");
-    mockUseQuery.mockReturnValue(true); // deviceRegistered = true
+    // Default: deviceRegistered=true, isDeviceOutlet=true.
+    mockUseQuery.mockReturnValue(true);
     mockUseSession.mockReturnValue(ACTIVE_SESSION);
     mockUseBoothState.mockReturnValue(undefined); // loading by default
-    mockUseOutletStatus.mockReturnValue({ isOutlet: true, outletDeviceId: null }); // outlet by default
   });
 
   it("renders children normally when boothState is undefined (still loading)", () => {
@@ -125,17 +131,29 @@ describe("RootLayout — booth-state gate", () => {
   });
 
   it("does NOT force start-of-day on a VIEWER (non-outlet) device even when booth is 'closed'", () => {
-    // A manager opens the POS on their PC (a viewer device): isOutlet=false. The
-    // SOP gate must skip so they land on the menu / transactions, not the SOP.
-    mockUseOutletStatus.mockReturnValue({ isOutlet: false, outletDeviceId: "booth-phone" });
+    // A manager opens the POS on their PC (a viewer device): isDeviceOutlet=false.
+    // The SOP gate must skip so they land on the menu / transactions, not the SOP.
+    // Both queries go through mockUseQuery; return false only for isDeviceOutlet.
+    // We use a call-count approach: isDeviceRegistered is called first (returns true),
+    // isDeviceOutlet is called second (returns false for this test).
+    let callCount = 0;
+    mockUseQuery.mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? true : false; // 1st call = registered, 2nd = not outlet
+    });
     mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
     expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
 
-  it("does NOT force start-of-day while outletStatus is still loading (undefined ⇒ don't trap a viewer)", () => {
-    mockUseOutletStatus.mockReturnValue(undefined);
+  it("does NOT force start-of-day while isDeviceOutlet is still loading (undefined ⇒ don't trap a viewer)", () => {
+    // isDeviceOutlet undefined → defaults to false in RootLayout (safe default).
+    let callCount = 0;
+    mockUseQuery.mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? true : undefined; // registered=true, outlet=undefined
+    });
     mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();

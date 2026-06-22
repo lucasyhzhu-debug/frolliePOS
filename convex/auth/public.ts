@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
+import { internal } from "../_generated/api";
 
 /**
  * List active staff for the login screen.
@@ -17,6 +18,69 @@ export const getActiveStaff = query({
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
     return rows.map((s) => ({ _id: s._id, name: s.name, role: s.role }));
+  },
+});
+
+/**
+ * v2.0 Task 10: Whether this device should run the start-of-day / handover SOP gate.
+ * Public (pre-auth) — called by RootLayout before any session-scoped query.
+ *
+ * Migration-window rule (backward-compatible, Task 12 will tighten):
+ *   - Registered + active + outlet_id SET → outlet device, SOP gate fires.
+ *   - Registered + active + outlet_id NULL → unbound during migration, treat as
+ *     outlet (backward-compatible for single-device booth).
+ *   - Not registered or inactive → false (should have been caught by device gate).
+ *
+ * Task 12 will change the NULL case to return false (unbound = viewer) once all
+ * devices have been formally assigned via mgr/device (assignDeviceOutlet).
+ */
+export const isDeviceOutlet = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }): Promise<boolean> => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
+      .first();
+    if (!dev || !dev.active) return false;
+    // Window-tolerant: unbound device = outlet (backward-compat until Task 12).
+    return true;
+  },
+});
+
+/**
+ * v2.0 Task 10: List active staff scoped to the device's bound outlet.
+ * Public (pre-auth) — called by the login screen so only staff who work at THIS
+ * outlet appear in the roster. Falls back to an empty array when the device has
+ * no outlet binding yet (unbound device → show the "ask a manager" state).
+ *
+ * Resolution: registered_devices by_device_id → outlet_id → _listStaffForOutlet_internal.
+ * Window-tolerant: returns all active staff when no outlet_id is bound so the
+ * login screen degrades gracefully during the migration window (no hard-block
+ * until Task 12 enforces the binding gate).
+ */
+export const listStaffForDevice = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }): Promise<Array<{ _id: Id<"staff">; name: string; role: "staff" | "manager" }>> => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
+      .first();
+    if (!dev) return [];
+    const outletId = dev.outlet_id as Id<"outlets"> | undefined;
+    if (!outletId) {
+      // Unbound device during migration window: fall back to all active staff so
+      // the booth keeps working. Task 12 will enforce the binding gate.
+      const rows = await ctx.db
+        .query("staff")
+        .withIndex("by_active", (q) => q.eq("active", true))
+        .collect();
+      return rows.map((s) => ({ _id: s._id, name: s.name, role: s.role as "staff" | "manager" }));
+    }
+    const staffRows = await ctx.runQuery(
+      internal.auth.internal._listStaffForOutlet_internal,
+      { outletId },
+    ) as Array<{ _id: Id<"staff">; name: string; role: string }>;
+    return staffRows.map((s) => ({ _id: s._id, name: s.name, role: s.role as "staff" | "manager" }));
   },
 });
 

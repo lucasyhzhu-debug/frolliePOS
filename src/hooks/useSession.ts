@@ -25,6 +25,7 @@ export type SessionState =
         must_change_pin: boolean; // SEC-03: forced-rotation prompt flag
         locale: "en" | "id"; // v1.2 #1: UI language (absent on server ⇒ "en" default)
         outlet_id: Id<"outlets"> | undefined; // v2.0: outlet window
+        outlet_label: string | undefined; // v2.0: outlet display name
       };
     };
 

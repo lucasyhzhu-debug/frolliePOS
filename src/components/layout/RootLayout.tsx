@@ -7,7 +7,6 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
 import { useBoothState } from "@/hooks/useBoothState";
-import { useOutletStatus } from "@/hooks/useOutletStatus";
 import { hasManagerSkippedSOD } from "@/lib/shiftSkip";
 import { useT } from "@/lib/i18n";
 
@@ -38,12 +37,20 @@ export function RootLayout() {
   const deviceId = useDeviceId();
   const session = useSession();
   const boothState = useBoothState();
-  const outletStatus = useOutletStatus();
 
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
   // Skip query while deviceId is still resolving (null = IDB not yet read).
   const deviceRegistered = useQuery(
     api.staff.public.isDeviceRegistered,
+    deviceId ? { deviceId } : "skip",
+  );
+
+  // v2.0 Task 10: SOP gate uses the device's formal outlet binding instead of
+  // the retired `pos_settings.outlet_device_id` hotfix. Returns true for all
+  // registered devices during the migration window (backward-compat); Task 12
+  // tightens to false for unbound viewer devices.
+  const isOutletDevice = useQuery(
+    api.auth.public.isDeviceOutlet,
     deviceId ? { deviceId } : "skip",
   );
 
@@ -109,14 +116,12 @@ export function RootLayout() {
   }
 
 
-  // v1.2 outlet gating: the SOP gate applies ONLY to the designated outlet
-  // (booth) device. A viewer device (a manager's PC / personal phone used to
-  // watch transactions on the go) skips start-of-day entirely. `isOutlet` is
-  // backend-computed with the backward-compat policy (no outlet designated ⇒
-  // every device is an outlet). Defaults to FALSE while outletStatus loads so a
-  // viewer is never momentarily trapped in the SOP (the cost is a sub-second
-  // menu flash on the outlet device at start-of-day, which then redirects).
-  const deviceIsOutlet = outletStatus?.isOutlet ?? false;
+  // v2.0 Task 10: SOP gate applies only to formally-assigned outlet devices.
+  // `isOutletDevice` is backend-computed (migration-tolerant: unbound = true
+  // until Task 12). Defaults to FALSE while loading so a viewer device is never
+  // momentarily trapped in the SOD checklist (the cost is a sub-second menu flash
+  // on the outlet device at start-of-day, which then redirects correctly).
+  const deviceIsOutlet = isOutletDevice ?? false;
 
   // Booth-state SOP gate: redirect to mandatory start-of-day / handover flows.
   // Only fires when: (a) there IS an active session (session gate above already
