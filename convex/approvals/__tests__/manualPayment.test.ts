@@ -198,6 +198,13 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
   });
 
   const { staffId, txnId } = await t.run(async (ctx) => {
+    // v2.0: _confirmPaid resolves the receipt outlet from txn.outlet_id ?? the
+    // default active outlet; seed one so the manual-payment confirm path doesn't
+    // throw NO_DEFAULT_OUTLET (Task 4).
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    });
     const staffId = await ctx.db.insert("staff", {
       name: "Lucy",
       code: "S-1",
@@ -214,6 +221,7 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
       flags: 0,
       staff_id: staffId,
       created_at: Date.now(),
+      outlet_id: outletId,
     });
     return { staffId, txnId };
   });
