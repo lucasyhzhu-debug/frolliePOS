@@ -2829,8 +2829,10 @@ Drafts written 2026-06-21 (branch `docs/multi-tenancy-program-drafts`, 5 specs +
   - **docs:** [spec](./superpowers/specs/2026-06-21-owner-cockpit-design.md)
 - 📋 **[v13-be-telegram-routing]** per-outlet `(role, outlet_id)` Telegram routing; `founders`→`owners`; per-outlet managers/inventory chats
   - **agent:** `convex-expert`
-  - **deps:** `v13-be-outlets-schema`
-  - **docs:** [spec](./superpowers/specs/2026-06-21-per-outlet-telegram-routing-design.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)
+  - **deps:** `v13-be-outlets-schema`, `v13-be-outlet-scoping`
+  - **docs:** [spec](./superpowers/specs/2026-06-21-per-outlet-telegram-routing-design.md), [plan](./superpowers/plans/2026-06-22-v2.0-telegram-per-outlet-routing.md), [spec-review](./reviews/staffreview-per-outlet-telegram-routing-spec-2026-06-22.md), [plan-review](./reviews/staffreview-per-outlet-telegram-routing-plan-2026-06-22.md), [ADR-035](./ADR/035-telegram-as-internal-comms.md)
+  - **notes:**
+    - 2026-06-22: Spec→staffreview→plan→staffreview pipeline complete (worktree branch). Plan = 13 TDD tasks (T1 `telegramChats.outlet_id`+`by_role_outlet` · T2 `KNOWN_TELEGRAM_ROLES` owners-recast+`ROLE_SCOPE`+alias · T3 `getChatIdByRoleAndOutlet` · T4 `resolveOutletChatId` helper+`sendTemplate` scope dispatch+`managers_daily_summary` kind · T5 class-a callsite sweep · T6 class-b `chatIdOverride` sweep · T7 owners rollup+per-outlet managers summary+cron rename · T8 `system_error` outlet label · T9 mgr* outlet binding · T10 FE outlet picker · T11 `/activatepos` multi-managers gate · T12 backfill · T13 docs). 6 open Qs + 3 grounding catches resolved at the two gates. **⛔ BLOCKED-ON-SPEC-1 EXECUTION** — threads `outlet_id` everywhere; requires 2 Spec-1 amendments: keep `telegramChats` in the outlet-fence EXCLUSION list (its `by_role_outlet` leads with `role`) + add `outlets.internal._listActiveOutlets_internal`. Decisions: signoff→per-outlet managers; recount stays managers (code, not spec table); single-outlet fallback kept; owners summary = business rollup + per-outlet `managers_daily_summary` (both); `/activatepos` device pre-assign DROPPED (honor Spec-1 OQ4 — manager-assign only); owners-as-booth-manager + cockpit binding surface → recorded as Spec-2/Spec-3 amendments. Top catch: `chatIdOverride` callsites bypass the OUTLET_REQUIRED safety net — each needs its own per-outlet test.
 
 ### Frontend (`src/`)
 - 📋 **[v13-fe-login-outlet]** account-first sticky-per-device login — outlet chip + roster filtered to the device's outlet
