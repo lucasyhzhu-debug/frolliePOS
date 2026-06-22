@@ -278,23 +278,14 @@ export const listPendingSettlement = query({
     }>
   > => {
     const { outlet_id } = await requireManagerSession(ctx, args.sessionId);
-    // v2.0 Stream 5: use outlet-scoped index when outlet_id is available.
-    // Falls back to legacy index for window-tolerance (no new throws).
-    const rows = outlet_id
-      ? await ctx.db
-          .query("pos_refunds")
-          .withIndex("by_outlet_settlement_status", (q) =>
-            q.eq("outlet_id", outlet_id).eq("settlement_status", "pending"),
-          )
-          .order("asc")
-          .take(200)
-      : await ctx.db
-          .query("pos_refunds")
-          .withIndex("by_settlement_status", (q) =>
-            q.eq("settlement_status", "pending"),
-          )
-          .order("asc")
-          .take(200);
+    // v2.0: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
+    const rows = await ctx.db
+      .query("pos_refunds")
+      .withIndex("by_outlet_settlement_status", (q) =>
+        q.eq("outlet_id", outlet_id).eq("settlement_status", "pending"),
+      )
+      .order("asc")
+      .take(200);
     return rows.map((r) => ({
       _id: r._id,
       _creationTime: r._creationTime,

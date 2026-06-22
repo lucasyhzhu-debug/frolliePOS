@@ -21,17 +21,12 @@ export const _listForTransaction_internal = internalQuery({
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<Doc<"pos_refunds">[]> => {
-    if (args.outletId) {
-      return await ctx.db
-        .query("pos_refunds")
-        .withIndex("by_outlet_transaction", (q) =>
-          q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
-        )
-        .collect();
-    }
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
     return await ctx.db
       .query("pos_refunds")
-      .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
+      )
       .collect();
   },
 });
@@ -403,6 +398,7 @@ export const _listRefundsForApi_internal = internalQuery({
     const hasLo = after !== undefined || args.fromMs !== undefined;
     const hi = args.toMs;
 
+    // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- Public API feed is intentionally cross-outlet (business-level sync to Frollie Pro)
     const candidates = await ctx.db
       .query("pos_refunds")
       .withIndex("by_created_at", (q) => {

@@ -47,21 +47,14 @@ export const getCurrentInvoice = query({
     // optional column: Convex's null-vs-undefined matching of an absent optional
     // field is ambiguous and differs between convex-test and prod. A txn has only
     // a handful of invoices, so collecting them is cheap and unambiguously correct.
-    // v2.0 Stream 5: use by_outlet_transaction when outlet available on the txn.
-    const outletId = txn.outlet_id;
-    const invoices = outletId
-      ? await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_outlet_transaction", (q) =>
-            q.eq("outlet_id", outletId).eq("transaction_id", args.txnId),
-          )
-          .order("desc")
-          .collect()
-      : await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-          .order("desc")
-          .collect();
+    // v2.0: always use outlet-scoped index (window-tolerant: txn.outlet_id may be undefined).
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", txn.outlet_id).eq("transaction_id", args.txnId),
+      )
+      .order("desc")
+      .collect();
     const inv = invoices.find((i) => !i.cancelled_at);
     if (!inv) return null;
     // SEC-06: project only the fields the charge screen renders — never spread the

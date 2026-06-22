@@ -243,18 +243,13 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
   handler: async (ctx, args) => {
     // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
     // absent optional fields (own MEMORY: convex-optional-field-filter-gotcha).
-    // v2.0 Stream 5: use by_outlet_transaction when outlet_id is available.
-    const candidates = args.outlet_id
-      ? await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_outlet_transaction", (q) =>
-            q.eq("outlet_id", args.outlet_id).eq("transaction_id", args.txnId),
-          )
-          .collect()
-      : await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-          .collect();
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outlet_id may be undefined).
+    const candidates = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outlet_id).eq("transaction_id", args.txnId),
+      )
+      .collect();
     // F10: Cancel ALL active (no cancelled_at stamp) invoices, not just the first.
     // Invariant: at most one active invoice per txn at any time. If more exist,
     // cancel them all to converge state — the divergence is visible in forensic
@@ -421,18 +416,13 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
-    // v2.0 Stream 5: use by_outlet_transaction when outletId is available.
-    const invoices = args.outletId
-      ? await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_outlet_transaction", (q) =>
-            q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
-          )
-          .collect()
-      : await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.transactionId))
-          .collect();
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.transactionId),
+      )
+      .collect();
     // Reduce-pick-max instead of slice+sort — O(n) single pass, no extra
     // allocation. cancelled_at is NOT filtered out: a refund commit may stamp
     // cancelled_at on the original paying invoice, but the receipt still needs
@@ -459,20 +449,14 @@ export const _getCurrentInvoice_internal = internalQuery({
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<Doc<"pos_xendit_invoices"> | null> => {
-    // v2.0 Stream 5: use by_outlet_transaction when outletId is available.
-    const invoices = args.outletId
-      ? await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_outlet_transaction", (q) =>
-            q.eq("outlet_id", args.outletId).eq("transaction_id", args.txnId),
-          )
-          .order("desc")
-          .collect()
-      : await ctx.db
-          .query("pos_xendit_invoices")
-          .withIndex("by_transaction", (q) => q.eq("transaction_id", args.txnId))
-          .order("desc")
-          .collect();
+    // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
+    const invoices = await ctx.db
+      .query("pos_xendit_invoices")
+      .withIndex("by_outlet_transaction", (q) =>
+        q.eq("outlet_id", args.outletId).eq("transaction_id", args.txnId),
+      )
+      .order("desc")
+      .collect();
     return invoices.find((inv) => !inv.cancelled_at) ?? null;
   },
 });
