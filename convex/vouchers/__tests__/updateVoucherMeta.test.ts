@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
 import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
 async function seedVoucher(
   t: ReturnType<typeof convexTest>,
+  outletId: Id<"outlets">,
   patch: Partial<{
     used_count: number;
     max_redemptions: number;
@@ -22,6 +24,7 @@ async function seedVoucher(
       used_count: patch.used_count ?? 0,
       active: patch.active ?? true,
       created_at: Date.now(),
+      outlet_id: outletId,
       ...(patch.max_redemptions !== undefined
         ? { max_redemptions: patch.max_redemptions }
         : {}),
@@ -36,8 +39,8 @@ async function seedVoucher(
 describe("vouchers.updateVoucherMeta", () => {
   it("patches only present fields; absent fields untouched", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const vid = await seedVoucher(t, { max_redemptions: 50 });
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const vid = await seedVoucher(t, outletId, { max_redemptions: 50 });
     const newExp = Date.now() + 86_400_000;
     await t.mutation(api.vouchers.public.updateVoucherMeta, {
       idempotencyKey: "k1",
@@ -53,8 +56,8 @@ describe("vouchers.updateVoucherMeta", () => {
 
   it("rejects max_redemptions < used_count with MAX_BELOW_USED", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const vid = await seedVoucher(t, { used_count: 10, max_redemptions: 50 });
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const vid = await seedVoucher(t, outletId, { used_count: 10, max_redemptions: 50 });
     await expect(
       t.mutation(api.vouchers.public.updateVoucherMeta, {
         idempotencyKey: "k",
@@ -67,6 +70,12 @@ describe("vouchers.updateVoucherMeta", () => {
 
   it("rejects non-manager session", async () => {
     const t = convexTest(schema);
+    const outletId = await t.run((ctx) =>
+      ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as never),
+    );
     const staff = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
         name: "S",
@@ -84,9 +93,10 @@ describe("vouchers.updateVoucherMeta", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       }),
     );
-    const vid = await seedVoucher(t);
+    const vid = await seedVoucher(t, outletId);
     await expect(
       t.mutation(api.vouchers.public.updateVoucherMeta, {
         idempotencyKey: "k",
@@ -99,8 +109,8 @@ describe("vouchers.updateVoucherMeta", () => {
 
   it("idempotency replay is a no-op (single audit row)", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const vid = await seedVoucher(t);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const vid = await seedVoucher(t, outletId);
     const args = {
       idempotencyKey: "kk",
       sessionId,

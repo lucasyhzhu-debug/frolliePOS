@@ -14,7 +14,7 @@ import { internal } from "../../_generated/api";
 import { RECEIPT_DEFAULTS } from "../internal";
 
 async function makeOutlet(t: ReturnType<typeof convexTest>, code: string) {
-  return t.run((ctx) =>
+  return t.run((ctx: any) =>
     ctx.db.insert("outlets", {
       code,
       name: code,
@@ -30,9 +30,9 @@ describe("_getSettings_internal per-outlet isolation", () => {
   it("absent row → defaults (no pos_settings row for outlet)", async () => {
     const t = convexTest(schema);
     const outletId = await makeOutlet(t, "PKW");
-    const s = await t.run((ctx) =>
+    const s = await t.run((ctx: any) =>
       ctx.runQuery(internal.settings.internal._getSettings_internal, { outletId }),
-    );
+    ) as any;
     // Defaults are single-sourced from RECEIPT_DEFAULTS
     expect(s.receipt.business_name).toBe(RECEIPT_DEFAULTS.business_name);
     expect(s.receipt.footer_text).toBe(RECEIPT_DEFAULTS.footer_text);
@@ -46,7 +46,7 @@ describe("_getSettings_internal per-outlet isolation", () => {
     const outletB = await makeOutlet(t, "GKP");
 
     // Write a row for outlet A with a custom footer
-    await t.run((ctx) =>
+    await t.run((ctx: any) =>
       ctx.db.insert("pos_settings", {
         founders_summary_enabled: false,
         receipt_footer_text: "Footer for PKW",
@@ -56,43 +56,46 @@ describe("_getSettings_internal per-outlet isolation", () => {
     );
 
     // outlet A reads its own row
-    const sA = await t.run((ctx) =>
+    const sA = await t.run((ctx: any) =>
       ctx.runQuery(internal.settings.internal._getSettings_internal, { outletId: outletA }),
-    );
+    ) as any;
     expect(sA.founders_summary_enabled).toBe(false);
     expect(sA.receipt.footer_text).toBe("Footer for PKW");
 
     // outlet B sees defaults (no row for it)
-    const sB = await t.run((ctx) =>
+    const sB = await t.run((ctx: any) =>
       ctx.runQuery(internal.settings.internal._getSettings_internal, { outletId: outletB }),
-    );
+    ) as any;
     expect(sB.founders_summary_enabled).toBe(true);
     expect(sB.receipt.footer_text).toBe(RECEIPT_DEFAULTS.footer_text);
   });
 
-  it("undefined outletId falls back to .first() and returns defaults when table empty", async () => {
+  it("outlet with no pos_settings row returns defaults (no rows in table)", async () => {
     const t = convexTest(schema);
-    const s = await t.run((ctx) =>
-      ctx.runQuery(internal.settings.internal._getSettings_internal, {}),
-    );
+    const outletId = await makeOutlet(t, "PKW");
+    const s = await t.run((ctx: any) =>
+      ctx.runQuery(internal.settings.internal._getSettings_internal, { outletId }),
+    ) as any;
     expect(s.founders_summary_enabled).toBe(true);
     expect(s.receipt.footer_text).toBe(RECEIPT_DEFAULTS.footer_text);
   });
 
-  it("undefined outletId with existing singleton row reads that row (backward-compat)", async () => {
+  it("outlet with its own pos_settings row reads that row", async () => {
     const t = convexTest(schema);
-    // Pre-v2.0 singleton row (no outlet_id)
-    await t.run((ctx) =>
+    const outletId = await makeOutlet(t, "PKW");
+    // Insert a settings row for this outlet
+    await t.run((ctx: any) =>
       ctx.db.insert("pos_settings", {
         founders_summary_enabled: false,
-        receipt_footer_text: "Legacy footer",
+        receipt_footer_text: "Custom footer",
         updated_at: Date.now(),
+        outlet_id: outletId,
       }),
     );
-    const s = await t.run((ctx) =>
-      ctx.runQuery(internal.settings.internal._getSettings_internal, {}),
-    );
+    const s = await t.run((ctx: any) =>
+      ctx.runQuery(internal.settings.internal._getSettings_internal, { outletId }),
+    ) as any;
     expect(s.founders_summary_enabled).toBe(false);
-    expect(s.receipt.footer_text).toBe("Legacy footer");
+    expect(s.receipt.footer_text).toBe("Custom footer");
   });
 });

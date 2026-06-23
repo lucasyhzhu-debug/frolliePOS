@@ -10,7 +10,16 @@ import { internal } from "../../_generated/api";
 // { message_id: 42 }. TELEGRAM_BOT_TOKEN env set per-test (sendTemplate throws
 // on missing token before the fetch even fires).
 
-async function seedSku(t: ReturnType<typeof convexTest>, sku: string) {
+async function seedOutlet(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any)
+  ) as any;
+}
+
+async function seedSku(t: ReturnType<typeof convexTest>, sku: string, outletId: any) {
   return await t.run(async (ctx) =>
     ctx.db.insert("pos_inventory_skus", {
       sku,
@@ -19,6 +28,7 @@ async function seedSku(t: ReturnType<typeof convexTest>, sku: string) {
       low_threshold: 0,
       active: true,
       created_at: Date.now(),
+      outlet_id: outletId,
     } as never),
   );
 }
@@ -52,7 +62,8 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
 
   it("no drift → audited skip, no Telegram", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     // ledger == cache → no drift
     await t.run(async (ctx) =>
       ctx.db.insert("pos_stock_movements", {
@@ -60,6 +71,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         qty: 0,
         source: "stock_in",
         created_at: 1,
+        outlet_id: outletId,
       } as never),
     );
     await t.run(async (ctx) =>
@@ -67,6 +79,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         inventory_sku_id: sku,
         on_hand: 0,
         updated_at: Date.now(),
+        outlet_id: outletId,
       } as never),
     );
 
@@ -90,7 +103,8 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
 
   it("role_unbound → audited skip, no Telegram", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     // drift: ledger=5, cache=7
     await t.run(async (ctx) =>
       ctx.db.insert("pos_stock_movements", {
@@ -98,6 +112,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         qty: 5,
         source: "stock_in",
         created_at: 1,
+        outlet_id: outletId,
       } as never),
     );
     await t.run(async (ctx) =>
@@ -105,6 +120,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         inventory_sku_id: sku,
         on_hand: 7,
         updated_at: Date.now(),
+        outlet_id: outletId,
       } as never),
     );
     // No telegramChats binding for "inventory" role.
@@ -130,13 +146,15 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
 
   it("drift + role bound → Telegram send invoked", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     await t.run(async (ctx) =>
       ctx.db.insert("pos_stock_movements", {
         inventory_sku_id: sku,
         qty: 5,
         source: "stock_in",
         created_at: 1,
+        outlet_id: outletId,
       } as never),
     );
     await t.run(async (ctx) =>
@@ -144,6 +162,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         inventory_sku_id: sku,
         on_hand: 7,
         updated_at: Date.now(),
+        outlet_id: outletId,
       } as never),
     );
     await t.run(async (ctx) =>

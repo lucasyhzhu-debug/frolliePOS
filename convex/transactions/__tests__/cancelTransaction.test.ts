@@ -6,6 +6,8 @@ import {
   installFetchMock,
   _xenditMockReset,
 } from "../../payments/__tests__/_xenditMock";
+import { seedDefaultOutlet } from "./_helpers";
+import type { Id } from "../../_generated/dataModel";
 
 beforeEach(() => {
   _xenditMockReset();
@@ -13,7 +15,7 @@ beforeEach(() => {
   process.env.XENDIT_SECRET_KEY = "xnd_test_fake";
 });
 
-async function seedAwaitingWithSession(t: ReturnType<typeof convexTest>) {
+async function seedAwaitingWithSession(t: ReturnType<typeof convexTest>, outletId: Id<"outlets">) {
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
       name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -21,11 +23,13 @@ async function seedAwaitingWithSession(t: ReturnType<typeof convexTest>) {
     const session = await ctx.db.insert("staff_sessions", {
       staff_id: staff, device_id: "d", started_at: Date.now(),
       ended_at: null, end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     const txn = await ctx.db.insert("pos_transactions", {
       status: "awaiting_payment", subtotal: 25_000, voucher_discount: 0,
       total: 25_000, flags: 0, staff_id: staff, created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     return { staff, session, txn };
   });
 }
@@ -33,7 +37,8 @@ async function seedAwaitingWithSession(t: ReturnType<typeof convexTest>) {
 describe("transactions/actions.cancelTransaction", () => {
   it("staffreview T2: cancel without current invoice — flips status, no Xendit HTTP", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const s = await seedAwaitingWithSession(t, outletId);
     await t.action(api.transactions.actions.cancelTransaction, {
       sessionId: s.session, txnId: s.txn,
       reason: "staff cancel before payment", idempotencyKey: "k-c1",
@@ -45,7 +50,8 @@ describe("transactions/actions.cancelTransaction", () => {
 
   it("Decision E: cancel with existing invoice — flips status cleanly (no Xendit HTTP, no expire! call)", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const s = await seedAwaitingWithSession(t, outletId);
     // Persist a fake invoice pointer on the txn (as if requestPayment had run)
     await t.run((ctx) =>
       ctx.db.patch(s.txn, { xendit_invoice_id_current: "xnd-cancel" }),
@@ -55,7 +61,8 @@ describe("transactions/actions.cancelTransaction", () => {
         transaction_id: s.txn, xendit_invoice_id: "xnd-cancel",
         xendit_idempotency_key: "k", method: "QRIS",
         qr_string: "qr", status_at_create: "PENDING", created_at: Date.now(),
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     // No mock needed — the action no longer calls Xendit on cancel (Decision E).
     await t.action(api.transactions.actions.cancelTransaction, {
@@ -85,7 +92,8 @@ describe("transactions/actions.cancelTransaction", () => {
 
   it("v050-be-cancel-cancels-approval: cascade-denies live pending manual_payment_override on cancel", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const s = await seedAwaitingWithSession(t, outletId);
 
     // Seed a pending manual_payment_override approval row for this txn.
     const approvalId = await t.run(async (ctx) => {
@@ -100,7 +108,8 @@ describe("transactions/actions.cancelTransaction", () => {
         token_hash: "deadbeef".repeat(8),        // 64 hex chars — any non-empty string
         token_expires_at: Date.now() + 60 * 60 * 1000, // 60-min future TTL
         context: {},
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
     await t.action(api.transactions.actions.cancelTransaction, {
@@ -138,7 +147,8 @@ describe("transactions/actions.cancelTransaction", () => {
 
   it("F1 idempotency replay: same-key retry still sees invoice cancelled + approval denied (no double-write)", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const s = await seedAwaitingWithSession(t, outletId);
 
     // Seed active invoice
     const invoiceId = await t.run((ctx) =>
@@ -146,7 +156,8 @@ describe("transactions/actions.cancelTransaction", () => {
         transaction_id: s.txn, xendit_invoice_id: "xnd-f1",
         xendit_idempotency_key: "k-f1", method: "QRIS",
         qr_string: "qr", status_at_create: "PENDING", created_at: Date.now(),
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     // Seed pending approval
     const approvalId = await t.run((ctx) =>
@@ -161,7 +172,8 @@ describe("transactions/actions.cancelTransaction", () => {
         token_hash: "f1hash".repeat(10),
         token_expires_at: Date.now() + 60 * 60 * 1000,
         context: {},
-      }),
+        outlet_id: outletId,
+      } as any),
     );
 
     // First call — succeeds
@@ -205,7 +217,8 @@ describe("transactions/actions.cancelTransaction", () => {
 
   it("rejects cancelling a paid txn", async () => {
     const t = convexTest(schema);
-    const s = await seedAwaitingWithSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const s = await seedAwaitingWithSession(t, outletId);
     await t.run((ctx) => ctx.db.patch(s.txn, { status: "paid", paid_at: Date.now() }));
     await expect(
       t.action(api.transactions.actions.cancelTransaction, {

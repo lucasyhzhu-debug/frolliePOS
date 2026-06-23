@@ -2,9 +2,10 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
 import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
-async function seedProduct(t: ReturnType<typeof convexTest>, active: boolean) {
+async function seedProduct(t: ReturnType<typeof convexTest>, active: boolean, outletId: Id<"outlets">) {
   return t.run(async (ctx) =>
     ctx.db.insert("pos_products", {
       sku_family: "dubai",
@@ -17,6 +18,7 @@ async function seedProduct(t: ReturnType<typeof convexTest>, active: boolean) {
       tax_rate: 0,
       created_at: Date.now(),
       updated_at: Date.now(),
+      outlet_id: outletId,
     }),
   );
 }
@@ -24,9 +26,9 @@ async function seedProduct(t: ReturnType<typeof convexTest>, active: boolean) {
 describe("catalog.listAllProducts", () => {
   it("returns inactive products too (admin view)", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    await seedProduct(t, true);
-    await seedProduct(t, false);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    await seedProduct(t, true, outletId);
+    await seedProduct(t, false, outletId);
     const res = await t.query(api.catalog.public.listAllProducts, { sessionId });
     expect(res.products.length).toBe(2);
     expect(res.products.some((p) => p.active === false)).toBe(true);
@@ -69,7 +71,7 @@ describe("catalog product create/edit", () => {
   // same shape and the same kind of test.
   it("_createProductCommit_internal is idempotent under same :commit key", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const args = {
       idempotencyKey: "retry-test:commit",
       mgrId: managerId,
@@ -80,6 +82,7 @@ describe("catalog product create/edit", () => {
       price_idr: 30000,
       tax_rate: 0,
       sort_order: 99,
+      outletId,
     };
     const first = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
     const second = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
@@ -107,21 +110,21 @@ describe("catalog product create/edit", () => {
 });
 
 describe("catalog.setProductComponents", () => {
-  async function seedSku(t: ReturnType<typeof convexTest>, sku: string, active = true) {
+  async function seedSku(t: ReturnType<typeof convexTest>, sku: string, outletId: Id<"outlets">, active = true) {
     return t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
-        sku, name: sku, unit: "piece", low_threshold: 10, active, created_at: Date.now(),
+        sku, name: sku, unit: "piece", low_threshold: 10, active, created_at: Date.now(), outlet_id: outletId,
       }),
     );
   }
   it("replace-sets components", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
+    const { sessionId, outletId } = await seedManagerSession(t);
     const { productId } = await t.action(api.catalog.actions.createProduct, {
       idempotencyKey: "p9", sessionId, managerPin: "9999",
       sku_family: "dubai", code: "DUBAI_8PC_BOX", name: "Box", pack_label: "8 pcs", price_idr: 120000, tax_rate: 0, sort_order: 1,
     });
-    const skuA = await seedSku(t, "dubai");
+    const skuA = await seedSku(t, "dubai", outletId);
     await t.mutation(api.catalog.public.setProductComponents, {
       idempotencyKey: "sc1", sessionId, productId, components: [{ inventory_sku_id: skuA, qty: 8 }],
     });
@@ -132,12 +135,12 @@ describe("catalog.setProductComponents", () => {
   });
   it("rejects qty <= 0 and inactive SKU", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
+    const { sessionId, outletId } = await seedManagerSession(t);
     const { productId } = await t.action(api.catalog.actions.createProduct, {
       idempotencyKey: "p10", sessionId, managerPin: "9999",
       sku_family: "dubai", code: "DUBAI_8PC_BOX2", name: "Box2", pack_label: "8 pcs", price_idr: 120000, tax_rate: 0, sort_order: 1,
     });
-    const inactive = await seedSku(t, "old", false);
+    const inactive = await seedSku(t, "old", outletId, false);
     await expect(
       t.mutation(api.catalog.public.setProductComponents, {
         idempotencyKey: "sc2", sessionId, productId, components: [{ inventory_sku_id: inactive, qty: 1 }],
@@ -165,7 +168,7 @@ describe("catalog.archiveProduct", () => {
 describe("_createProductCommit_internal — bundled withInventorySku", () => {
   it("creates product + SKU + component link at qty 1 (fresh SKU)", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
       idempotencyKey: "bundle-fresh-1:commit",
       mgrId: managerId,
@@ -180,6 +183,7 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
       withInventorySku: true,
       inventorySkuLowThreshold: 3,
       inventorySkuComponentQty: 1,
+      outletId,
     });
     expect(res.productId).toBeDefined();
     expect(res.inventorySkuId).toBeDefined();
@@ -209,7 +213,7 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("creates product + SKU + component link at qty 3 (multi-pack, fresh SKU)", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
       idempotencyKey: "bundle-fresh-3:commit",
       mgrId: managerId,
@@ -224,6 +228,7 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
       withInventorySku: true,
       inventorySkuLowThreshold: 8,
       inventorySkuComponentQty: 3,
+      outletId,
     });
     expect(res.skuCreated).toBe(true);
     expect(res.componentQty).toBe(3);
@@ -235,10 +240,10 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("reuses an existing SKU when slug matches (Dubai 3pcs → existing dubai)", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const existingSkuId = await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
-        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: true, created_at: Date.now(),
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: true, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
@@ -255,6 +260,7 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
       withInventorySku: true,
       inventorySkuLowThreshold: 99, // ignored — existing row's threshold wins
       inventorySkuComponentQty: 3,
+      outletId,
     });
     expect(res.inventorySkuId).toBe(existingSkuId);
     expect(res.skuCreated).toBe(false);
@@ -272,10 +278,10 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("rejects bundled reuse of an archived (inactive) SKU with SKU_INACTIVE", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
-        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: false, created_at: Date.now(),
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 0, active: false, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     await expect(
@@ -284,6 +290,7 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
         mgrId: managerId, deviceId: "d", sku_family: "dubai", code: "DUBAI_3PC_INACTIVE", name: "Dubai 3pcs", pack_label: "3 pcs",
         price_idr: 50000, tax_rate: 0, sort_order: 12,
         withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: 3,
+        outletId,
       }),
     ).rejects.toThrow(/SKU_INACTIVE/);
     // All-or-nothing: no product row written when the link is refused.
@@ -295,13 +302,14 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("rejects sku_family that fails slug regex", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createProductCommit_internal, {
         idempotencyKey: "bundle-bad-fam:commit",
         mgrId: managerId, deviceId: "d", sku_family: "Dubai Mall", code: "DUBAI_BAD", name: "Bad", pack_label: "1 pc",
         price_idr: 20000, tax_rate: 0, sort_order: 1,
         withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: 1,
+        outletId,
       }),
     ).rejects.toThrow(/SKU_FAMILY_NOT_SLUGGABLE/);
     // Transaction rollback: no product row written.
@@ -313,26 +321,28 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it.each([0, -1, 1.5])("rejects invalid inventorySkuComponentQty=%s", async (bad) => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createProductCommit_internal, {
         idempotencyKey: `bundle-qty:${bad}:commit`,
         mgrId: managerId, deviceId: "d", sku_family: "ok", code: "OK_1PC", name: "Ok", pack_label: "1 pc",
         price_idr: 20000, tax_rate: 0, sort_order: 1,
         withInventorySku: true, inventorySkuLowThreshold: 0, inventorySkuComponentQty: bad,
+        outletId,
       }),
     ).rejects.toThrow(/QTY_INVALID/);
   });
 
   it("rejects bundled call with missing inventorySkuLowThreshold", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createProductCommit_internal, {
         idempotencyKey: "bundle-miss-lt:commit",
         mgrId: managerId, deviceId: "d", sku_family: "ok", code: "OK_LT", name: "Ok", pack_label: "1 pc",
         price_idr: 20000, tax_rate: 0, sort_order: 1,
         withInventorySku: true, inventorySkuComponentQty: 1,
+        outletId,
         // inventorySkuLowThreshold intentionally omitted
       }),
     ).rejects.toThrow(/LOW_THRESHOLD_INVALID/);
@@ -340,11 +350,12 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("unbundled call (no withInventorySku) is unchanged — back-compat", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const res = await t.mutation(internal.catalog.internal._createProductCommit_internal, {
       idempotencyKey: "unbundled:commit",
       mgrId: managerId, deviceId: "d", sku_family: "dubai", code: "DUBAI_1PC_PLAIN", name: "Plain", pack_label: "1 pc",
       price_idr: 20000, tax_rate: 0, sort_order: 1,
+      outletId,
     });
     expect(res.productId).toBeDefined();
     expect(res.inventorySkuId).toBeUndefined();
@@ -358,12 +369,13 @@ describe("_createProductCommit_internal — bundled withInventorySku", () => {
 
   it("is idempotent under the same :commit key (bundled path)", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const args = {
       idempotencyKey: "bundle-replay:commit",
       mgrId: managerId, deviceId: "d", sku_family: "matcha", code: "MATCHA_1PC_REPLAY", name: "Matcha 1pc", pack_label: "1 pc",
       price_idr: 20000, tax_rate: 0, sort_order: 1,
       withInventorySku: true, inventorySkuLowThreshold: 3, inventorySkuComponentQty: 1,
+      outletId,
     };
     const first = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);
     const second = await t.mutation(internal.catalog.internal._createProductCommit_internal, args);

@@ -42,14 +42,15 @@ async function seedPaidTxnWithSession(t: ReturnType<typeof convexTest>): Promise
   lineId: Id<"pos_transaction_lines">;
 }> {
   return await t.run(async (ctx) => {
+    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
     const staffId = await ctx.db.insert("staff", {
       code: "S-DD", name: "DD", role: "staff", active: true,
       pin_hash: "x", created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "d", started_at: Date.now(),
-      ended_at: null, end_reason: null,
-    });
+      ended_at: null, end_reason: null, outlet_id: outletId,
+    } as any);
     await ctx.db.insert("telegramChats", {
       chatId: "-100managers", chatType: "supergroup", title: "Mgrs",
       role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
@@ -57,19 +58,19 @@ async function seedPaidTxnWithSession(t: ReturnType<typeof convexTest>): Promise
     const productId = await ctx.db.insert("pos_products", {
       sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
       price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
-      created_at: Date.now(), updated_at: Date.now(),
-    });
+      created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+    } as any);
     const txnId = await ctx.db.insert("pos_transactions", {
       status: "paid", subtotal: 50000, voucher_discount: 0, total: 50000,
       flags: 0, staff_id: staffId, created_at: Date.now(), paid_at: Date.now(),
-      receipt_number: "R-2026-0042", receipt_token: "tok-dedup-1",
-    });
+      receipt_number: "R-2026-0042", receipt_token: "tok-dedup-1", outlet_id: outletId,
+    } as any);
     const lineId = await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txnId, product_id: productId,
       product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
       unit_price_snapshot: 50000, tax_rate_snapshot: 0,
-      qty: 1, line_subtotal: 50000,
-    });
+      qty: 1, line_subtotal: 50000, outlet_id: outletId,
+    } as any);
     return { sessionId, txnId, lineId };
   });
 }
@@ -122,14 +123,15 @@ describe("requestRefundApproval dedup guard", () => {
     // it throws so staff knows the prior request must resolve/deny first.
     const t = convexTest(schema);
     const { sessionId, txnId, lineId } = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-DIFF", name: "Diff", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
       });
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: staffId, device_id: "d", started_at: Date.now(),
-        ended_at: null, end_reason: null,
-      });
+        ended_at: null, end_reason: null, outlet_id: outletId,
+      } as any);
       await ctx.db.insert("telegramChats", {
         chatId: "-100managers", chatType: "supergroup", title: "Mgrs",
         role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
@@ -137,19 +139,19 @@ describe("requestRefundApproval dedup guard", () => {
       const productId = await ctx.db.insert("pos_products", {
         sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
         price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
-      });
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+      } as any);
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 150000, voucher_discount: 0, total: 150000,
         flags: 0, staff_id: staffId, created_at: Date.now(), paid_at: Date.now(),
-        receipt_number: "R-DIFF-0001", receipt_token: "tok-diff-1",
-      });
+        receipt_number: "R-DIFF-0001", receipt_token: "tok-diff-1", outlet_id: outletId,
+      } as any);
       const lineId = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
         unit_price_snapshot: 50000, tax_rate_snapshot: 0,
-        qty: 3, line_subtotal: 150000,
-      });
+        qty: 3, line_subtotal: 150000, outlet_id: outletId,
+      } as any);
       return { sessionId, txnId, lineId };
     });
 

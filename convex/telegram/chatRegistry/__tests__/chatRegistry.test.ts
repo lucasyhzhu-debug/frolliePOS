@@ -79,6 +79,13 @@ async function seedSession(
     deviceId?: string;
   } = {},
 ): Promise<{ staffId: Id<"staff">; sessionId: Id<"staff_sessions"> }> {
+  // v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required.
+  const outletId = await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any),
+  );
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: opts.name ?? "Mgr",
@@ -94,7 +101,8 @@ async function seedSession(
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     return { staffId, sessionId };
   });
 }

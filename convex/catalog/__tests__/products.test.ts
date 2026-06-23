@@ -3,34 +3,44 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 
+async function seedOutlet(t: ReturnType<typeof convexTest>) {
+  return t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as never),
+  );
+}
+
 describe("catalog", () => {
   it("returns products, skus, components, stock levels, and active vouchers", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       const dubaiSku = await ctx.db.insert("pos_inventory_skus", {
         sku: "dubai", name: "Dubai cookie", unit: "piece",
-        low_threshold: 5, active: true, created_at: Date.now(),
+        low_threshold: 5, active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const dubai3 = await ctx.db.insert("pos_products", {
         sku_family: "dubai", code: "DUBAI_3PC", name: "Dubai", pack_label: "3 pcs", price_idr: 125000,
         active: true, sort_order: 1, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_product_components", {
-        product_id: dubai3, inventory_sku_id: dubaiSku, qty: 3,
+        product_id: dubai3, inventory_sku_id: dubaiSku, qty: 3, outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: dubaiSku, on_hand: 18, updated_at: Date.now(),
+        inventory_sku_id: dubaiSku, on_hand: 18, updated_at: Date.now(), outlet_id: outletId,
       });
       // Active voucher — should appear in catalog snapshot (ADR-009)
       await ctx.db.insert("pos_vouchers", {
         code: "WELCOME10", type: "percentage", value: 10,
-        active: true, used_count: 0, created_at: Date.now(),
+        active: true, used_count: 0, created_at: Date.now(), outlet_id: outletId,
       });
       // Inactive voucher — should be excluded
       await ctx.db.insert("pos_vouchers", {
         code: "DEAD20", type: "amount", value: 20000,
-        active: false, used_count: 0, created_at: Date.now(),
+        active: false, used_count: 0, created_at: Date.now(), outlet_id: outletId,
       });
     });
 
@@ -47,11 +57,12 @@ describe("catalog", () => {
 
   it("catalog projects photo_url (null when no photo)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_products", {
         sku_family: "dubai", code: "DUBAI_3PC", name: "Dubai", pack_label: "3 pcs", price_idr: 125000,
         active: true, sort_order: 1, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
       });
     });
     const c = await t.query(api.catalog.public.catalog, {});
@@ -61,10 +72,11 @@ describe("catalog", () => {
 
   it("excludes inactive products + skus", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_inventory_skus", {
         sku: "x", name: "X", unit: "piece", low_threshold: 0,
-        active: false, created_at: Date.now(),
+        active: false, created_at: Date.now(), outlet_id: outletId,
       });
     });
     const c = await t.query(api.catalog.public.catalog, {});
@@ -74,27 +86,28 @@ describe("catalog", () => {
   // Fix 9 — deactivated product's components are excluded
   it("excludes components for inactive products (Fix 9)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       const sku = await ctx.db.insert("pos_inventory_skus", {
         sku: "choc", name: "Choc", unit: "piece",
-        low_threshold: 0, active: true, created_at: Date.now(),
+        low_threshold: 0, active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const activeProduct = await ctx.db.insert("pos_products", {
         sku_family: "choc", code: "CHOC_1PC", name: "Active Product", pack_label: "1 pc", price_idr: 50000,
         active: true, sort_order: 1, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
       });
       const inactiveProduct = await ctx.db.insert("pos_products", {
         sku_family: "choc", code: "CHOC_3PC", name: "Inactive Product", pack_label: "3 pcs", price_idr: 120000,
         active: false, sort_order: 2, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
       });
       // One component for active product, one for inactive
       await ctx.db.insert("pos_product_components", {
-        product_id: activeProduct, inventory_sku_id: sku, qty: 1,
+        product_id: activeProduct, inventory_sku_id: sku, qty: 1, outlet_id: outletId,
       });
       await ctx.db.insert("pos_product_components", {
-        product_id: inactiveProduct, inventory_sku_id: sku, qty: 3,
+        product_id: inactiveProduct, inventory_sku_id: sku, qty: 3, outlet_id: outletId,
       });
     });
 
@@ -109,20 +122,21 @@ describe("catalog", () => {
   // Fix 9 — deactivated SKU's stock levels are excluded
   it("excludes stock levels for inactive SKUs (Fix 9)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       const activeSku = await ctx.db.insert("pos_inventory_skus", {
         sku: "active-sku", name: "Active SKU", unit: "piece",
-        low_threshold: 0, active: true, created_at: Date.now(),
+        low_threshold: 0, active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const inactiveSku = await ctx.db.insert("pos_inventory_skus", {
         sku: "inactive-sku", name: "Inactive SKU", unit: "piece",
-        low_threshold: 0, active: false, created_at: Date.now(),
+        low_threshold: 0, active: false, created_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: activeSku, on_hand: 10, updated_at: Date.now(),
+        inventory_sku_id: activeSku, on_hand: 10, updated_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: inactiveSku, on_hand: 99, updated_at: Date.now(),
+        inventory_sku_id: inactiveSku, on_hand: 99, updated_at: Date.now(), outlet_id: outletId,
       });
     });
 

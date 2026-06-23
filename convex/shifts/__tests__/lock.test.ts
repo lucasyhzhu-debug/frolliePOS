@@ -5,7 +5,19 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 
 async function seedActiveSession(t: ReturnType<typeof convexTest>) {
-  return t.run(async (ctx) => {
+  return t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    // Bind device so boothState can resolve outletId
+    await ctx.db.insert("registered_devices", {
+      device_id: "d1",
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Budi",
       code: "S-0002",
@@ -21,14 +33,15 @@ async function seedActiveSession(t: ReturnType<typeof convexTest>) {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
-    return { staffId, sessionId };
+      outlet_id: outletId,
+    }) as Id<"staff_sessions">;
+    return { staffId, sessionId, outletId };
   });
 }
 
 test("lockShift → locked + session ended; resume after re-login → open", async () => {
   const t = convexTest(schema);
-  const { staffId, sessionId } = await seedActiveSession(t);
+  const { staffId, sessionId, outletId } = await seedActiveSession(t);
 
   // Open the booth
   await t.mutation(api.shifts.public.completeStartOfDay, {
@@ -58,15 +71,16 @@ test("lockShift → locked + session ended; resume after re-login → open", asy
   expect(sess1?.end_reason).toBe("manual_lock");
 
   // fresh session (simulating re-login as same staff)
-  const s2 = await t.run((ctx) =>
+  const s2 = await t.run((ctx: any) =>
     ctx.db.insert("staff_sessions", {
       staff_id: staffId,
       device_id: "d1",
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
-  );
+  ) as Id<"staff_sessions">;
 
   // Resume the shift
   const resumeRes = await t.mutation(api.shifts.public.recordResume, {

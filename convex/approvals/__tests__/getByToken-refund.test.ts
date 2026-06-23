@@ -27,6 +27,10 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-corrupted-rn";
     await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       await ctx.db.insert("pos_approval_requests", {
         kind: "refund",
         entity_type: "pos_transactions",
@@ -47,7 +51,8 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
         token_hash: sha256HexNode(rawToken),
         token_expires_at: Date.now() + 3600_000,
         status: "pending",
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
     await expect(
@@ -59,6 +64,10 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-corrupted-tr";
     await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       await ctx.db.insert("pos_approval_requests", {
         kind: "refund",
         entity_type: "pos_transactions",
@@ -78,7 +87,8 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
         token_hash: sha256HexNode(rawToken),
         token_expires_at: Date.now() + 3600_000,
         status: "pending",
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
     await expect(
@@ -90,6 +100,10 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-refund-ok";
     await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       await ctx.db.insert("pos_approval_requests", {
         kind: "refund",
         entity_type: "pos_transactions",
@@ -109,7 +123,8 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
         token_hash: sha256HexNode(rawToken),
         token_expires_at: Date.now() + 3600_000,
         status: "pending",
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
     const res = await t.query(api.approvals.public.getByToken, { rawToken });

@@ -63,6 +63,13 @@ describe("auth lockout → scheduler trigger (Task 18)", () => {
   it("3rd failed attempt schedules notifyStaffLockout → an approval row is created", async () => {
     const t = convexTest(schema);
     await seedManagersChat(t);
+    // notifyStaffLockout calls _getDefaultOutlet_internal — seed an outlet so it resolves.
+    await t.run((ctx) =>
+      (ctx.db as any).insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      }),
+    );
     const staffId = await seedStaff(t);
 
     // Three wrong-PIN logins. The 3rd trips the lockout and schedules notify.

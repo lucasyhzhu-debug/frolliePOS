@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
+import { seedDefaultOutlet } from "./_helpers";
 
 describe("transactions/public — drafts", () => {
   it("listDrafts returns only status=draft for the session's staff, newest first", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
         name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -13,19 +15,23 @@ describe("transactions/public — drafts", () => {
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const t1 = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
         flags: 0, staff_id: staff, created_at: Date.now() - 2000,
-      });
+        outlet_id: outletId,
+      } as any);
       const t2 = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 200, voucher_discount: 0, total: 200,
         flags: 0, staff_id: staff, created_at: Date.now() - 1000,
-      });
+        outlet_id: outletId,
+      } as any);
       await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 300, voucher_discount: 0, total: 300,
         flags: 0, staff_id: staff, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { session, t1, t2 };
     });
 
@@ -37,6 +43,7 @@ describe("transactions/public — drafts", () => {
 
   it("resumeDraft deletes the draft row and returns its lines", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
         name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -44,22 +51,26 @@ describe("transactions/public — drafts", () => {
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const product = await ctx.db.insert("pos_products", {
         sku_family: "x", code: "X_1PC", name: "P", pack_label: "1pc", price_idr: 10_000,
         active: true, sort_order: 1, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       const draft = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 10_000, voucher_discount: 0, total: 10_000,
         flags: 0, staff_id: staff, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       await ctx.db.insert("pos_transaction_lines", {
         transaction_id: draft, product_id: product,
         product_code_snapshot: "P", product_name_snapshot: "P",
         unit_price_snapshot: 10_000, tax_rate_snapshot: 0,
         qty: 1, line_subtotal: 10_000,
-      });
+        outlet_id: outletId,
+      } as any);
       return { session, draft };
     });
 
@@ -75,6 +86,7 @@ describe("transactions/public — drafts", () => {
 
   it("staffreview T6: race — two concurrent resumeDraft on same draftId, only one succeeds", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
         name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -82,11 +94,13 @@ describe("transactions/public — drafts", () => {
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const draft = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
         flags: 0, staff_id: staff, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { session, draft };
     });
 
@@ -115,6 +129,7 @@ describe("transactions/public — drafts", () => {
 
   it("deleteDraft removes draft row and lines", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const staff = await ctx.db.insert("staff", {
         name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
@@ -122,11 +137,13 @@ describe("transactions/public — drafts", () => {
       const session = await ctx.db.insert("staff_sessions", {
         staff_id: staff, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const draft = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 0, voucher_discount: 0, total: 0,
         flags: 0, staff_id: staff, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { session, draft };
     });
     await t.mutation(api.transactions.public.deleteDraft, {
@@ -138,6 +155,7 @@ describe("transactions/public — drafts", () => {
 
   it("C2: another staff member cannot resume a draft they don't own", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const owner = await ctx.db.insert("staff", {
         name: "Owner", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
@@ -148,11 +166,13 @@ describe("transactions/public — drafts", () => {
       const intruderSession = await ctx.db.insert("staff_sessions", {
         staff_id: intruder, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const draft = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
         flags: 0, staff_id: owner, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { intruderSession, draft };
     });
 
@@ -169,6 +189,7 @@ describe("transactions/public — drafts", () => {
 
   it("C2: another staff member cannot delete a draft they don't own", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const setup = await t.run(async (ctx) => {
       const owner = await ctx.db.insert("staff", {
         name: "Owner", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
@@ -179,11 +200,13 @@ describe("transactions/public — drafts", () => {
       const intruderSession = await ctx.db.insert("staff_sessions", {
         staff_id: intruder, device_id: "d", started_at: Date.now(),
         ended_at: null, end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       const draft = await ctx.db.insert("pos_transactions", {
         status: "draft", subtotal: 100, voucher_discount: 0, total: 100,
         flags: 0, staff_id: owner, created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { intruderSession, draft };
     });
 

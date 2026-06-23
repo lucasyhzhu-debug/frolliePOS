@@ -182,36 +182,10 @@ describe("v2.0 Task 9E — outlet_id stamping on catalog creates and stock movem
     expect(sku.outlet_id).toBe(outletId);
   });
 
-  it("_createInventorySkuCommit_internal: omits outlet_id when outletId not supplied", async () => {
-    const t = convexTest(schema);
-    const { managerId } = await t.run(async (ctx: any) => {
-      const id = await ctx.db.insert("staff", {
-        name: "No-Outlet Manager",
-        code: "NO-MGR",
-        pin_hash: "$argon2id$dummy",
-        role: "manager",
-        active: true,
-        created_at: Date.now(),
-      });
-      return { managerId: id };
-    });
-
-    const { skuId } = await t.mutation(
-      internal.catalog.internal._createInventorySkuCommit_internal,
-      {
-        idempotencyKey: "test:sku-no-outlet:commit",
-        mgrId: managerId,
-        deviceId: "dev-no-outlet",
-        sku: "no-outlet-sku",
-        name: "No Outlet SKU",
-        low_threshold: 0,
-        // outletId deliberately omitted — migration-window compatibility
-      },
-    );
-
-    const sku: any = await t.run((ctx: any) => ctx.db.get(skuId));
-    expect(sku.outlet_id).toBeUndefined();
-  });
+  // v2.0 Task 12 (ENFORCE): the prior "omits outlet_id when outletId not
+  // supplied" migration-window test was removed — `_createInventorySkuCommit_internal`
+  // now requires `outletId` (v.id("outlets")), so omitting it is a hard
+  // validator error rather than a tolerated absence.
 
   // ── Stock movement writes ────────────────────────────────────────────────
 
@@ -277,6 +251,7 @@ describe("v2.0 Task 9E — outlet_id stamping on catalog creates and stock movem
         tax_rate_snapshot: 0,
         qty: 2,
         line_subtotal: 100000,
+        outlet_id: outletId,
       });
       return { txnId, lineId, skuId };
     });

@@ -82,15 +82,26 @@ describe("backfillOutletId — C1 exclusion-list", () => {
   });
 });
 
-// ── (c) active staff_sessions are stamped ────────────────────────────────────
+// ── (c) backfill is idempotent on already-stamped sessions ──────────────────
+// NOTE: The schema now enforces outlet_id as required on staff_sessions, so
+// we can no longer seed a session without outlet_id in convex-test (the runtime
+// validator rejects it). The backfill test is adapted to verify idempotency:
+// a session already carrying outlet_id is NOT overwritten by a second backfill run.
 
 describe("backfillOutletId — staff_sessions", () => {
-  it("stamps active staff_sessions with the default outlet id", async () => {
+  it("backfill is idempotent: running twice on a stamped session does not change outlet_id", async () => {
     const t = convexTest(schema);
 
     let sessionId: string;
+    let outletId: string;
 
     await t.run(async (ctx) => {
+      const oid = await ctx.db.insert("outlets", {
+        code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      } as any);
+      outletId = oid as unknown as string;
+
       const staffId = await ctx.db.insert("staff", {
         name: "Test",
         code: "S-0001",
@@ -100,63 +111,55 @@ describe("backfillOutletId — staff_sessions", () => {
         created_at: Date.now(),
       });
 
-      // Active session (no outlet_id yet — pre-backfill state)
+      // Session already stamped with outlet_id (post-enforce state).
       sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-001",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-        // outlet_id intentionally absent
-      }) as unknown as string;
+        outlet_id: oid,
+      } as any) as unknown as string;
     });
 
+    // Running backfill twice must not throw and must not change the outlet_id.
+    await t.action(internal.migrations.internal.backfillOutletId, {});
     await t.action(internal.migrations.internal.backfillOutletId, {});
 
     await t.run(async (ctx) => {
       const session = await ctx.db.get(sessionId as any);
-      expect((session as any)?.outlet_id).toBeDefined();
+      expect((session as any)?.outlet_id).toBe(outletId);
     });
   });
 });
 
-// ── (d) assertZeroNullOutletIds flips true after backfill ───────────────────
+// ── (d) assertZeroNullOutletIds ─────────────────────────────────────────────
+// NOTE: The enforced schema prevents inserting any outlet-scoped row without
+// outlet_id, so the "returns false before backfill" scenario can no longer be
+// simulated via convex-test. The tests are adapted to verify the query semantics:
+// an empty DB (no outlet-scoped rows) returns true, and a DB with fully-stamped
+// rows (the only state possible post-enforce) also returns true.
 
 describe("assertZeroNullOutletIds", () => {
-  it("returns false before backfill when a row has no outlet_id", async () => {
+  it("returns true when there are no outlet-scoped rows (empty DB)", async () => {
     const t = convexTest(schema);
-
-    await t.run(async (ctx) => {
-      const staffId = await ctx.db.insert("staff", {
-        name: "A",
-        code: "S-0002",
-        pin_hash: "x",
-        role: "staff",
-        active: true,
-        created_at: Date.now(),
-      });
-
-      await ctx.db.insert("staff_sessions", {
-        staff_id: staffId,
-        device_id: "dev-002",
-        started_at: Date.now(),
-        ended_at: null,
-        end_reason: null,
-        // outlet_id absent
-      });
-    });
-
+    // No rows seeded — empty DB has zero null outlet_ids by definition.
     const result = await t.query(
       internal.migrations.internal.assertZeroNullOutletIds,
       {},
     );
-    expect(result).toBe(false);
+    expect(result).toBe(true);
   });
 
-  it("returns true after backfill when all rows have outlet_id", async () => {
+  it("returns true when all outlet-scoped rows carry outlet_id (fully-stamped state)", async () => {
     const t = convexTest(schema);
 
     await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      } as any);
+
       const staffId = await ctx.db.insert("staff", {
         name: "B",
         code: "S-0003",
@@ -166,21 +169,20 @@ describe("assertZeroNullOutletIds", () => {
         created_at: Date.now(),
       });
 
-      // Insert a session without outlet_id
+      // Session already stamped — the only state possible with enforced schema.
       await ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-003",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-        // outlet_id absent
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
-    // Run backfill
+    // Backfill is a no-op on stamped rows; query still returns true.
     await t.action(internal.migrations.internal.backfillOutletId, {});
 
-    // Assert complete
     const result = await t.query(
       internal.migrations.internal.assertZeroNullOutletIds,
       {},

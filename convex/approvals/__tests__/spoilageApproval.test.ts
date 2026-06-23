@@ -45,7 +45,23 @@ afterEach(() => {
 const MGR_CODE = "S-9";
 const MGR_PIN = "9999";
 
-async function seedManager(t: ReturnType<typeof convexTest>): Promise<{
+// v2.0 Task 12 (ENFORCE): all the spoilage tables (skus, stock_levels, movements,
+// sessions, approval requests) require outlet_id, and the spoilage commit reads
+// stock_levels by (outlet_id, sku) — so every fixture must share ONE outlet. Seed
+// it once per test and thread it through seedManager / seedSku / _createRequest.
+async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+
+async function seedManager(
+  t: ReturnType<typeof convexTest>,
+  outletId: Id<"outlets">,
+): Promise<{
   managerId: Id<"staff">;
   sessionId: Id<"staff_sessions">;
 }> {
@@ -63,7 +79,8 @@ async function seedManager(t: ReturnType<typeof convexTest>): Promise<{
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    }),
+      outlet_id: outletId,
+    } as any),
   );
   return { managerId, sessionId };
 }
@@ -72,6 +89,7 @@ async function seedSku(
   t: ReturnType<typeof convexTest>,
   sku: string,
   onHand: number,
+  outletId: Id<"outlets">,
 ): Promise<Id<"pos_inventory_skus">> {
   return await t.run(async (ctx) => {
     const skuId = await ctx.db.insert("pos_inventory_skus", {
@@ -81,12 +99,14 @@ async function seedSku(
       low_threshold: 0,
       active: true,
       created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_stock_levels", {
       inventory_sku_id: skuId,
       on_hand: onHand,
       updated_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     return skuId;
   });
 }
@@ -109,9 +129,10 @@ async function seedManagersChat(t: ReturnType<typeof convexTest>): Promise<void>
 describe("requestSpoilageApproval", () => {
   it("creates a pending spoilage request and notifies managers", async () => {
     const t = convexTest(schema);
-    const { managerId, sessionId } = await seedManager(t);
+    const outletId = await seedOutlet(t);
+    const { managerId, sessionId } = await seedManager(t, outletId);
     await seedManagersChat(t);
-    const skuA = await seedSku(t, "a", 10);
+    const skuA = await seedSku(t, "a", 10, outletId);
 
     const res = await t.action(api.approvals.actions.requestSpoilageApproval, {
       sessionId,
@@ -141,9 +162,10 @@ describe("requestSpoilageApproval", () => {
 
   it("idempotency replay returns the same requestId and doesn't re-fire fetch", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManager(t);
+    const outletId = await seedOutlet(t);
+    const { sessionId } = await seedManager(t, outletId);
     await seedManagersChat(t);
-    const skuA = await seedSku(t, "a", 10);
+    const skuA = await seedSku(t, "a", 10, outletId);
 
     const r1 = await t.action(api.approvals.actions.requestSpoilageApproval, {
       sessionId,
@@ -168,7 +190,8 @@ describe("requestSpoilageApproval", () => {
 
   it("rejects non-manager requesters with NOT_MANAGER", async () => {
     const t = convexTest(schema);
-    const skuA = await seedSku(t, "a", 10);
+    const outletId = await seedOutlet(t);
+    const skuA = await seedSku(t, "a", 10, outletId);
     await seedManagersChat(t);
     // Seed staff (not manager) + session.
     const sessionId = await t.run(async (ctx) => {
@@ -186,7 +209,8 @@ describe("requestSpoilageApproval", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
     });
 
     await expect(
@@ -210,9 +234,10 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
   skuB: Id<"pos_inventory_skus">;
   eventId: string;
 }> {
-  const { managerId } = await seedManager(t);
-  const skuA = await seedSku(t, "a", 10);
-  const skuB = await seedSku(t, "b", 5);
+  const outletId = await seedOutlet(t);
+  const { managerId } = await seedManager(t, outletId);
+  const skuA = await seedSku(t, "a", 10, outletId);
+  const skuB = await seedSku(t, "b", 5, outletId);
 
   const rawToken = "raw-token-spoilage-approve";
   const eventId = "evt-spoilage-1";
@@ -238,6 +263,7 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
       triggered_at: Date.now(),
       token_hash: sha256Hex(rawToken),
       token_expires_at: Date.now() + 3_600_000,
+      outletId,
     },
   );
 

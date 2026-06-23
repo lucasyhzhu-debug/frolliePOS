@@ -16,15 +16,20 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
         created_at: Date.now(),
       }),
     );
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-inactive",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     const result = await t.query(
       internal.auth.internal._resolveSession_internal,
       { sessionId },
@@ -44,6 +49,12 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
         created_at: Date.now(),
       }),
     );
+    const outletId = await t.run(async (ctx) =>
+      ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any),
+    );
     const sessionId = await t.run(async (ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: staffId,
@@ -51,13 +62,15 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     const result = await t.query(
       internal.auth.internal._resolveSession_internal,
       { sessionId },
     );
-    expect(result).toEqual({ staffId, deviceId: "dev-active" });
+    // v2.0 Task 12 (ENFORCE): _resolveSession_internal now also returns outlet_id.
+    expect(result).toEqual({ staffId, deviceId: "dev-active", outlet_id: outletId });
   });
 
   it("returns null when the session has ended even if the staff is still active", async () => {
@@ -72,15 +85,20 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
         created_at: Date.now(),
       }),
     );
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-ended",
         started_at: Date.now() - 60_000,
         ended_at: Date.now() - 10_000,
         end_reason: "manual_lock",
-      }),
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     const result = await t.query(
       internal.auth.internal._resolveSession_internal,
       { sessionId },

@@ -4,6 +4,15 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import { Id } from "../../_generated/dataModel";
 
+async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+
 async function seedStaff(t: ReturnType<typeof convexTest>): Promise<{
   staffId: Id<"staff">;
   mgrId: Id<"staff">;
@@ -33,6 +42,7 @@ describe("_createRequest_internal", () => {
   it("inserts a pending row with token_hash + token_expires_at (60-min) and returns {requestId}", async () => {
     const t = convexTest(schema);
     const { staffId } = await seedStaff(t);
+    const outletId = await seedOutlet(t);
 
     const now = Date.now();
     const result = await t.mutation(internal.approvals.internal._createRequest_internal, {
@@ -42,6 +52,7 @@ describe("_createRequest_internal", () => {
       triggered_at: now,
       token_hash: "abc123hash",
       token_expires_at: now + 60 * 60 * 1000,
+      outletId,
     });
 
     expect(result).toHaveProperty("requestId");
@@ -71,6 +82,7 @@ describe("_createRequest_internal — manual_payment_override", () => {
         created_at: Date.now(),
       }),
     );
+    const outletId = await seedOutlet(t);
     const { requestId } = await t.mutation(
       internal.approvals.internal._createRequest_internal,
       {
@@ -84,6 +96,7 @@ describe("_createRequest_internal — manual_payment_override", () => {
         triggered_at: Date.now(),
         token_hash: "abc",
         token_expires_at: Date.now() + 3600_000,
+        outletId,
       },
     );
     const row = await t.run((ctx) => ctx.db.get(requestId));
@@ -92,6 +105,7 @@ describe("_createRequest_internal — manual_payment_override", () => {
 
   it("rejects an invalid manual_payment context (non-integer amount_idr)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     await expect(
       t.mutation(internal.approvals.internal._createRequest_internal, {
         kind: "manual_payment_override",
@@ -102,6 +116,7 @@ describe("_createRequest_internal — manual_payment_override", () => {
         triggered_at: Date.now(),
         token_hash: "h",
         token_expires_at: Date.now() + 1,
+        outletId,
       }),
     ).rejects.toThrow(/CONTEXT_INVALID/);
   });
@@ -111,6 +126,7 @@ describe("_markNotified_internal", () => {
   it("sets notified_at (truthy) on an existing approval request", async () => {
     const t = convexTest(schema);
     const { staffId } = await seedStaff(t);
+    const outletId = await seedOutlet(t);
 
     const now = Date.now();
     const { requestId } = await t.mutation(internal.approvals.internal._createRequest_internal, {
@@ -120,6 +136,7 @@ describe("_markNotified_internal", () => {
       triggered_at: now,
       token_hash: "notify-hash",
       token_expires_at: now + 60 * 60 * 1000,
+      outletId,
     });
 
     await t.mutation(internal.approvals.internal._markNotified_internal, { requestId });
@@ -134,6 +151,7 @@ describe("_markResolved_internal", () => {
   it("flips status to 'resolved', sets resolved_by_manager_id and resolved_at", async () => {
     const t = convexTest(schema);
     const { staffId, mgrId } = await seedStaff(t);
+    const outletId = await seedOutlet(t);
 
     const now = Date.now();
     const { requestId } = await t.mutation(internal.approvals.internal._createRequest_internal, {
@@ -143,6 +161,7 @@ describe("_markResolved_internal", () => {
       triggered_at: now,
       token_hash: "resolve-hash",
       token_expires_at: now + 60 * 60 * 1000,
+      outletId,
     });
 
     const r = await t.mutation(internal.approvals.internal._markResolved_internal, {

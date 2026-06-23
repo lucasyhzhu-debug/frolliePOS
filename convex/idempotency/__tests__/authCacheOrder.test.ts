@@ -29,6 +29,7 @@ describe("withIdempotency authCheck ordering", () => {
     // _resolveSession_internal returns null for ended sessions → resolveSessionStaff
     // throws "SESSION_INVALID".
     const { revokedSessionId } = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         name: "Attacker", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });
@@ -38,7 +39,8 @@ describe("withIdempotency authCheck ordering", () => {
         started_at: Date.now() - 120_000,
         ended_at: Date.now() - 60_000,   // session was ended — revoked
         end_reason: "manual_lock",
-      });
+        outlet_id: outletId,
+      } as any);
       return { revokedSessionId };
     });
 

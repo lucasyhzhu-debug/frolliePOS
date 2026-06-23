@@ -16,17 +16,23 @@ describe("auth.verifyManagerPinOrThrow (via createStaff happy + reject)", () => 
       role: "staff",
     });
     // staff_sessions schema requires ended_at + end_reason (v.union(_, v.null())).
-    // requireSession (auth/sessions.ts:17-20) reads only session + staff,
-    // so NO registered_devices row is required.
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    // requireSession (auth/sessions.ts) reads session + staff + outlet_id (v2.0
+    // Task 12: SESSION_NO_OUTLET if absent), so the session must carry outlet_id.
+    // No registered_devices row is required for the session gate.
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "d1",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     await expect(
       t.action(api.auth.actions.createStaff, {
         idempotencyKey: "k1",

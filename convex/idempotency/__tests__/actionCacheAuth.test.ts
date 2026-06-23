@@ -58,15 +58,17 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
       pin: "0000",
       role: "staff",
     });
-    const staffSession = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const staffSession = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", { code: "PKW2", name: "y", timezone: "Asia/Jakarta", active: false, created_at: Date.now(), created_by: null } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "staff-device",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
-    );
+        outlet_id: outletId,
+      } as any);
+    });
 
     // Step 3 + 4: replay the same idempotencyKey "K" with the staff session
     // AFTER the fix: withActionCache calls assertManagerSessionInAction BEFORE the

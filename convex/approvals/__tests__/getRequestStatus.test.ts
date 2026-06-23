@@ -9,7 +9,11 @@ async function seedRequest(
   opts: { tokenExpiresAt: number },
 ): Promise<Id<"pos_approval_requests">> {
   return await t.run(async (ctx) => {
-    return await ctx.db.insert("pos_approval_requests", {
+    const outletId = await (ctx.db as any).insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    });
+    return await (ctx.db as any).insert("pos_approval_requests", {
       kind: "manual_payment_override",
       entity_type: "pos_transactions",
       entity_id: "t1",
@@ -19,6 +23,7 @@ async function seedRequest(
       token_hash: "test-hash-" + Math.random(),
       token_expires_at: opts.tokenExpiresAt,
       status: "pending",
+      outlet_id: outletId,
     });
   });
 }

@@ -84,26 +84,25 @@ describe("approvals outlet-scoped index (chunk D)", () => {
     expect(row!.outlet_id).toBe(outletA);
   });
 
-  it("_createRequest_internal without outletId omits outlet_id from the row (migration-window compatibility)", async () => {
+  // v2.0 Task 12 (ENFORCE): outletId is now a REQUIRED arg on
+  // _createRequest_internal (and outlet_id is a required column). The prior
+  // "migration-window compatibility" case (omit outletId → undefined column)
+  // is obsolete: omitting outletId is now an arg-validation error.
+  it("_createRequest_internal rejects a call with no outletId (required post-ENFORCE)", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
     const now = Date.now();
 
-    const { requestId } = await t.mutation(
-      internal.approvals.internal._createRequest_internal,
-      {
+    await expect(
+      t.mutation(internal.approvals.internal._createRequest_internal, {
         kind: "staff_pin_reset",
         subject_staff_id: staffId,
         triggered_by_event: "auth_lockout",
         triggered_at: now,
         token_hash: "legacy-hash",
         token_expires_at: now + 3_600_000,
-        // outletId intentionally omitted — migration-window row
-      },
-    );
-
-    const row = await t.run((ctx) => ctx.db.get(requestId));
-    expect(row).not.toBeNull();
-    expect(row!.outlet_id).toBeUndefined();
+        // outletId intentionally omitted — now an arg-validation error
+      } as any),
+    ).rejects.toThrow();
   });
 });

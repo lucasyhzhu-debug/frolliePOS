@@ -4,9 +4,19 @@ import schema from "../../schema";
 import { api } from "../../_generated/api";
 import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
+async function seedOutlet(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any)
+  ) as any;
+}
+
 async function seedDrift(
   t: ReturnType<typeof convexTest>,
   sku_code: string,
+  outletId: any,
   resolved = false,
 ) {
   const sku = await t.run(async (ctx) =>
@@ -17,6 +27,7 @@ async function seedDrift(
       low_threshold: 0,
       active: true,
       created_at: Date.now(),
+      outlet_id: outletId,
     } as never),
   );
   const driftPatch = resolved
@@ -30,6 +41,7 @@ async function seedDrift(
       reconstructed_on_hand: 7,
       delta: 3,
       detected_at: Date.now(),
+      outlet_id: outletId,
       ...driftPatch,
     } as never),
   );
@@ -38,10 +50,10 @@ async function seedDrift(
 describe("inventory.listStockDrift", () => {
   it("returns unresolved drifts only by default", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    await seedDrift(t, "A", false);
-    await seedDrift(t, "B", true); // resolved — should not appear
-    await seedDrift(t, "C", false);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    await seedDrift(t, "A", outletId, false);
+    await seedDrift(t, "B", outletId, true); // resolved — should not appear
+    await seedDrift(t, "C", outletId, false);
 
     const rows = await t.query(api.inventory.public.listStockDrift, { sessionId });
     expect(rows.map((r) => r.sku_code).sort()).toEqual(["A", "C"]);
@@ -49,9 +61,9 @@ describe("inventory.listStockDrift", () => {
 
   it("returns all when includeResolved=true", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    await seedDrift(t, "A", false);
-    await seedDrift(t, "B", true);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    await seedDrift(t, "A", outletId, false);
+    await seedDrift(t, "B", outletId, true);
     const rows = await t.query(api.inventory.public.listStockDrift, {
       sessionId,
       includeResolved: true,
@@ -61,6 +73,7 @@ describe("inventory.listStockDrift", () => {
 
   it("rejects non-manager session", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     const staff = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
         name: "S",
@@ -78,6 +91,7 @@ describe("inventory.listStockDrift", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       } as never),
     );
     await expect(
@@ -89,8 +103,8 @@ describe("inventory.listStockDrift", () => {
 describe("inventory.resolveDrift", () => {
   it("happy path patches + audits + idempotent replay no-op", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const driftId = await seedDrift(t, "A", false);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const driftId = await seedDrift(t, "A", outletId, false);
 
     await t.mutation(api.inventory.public.resolveDrift, {
       idempotencyKey: "k1",
@@ -121,6 +135,7 @@ describe("inventory.resolveDrift", () => {
 
   it("rejects non-manager session", async () => {
     const t = convexTest(schema);
+    const outletId = await seedOutlet(t);
     const staff = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
         name: "S",
@@ -138,9 +153,10 @@ describe("inventory.resolveDrift", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       } as never),
     );
-    const driftId = await seedDrift(t, "A", false);
+    const driftId = await seedDrift(t, "A", outletId, false);
     await expect(
       t.mutation(api.inventory.public.resolveDrift, {
         idempotencyKey: "k",

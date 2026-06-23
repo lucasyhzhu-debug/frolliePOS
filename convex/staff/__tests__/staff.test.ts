@@ -9,7 +9,47 @@ async function seedManager(t: ReturnType<typeof convexTest>) {
   return seedStaff(t, "Lucas", "9999", "manager");
 }
 
+// v2.0 Task 12 (ENFORCE): loginWithPin requires the device to be bound to an
+// outlet and the staff to have staff_outlet_access. Seed the minimal set before
+// each login call.
+async function seedDeviceOutletAccess(
+  t: ReturnType<typeof convexTest>,
+  staffId: any,
+  deviceId: string,
+) {
+  return await t.run(async (ctx: any) => {
+    const outlets = await ctx.db.query("outlets").collect();
+    const outletId =
+      outlets[0]?._id ??
+      (await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      }));
+    const devices = await ctx.db.query("registered_devices").collect();
+    const dev = devices.find((d: any) => d.device_id === deviceId);
+    if (!dev) {
+      await ctx.db.insert("registered_devices", {
+        device_id: deviceId, label: deviceId,
+        activated_by: staffId, activated_at: Date.now(),
+        last_seen_at: Date.now(), active: true, outlet_id: outletId,
+      });
+    }
+    const accessRows = await ctx.db.query("staff_outlet_access").collect();
+    const hasAccess = accessRows.find(
+      (a: any) => a.staff_id === staffId && a.outlet_id === outletId,
+    );
+    if (!hasAccess) {
+      await ctx.db.insert("staff_outlet_access", {
+        staff_id: staffId, outlet_id: outletId,
+        granted_by: staffId, granted_at: Date.now(),
+      });
+    }
+    return outletId;
+  });
+}
+
 async function loginAs(t: ReturnType<typeof convexTest>, staffId: any, pin: string) {
+  await seedDeviceOutletAccess(t, staffId, "dev-1");
   const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
     staffId, pin, deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
   });

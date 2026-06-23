@@ -13,7 +13,7 @@ describe("_confirmPaid_internal mints receipt_token", () => {
   it("a confirmed paid txn has a 43-char base64url receipt_token", async () => {
     const t = convexTest(schema);
     // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
-    await seedDefaultOutlet(t);
+    const outletId = await seedDefaultOutlet(t);
     const { txnId } = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
         code: "S-CP", name: "X", role: "staff", active: true,
@@ -24,7 +24,8 @@ describe("_confirmPaid_internal mints receipt_token", () => {
         subtotal: 50000, voucher_discount: 0, total: 50000,
         flags: 0, staff_id: staffId,
         created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { txnId };
     });
 
@@ -46,7 +47,7 @@ describe("_confirmPaid_internal mints receipt_token", () => {
   it("re-fire after paid is a no-op — receipt_token stays stable", async () => {
     const t = convexTest(schema);
     // v2.0 Stream 4: _confirmPaid needs an active outlet to allocate receipt number
-    await seedDefaultOutlet(t);
+    const outletId = await seedDefaultOutlet(t);
     const { txnId } = await t.run(async (ctx) => {
       const staffId = await ctx.db.insert("staff", {
         code: "S-RF", name: "R", role: "staff", active: true,
@@ -57,7 +58,8 @@ describe("_confirmPaid_internal mints receipt_token", () => {
         subtotal: 1, voucher_discount: 0, total: 1,
         flags: 0, staff_id: staffId,
         created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { txnId };
     });
 

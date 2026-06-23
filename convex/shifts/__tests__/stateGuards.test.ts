@@ -17,7 +17,18 @@ async function seedSession(
   t: ReturnType<typeof convexTest>,
   device = "d1",
 ): Promise<{ staffId: Id<"staff">; sessionId: Id<"staff_sessions"> }> {
-  return t.run(async (ctx) => {
+  return t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    await ctx.db.insert("registered_devices", {
+      device_id: device,
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Budi",
       code: "S-0002",
@@ -33,7 +44,8 @@ async function seedSession(
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     return { staffId, sessionId };
   });
 }

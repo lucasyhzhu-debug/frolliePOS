@@ -57,24 +57,51 @@ async function seedStaff(
   });
 }
 
+/**
+ * Seed an outlet and bind a device to it. Returns outletId.
+ */
+async function seedOutletWithDevice(
+  t: ReturnType<typeof convexTest>,
+  deviceId: string,
+): Promise<Id<"outlets">> {
+  return t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    await ctx.db.insert("registered_devices", {
+      device_id: deviceId,
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
+    return outletId;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Happy-path: manager PIN takeover
 // ---------------------------------------------------------------------------
 test("managerTakeover: correct manager PIN starts a takeover, force-ends locked staff session, flags outgoing_uncounted", async () => {
   const t = convexTest(schema);
 
+  // Seed outlet + bind device
+  const outletId = await seedOutletWithDevice(t, "d1");
+
   // Seed: staff A (locked) and manager M with known PIN "9999"
   const staffA = await seedStaff(t, "Budi", "1234", "staff");
   const managerM = await seedStaff(t, "Manager", "9999", "manager");
 
   // Give staff A a session + open the booth
-  const staffSession = await t.run(async (ctx) =>
+  const staffSession = await t.run(async (ctx: any) =>
     ctx.db.insert("staff_sessions", {
       staff_id: staffA,
       device_id: "d1",
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
   );
   await t.mutation(api.shifts.public.completeStartOfDay, {
@@ -186,6 +213,9 @@ test("managerTakeover: wrong PIN is rejected with INVALID_PIN", async () => {
 test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window (not now), non-zero sales", async () => {
   const t = convexTest(schema);
 
+  // Seed outlet + bind device d2
+  const outletId = await seedOutletWithDevice(t, "d2");
+
   // Seed displaced staff + manager
   const staffA = await seedStaff(t, "Displaced", "1234", "staff");
   const managerM = await seedStaff(t, "Manager", "9999", "manager");
@@ -194,17 +224,18 @@ test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window 
   const shiftStart = Date.now() - 100_000;
 
   // Open the booth for staff A
-  const staffSession = await t.run(async (ctx) =>
+  const staffSession = await t.run(async (ctx: any) =>
     ctx.db.insert("staff_sessions", {
       staff_id: staffA,
       device_id: "d2",
       started_at: shiftStart,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
   );
   // Override completeStartOfDay to use a past start time by directly seeding the event
-  await t.run(async (ctx) => {
+  await t.run(async (ctx: any) => {
     await ctx.db.insert("pos_shift_events", {
       device_id: "d2",
       type: "start_of_day",
@@ -219,12 +250,13 @@ test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window 
       linked_event_id: null,
       summary: null,
       created_at: shiftStart,
+      outlet_id: outletId,
     });
   });
 
   // Seed a PAID transaction during the displaced staff's shift window.
   const paidAt = shiftStart + 30_000; // 30s into the shift
-  await t.run(async (ctx) => {
+  await t.run(async (ctx: any) => {
     await ctx.db.insert("pos_transactions", {
       status: "paid",
       flags: 0,
@@ -234,6 +266,7 @@ test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window 
       staff_id: staffA,
       paid_at: paidAt,
       created_at: paidAt,
+      outlet_id: outletId,
     } as any);
   });
 
@@ -282,7 +315,7 @@ test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window 
   // Verify that the window covers the paid transaction (sales query would return > 0).
   const salesInWindow = await t.query(
     internal.transactions.internal._dailySalesSummary_internal,
-    { dayStartMs: jobArgs.displacedShiftStartMs, dayEndMs: jobArgs.displacedShiftEndMs },
+    { dayStartMs: jobArgs.displacedShiftStartMs, dayEndMs: jobArgs.displacedShiftEndMs, outletId },
   );
   expect(salesInWindow.totalSalesIdr).toBe(50_000);
   expect(salesInWindow.txnCount).toBe(1);
@@ -297,16 +330,20 @@ test("managerTakeover: _sendTakeoverSummary payload uses displaced-staff window 
 test("managerTakeover: force-ends any active session left on the device", async () => {
   const t = convexTest(schema);
 
+  // Seed outlet + bind device d1
+  const outletId = await seedOutletWithDevice(t, "d1");
+
   const managerM = await seedStaff(t, "Manager", "9999", "manager");
 
   // Insert a dangling active session on d1 (simulates a session that was never ended)
-  const danglingSession = await t.run(async (ctx) =>
+  const danglingSession = await t.run(async (ctx: any) =>
     ctx.db.insert("staff_sessions", {
       staff_id: managerM,
       device_id: "d1",
       started_at: Date.now() - 1000,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
   );
 

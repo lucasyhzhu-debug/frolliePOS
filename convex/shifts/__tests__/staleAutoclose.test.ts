@@ -26,7 +26,7 @@ async function seedStaff(
   name: string,
   code: string,
 ): Promise<Id<"staff">> {
-  return t.run((ctx) =>
+  return t.run((ctx: any) =>
     ctx.db.insert("staff", {
       name,
       code,
@@ -48,8 +48,24 @@ test("completeStartOfDay auto-closes a prior-WIB-day open shift, fires its summa
   const now = Date.now();
   const priorStart = now - 2 * 86_400_000; // 2 WIB days ago — definitely stale
 
+  // Seed outlet + bind device
+  const outletId = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    await ctx.db.insert("registered_devices", {
+      device_id: "d1",
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
+    return outletId;
+  });
+
   // Seed a prior-day start_of_day event for staff A (booth left OPEN overnight).
-  await t.run((ctx) =>
+  await t.run((ctx: any) =>
     ctx.db.insert("pos_shift_events", {
       device_id: "d1",
       type: "start_of_day",
@@ -64,12 +80,13 @@ test("completeStartOfDay auto-closes a prior-WIB-day open shift, fires its summa
       linked_event_id: null,
       summary: null,
       created_at: priorStart,
+      outlet_id: outletId,
     }),
   );
 
   // A PAID transaction inside the stale shift window (priorStart .. WIB end-of-day).
   const paidAt = priorStart + 3_600_000; // +1h, same WIB day as priorStart
-  await t.run((ctx) =>
+  await t.run((ctx: any) =>
     ctx.db.insert("pos_transactions", {
       status: "paid",
       flags: 0,
@@ -79,19 +96,21 @@ test("completeStartOfDay auto-closes a prior-WIB-day open shift, fires its summa
       staff_id: staffA,
       paid_at: paidAt,
       created_at: paidAt,
+      outlet_id: outletId,
     } as any),
   );
 
   // Staff B signs in to the (stale) booth and completes start-of-day.
-  const bSession = await t.run((ctx) =>
+  const bSession = await t.run((ctx: any) =>
     ctx.db.insert("staff_sessions", {
       staff_id: staffB,
       device_id: "d1",
       started_at: now,
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
-  );
+  ) as Id<"staff_sessions">;
   const res = await t.mutation(api.shifts.public.completeStartOfDay, {
     idempotencyKey: "sod-stale-1",
     sessionId: bSession,

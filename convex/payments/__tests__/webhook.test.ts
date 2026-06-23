@@ -19,36 +19,37 @@ async function seedAwaitingWithInvoice(
   method: "QRIS" | "BCA_VA" = "QRIS",
 ) {
   // v2.0 Stream 4: _confirmPaid needs an active outlet for receipt number allocation
-  await seedDefaultOutlet(t);
+  const outletId = await seedDefaultOutlet(t);
   return await t.run(async (ctx) => {
     const staff = await ctx.db.insert("staff", {
       name: "L", code: "S-0001", pin_hash: "x", role: "manager", active: true, created_at: Date.now(),
     });
     const sku = await ctx.db.insert("pos_inventory_skus", {
       sku: "x", name: "X", unit: "piece", low_threshold: 0,
-      active: true, created_at: Date.now(),
-    });
+      active: true, created_at: Date.now(), outlet_id: outletId,
+    } as any);
     const product = await ctx.db.insert("pos_products", {
       sku_family: "x", code: "X_1PC", name: "X", pack_label: "1pc", price_idr: 25_000,
       active: true, sort_order: 1, tax_rate: 0,
-      created_at: Date.now(), updated_at: Date.now(),
-    });
+      created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_product_components", {
-      product_id: product, inventory_sku_id: sku, qty: 1,
-    });
+      product_id: product, inventory_sku_id: sku, qty: 1, outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: sku, on_hand: 100, updated_at: Date.now(),
-    });
+      inventory_sku_id: sku, on_hand: 100, updated_at: Date.now(), outlet_id: outletId,
+    } as any);
     const txn = await ctx.db.insert("pos_transactions", {
       status: "awaiting_payment", subtotal: 25_000, voucher_discount: 0,
       total: 25_000, flags: 0, staff_id: staff, created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txn, product_id: product,
       product_code_snapshot: "X", product_name_snapshot: "X",
       unit_price_snapshot: 25_000, tax_rate_snapshot: 0,
-      qty: 1, line_subtotal: 25_000,
-    });
+      qty: 1, line_subtotal: 25_000, outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_xendit_invoices", {
       transaction_id: txn,
       xendit_invoice_id,
@@ -58,7 +59,8 @@ async function seedAwaitingWithInvoice(
       va_number: method === "BCA_VA" ? "1080099887" : undefined,
       status_at_create: "PENDING",
       created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     return { txn };
   });
 }

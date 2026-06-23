@@ -15,6 +15,7 @@ import { Id } from "../../_generated/dataModel";
 
 async function seedPaidTxn(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
+    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
     const staffId = await ctx.db.insert("staff", {
       code: "S-S", name: "S", role: "staff", active: true,
       pin_hash: "x", created_at: Date.now(),
@@ -25,29 +26,29 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>) {
     });
     const staffSession = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "d", started_at: Date.now(),
-      ended_at: null, end_reason: null,
-    });
+      ended_at: null, end_reason: null, outlet_id: outletId,
+    } as any);
     const mgrSession = await ctx.db.insert("staff_sessions", {
       staff_id: mgrId, device_id: "d", started_at: Date.now(),
-      ended_at: null, end_reason: null,
-    });
+      ended_at: null, end_reason: null, outlet_id: outletId,
+    } as any);
     const productId = await ctx.db.insert("pos_products", {
       sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
       price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
-      created_at: Date.now(), updated_at: Date.now(),
-    });
+      created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+    } as any);
     const txnId = await ctx.db.insert("pos_transactions", {
       status: "paid", subtotal: 50000, voucher_discount: 0, total: 50000,
       flags: 0, staff_id: staffId, created_at: Date.now(), paid_at: Date.now(),
-      receipt_number: "R-2026-S001", receipt_token: "tok-settle-1",
-    });
+      receipt_number: "R-2026-S001", receipt_token: "tok-settle-1", outlet_id: outletId,
+    } as any);
     const lineId = await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txnId, product_id: productId,
       product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
       unit_price_snapshot: 50000, tax_rate_snapshot: 0,
-      qty: 1, line_subtotal: 50000,
-    });
-    return { staffId, mgrId, staffSession, mgrSession, txnId, lineId };
+      qty: 1, line_subtotal: 50000, outlet_id: outletId,
+    } as any);
+    return { staffId, mgrId, staffSession, mgrSession, txnId, lineId, outletId };
   });
 }
 
@@ -145,19 +146,19 @@ describe("listPendingSettlement", () => {
       const productId2 = await ctx.db.insert("pos_products", {
         sku_family: "dubai", code: "DUB3", name: "Dubai 3pc", pack_label: "3pc",
         price_idr: 120000, active: true, sort_order: 1, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
-      });
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: seed.outletId,
+      } as any);
       const txn2 = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 120000, voucher_discount: 0, total: 120000,
         flags: 0, staff_id: seed.staffId, created_at: Date.now(), paid_at: Date.now(),
-        receipt_number: "R-2026-S002", receipt_token: "tok-settle-2",
-      });
+        receipt_number: "R-2026-S002", receipt_token: "tok-settle-2", outlet_id: seed.outletId,
+      } as any);
       const lineId2 = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txn2, product_id: productId2,
         product_code_snapshot: "DUB3", product_name_snapshot: "Dubai 3pc",
         unit_price_snapshot: 120000, tax_rate_snapshot: 0,
-        qty: 1, line_subtotal: 120000,
-      });
+        qty: 1, line_subtotal: 120000, outlet_id: seed.outletId,
+      } as any);
       return { txn2, lineId2 };
     });
 

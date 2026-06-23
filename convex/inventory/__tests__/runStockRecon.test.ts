@@ -3,21 +3,32 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 
-async function seedSku(t: ReturnType<typeof convexTest>, sku: string, active = true) {
+async function seedOutlet(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any)
+  ) as any;
+}
+
+async function seedSku(t: ReturnType<typeof convexTest>, sku: string, outletId: any, active = true) {
   return await t.run(async (ctx) => ctx.db.insert("pos_inventory_skus", {
     sku, name: `Sku ${sku}`, unit: "piece", low_threshold: 0, active, created_at: Date.now(),
+    outlet_id: outletId,
   } as never));
 }
 
 describe("inventory._runStockRecon_internal", () => {
   it("no drift: no drift_log rows, no audit row, scanned counts SKUs", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     await t.run(async (ctx) => ctx.db.insert("pos_stock_movements", {
-      inventory_sku_id: sku, qty: 5, source: "stock_in", created_at: 1,
+      inventory_sku_id: sku, qty: 5, source: "stock_in", created_at: 1, outlet_id: outletId,
     } as never));
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: sku, on_hand: 5, updated_at: Date.now(),
+      inventory_sku_id: sku, on_hand: 5, updated_at: Date.now(), outlet_id: outletId,
     } as never));
 
     const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
@@ -29,12 +40,13 @@ describe("inventory._runStockRecon_internal", () => {
 
   it("drift: inserts drift_log + audit; returns drifted shape", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     await t.run(async (ctx) => ctx.db.insert("pos_stock_movements", {
-      inventory_sku_id: sku, qty: 5, source: "stock_in", created_at: 1,
+      inventory_sku_id: sku, qty: 5, source: "stock_in", created_at: 1, outlet_id: outletId,
     } as never));
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: sku, on_hand: 7, updated_at: Date.now(),
+      inventory_sku_id: sku, on_hand: 7, updated_at: Date.now(), outlet_id: outletId,
     } as never)); // 2 above ledger
 
     const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
@@ -52,9 +64,10 @@ describe("inventory._runStockRecon_internal", () => {
 
   it("skip-on-empty: SKU with zero movements + on_hand=0 is scanned but no drift", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "Z");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "Z", outletId);
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: sku, on_hand: 0, updated_at: Date.now(),
+      inventory_sku_id: sku, on_hand: 0, updated_at: Date.now(), outlet_id: outletId,
     } as never));
     const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
     expect(result.scanned).toBe(1);
@@ -63,17 +76,18 @@ describe("inventory._runStockRecon_internal", () => {
 
   it("inactive SKUs are excluded from scan", async () => {
     const t = convexTest(schema);
-    const skuA = await seedSku(t, "A", true);
-    const skuB = await seedSku(t, "B", false);
+    const outletId = await seedOutlet(t);
+    const skuA = await seedSku(t, "A", outletId, true);
+    const skuB = await seedSku(t, "B", outletId, false);
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: skuA, on_hand: 5, updated_at: Date.now(),
+      inventory_sku_id: skuA, on_hand: 5, updated_at: Date.now(), outlet_id: outletId,
     } as never));
     // skuB has wildly-drifted cache but is inactive — should not appear
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
-      inventory_sku_id: skuB, on_hand: 999, updated_at: Date.now(),
+      inventory_sku_id: skuB, on_hand: 999, updated_at: Date.now(), outlet_id: outletId,
     } as never));
     await t.run(async (ctx) => ctx.db.insert("pos_stock_movements", {
-      inventory_sku_id: skuA, qty: 5, source: "stock_in", created_at: 1,
+      inventory_sku_id: skuA, qty: 5, source: "stock_in", created_at: 1, outlet_id: outletId,
     } as never));
 
     const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
@@ -100,14 +114,15 @@ describe("inventory._auditStockReconSkip_internal", () => {
 describe("inventory._resolveDrift_internal", () => {
   it("patches resolved fields + emits stock.recon_drift_resolved audit", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     const mgr = await t.run(async (ctx) => ctx.db.insert("staff", {
       name: "M", code: "S-0001", role: "manager", active: true, pin_hash: "x", created_at: Date.now(),
     } as never));
     const driftId = await t.run(async (ctx) => ctx.db.insert("pos_stock_drift_log", {
       inventory_sku_id: sku, sku_code: "A",
       cached_on_hand: 10, reconstructed_on_hand: 7, delta: 3,
-      detected_at: Date.now(),
+      detected_at: Date.now(), outlet_id: outletId,
     } as never));
 
     await t.mutation(internal.inventory.internal._resolveDrift_internal, {
@@ -127,7 +142,8 @@ describe("inventory._resolveDrift_internal", () => {
 
   it("idempotent: second resolve on already-resolved drift is no-op", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     const mgr = await t.run(async (ctx) => ctx.db.insert("staff", {
       name: "M", code: "S-0001", role: "manager", active: true, pin_hash: "x", created_at: Date.now(),
     } as never));
@@ -136,6 +152,7 @@ describe("inventory._resolveDrift_internal", () => {
       inventory_sku_id: sku, sku_code: "A",
       cached_on_hand: 10, reconstructed_on_hand: 7, delta: 3,
       detected_at: now, resolved_at: now, resolved_by_staff_id: mgr, resolution_note: "x",
+      outlet_id: outletId,
     } as never));
     await t.mutation(internal.inventory.internal._resolveDrift_internal, {
       driftId, resolved_by: mgr, note: "second attempt",
@@ -148,14 +165,15 @@ describe("inventory._resolveDrift_internal", () => {
 
   it("rejects NOTE_TOO_LONG when note > 500 chars", async () => {
     const t = convexTest(schema);
-    const sku = await seedSku(t, "A");
+    const outletId = await seedOutlet(t);
+    const sku = await seedSku(t, "A", outletId);
     const mgr = await t.run(async (ctx) => ctx.db.insert("staff", {
       name: "M", code: "S-0001", role: "manager", active: true, pin_hash: "x", created_at: Date.now(),
     } as never));
     const driftId = await t.run(async (ctx) => ctx.db.insert("pos_stock_drift_log", {
       inventory_sku_id: sku, sku_code: "A",
       cached_on_hand: 10, reconstructed_on_hand: 7, delta: 3,
-      detected_at: Date.now(),
+      detected_at: Date.now(), outlet_id: outletId,
     } as never));
     await expect(t.mutation(internal.inventory.internal._resolveDrift_internal, {
       driftId, resolved_by: mgr, note: "a".repeat(501),

@@ -32,7 +32,7 @@ describe("settings.receiptConfig", () => {
 
   it("rendered receipt reflects configured branding", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
+    const { sessionId, outletId } = await seedManagerSession(t);
     // Configure branding before rendering.
     await t.mutation(api.settings.public.updateReceiptConfig, {
       idempotencyKey: "rc3",
@@ -46,7 +46,7 @@ describe("settings.receiptConfig", () => {
     // Seed a paid txn + line with a known receipt_token (pattern copied from
     // convex/receipts/__tests__/http.test.ts / refund-projection.test.ts).
     const token = "tok-branding-render";
-    await t.run(async (ctx) => {
+    await t.run(async (ctx: any) => {
       const staffId = await ctx.db.insert("staff", {
         code: "S-BR", name: "BR", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -55,6 +55,7 @@ describe("settings.receiptConfig", () => {
         sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
         price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
         created_at: Date.now(), updated_at: Date.now(),
+        outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "paid",
@@ -63,12 +64,14 @@ describe("settings.receiptConfig", () => {
         created_at: Date.now(), paid_at: Date.now(),
         receipt_number: "R-2026-BR",
         receipt_token: token,
+        outlet_id: outletId,
       });
       await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
         unit_price_snapshot: 50000, tax_rate_snapshot: 0,
         qty: 1, line_subtotal: 50000,
+        outlet_id: outletId,
       });
     });
     const res = await t.fetch(`/r/${token}`, { method: "GET" });
@@ -80,13 +83,14 @@ describe("settings.receiptConfig", () => {
 
   it("purges the receipt html cache on config update", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
+    const { sessionId, outletId } = await seedManagerSession(t);
     // Seed a fake cache row.
-    await t.run(async (ctx) => {
+    await t.run(async (ctx: any) => {
       await ctx.db.insert("pos_receipt_html_cache", {
         token: "tok1",
         html: "<html>old</html>",
         expires_at: Date.now() + 1000,
+        outlet_id: outletId,
       });
     });
     await t.mutation(api.settings.public.updateReceiptConfig, {

@@ -1,10 +1,15 @@
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import schema from "../../schema";
+import type { Id } from "../../_generated/dataModel";
 
 test("pos_shift_events round-trips a start_of_day row", async () => {
   const t = convexTest(schema);
-  const id = await t.run(async (ctx) => {
+  const id = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Budi",
       code: "S-0002",
@@ -28,8 +33,9 @@ test("pos_shift_events round-trips a start_of_day row", async () => {
       linked_event_id: null,
       summary: null,
       created_at: 1000,
+      outlet_id: outletId,
     });
-  });
+  }) as Id<"pos_shift_events">;
   const row = await t.run((ctx) => ctx.db.get(id));
   expect(row?.type).toBe("start_of_day");
 });

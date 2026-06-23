@@ -36,6 +36,11 @@ async function seed(t: ReturnType<typeof convexTest>): Promise<{
   staffId: Id<"staff">;
 }> {
   return await t.run(async (ctx) => {
+    // v2.0 Task 12 (ENFORCE): sessions + txns require outlet_id.
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Lucy",
       code: "S-1",
@@ -50,7 +55,8 @@ async function seed(t: ReturnType<typeof convexTest>): Promise<{
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     await ctx.db.insert("telegramChats", {
       chatId: "-100managers",
       chatType: "supergroup",
@@ -67,7 +73,8 @@ async function seed(t: ReturnType<typeof convexTest>): Promise<{
       flags: 0,
       staff_id: staffId,
       created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     return { sessionId, txnId, staffId };
   });
 }
@@ -122,8 +129,12 @@ it("throws TXN_NOT_AWAITING when transaction is already paid", async () => {
   const t = convexTest(schema);
   const { sessionId, staffId } = await seed(t);
 
-  const paidTxnId = await t.run((ctx) =>
-    ctx.db.insert("pos_transactions", {
+  const paidTxnId = await t.run(async (ctx) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW2", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    return ctx.db.insert("pos_transactions", {
       status: "paid",
       subtotal: 50000,
       voucher_discount: 0,
@@ -131,8 +142,9 @@ it("throws TXN_NOT_AWAITING when transaction is already paid", async () => {
       flags: 0,
       staff_id: staffId,
       created_at: Date.now(),
-    }),
-  );
+      outlet_id: outletId,
+    } as any);
+  });
 
   await expect(
     t.action(api.approvals.actions.requestManualPaymentApproval, {
@@ -197,14 +209,14 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
     await ctx.db.patch(mgrId, { code: MGR_CODE });
   });
 
-  const { staffId, txnId } = await t.run(async (ctx) => {
+  const { staffId, txnId, outletId } = await t.run(async (ctx) => {
     // v2.0: _confirmPaid resolves the receipt outlet from txn.outlet_id ?? the
     // default active outlet; seed one so the manual-payment confirm path doesn't
     // throw NO_DEFAULT_OUTLET (Task 4).
     const outletId = await ctx.db.insert("outlets", {
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
-    });
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Lucy",
       code: "S-1",
@@ -213,6 +225,16 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
       pin_hash: "x",
       created_at: Date.now(),
     });
+    // Bind the booth-1 device + grant manager access so the SEC-07 booth login
+    // (loginWithPin(mgrId, ..., "booth-1")) succeeds post-ENFORCE.
+    await ctx.db.insert("registered_devices", {
+      device_id: "booth-1", label: "booth", activated_by: mgrId,
+      activated_at: Date.now(), last_seen_at: Date.now(), active: true,
+      outlet_id: outletId,
+    } as any);
+    await ctx.db.insert("staff_outlet_access", {
+      staff_id: mgrId, outlet_id: outletId, granted_at: 0, granted_by: null,
+    } as any);
     const txnId = await ctx.db.insert("pos_transactions", {
       status: "awaiting_payment",
       subtotal: 50000,
@@ -222,8 +244,8 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
       staff_id: staffId,
       created_at: Date.now(),
       outlet_id: outletId,
-    });
-    return { staffId, txnId };
+    } as any);
+    return { staffId, txnId, outletId };
   });
 
   const rawToken = "raw-token-approve-mp";
@@ -244,6 +266,7 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
       triggered_at: Date.now(),
       token_hash: sha256Hex(rawToken),
       token_expires_at: Date.now() + 3_600_000,
+      outletId,
     },
   );
 

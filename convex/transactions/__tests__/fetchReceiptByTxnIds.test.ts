@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
-import { seedStaff } from "./_helpers";
+import { seedStaff, seedDefaultOutlet } from "./_helpers";
 
 describe("transactions._fetchReceiptByTxnIds_internal", () => {
   it("returns receipt_number map for paid txns, null for missing", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
 
     const paidId = await t.run(async (ctx) =>
@@ -20,6 +21,7 @@ describe("transactions._fetchReceiptByTxnIds_internal", () => {
         receipt_number: "R-2026-0042",
         created_at: 1000,
         paid_at: 1500,
+        outlet_id: outletId,
       } as any),
     );
 
@@ -32,6 +34,7 @@ describe("transactions._fetchReceiptByTxnIds_internal", () => {
         flags: 0,
         staff_id: staffId,
         created_at: 1000,
+        outlet_id: outletId,
       } as any),
     );
 

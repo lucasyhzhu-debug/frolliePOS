@@ -3,9 +3,12 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 import { wibDayWindow } from "../../lib/time";
-import { seedStaff, seedSession } from "./_helpers";
+import { seedStaff, seedSession, seedDefaultOutlet } from "./_helpers";
 
-async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; createdAt: number; total?: number }) {
+async function seedPaidTxn(
+  t: ReturnType<typeof convexTest>,
+  args: { staffId: any; createdAt: number; total?: number; outletId?: any },
+) {
   return await t.run(async (ctx) => {
     const id = await ctx.db.insert("pos_transactions", {
       status: "paid",
@@ -16,6 +19,7 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
       staff_id: args.staffId,
       created_at: args.createdAt,
       paid_at: args.createdAt,
+      outlet_id: args.outletId,
     } as any);
     // Seed a throwaway product row so we have a valid Id<"pos_products"> for the line.
     // _fetchDayWindow_internal projects only the snapshot fields off the line, so the
@@ -23,8 +27,8 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
     const productId = await ctx.db.insert("pos_products", {
       sku_family: "x", code: "X_1PC", name: "X", pack_label: "1pc",
       price_idr: args.total ?? 10_000, active: true, sort_order: 1, tax_rate: 0,
-      created_at: 0, updated_at: 0,
-    });
+      created_at: 0, updated_at: 0, outlet_id: args.outletId,
+    } as any);
     // One line so DayTxn.lines is non-empty and downstream tests don't sweat it.
     await ctx.db.insert("pos_transaction_lines", {
       transaction_id: id,
@@ -35,6 +39,7 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
       tax_rate_snapshot: 0,
       qty: 1,
       line_subtotal: args.total ?? 10_000,
+      outlet_id: args.outletId,
     } as any);
     return id;
   });
@@ -43,9 +48,10 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
 describe("listDayTransactions", () => {
   it("returns [] for an invalid session", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const goneId = await t.run(async (ctx) => {
       const sid = await ctx.db.insert("staff", { name: "X", role: "staff", active: true, pin_hash: "x", code: "X1", created_at: 0 } as any);
-      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null, outlet_id: outletId } as any);
       await ctx.db.delete(sess);
       return sess;
     });
@@ -55,15 +61,16 @@ describe("listDayTransactions", () => {
 
   it("staff request for a past day collapses to today (no error)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
 
     const todayWin = wibDayWindow(Date.now());
     // Yesterday: shift by -1 day
     const yesterdayStart = todayWin.dayStartMs - 86_400_000;
 
-    await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000 }); // yesterday
-    await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000 }); // today
+    await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000, outletId }); // yesterday
+    await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000, outletId }); // today
 
     // F10: reuse wibDayWindow().dateLabel — same parser the BE uses.
     const label = wibDayWindow(yesterdayStart).dateLabel;
@@ -77,14 +84,15 @@ describe("listDayTransactions", () => {
 
   it("manager request honours the requested past day", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M1" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
 
     const todayWin = wibDayWindow(Date.now());
     const yesterdayStart = todayWin.dayStartMs - 86_400_000;
 
-    await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 99_000 }); // yesterday
-    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 11_000 }); // today
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 99_000, outletId }); // yesterday
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 11_000, outletId }); // today
 
     // F10: reuse wibDayWindow().dateLabel — same parser the BE uses.
     const label = wibDayWindow(yesterdayStart).dateLabel;
@@ -98,11 +106,12 @@ describe("listDayTransactions", () => {
 
   it("defaults to server-today when no day param given (manager)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "M2", role: "manager", code: "M2" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
 
     const todayWin = wibDayWindow(Date.now());
-    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 7_200_000, total: 12_345 });
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 7_200_000, total: 12_345, outletId });
 
     const res = await t.query(api.transactions.public.listDayTransactions, { sessionId });
     expect(res).toHaveLength(1);
@@ -111,8 +120,9 @@ describe("listDayTransactions", () => {
 
   it("throws INVALID_DAY for a malformed day label (manager)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M9" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
     await expect(
       t.query(api.transactions.public.listDayTransactions, { sessionId, day: "not-a-date" })
     ).rejects.toThrow(/INVALID_DAY/);
@@ -125,8 +135,9 @@ describe("listDayTransactions", () => {
 describe("dashboardSummary", () => {
   it("throws MANAGER_ONLY for a staff session", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
     await expect(
       t.query(api.transactions.public.dashboardSummary, { sessionId })
     ).rejects.toThrow(/MANAGER_ONLY/);
@@ -134,9 +145,10 @@ describe("dashboardSummary", () => {
 
   it("throws on an invalid session (NO_SESSION)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const goneId = await t.run(async (ctx) => {
       const sid = await ctx.db.insert("staff", { name: "X", role: "manager", active: true, pin_hash: "x", code: "X1", created_at: 0 } as any);
-      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null, outlet_id: outletId } as any);
       await ctx.db.delete(sess);
       return sess;
     });
@@ -147,8 +159,9 @@ describe("dashboardSummary", () => {
 
   it("returns an all-zero summary for a day with no sales", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M1" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
     const s = await t.query(api.transactions.public.dashboardSummary, { sessionId });
     expect(s.gross).toBe(0);
     expect(s.refundsTotal).toBe(0);
@@ -170,8 +183,9 @@ describe("dashboardSummary", () => {
 
   it("throws INVALID_DAY for a malformed day label", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "Mgr", role: "manager", code: "M9" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
     await expect(
       t.query(api.transactions.public.dashboardSummary, { sessionId, day: "garbage" })
     ).rejects.toThrow(/INVALID_DAY/);
@@ -179,11 +193,12 @@ describe("dashboardSummary", () => {
 
   it("aggregates a day's paid txns (gross/net/count/avgBasket)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "Mgr2", role: "manager", code: "M2" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
     const todayWin = wibDayWindow(Date.now());
-    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000 });
-    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 7_200_000, total: 20_000 });
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 3_600_000, total: 30_000, outletId });
+    await seedPaidTxn(t, { staffId: mgrId, createdAt: todayWin.dayStartMs + 7_200_000, total: 20_000, outletId });
 
     const s = await t.query(api.transactions.public.dashboardSummary, { sessionId });
     expect(s.gross).toBe(50_000);
@@ -196,9 +211,10 @@ describe("dashboardSummary", () => {
 describe("getTransactionDetail", () => {
   it("returns null for an invalid session", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const goneId = await t.run(async (ctx) => {
       const sid = await ctx.db.insert("staff", { name: "X", role: "staff", active: true, pin_hash: "x", code: "X1", created_at: 0 } as any);
-      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: sid, device_id: "d1", started_at: 0, ended_at: null, end_reason: null, outlet_id: outletId } as any);
       await ctx.db.delete(sess);
       return { sessionId: sess };
     });
@@ -207,7 +223,7 @@ describe("getTransactionDetail", () => {
       const sid = await ctx.db.insert("staff", { name: "Y", role: "staff", active: true, pin_hash: "x", code: "Y1", created_at: 0 } as any);
       const id = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 1000, voucher_discount: 0, total: 1000, flags: 0,
-        staff_id: sid, created_at: 0, paid_at: 0,
+        staff_id: sid, created_at: 0, paid_at: 0, outlet_id: outletId,
       } as any);
       return id;
     });
@@ -219,12 +235,13 @@ describe("getTransactionDetail", () => {
 
   it("returns null for a missing txn", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "S", role: "staff", code: "S2" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
     const goneTxnId = await t.run(async (ctx) => {
       const id = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 1000, voucher_discount: 0, total: 1000, flags: 0,
-        staff_id: staffId, created_at: 0, paid_at: 0,
+        staff_id: staffId, created_at: 0, paid_at: 0, outlet_id: outletId,
       } as any);
       await ctx.db.delete(id);
       return id;
@@ -237,22 +254,24 @@ describe("getTransactionDetail", () => {
 
   it("returns null for a staff read of a prior-day txn (today-collapse semantics)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "S3", role: "staff", code: "S3" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
     const todayWin = wibDayWindow(Date.now());
     const yesterdayStart = todayWin.dayStartMs - 86_400_000;
-    const yTxnId = await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000 });
+    const yTxnId = await seedPaidTxn(t, { staffId, createdAt: yesterdayStart + 3_600_000, total: 50_000, outletId });
     const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId });
     expect(res).toBeNull();
   });
 
   it("a manager may read a prior-day txn", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const mgrId = await seedStaff(t, { name: "M", role: "manager", code: "M3" });
-    const sessionId = await seedSession(t, mgrId);
+    const sessionId = await seedSession(t, mgrId, outletId);
     const todayWin = wibDayWindow(Date.now());
     const yesterdayStart = todayWin.dayStartMs - 86_400_000;
-    const yTxnId = await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 77_000 });
+    const yTxnId = await seedPaidTxn(t, { staffId: mgrId, createdAt: yesterdayStart + 3_600_000, total: 77_000, outletId });
     const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId: yTxnId });
     expect(res?.txn.total).toBe(77_000);
     expect(res?.refundStatus).toBe("none");
@@ -261,10 +280,11 @@ describe("getTransactionDetail", () => {
 
   it("returns refundStatus 'none' for a today txn without refunds", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "S4", role: "staff", code: "S4" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
     const todayWin = wibDayWindow(Date.now());
-    const txnId = await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 7_200_000, total: 25_000 });
+    const txnId = await seedPaidTxn(t, { staffId, createdAt: todayWin.dayStartMs + 7_200_000, total: 25_000, outletId });
     const res = await t.query(api.transactions.public.getTransactionDetail, { sessionId, txnId });
     expect(res?.refundStatus).toBe("none");
     expect(res?.lines).toHaveLength(1);

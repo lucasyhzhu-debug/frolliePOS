@@ -5,15 +5,22 @@ import { api } from "../../_generated/api";
 
 // staff.code is REQUIRED (schema.ts:7); staff_sessions needs ended_at + end_reason
 // (required null-unions, schema.ts:26-32). Mirrors convex/staff/__tests__/_helpers.ts.
+// v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required.
 async function seed(t: ReturnType<typeof convexTest>) {
+  const outletId = await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any),
+  );
   return t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: "A", code: "S-0002", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "d1", started_at: Date.now(),
-      ended_at: null, end_reason: null,
-    });
+      ended_at: null, end_reason: null, outlet_id: outletId,
+    } as any);
     return { staffId, sessionId };
   });
 }

@@ -13,12 +13,14 @@ import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
+import { seedDefaultOutlet } from "./_helpers";
 
 const DAY_START = 1_700_000_000_000;
 const DAY_END = DAY_START + 86_400_000;
 
 it("counts and itemises only manual_bca txns in the window, chronologically", async () => {
   const t = convexTest(schema);
+  const outletId = await seedDefaultOutlet(t);
 
   let staffAId!: string;
   let staffBId!: string;
@@ -47,6 +49,7 @@ it("counts and itemises only manual_bca txns in the window, chronologically", as
       total: 100_000,
       flags: 0,
       created_at: DAY_START,
+      outlet_id: outletId,
     };
 
     // IN-WINDOW, manual_bca — should appear (paid_at = T+1h, "Alice")
@@ -124,7 +127,7 @@ it("counts and itemises only manual_bca txns in the window, chronologically", as
 
   const res = await t.query(
     internal.transactions.internal._manualBcaReconciliation_internal,
-    { dayStartMs: DAY_START, dayEndMs: DAY_END },
+    { dayStartMs: DAY_START, dayEndMs: DAY_END, outletId },
   );
 
   expect(res.count).toBe(2);
@@ -144,10 +147,11 @@ it("counts and itemises only manual_bca txns in the window, chronologically", as
 
 it("returns empty tally when no manual_bca txns in window", async () => {
   const t = convexTest(schema);
+  const outletId = await seedDefaultOutlet(t);
 
   const res = await t.query(
     internal.transactions.internal._manualBcaReconciliation_internal,
-    { dayStartMs: DAY_START, dayEndMs: DAY_END },
+    { dayStartMs: DAY_START, dayEndMs: DAY_END, outletId },
   );
 
   expect(res.count).toBe(0);
@@ -157,6 +161,7 @@ it("returns empty tally when no manual_bca txns in window", async () => {
 
 it("falls back to 'Staff' when staff row is missing (resilient for EOD cron)", async () => {
   const t = convexTest(schema);
+  const outletId = await seedDefaultOutlet(t);
 
   await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
@@ -179,6 +184,7 @@ it("falls back to 'Staff' when staff row is missing (resilient for EOD cron)", a
       paid_at: DAY_START + 1_000,
       confirmed_via: "manual_bca",
       receipt_number: "R-2023-0010",
+      outlet_id: outletId,
     } as any);
 
     // Delete the staff row to simulate hard-delete (resilience test)
@@ -187,7 +193,7 @@ it("falls back to 'Staff' when staff row is missing (resilient for EOD cron)", a
 
   const res = await t.query(
     internal.transactions.internal._manualBcaReconciliation_internal,
-    { dayStartMs: DAY_START, dayEndMs: DAY_END },
+    { dayStartMs: DAY_START, dayEndMs: DAY_END, outletId },
   );
 
   expect(res.count).toBe(1);
