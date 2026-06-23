@@ -405,6 +405,24 @@ export function renderStaffShiftSignoff(p: StaffShiftSignoffPayload): RenderedMe
   return { text: lines.join("\n") };
 }
 
+// ── owner_otp (v2.0 cockpit login, ADR-052) ─────────────────────────────────
+// A private DM to the owner's bound Telegram chat carrying the 6-digit cockpit
+// login code. Sent via sendTemplate with chatIdOverride (NOT a role broadcast).
+// The code is numeric-only and rendered verbatim; the persisted telegram_log row
+// is redacted at the send boundary (C3) so the code is never stored.
+export interface OwnerOtpPayload {
+  code: string;
+  expires_minutes: number;
+}
+
+export function renderOwnerOtp(p: OwnerOtpPayload): RenderedMessage {
+  return {
+    text:
+      `🔑 Your Frollie cockpit login code: <b>${escapeHtml(p.code)}</b>\n` +
+      `Expires in ${p.expires_minutes} min. Ignore this message if you didn't request it.`,
+  };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

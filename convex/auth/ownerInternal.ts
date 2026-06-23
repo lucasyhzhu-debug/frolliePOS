@@ -13,8 +13,19 @@
 
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
 import { requireCockpitSession } from "./sessions";
+import { withIdempotency } from "../idempotency/internal";
+
+// ── OTP throttle / TTL constants (SEC-07) ────────────────────────────────────
+// OTP rate-limit and failure counters live ENTIRELY in owner_auth_attempts /
+// owner_auth_otp. They MUST NEVER read or write pos_auth_attempts — a leaked or
+// abused OTP path must not be able to DoS-lock booth PIN logins (SEC-07).
+const OTP_TTL_MS = 5 * 60_000; // 5-minute OTP validity
+const OTP_FAIL_CAP = 5; // 5 wrong codes consume the challenge
+const OTP_RATE_WINDOW_MS = 15 * 60_000; // rolling 15-minute request window
+const OTP_RATE_MAX = 3; // 3 requests per window; 4th → OTP_COOLDOWN
 
 /**
  * Resolve a bind/remember binding row by its exact token_hash. Non-throwing —
@@ -128,4 +139,240 @@ export const _assertCockpitSession_internal = internalQuery({
     const { staffId } = await requireCockpitSession(ctx, sessionId);
     return { staffId };
   },
+});
+
+// ── OTP login plane (WS3) ────────────────────────────────────────────────────
+
+/**
+ * Resolve a login identifier (staff `code`) to an OTP-eligible owner. Leak-free:
+ * returns null unless the row is role==="owner" && active && telegram_user_id
+ * is bound. requestOwnerOtp returns a generic { ok: true } on null (no
+ * enumeration); verifyOwnerOtp throws a generic OTP_INVALID on null.
+ */
+export const _getOwnerByIdentifier_internal = internalQuery({
+  args: { identifier: v.string() },
+  handler: async (
+    ctx,
+    { identifier },
+  ): Promise<{ staffId: Id<"staff">; telegram_user_id: number } | null> => {
+    const s = await ctx.db
+      .query("staff")
+      .withIndex("by_code", (q) => q.eq("code", identifier))
+      .first();
+    if (!s || s.role !== "owner" || !s.active || s.telegram_user_id == null) {
+      return null;
+    }
+    return { staffId: s._id, telegram_user_id: s.telegram_user_id };
+  },
+});
+
+/**
+ * Return the bound Telegram user id for an owner so telegram/send.ts never reads
+ * the auth-owned `staff` table directly (no-cross-module-db-access, ADR-034).
+ * Null when unbound.
+ */
+export const _getOwnerTelegramTarget_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, { staffId }): Promise<number | null> => {
+    const s = await ctx.db.get(staffId);
+    return s?.telegram_user_id ?? null;
+  },
+});
+
+/**
+ * Rolling 15-minute OTP-request rate limit (SEC-07). Reads/writes ONLY
+ * owner_auth_attempts — never pos_auth_attempts. The 4th request inside a window
+ * throws OTP_COOLDOWN:<secs>. The window resets once OTP_RATE_WINDOW_MS elapses
+ * since window_start_at.
+ */
+export const _checkOtpRateLimit_internal = internalMutation({
+  args: { staffId: v.id("staff") },
+  handler: async (ctx, { staffId }) => {
+    const now = Date.now();
+    const row = await ctx.db
+      .query("owner_auth_attempts")
+      .withIndex("by_staff", (q) => q.eq("staff_id", staffId))
+      .first();
+
+    if (!row) {
+      await ctx.db.insert("owner_auth_attempts", {
+        staff_id: staffId,
+        request_count: 1,
+        window_start_at: now,
+        locked_until: null,
+      });
+      return;
+    }
+
+    // Window expired → reset to a fresh single-request window.
+    if (now - row.window_start_at >= OTP_RATE_WINDOW_MS) {
+      await ctx.db.patch(row._id, {
+        request_count: 1,
+        window_start_at: now,
+        locked_until: null,
+      });
+      return;
+    }
+
+    // Inside the window: 4th+ request is throttled.
+    if (row.request_count >= OTP_RATE_MAX) {
+      const secs = Math.ceil((row.window_start_at + OTP_RATE_WINDOW_MS - now) / 1000);
+      throw new Error(`OTP_COOLDOWN:${secs}`);
+    }
+
+    await ctx.db.patch(row._id, { request_count: row.request_count + 1 });
+  },
+});
+
+/**
+ * Create a fresh OTP challenge. Consumes any prior active challenge for this
+ * staff (one live OTP at a time), inserts a new owner_auth_otp row with a 5-min
+ * TTL, and audits owner.otp_requested (source "system"). The code is hashed by
+ * the calling action (argon2id, Node) — this mutation only sees the hash.
+ */
+export const _createOtpChallenge_internal = internalMutation({
+  args: { staffId: v.id("staff"), codeHash: v.string(), deviceId: v.string() },
+  handler: async (ctx, { staffId, codeHash, deviceId }) => {
+    const now = Date.now();
+
+    // Supersede any active (unconsumed) challenge — only one live OTP per owner.
+    const active = await ctx.db
+      .query("owner_auth_otp")
+      .withIndex("by_staff_active", (q) => q.eq("staff_id", staffId).eq("consumed_at", null))
+      .collect();
+    for (const c of active) {
+      await ctx.db.patch(c._id, { consumed_at: now });
+    }
+
+    const challengeId = await ctx.db.insert("owner_auth_otp", {
+      staff_id: staffId,
+      code_hash: codeHash,
+      expires_at: now + OTP_TTL_MS,
+      fail_count: 0,
+      consumed_at: null,
+      created_at: now,
+      device_id: deviceId,
+    });
+    await logAudit(ctx, {
+      actor_id: staffId,
+      action: "owner.otp_requested",
+      entity_type: "owner_auth_otp",
+      entity_id: challengeId,
+      source: "system",
+    });
+    return { challengeId };
+  },
+});
+
+/**
+ * Load the single active (unconsumed, unexpired) OTP challenge for an owner so
+ * the verify action can argon2-verify its code_hash in the Node runtime. Returns
+ * null when none is live (verifyOwnerOtp maps that to a generic OTP_INVALID).
+ */
+export const _loadActiveOtpChallenge_internal = internalQuery({
+  args: { staffId: v.id("staff") },
+  handler: async (
+    ctx,
+    { staffId },
+  ): Promise<{ challengeId: Id<"owner_auth_otp">; codeHash: string } | null> => {
+    const now = Date.now();
+    const c = await ctx.db
+      .query("owner_auth_otp")
+      .withIndex("by_staff_active", (q) => q.eq("staff_id", staffId).eq("consumed_at", null))
+      .order("desc")
+      .first();
+    if (!c || c.expires_at < now || c.fail_count >= OTP_FAIL_CAP) return null;
+    return { challengeId: c._id, codeHash: c.code_hash };
+  },
+});
+
+/**
+ * Record a wrong-code attempt against an OTP challenge (SEC-07). Increments
+ * fail_count; at OTP_FAIL_CAP the challenge is consumed (consumed_at set). Audits
+ * owner.otp_failed. Touches ONLY owner_auth_otp — never pos_auth_attempts, so a
+ * brute-forced OTP cannot DoS-lock booth PIN logins.
+ */
+export const _recordOtpFailure_internal = internalMutation({
+  args: { challengeId: v.id("owner_auth_otp") },
+  handler: async (ctx, { challengeId }) => {
+    const c = await ctx.db.get(challengeId);
+    if (!c) return;
+    const now = Date.now();
+    const nextCount = c.fail_count + 1;
+    const consume = nextCount >= OTP_FAIL_CAP;
+    await ctx.db.patch(challengeId, {
+      fail_count: nextCount,
+      ...(consume ? { consumed_at: now } : {}),
+    });
+    await logAudit(ctx, {
+      actor_id: c.staff_id,
+      action: "owner.otp_failed",
+      entity_type: "owner_auth_otp",
+      entity_id: challengeId,
+      source: "system",
+    });
+  },
+});
+
+/**
+ * Consume an OTP challenge on a successful verify (mark consumed_at). Single-use:
+ * a replayed correct code finds no active challenge.
+ */
+export const _consumeOtpChallenge_internal = internalMutation({
+  args: { challengeId: v.id("owner_auth_otp") },
+  handler: async (ctx, { challengeId }) => {
+    const c = await ctx.db.get(challengeId);
+    if (!c || c.consumed_at != null) return;
+    await ctx.db.patch(challengeId, { consumed_at: Date.now() });
+  },
+});
+
+/**
+ * Commit a cockpit (owner) login session after the OTP is verified. Mirrors the
+ * booth _loginCommit_internal pattern but: kind="cockpit", NO outlet_id (cockpit
+ * is the cross-outlet plane, ADR-052), last_active_at anchored for the sliding
+ * idle timeout, and audit owner.login (source "system", entity_type
+ * "staff_session"). withIdempotency-wrapped — a retry replays the same session.
+ */
+export const _cockpitLoginCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    staffId: v.id("staff"),
+    deviceId: v.string(),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    { sessionId: Id<"staff_sessions">; role: "owner" }
+  >(
+    "auth.cockpitLogin",
+    async (ctx, args) => {
+      const now = Date.now();
+      const staff = await ctx.db.get(args.staffId);
+      if (!staff || !staff.active || staff.role !== "owner") {
+        // Defensive — the action resolved an owner already.
+        throw new Error("OTP_INVALID");
+      }
+      const sessionId = await ctx.db.insert("staff_sessions", {
+        staff_id: args.staffId,
+        device_id: args.deviceId,
+        kind: "cockpit",
+        started_at: now,
+        last_active_at: now,
+        ended_at: null,
+        end_reason: null,
+        // NO outlet_id — cockpit sessions are outlet-less (ADR-052).
+      });
+      await ctx.db.patch(args.staffId, { last_login_at: now });
+      await logAudit(ctx, {
+        actor_id: args.staffId,
+        action: "owner.login",
+        entity_type: "staff_session",
+        entity_id: sessionId,
+        source: "system",
+        device_id: args.deviceId,
+      });
+      return { sessionId, role: "owner" as const };
+    },
+    { staffIdFromArgs: (a) => a.staffId },
+  ),
 });

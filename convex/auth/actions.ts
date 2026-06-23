@@ -33,6 +33,24 @@ export const _hashPin_internal = internalAction({
 });
 
 /**
+ * Hash a 6-digit cockpit OTP with argon2id (v2.0 owner-auth, ADR-052). Mirrors
+ * `_hashPin_internal` but validates a 6-digit code. OTPs are LOW-entropy, so they
+ * are argon2id-hashed (NOT sha256Hex — that's for high-entropy bind tokens).
+ * Returns the PHC-encoded string. Called by ownerActions.requestOwnerOtp.
+ */
+export const _hashOtpCode_internal = internalAction({
+  args: { code: v.string() },
+  handler: async (_ctx, args): Promise<string> => {
+    if (!/^\d{6}$/.test(args.code)) {
+      throw new Error("OTP must be exactly 6 digits");
+    }
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return argon2id({ password: args.code, salt, ...ARGON2_PARAMS });
+  },
+});
+
+/**
  * Public surface for PIN login. Runs argon2Verify in the Node action runtime
  * (so the ~200ms verify cost doesn't block the V8 mutation event loop), then
  * commits the session via the internal mutation. ADR-001 + ADR-002 + ADR-003 + ADR-004.

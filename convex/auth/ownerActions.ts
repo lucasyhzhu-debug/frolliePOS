@@ -2,11 +2,24 @@
 
 import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
+import { internal, api } from "../_generated/api";
+import { argon2Verify } from "hash-wasm";
 import { verifyManagerPinOrThrow } from "./verifyPin";
 import { mintUrlSafeToken } from "../lib/tokens";
 import { sha256Hex } from "../lib/sha256";
 import { withActionCache } from "../idempotency/action";
+
+// OTP validity in minutes, surfaced in the DM copy (mirrors OTP_TTL_MS in
+// ownerInternal.ts — keep in sync if that constant changes).
+const OTP_EXPIRES_MINUTES = 5;
+
+/** Mint a 6-digit OTP, zero-padded, from a CSPRNG (crypto.getRandomValues). */
+function mintOtpCode(): string {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return String(buf[0] % 1_000_000).padStart(6, "0");
+}
 
 /**
  * Issue a one-time Telegram `/start <token>` bind link for an owner (WS2,
@@ -79,4 +92,154 @@ export const issueOwnerTelegramBindLink = action({
         return { deepLink: `https://t.me/${botUsername}?start=${raw}` };
       },
     ),
+});
+
+/**
+ * Request a cockpit login OTP (WS3, ADR-052). Unauthenticated by design — this
+ * IS the login. Mirrors loginWithPin's action-level idempotency (cache pre-check
+ * BEFORE side effects).
+ *
+ * Flow:
+ *   1. Action-level cache pre-check (replay returns the cached generic { ok }).
+ *   2. Resolve the identifier to an OTP-eligible owner. Leak-free: a null owner
+ *      (unknown / non-owner / unbound) returns a generic { ok: true } — no
+ *      enumeration, no challenge minted.
+ *   3. Rate-limit (SEC-07, owner_auth_attempts only — never pos_auth_attempts).
+ *   4. Mint a 6-digit code (CSPRNG), argon2id-hash it (Node), create the
+ *      challenge (5-min TTL, supersedes any prior active one).
+ *   5. DM the code to the owner's PRIVATE bound chat via chatIdOverride
+ *      (NOT a role broadcast — `role:"owner"` is an audit label only; the bot
+ *      never resolves an "owner" group chat). DISTINCT send key `${key}:send`.
+ *   6. Cache + return the generic { ok: true }.
+ *
+ * Errors: OTP_COOLDOWN:<secs> (rate limit). All other failure modes (unknown
+ * identifier, send failure) are deliberately opaque to the client.
+ */
+export const requestOwnerOtp = action({
+  args: {
+    idempotencyKey: v.string(),
+    identifier: v.string(),
+    deviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) return JSON.parse(cached) as { ok: true };
+
+    const owner = await ctx.runQuery(
+      internal.auth.ownerInternal._getOwnerByIdentifier_internal,
+      { identifier: args.identifier },
+    );
+
+    // Leak-free: a non-owner / unbound identifier looks identical to success.
+    if (!owner) return { ok: true };
+
+    // SEC-07: rate limit is isolated to owner_auth_attempts. OTP_COOLDOWN is the
+    // ONE non-generic error — a throttled caller needs the cooldown seconds.
+    await ctx.runMutation(internal.auth.ownerInternal._checkOtpRateLimit_internal, {
+      staffId: owner.staffId,
+    });
+
+    const code = mintOtpCode();
+    const codeHash: string = await ctx.runAction(internal.auth.actions._hashOtpCode_internal, {
+      code,
+    });
+    await ctx.runMutation(internal.auth.ownerInternal._createOtpChallenge_internal, {
+      staffId: owner.staffId,
+      codeHash,
+      deviceId: args.deviceId,
+    });
+
+    // Private DM via chatIdOverride — `role` is an audit label only (the override
+    // skips getChatIdByRole). DISTINCT send key (idempotency shared-key hazard).
+    await ctx.runAction(api.telegram.send.sendTemplate, {
+      role: "owner",
+      kind: "owner_otp",
+      payload: { code, expires_minutes: OTP_EXPIRES_MINUTES },
+      chatIdOverride: String(owner.telegram_user_id),
+      idempotencyKey: `${args.idempotencyKey}:send`,
+      disableNotification: false,
+    });
+
+    const result = { ok: true as const };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "auth.requestOwnerOtp",
+      response: JSON.stringify(result),
+    });
+    return result;
+  },
+});
+
+/**
+ * Verify a cockpit OTP and mint a cockpit session (WS3, ADR-052). Mirrors
+ * loginWithPin: cache pre-check → resolve owner → load active challenge →
+ * argon2Verify in the Node runtime → on miss record the failure (SEC-07,
+ * owner_auth_otp only) and throw a generic OTP_INVALID → on hit consume the
+ * challenge and commit the cockpit session via _cockpitLoginCommit_internal
+ * (DISTINCT commit key `${key}:commit`).
+ *
+ * Every non-success path throws the SAME generic OTP_INVALID (unknown identifier,
+ * no live challenge, wrong code) — no enumeration or oracle.
+ */
+export const verifyOwnerOtp = action({
+  args: {
+    idempotencyKey: v.string(),
+    identifier: v.string(),
+    code: v.string(),
+    deviceId: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ sessionId: Id<"staff_sessions">; role: "owner" }> => {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) {
+      return JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "owner" };
+    }
+
+    const owner = await ctx.runQuery(
+      internal.auth.ownerInternal._getOwnerByIdentifier_internal,
+      { identifier: args.identifier },
+    );
+    if (!owner) throw new Error("OTP_INVALID");
+
+    const challenge = await ctx.runQuery(
+      internal.auth.ownerInternal._loadActiveOtpChallenge_internal,
+      { staffId: owner.staffId },
+    );
+    if (!challenge) throw new Error("OTP_INVALID");
+
+    const match = await argon2Verify({ password: args.code, hash: challenge.codeHash });
+    if (!match) {
+      // SEC-07: failure counter lives in owner_auth_otp, never pos_auth_attempts.
+      await ctx.runMutation(internal.auth.ownerInternal._recordOtpFailure_internal, {
+        challengeId: challenge.challengeId,
+      });
+      throw new Error("OTP_INVALID");
+    }
+
+    // Correct code — single-use: consume the challenge, then mint the session.
+    await ctx.runMutation(internal.auth.ownerInternal._consumeOtpChallenge_internal, {
+      challengeId: challenge.challengeId,
+    });
+    const result = await ctx.runMutation(
+      internal.auth.ownerInternal._cockpitLoginCommit_internal,
+      {
+        idempotencyKey: `${args.idempotencyKey}:commit`,
+        staffId: owner.staffId,
+        deviceId: args.deviceId,
+      },
+    );
+
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "auth.verifyOwnerOtp",
+      response: JSON.stringify(result),
+    });
+    return result;
+  },
 });
