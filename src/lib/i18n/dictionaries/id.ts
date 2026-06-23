@@ -465,6 +465,11 @@ export const id: Record<keyof typeof en, string> = {
   "mgrTelegram.noChatsHint": "Undang bot ke grup dan kirim",
   "mgrTelegram.noChatsHintSuffix": "dari chat tersebut",
   "mgrTelegram.roleUnknown": "{role} (tidak dikenal)",
+  "mgrTelegram.labelOutlet": "Outlet",
+  "mgrTelegram.ariaOutletSelect": "pilih outlet",
+  "mgrTelegram.outletPickerPlaceholder": "Pilih outlet…",
+  "mgrTelegram.sectionBusinessWide": "Seluruh bisnis",
+  "mgrTelegram.boundOutletLabel": "Outlet: {name}",
   // mgrVouchers
   "mgrVouchers.title": "Voucher",
   "mgrVouchers.description": "Buat, edit, arsipkan, lihat riwayat pemakaian.",
