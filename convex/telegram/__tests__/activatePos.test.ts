@@ -97,6 +97,118 @@ describe("handleActivatePos", () => {
     expect(rows.length).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // ── Decision C: per-outlet managers chats (Task 11) ──────────────────────────
+
+  it("issues a code when the command comes from a per-outlet managers chat (outlet_id set)", async () => {
+    const t = convexTest(schema);
+    // Seed an outlet and a managers chat scoped to it (mimics the multi-outlet world).
+    const outletId = await t.run((ctx) =>
+      ctx.db.insert("outlets", {
+        code: "pkw",
+        name: "Pakuwon Mall",
+        timezone: "Asia/Jakarta",
+        active: true,
+        created_at: Date.now(),
+        created_by: null,
+      }),
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100outlet-managers",
+        chatType: "supergroup",
+        title: "Frollie · Managers (Pakuwon)",
+        role: "managers",
+        outlet_id: outletId,
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
+
+    await t.action(internal.telegram.activatePos.handleActivatePos, {
+      chatId: "-100outlet-managers",
+      chatTitle: "Frollie · Managers (Pakuwon)",
+      fromId: 9999,
+    });
+
+    const setups = await t.run((ctx) => ctx.db.query("pending_device_setups").collect());
+    expect(setups.length).toBe(1);
+    expect(setups[0].issued_via).toBe("telegram");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when the chat row has a non-managers role (owners)", async () => {
+    const t = convexTest(schema);
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100owners",
+        chatType: "supergroup",
+        title: "Frollie · Owners",
+        role: "owners",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
+
+    await t.action(internal.telegram.activatePos.handleActivatePos, {
+      chatId: "-100owners",
+      chatTitle: "Frollie · Owners",
+      fromId: 1,
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("pending_device_setups").collect());
+    expect(rows.length).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the chat row has a non-managers role (inventory)", async () => {
+    const t = convexTest(schema);
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100inventory",
+        chatType: "supergroup",
+        title: "Frollie · Inventory",
+        role: "inventory",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      }),
+    );
+
+    await t.action(internal.telegram.activatePos.handleActivatePos, {
+      chatId: "-100inventory",
+      chatTitle: "Frollie · Inventory",
+      fromId: 1,
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("pending_device_setups").collect());
+    expect(rows.length).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the managers chat is archived", async () => {
+    const t = convexTest(schema);
+    await t.run((ctx) =>
+      ctx.db.insert("telegramChats", {
+        chatId: "-100archived-mgr",
+        chatType: "supergroup",
+        title: "Frollie · Managers (archived)",
+        role: "managers",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+        archivedAt: Date.now() - 1000,
+      }),
+    );
+
+    await t.action(internal.telegram.activatePos.handleActivatePos, {
+      chatId: "-100archived-mgr",
+      chatTitle: "Frollie · Managers (archived)",
+      fromId: 1,
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("pending_device_setups").collect());
+    expect(rows.length).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("buildActivatePosCommand", () => {
