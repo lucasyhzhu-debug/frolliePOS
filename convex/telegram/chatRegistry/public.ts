@@ -22,7 +22,7 @@ import type { Id } from "../../_generated/dataModel";
 import { requireManagerSession } from "../../auth/sessions";
 import { withIdempotency } from "../../idempotency/internal";
 import { logAudit } from "../../audit/internal";
-import { isKnownTelegramRole } from "../config";
+import { isKnownTelegramRole, ROLE_SCOPE } from "../config";
 import {
   listChatsImpl,
   assignRoleArgs,
@@ -59,6 +59,7 @@ export const mgrAssignRole = mutation({
       sessionId: Id<"staff_sessions">;
       chatId: string;
       role: string | null;
+      outletId?: Id<"outlets">;
       forceReassign?: boolean;
       restoreIfArchived?: boolean;
     },
@@ -78,20 +79,38 @@ export const mgrAssignRole = mutation({
       .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
       .unique();
     const previousRole = target?.role ?? null;
+    const previousOutletId = target?.outlet_id ?? null;
     let displacedFromChatId: string | undefined;
     if (args.role !== null) {
-      // Broader index + JS post-filter on archivedAt === undefined (prod gotcha pattern).
-      const roleRows = await ctx.db
-        .query("telegramChats")
-        .withIndex("by_role", (q) => q.eq("role", args.role!))
-        .collect();
-      const holder = roleRows.filter((r) => r.archivedAt === undefined)[0];
-      if (holder && holder.chatId !== args.chatId) displacedFromChatId = holder.chatId;
+      // Scope-aware displaced-holder pre-read mirrors assignRoleImpl uniqueness logic.
+      // Never .eq("outlet_id", undefined) — Convex optional-field-filter gotcha.
+      const scope = ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] ?? "business";
+      if (scope === "outlet" && args.outletId) {
+        const rows = await ctx.db
+          .query("telegramChats")
+          .withIndex("by_role_outlet", (q) =>
+            q.eq("role", args.role!).eq("outlet_id", args.outletId!),
+          )
+          .collect();
+        const holder = rows.filter((r) => r.archivedAt === undefined)[0];
+        if (holder && holder.chatId !== args.chatId) displacedFromChatId = holder.chatId;
+      } else if (scope !== "outlet") {
+        // Business role: pre-read bare by_role, JS-filter outlet_id===undefined.
+        const rows = await ctx.db
+          .query("telegramChats")
+          .withIndex("by_role", (q) => q.eq("role", args.role!))
+          .collect();
+        const holder = rows.filter(
+          (r) => r.archivedAt === undefined && r.outlet_id === undefined,
+        )[0];
+        if (holder && holder.chatId !== args.chatId) displacedFromChatId = holder.chatId;
+      }
     }
 
     await assignRoleImpl(ctx, {
       chatId: args.chatId,
       role: args.role,
+      outletId: args.outletId,
       forceReassign: args.forceReassign,
       restoreIfArchived: args.restoreIfArchived,
     });
@@ -103,8 +122,8 @@ export const mgrAssignRole = mutation({
       action: "telegram.role_assigned",
       entity_type: "telegramChats",
       entity_id: args.chatId,
-      before_state: { role: previousRole },
-      after_state: { role: args.role },
+      before_state: { role: previousRole, outlet_id: previousOutletId },
+      after_state: { role: args.role, outlet_id: args.outletId ?? null },
       source: "booth_inline",
       metadata: {
         ...(displacedFromChatId ? { displaced_from_chat_id: displacedFromChatId } : {}),
