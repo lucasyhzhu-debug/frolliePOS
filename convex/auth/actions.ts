@@ -60,7 +60,7 @@ export const loginWithPin = action({
     pin: v.string(),
     deviceId: v.string(),
   },
-  handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" }> => {
+  handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" }> => {
     // Short-circuit on cache hit BEFORE running argon2
     const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,
@@ -72,7 +72,7 @@ export const loginWithPin = action({
     // _loginCommit_internal idempotency cache is also bypassed.
     let commitKey = args.idempotencyKey;
     if (cached) {
-      const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" };
+      const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" };
       const live = await ctx.runQuery(api.auth.public.getSession, { sessionId: parsed.sessionId });
       if (live) return parsed; // session still valid — replay cache
       // Session is dead. Use a derived commit key so the stale commit-level

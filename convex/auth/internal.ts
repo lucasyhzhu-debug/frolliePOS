@@ -37,7 +37,7 @@ export const _getByCode_internal = internalQuery({
     _id: Id<"staff">;
     pin_hash: string;
     active: boolean;
-    role: "staff" | "manager";
+    role: "staff" | "manager" | "owner";
   } | null> => {
     const s = await ctx.db
       .query("staff")
@@ -61,7 +61,7 @@ export const _getStaffPinHash_internal = internalQuery({
     _id: Id<"staff">;
     pin_hash: string;
     active: boolean;
-    role: "staff" | "manager";
+    role: "staff" | "manager" | "owner";
   } | null> => {
     const s = await ctx.db.get(args.staffId);
     if (!s) return null;
@@ -254,7 +254,7 @@ export const _loginCommit_internal = internalMutation({
   },
   handler: withIdempotency<
     { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
-    { sessionId: Id<"staff_sessions">; role: "staff" | "manager" }
+    { sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" }
   >(
     "auth.loginWithPin",
     async (ctx, args) => {
@@ -354,7 +354,7 @@ export const _resolveSession_internal = internalQuery({
     // v2.0 Task 12 (ENFORCE): mirror requireSession — every live session is
     // backfill-stamped, so an absent outlet is a hard throw.
     if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
-    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id: session.outlet_id };
+    return { staffId: session.staff_id, deviceId: session.device_id, outlet_id: session.outlet_id as Id<"outlets"> };
   },
 });
 
@@ -377,7 +377,7 @@ export const _resolveSessionRole_internal = internalQuery({
   ): Promise<{
     staffId: Id<"staff">;
     deviceId: string;
-    role: "staff" | "manager";
+    role: "staff" | "manager" | "owner";
     outlet_id: Id<"outlets">;
   } | null> => {
     const session = await ctx.db.get(args.sessionId);
@@ -386,7 +386,7 @@ export const _resolveSessionRole_internal = internalQuery({
     if (!staff || !staff.active) return null;
     // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped. Absent ⇒ throw.
     if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
-    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id: session.outlet_id };
+    return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id: session.outlet_id as Id<"outlets"> };
   },
 });
 

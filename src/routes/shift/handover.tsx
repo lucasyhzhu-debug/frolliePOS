@@ -28,7 +28,7 @@ import { errorMessage } from "@/lib/errors";
 
 type Stage =
   | { kind: "pick" }
-  | { kind: "pin"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" } }
+  | { kind: "pin"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" | "owner" } }
   | { kind: "count"; sessionId: Id<"staff_sessions"> };
 
 export default function ShiftHandover() {

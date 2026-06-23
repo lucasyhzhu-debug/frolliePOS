@@ -18,14 +18,15 @@ import { Id } from "../_generated/dataModel";
 export async function requireSession(
   ctx: QueryCtx | MutationCtx,
   sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager"; outlet_id: Id<"outlets"> }> {
+): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" | "owner"; outlet_id: Id<"outlets"> }> {
   const s = await ctx.db.get(sessionId);
   if (!s || s.ended_at != null) throw new Error("NO_SESSION");
   const staff = await ctx.db.get(s.staff_id);
   if (!staff || !staff.active) throw new Error("NO_SESSION");
-  // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped. Absent ⇒ throw.
+  // Booth sessions must be outlet-stamped (ADR-051). Cockpit sessions (kind="cockpit")
+  // are outlet-less — callers that want cockpit sessions should NOT call requireSession.
   if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
-  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role, outlet_id: s.outlet_id };
+  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role, outlet_id: s.outlet_id as Id<"outlets"> };
 }
 
 export async function requireManagerSession(

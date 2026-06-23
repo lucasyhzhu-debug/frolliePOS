@@ -46,6 +46,10 @@ const OWNERSHIP = {
   registered_devices: "auth",
   pending_device_setups: "auth",
   pos_device_activation_attempts: "auth", // SEC-04; written by allowlisted `staff` module
+  // v2.0 (ADR-052): owner-auth cockpit plane — business-level, not outlet-scoped
+  owner_auth_otp: "auth",
+  owner_auth_bindings: "auth",
+  owner_auth_attempts: "auth",
   // v2.0 multi-outlet: outlets + staff_outlet_access (deferred from Task 5)
   outlets: "outlets",
   staff_outlet_access: "auth",
