@@ -351,7 +351,11 @@ export const _resolveSession_internal = internalQuery({
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0 Task 12 (ENFORCE): mirror requireSession — every live session is
+    // v2.0 owner-auth (C5): a cockpit session must never resolve a booth identity.
+    // Reject BEFORE the outlet check so the error is the clear NOT_BOOTH_SESSION,
+    // not the misleading SESSION_NO_OUTLET (cockpit sessions are outlet-less by design).
+    if ((session.kind ?? "booth") !== "booth") throw new Error("NOT_BOOTH_SESSION");
+    // v2.0 Task 12 (ENFORCE): mirror requireSession — every live booth session is
     // backfill-stamped, so an absent outlet is a hard throw.
     if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
     return { staffId: session.staff_id, deviceId: session.device_id, outlet_id: session.outlet_id as Id<"outlets"> };
@@ -384,7 +388,11 @@ export const _resolveSessionRole_internal = internalQuery({
     if (!session || session.ended_at != null) return null;
     const staff = await ctx.db.get(session.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped. Absent ⇒ throw.
+    // v2.0 owner-auth (C5): a cockpit session must never resolve a booth identity.
+    // Reject BEFORE the outlet check so the error is the clear NOT_BOOTH_SESSION,
+    // not the misleading SESSION_NO_OUTLET (cockpit sessions are outlet-less by design).
+    if ((session.kind ?? "booth") !== "booth") throw new Error("NOT_BOOTH_SESSION");
+    // v2.0 Task 12 (ENFORCE): every live booth session is backfill-stamped. Absent ⇒ throw.
     if (!session.outlet_id) throw new Error("SESSION_NO_OUTLET");
     return { staffId: session.staff_id, deviceId: session.device_id, role: staff.role, outlet_id: session.outlet_id as Id<"outlets"> };
   },
