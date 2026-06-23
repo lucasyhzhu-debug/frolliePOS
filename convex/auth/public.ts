@@ -4,6 +4,7 @@ import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { internal } from "../_generated/api";
+import { requireCockpitSession } from "./sessions";
 
 /**
  * List active staff for the login screen.
@@ -91,13 +92,22 @@ export const getSession = query({
     if (!s || s.ended_at != null) return null;
     const staff = await ctx.db.get(s.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped, so the
-    // session always carries an outlet — no default-outlet fallback branch.
-    // (auth/ is allowlisted for cross-module db reads, ADR-034 §"Layer 1".)
-    if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
-    const outlet = await ctx.db.get(s.outlet_id);
+    const kind = (s.kind ?? "booth") as "booth" | "cockpit"; // WS6 + I4 (ADR-052)
+    // v2.0 owner-auth: cockpit (owner) sessions are outlet-less by design — skip
+    // the booth outlet resolution entirely. For booth sessions, Task 12 (ENFORCE)
+    // guarantees every live session is backfill-stamped, so an absent outlet is a
+    // hard SESSION_NO_OUTLET throw. (auth/ is allowlisted for cross-module db
+    // reads, ADR-034 §"Layer 1".)
+    const outlet =
+      kind === "cockpit"
+        ? null
+        : await (async () => {
+            if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
+            return ctx.db.get(s.outlet_id);
+          })();
     return {
       sessionId: s._id,
+      kind, // WS6 + I4: "booth" | "cockpit" — FE routes the session gate on this.
       // SEC-03: surface must_change_pin so the FE can force a rotation prompt.
       staff: {
         _id: staff._id,
@@ -112,6 +122,51 @@ export const getSession = query({
       startedAt: s.started_at,
     };
   },
+});
+
+/**
+ * Refresh a cockpit session's idle anchor (sliding 30-min timeout, ADR-052).
+ * Owner-only via the requireCockpitSession authCheck (runs BEFORE the
+ * idempotency cache lookup, rule #20). Graceful no-op on a stale/ended/non-cockpit
+ * session so the FE keepalive ping is always safe to retry.
+ */
+export const touchCockpitSession = mutation({
+  args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
+  handler: withIdempotency<{ idempotencyKey: string; sessionId: Id<"staff_sessions"> }, null>(
+    "auth.touchCockpitSession",
+    async (ctx, args) => {
+      const s = await ctx.db.get(args.sessionId);
+      if (!s || s.ended_at != null || (s.kind ?? "booth") !== "cockpit") return null;
+      await ctx.db.patch(args.sessionId, { last_active_at: Date.now() });
+      return null;
+    },
+    { authCheck: async (ctx, args) => { await requireCockpitSession(ctx, args.sessionId); } },
+  ),
+});
+
+/**
+ * End a cockpit (owner) session. Idempotent — a stale/already-ended session is a
+ * graceful no-op (authCheck no-op like auth.logout) so "Sign out" is safe to retry.
+ * Audited as owner.logout with source "system" (bot-mediated owner plane, ADR-052).
+ */
+export const logoutCockpit = mutation({
+  args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
+  handler: withIdempotency<{ idempotencyKey: string; sessionId: Id<"staff_sessions"> }, null>(
+    "auth.logoutCockpit",
+    async (ctx, args) => {
+      const s = await ctx.db.get(args.sessionId);
+      if (!s || s.ended_at != null) return null;
+      await ctx.db.patch(args.sessionId, { ended_at: Date.now(), end_reason: "manual_lock" });
+      await logAudit(ctx, {
+        actor_id: s.staff_id, action: "owner.logout",
+        entity_type: "staff_session", entity_id: args.sessionId,
+        source: "system", device_id: s.device_id,
+      });
+      return null;
+    },
+    // intentional: logout is idempotent — graceful no-op like auth.logout (rule #20).
+    { authCheck: async () => {} },
+  ),
 });
 
 export const logout = mutation({
