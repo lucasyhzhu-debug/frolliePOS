@@ -29,6 +29,13 @@ export interface CommandRegistration {
   /** The command name WITHOUT the leading slash (e.g. "ping", "pack", "register"). */
   name: string;
   /**
+   * When true, the command head-matches with optional trailing args (e.g.
+   * `/start <token>`); strict commands (the default) reject any trailing text.
+   * Only the `/start` deep-link binding opts in (v2.0 owner-auth, ADR-052) — a
+   * Telegram deep-link delivers the bind token as `/start <token>`.
+   */
+  acceptsArgs?: boolean;
+  /**
    * Called when the command matches, with the parsed message context. Must not
    * throw — wrap your runtime errors (the webhook logs dispatch failures but
    * always ACKs 200 to avoid Telegram's retry loop).
@@ -60,7 +67,13 @@ export function buildCommandMatcher(
 ): (text: string) => CommandMatch | null {
   const compiled = registrations.map((c) => ({
     command: c,
-    regex: new RegExp(`^\\/${escapeRegex(c.name)}(@[A-Za-z0-9_]+)?$`),
+    // acceptsArgs ⇒ head-only match: command name (+ optional @bot) followed by
+    // EOL or whitespace+args. The `\\s+\\S` boundary keeps `/started` from
+    // matching a `start` registration (the char after the name must be space,
+    // @bot, or EOL — never a name continuation).
+    regex: c.acceptsArgs
+      ? new RegExp(`^\\/${escapeRegex(c.name)}(@[A-Za-z0-9_]+)?(\\s+\\S.*)?$`)
+      : new RegExp(`^\\/${escapeRegex(c.name)}(@[A-Za-z0-9_]+)?$`),
   }));
   return (text: string) => {
     const trimmed = text.trim();
