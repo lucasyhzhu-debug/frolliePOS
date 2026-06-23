@@ -5,7 +5,7 @@ import { internal } from "../../_generated/api";
 
 // v0.6 Task R5 — cron-driven stock-recon Telegram dispatch.
 //
-// Mirrors convex/telegram/__tests__/foundersSummary.test.ts shape: fetch is
+// Mirrors convex/telegram/__tests__/ownersSummary.test.ts shape: fetch is
 // mocked at globalThis level so sendTemplate is a no-op returning
 // { message_id: 42 }. TELEGRAM_BOT_TOKEN env set per-test (sendTemplate throws
 // on missing token before the fetch even fires).
@@ -60,10 +60,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
     vi.restoreAllMocks();
   });
 
-  it("no drift → audited skip per-outlet, no Telegram", async () => {
-    // v2.0 Spec-4 Task 6: sendStockRecon now iterates all active outlets.
-    // no_drift is audited per-outlet (continues loop); the outer action returns
-    // { ok: true, outlets: N } not { skipped: "no_drift" }.
+  it("no drift → audited skip, no Telegram", async () => {
     const t = convexTest(schema);
     const outletId = await seedOutlet(t);
     const sku = await seedSku(t, "A", outletId);
@@ -90,8 +87,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
       internal.inventory.cronActions.sendStockReconResilient,
       { attempt: 0 },
     );
-    // Now returns { ok: true, outlets: 1 } — per-outlet skip is audited inside the loop.
-    expect(r).toMatchObject({ ok: true, outlets: 1 });
+    expect(r).toMatchObject({ skipped: "no_drift" });
     expect(fetchMock).not.toHaveBeenCalled();
 
     const audits = await t.run(async (ctx) =>
@@ -105,9 +101,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
     expect(meta.reason).toBe("no_drift");
   });
 
-  it("role_unbound → audited skip per-outlet, no Telegram", async () => {
-    // v2.0 Spec-4 Task 6: role_unbound is now per-outlet (loop continues).
-    // The outer action returns { ok: true, outlets: 1 } not { skipped: "role_unbound" }.
+  it("role_unbound → audited skip, no Telegram", async () => {
     const t = convexTest(schema);
     const outletId = await seedOutlet(t);
     const sku = await seedSku(t, "A", outletId);
@@ -135,8 +129,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
       internal.inventory.cronActions.sendStockReconResilient,
       { attempt: 0 },
     );
-    // Now returns { ok: true, outlets: 1 } — per-outlet skip is audited inside the loop.
-    expect(r).toMatchObject({ ok: true, outlets: 1 });
+    expect(r).toMatchObject({ skipped: "role_unbound" });
     expect(fetchMock).not.toHaveBeenCalled();
 
     const audits = await t.run(async (ctx) =>

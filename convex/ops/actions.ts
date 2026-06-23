@@ -15,7 +15,7 @@ export const sendErrorAlert = internalAction({
     });
     if (!report) return { skipped: "not_found" };
 
-    // Narrow-catch role resolve (foundersSummary.ts pattern): unbound → skip,
+    // Narrow-catch role resolve (ownersSummary.ts pattern): unbound → skip,
     // transient/unknown → rethrow so the platform surfaces it.
     let chatId: string;
     try {

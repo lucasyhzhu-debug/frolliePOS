@@ -5,7 +5,7 @@ import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   renderManualPaymentApproval,
-  renderFoundersSummary,
+  renderOwnersSummary,
   renderManagersDailySummary,
   renderStaffPinReset,
   renderRefund,
@@ -85,6 +85,13 @@ export const sendTemplate = action({
             staffName: v.string(), receiptNumber: v.string(),
           })),
         })),
+        // v2.0 Spec-4: per-outlet breakdown for multi-outlet owners rollup.
+        perOutlet: v.optional(v.array(v.object({
+          outletLabel: v.string(),
+          totalSalesIdr: v.number(),
+          txnCount: v.number(),
+          flaggedCount: v.number(),
+        }))),
       }),
       // refund — matches RefundPayload
       v.object({
@@ -243,7 +250,7 @@ export const sendTemplate = action({
         );
         break;
       case "shift_summary":
-        rendered = renderFoundersSummary(
+        rendered = renderOwnersSummary(
           args.payload as {
             dateLabel: string;
             totalSalesIdr: number;
@@ -253,6 +260,12 @@ export const sendTemplate = action({
               count: number; totalIdr: number;
               items: Array<{ paidAt: number; total: number; staffName: string; receiptNumber: string }>;
             };
+            perOutlet?: Array<{
+              outletLabel: string;
+              totalSalesIdr: number;
+              txnCount: number;
+              flaggedCount: number;
+            }>;
           },
         );
         break;
