@@ -68,6 +68,48 @@ test("endOfDaySignOff on a CLOSED booth → idempotent no-op (v1.2)", async () =
   expect(res.durationMs).toBe(0);
 });
 
+test("endOfDaySignOff from a LOCKED booth still closes — staff not stranded (#138)", async () => {
+  const t = convexTest(schema);
+  const { staffId, sessionId } = await seedSession(t);
+  // Open, then lock (lock ends the session).
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1", sessionId, steps: [], countChanged: undefined,
+  });
+  await t.mutation(api.shifts.public.lockShift, { idempotencyKey: "k2", sessionId });
+
+  // Staff returns and logs in again → fresh active session on the SAME device,
+  // but the booth is still "locked" (no same-staff resume fired). Previously this
+  // stranded them: endOfDaySignOff threw BOOTH_NOT_OPEN. Now it closes.
+  const session2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1"))
+      .first();
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staffId,
+      device_id: "d1",
+      started_at: Date.now(),
+      ended_at: null,
+      end_reason: null,
+      outlet_id: dev.outlet_id,
+    } as any);
+  });
+
+  const res = await t.mutation(api.shifts.public.endOfDaySignOff, {
+    idempotencyKey: "k3", sessionId: session2, steps: [], countChanged: undefined,
+  });
+  expect(res.ok).toBe(true);
+
+  // A signoff_close event was recorded (booth → closed), tagged with the source
+  // state for traceability.
+  const events = await t.run((ctx: any) => ctx.db.query("pos_shift_events").collect());
+  expect(events.some((e: any) => e.type === "signoff_close")).toBe(true);
+  const audit = await t.run((ctx: any) => ctx.db.query("audit_log").collect());
+  const signoff = audit.find((r: any) => r.action === "shift.signoff");
+  expect(JSON.parse(signoff!.metadata as string)).toMatchObject({ closed_from: "locked" });
+  await drainScheduled(t);
+});
+
 test("completeStartOfDay on an already-OPEN same-day booth → BOOTH_NOT_CLOSED", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedSession(t);

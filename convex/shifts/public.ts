@@ -320,7 +320,14 @@ export const endOfDaySignOff = mutation({
         });
         return { ok: true as const, durationMs: 0 };
       }
-      if (currentState !== "open") throw new Error("BOOTH_NOT_OPEN");
+      // Ending the day is terminal — close from ANY non-closed state (`open`,
+      // `locked`, or `handover_pending`), not just `open`. Gating on `open`
+      // stranded a staffer who returned to a locked / handed-over booth: they
+      // could neither `resume` (same-staff only) nor sign off, with a manager-PIN
+      // takeover the only escape (prod incident 2026-06-23, issues #138/#139). The
+      // shift anchor (`shift_started_at`) survives lock/handover, so the summary
+      // window stays correct; `closed_from` is stamped on the audit row for
+      // traceability. (`closed` is the idempotent no-op handled above.)
 
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
@@ -375,7 +382,7 @@ export const endOfDaySignOff = mutation({
         entity_type: "pos_shift_events",
         entity_id: eventId,
         source: "booth_inline",
-        metadata: { durationMs: summary.durationMs },
+        metadata: { durationMs: summary.durationMs, closed_from: currentState },
       });
 
       // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
