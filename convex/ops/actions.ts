@@ -29,6 +29,17 @@ export const sendErrorAlert = internalAction({
       throw err;
     }
 
+    // v2.0 Spec-4 Task 8: resolve outlet label for body annotation.
+    // Routing stays business-wide (role: "ops", NO outletId arg).
+    let outlet_label: string | undefined;
+    if (report.outlet_id) {
+      const outlet = await ctx.runQuery(
+        internal.outlets.internal._getOutlet_internal,
+        { outletId: report.outlet_id },
+      );
+      outlet_label = outlet?.name;
+    }
+
     await ctx.runAction(api.telegram.send.sendTemplate, {
       role: "ops",
       kind: "system_error",
@@ -40,6 +51,7 @@ export const sendErrorAlert = internalAction({
         device_id: report.device_id,
         app_version: report.app_version,
         occurred_at: report.created_at,
+        outlet_label,
       },
       idempotencyKey: `ops_error:${args.reportId}`,
       chatIdOverride: chatId,

@@ -143,6 +143,8 @@ export const sendTemplate = action({
         route: v.optional(v.string()), staff_code: v.optional(v.string()),
         device_id: v.optional(v.string()), app_version: v.optional(v.string()),
         occurred_at: v.number(),
+        // v2.0 Spec-4 Task 8: originating outlet label (body-only, routing unchanged)
+        outlet_label: v.optional(v.string()),
       }),
       // txn_ticker — matches TxnTickerPayload in lib/telegramHtml.ts
       v.object({

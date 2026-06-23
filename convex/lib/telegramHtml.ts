@@ -319,6 +319,8 @@ export function renderStockDriftAlert(p: StockDriftAlertPayload): RenderedMessag
 }
 
 // v1.0.1: ops error alert — informational, no inline keyboard.
+// v2.0 Spec-4 Task 8: outlet_label added — shown in body when present;
+// routing stays business-wide (role: "ops", no outletId).
 export type SystemErrorPayload = {
   kind: string;
   message: string;
@@ -327,6 +329,8 @@ export type SystemErrorPayload = {
   device_id?: string;
   app_version?: string;
   occurred_at: number;
+  /** v2.0 Spec-4: originating outlet label, omitted for cron/system errors. */
+  outlet_label?: string;
 };
 
 export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
@@ -338,6 +342,7 @@ export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
      p.device_id ? `dev ${escapeHtml(p.device_id)}` : null,
      p.app_version ? `v${escapeHtml(p.app_version)}` : null]
       .filter(Boolean).join(" · ") || null,
+    p.outlet_label ? `outlet: ${escapeHtml(p.outlet_label)}` : null,
     escapeHtml(formatWibDateTime(p.occurred_at)),
   ].filter(Boolean);
   return { text: lines.join("\n") };

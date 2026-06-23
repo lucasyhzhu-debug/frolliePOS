@@ -547,3 +547,124 @@ test("(f) txn_ticker at outlet B routes to outlet B's managers chat", async () =
     globalThis.fetch = savedFetch;
   }
 });
+
+// ─── Task 8: system_error outlet label in body ──────────────────────────────
+//
+// Decision 6: system_error routing stays business-wide (role: "ops", NO outletId).
+// Only the message BODY gains an "outlet: <name>" line when outlet_id is set.
+
+/**
+ * (g) system_error with outlet_id — body must include "outlet: Frollie — Block M"
+ *     Routing must be business-wide (ops chat, no outletId arg to sendTemplate).
+ */
+test("(g) system_error with outlet_id renders outlet label in body, routes to ops chat", async () => {
+  const t = convexTest(schema);
+
+  const capturedBodies: Record<string, unknown>[] = [];
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).includes("telegram")) {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      capturedBodies.push(body);
+      return {
+        ok: true, status: 200,
+        json: async () => ({ ok: true, result: { message_id: 46 } }),
+        text: async () => "{}",
+      } as unknown as Response;
+    }
+    return savedFetch(url as RequestInfo, init);
+  }) as typeof fetch;
+
+  try {
+    const { reportId } = await t.run(async (ctx: any) => {
+      // Register an ops chat (bare role, no outlet_id — business-wide).
+      await ctx.db.insert("telegramChats", {
+        chatId: "-100ops",
+        chatType: "supergroup",
+        title: "Ops",
+        role: "ops",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+        // NO outlet_id — ops is business-wide
+      });
+
+      const outletId = await ctx.db.insert("outlets", {
+        code: "BLK", name: "Frollie — Block M",
+        timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      });
+
+      const reportId = await ctx.db.insert("pos_error_reports", {
+        kind: "crash", message: "Something went wrong",
+        signature: "sig-g", alerted: true, created_at: Date.now(),
+        outlet_id: outletId,
+      });
+      return { reportId };
+    });
+
+    const res = await t.action(internal.ops.actions.sendErrorAlert, { reportId });
+    expect(res).toEqual({ ok: true });
+
+    // Body must contain the outlet label.
+    expect(capturedBodies.length).toBeGreaterThanOrEqual(1);
+    const lastBody = capturedBodies[capturedBodies.length - 1] as { chat_id: string; text: string };
+    expect(lastBody.chat_id).toBe("-100ops");
+    expect(lastBody.text).toContain("outlet: Frollie — Block M");
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+});
+
+/**
+ * (h) system_error WITHOUT outlet_id — body must NOT include any "outlet:" line.
+ *     Routing still goes to the ops chat.
+ */
+test("(h) system_error without outlet_id omits outlet line in body", async () => {
+  const t = convexTest(schema);
+
+  const capturedBodies: Record<string, unknown>[] = [];
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).includes("telegram")) {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      capturedBodies.push(body);
+      return {
+        ok: true, status: 200,
+        json: async () => ({ ok: true, result: { message_id: 47 } }),
+        text: async () => "{}",
+      } as unknown as Response;
+    }
+    return savedFetch(url as RequestInfo, init);
+  }) as typeof fetch;
+
+  try {
+    const { reportId } = await t.run(async (ctx: any) => {
+      await ctx.db.insert("telegramChats", {
+        chatId: "-100ops-h",
+        chatType: "supergroup",
+        title: "Ops",
+        role: "ops",
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
+
+      // No outlet_id on this report (e.g. a cron/system error).
+      const reportId = await ctx.db.insert("pos_error_reports", {
+        kind: "backend", message: "Cron exploded",
+        signature: "sig-h", alerted: true, created_at: Date.now(),
+        // outlet_id intentionally absent
+      });
+      return { reportId };
+    });
+
+    const res = await t.action(internal.ops.actions.sendErrorAlert, { reportId });
+    expect(res).toEqual({ ok: true });
+
+    expect(capturedBodies.length).toBeGreaterThanOrEqual(1);
+    const lastBody = capturedBodies[capturedBodies.length - 1] as { chat_id: string; text: string };
+    expect(lastBody.chat_id).toBe("-100ops-h");
+    expect(lastBody.text).not.toContain("outlet:");
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+});
