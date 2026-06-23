@@ -158,21 +158,28 @@ export type SeedResult =
 
 // ─── getChatIdByRole ──────────────────────────────────────────────────────────
 
+// Shared bare-role resolution (JS post-filter on archivedAt + outlet_id absent — the
+// optional-field-filter gotcha; never .eq(field, undefined)). Returns chatId | null.
+async function _resolveBareRoleChatId(ctx: QueryCtx, role: string): Promise<string | null> {
+  // Use the bare by_role index then post-filter in JS on archivedAt === undefined.
+  // .eq("archivedAt", undefined) appears to work in convex-test but diverges in
+  // prod (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
+  // the proven-safe pattern; the historical by_role_archived compound index was
+  // dropped in v0.5.1 once the test was rewritten to match this same pattern.
+  // outlet_id absent check: same gotcha — never .eq("outlet_id", undefined).
+  const rows = await ctx.db
+    .query("telegramChats")
+    .withIndex("by_role", (q) => q.eq("role", role))
+    .collect();
+  const active = rows.filter((r) => r.archivedAt === undefined && r.outlet_id === undefined);
+  return active[0]?.chatId ?? null;
+}
+
 export const getChatIdByRole = internalQuery({
   args: { role: v.string() },
   handler: async (ctx, args): Promise<string> => {
-    // Use the bare by_role index then post-filter in JS on archivedAt === undefined.
-    // .eq("archivedAt", undefined) appears to work in convex-test but diverges in
-    // prod (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
-    // the proven-safe pattern; the historical by_role_archived compound index was
-    // dropped in v0.5.1 once the test was rewritten to match this same pattern.
-    const rows = await ctx.db
-      .query("telegramChats")
-      .withIndex("by_role", (q) => q.eq("role", args.role))
-      .collect();
-    const active = rows.filter((r) => r.archivedAt === undefined);
-    const row = active[0];
-    if (row) return row.chatId;
+    const hit = await _resolveBareRoleChatId(ctx, args.role);
+    if (hit) return hit;
 
     if (
       process.env.TELEGRAM_FALLBACK_ROLE === args.role &&
@@ -182,6 +189,25 @@ export const getChatIdByRole = internalQuery({
     }
 
     throw new Error(`No Telegram chat assigned to role '${args.role}'`);
+  },
+});
+
+export const getChatIdByRoleBareOrNull = internalQuery({
+  args: { role: v.string() },
+  handler: (ctx, args) => _resolveBareRoleChatId(ctx, args.role), // no env fallback, no throw
+});
+
+export const getChatIdByRoleAndOutlet = internalQuery({
+  args: { role: v.string(), outletId: v.id("outlets") },
+  handler: async (ctx, args): Promise<string | null> => {
+    // Concrete outlet_id equality is safe (not the undefined-filter gotcha).
+    // Only JS-filter archivedAt (optional field — never .eq("archivedAt", undefined)).
+    const rows = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_role_outlet", (q) => q.eq("role", args.role).eq("outlet_id", args.outletId))
+      .collect();
+    const active = rows.filter((r) => r.archivedAt === undefined);
+    return active[0]?.chatId ?? null;
   },
 });
 
