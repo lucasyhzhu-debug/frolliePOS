@@ -65,4 +65,15 @@ crons.daily(
   {},
 );
 
+// 03:10 WIB owner-auth housekeeping = 20:10 UTC. Pre-dawn, slotted between
+// telegram-log-purge (20:05) and settlement-sync (20:30) — no collision.
+// Deletes expired/consumed owner_auth_otp rows and expired/redeemed
+// owner_auth_bindings rows to bound table growth.
+crons.daily(
+  "owner-auth-housekeeping",
+  { hourUTC: 20, minuteUTC: 10 },
+  internal.auth.internal._purgeOwnerAuthHousekeeping_internal,
+  {},
+);
+
 export default crons;

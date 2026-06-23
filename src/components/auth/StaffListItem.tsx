@@ -3,13 +3,13 @@ import { useT } from "@/lib/i18n";
 
 interface StaffListItemProps {
   name: string;
-  role: "staff" | "manager";
+  role: "staff" | "manager" | "owner";
   onClick: () => void;
 }
 
 export function StaffListItem({ name, role, onClick }: StaffListItemProps) {
   const t = useT();
-  const roleLabel = role === "manager" ? t("staffItem.roleManager") : t("staffItem.roleStaff");
+  const roleLabel = role === "manager" ? t("staffItem.roleManager") : role === "owner" ? t("staffItem.roleManager") : t("staffItem.roleStaff");
   return (
     <button
       type="button"

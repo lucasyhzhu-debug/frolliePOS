@@ -6,7 +6,7 @@ export const authTables = {
     name: v.string(),
     code: v.string(),  // stable staffCode S-NNNN; required since v1.1 (ADR-034, sync prereq)
     pin_hash: v.string(),
-    role: v.union(v.literal("staff"), v.literal("manager")),
+    role: v.union(v.literal("staff"), v.literal("manager"), v.literal("owner")),
     active: v.boolean(),
     preferences: v.optional(v.object({
       founders_share_on: v.optional(v.boolean()),
@@ -16,10 +16,13 @@ export const authTables = {
     must_change_pin: v.optional(v.boolean()), // SEC-03: forced rotation after bootstrap default
     // v1.2 #1 (i18n): per-staff UI language. Absent ⇒ English default (ADR-049).
     locale: v.optional(v.union(v.literal("en"), v.literal("id"))),
+    // v2.0 (ADR-052): Telegram user ID for cockpit OTP delivery. Written by /start <token>.
+    telegram_user_id: v.optional(v.number()),
   })
     .index("by_active", ["active"])
     .index("by_role", ["role"])
-    .index("by_code", ["code"]),
+    .index("by_code", ["code"])
+    .index("by_telegram_user_id", ["telegram_user_id"]),
 
   staff_sessions: defineTable({
     staff_id: v.id("staff"),
@@ -30,9 +33,18 @@ export const authTables = {
       v.literal("manual_lock"),
       v.literal("timeout"),
       v.literal("force_logout"),
+      // v2.0 (ADR-052): owner cockpit "Sign out" — distinct from a booth device
+      // lock so the session/audit trail doesn't conflate the two planes.
+      v.literal("owner_logout"),
       v.null(),
     ),
-    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
+    // v2.0 (ADR-052): absent ⇒ booth (legacy rows). Cockpit sessions have no outlet.
+    kind: v.optional(v.union(v.literal("booth"), v.literal("cockpit"))),
+    // v2.0 (ADR-052): cockpit idle anchor; absent for booth sessions.
+    last_active_at: v.optional(v.number()),
+    // [SPEC-1 AMENDMENT] stays optional — cockpit sessions are outlet-less.
+    // Booth-must-have-outlet is enforced at runtime in requireSession.
+    outlet_id: v.optional(v.id("outlets")),
   })
     .index("by_staff_active", ["staff_id", "ended_at"])
     .index("by_device_active", ["device_id", "ended_at"])

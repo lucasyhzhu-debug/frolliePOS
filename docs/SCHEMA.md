@@ -10,7 +10,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 |---|---|
 | `outlets/` *(v2.0)* | `outlets`, `staff_outlet_access` |
 | `migrations/` *(v2.0)* | `migration_state` |
-| `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups` |
+| `auth/` | `staff`, `staff_sessions`, `pos_auth_attempts`, `registered_devices`, `pending_device_setups`, `owner_auth_otp` *(v2.0)*, `owner_auth_bindings` *(v2.0)*, `owner_auth_attempts` *(v2.0)* |
 | `catalog/` | `pos_products`, `pos_inventory_skus`, `pos_product_components` |
 | `inventory/` *(v0.3, extended v0.5.2, v0.6)* | `pos_stock_movements`, `pos_stock_levels`, `pos_low_stock_alerts` *(v0.5.2)*, `pos_recount_state` *(v0.5.2)*, `pos_stock_drift_log` *(v0.6)* (moved from `catalog/` in v0.3 per ADR-034) |
 | `transactions/` *(v0.3)* | `pos_transactions`, `pos_transaction_lines`, `pos_receipt_counters` |
@@ -86,6 +86,54 @@ Tracks the progress of the multi-step outlet backfill migration. One key per nam
 
 Indexes: `by_key` on `key` (unique).
 
+### `owner_auth_otp` *(v2.0 — ADR-052, owned by `auth/`)*
+Owner OTP challenges. One active row per pending OTP delivery; consumed or expired rows are purged nightly by `owner-auth-housekeeping`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"owner_auth_otp">` | |
+| `staff_id` | `Id<"staff">` | Owner being authenticated |
+| `code_hash` | `string` | argon2id hash of the 6-digit numeric OTP |
+| `expires_at` | `number` | 5-minute TTL from issuance (ms epoch) |
+| `fail_count` | `number` | Wrong-code attempts against this challenge; cap 5 → challenge invalidated (must re-request) |
+| `consumed_at` | `number \| null` | Set on successful verify; null while pending |
+| `created_at` | `number` | |
+| `device_id` | `string` | Device from which the OTP was requested |
+
+Indexes: `by_staff_active` on `[staff_id, consumed_at]`, `by_expires` on `expires_at`.
+
+### `owner_auth_bindings` *(v2.0 — ADR-052, owned by `auth/`)*
+Single-use binding tokens and remembered-device tokens. Binding tokens bootstrap the Telegram DM channel (`kind: "telegram_bind"`); remembered-device tokens enable quick-PIN re-entry on a previously logged-in device (`kind: "remember_device"`).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"owner_auth_bindings">` | |
+| `kind` | `"telegram_bind" \| "remember_device"` | Purpose discriminator |
+| `staff_id` | `Id<"staff">` | Owner being bound |
+| `token_hash` | `string` | SHA-256 hash of the 32-byte URL-safe random token |
+| `expires_at` | `number` | 60-min TTL for `telegram_bind`; ~30d for `remember_device` |
+| `redeemed_at` | `number \| null` | Set when token consumed; null while valid |
+| `created_at` | `number` | |
+| `device_id` | `string?` | Present on `remember_device` rows (the specific device being remembered) |
+| `quick_pin_hash` | `string?` | argon2id hash of the cockpit quick-PIN (set on `remember_device` after first full OTP login) |
+| `quick_pin_fail_count` | `number?` | Wrong quick-PIN attempts. Per-binding isolation: misses here cannot lock out `pos_auth_attempts` (booth) or `owner_auth_attempts` (OTP throttle). 3 misses → 60s lockout. |
+| `quick_pin_locked_until` | `number \| null` `?` | ms epoch; non-null while quick-PIN locked |
+
+Indexes: `by_token_hash` on `token_hash`, `by_staff_kind` on `[staff_id, kind]`, `by_expires` on `expires_at`.
+
+### `owner_auth_attempts` *(v2.0 — ADR-052, owned by `auth/`)*
+Rate-limit counter for OTP requests per owner. Isolated from `pos_auth_attempts` (booth PIN lockout) — a cockpit attacker cannot DoS-lock a booth login.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"owner_auth_attempts">` | |
+| `staff_id` | `Id<"staff">` | |
+| `request_count` | `number` | OTP requests in the current window |
+| `window_start_at` | `number` | Rolling-window anchor |
+| `locked_until` | `number \| null` | ms epoch; non-null while throttled |
+
+Indexes: `by_staff` on `staff_id`.
+
 ---
 
 ### `staff`
@@ -96,15 +144,16 @@ Booth employees and managers.
 | `_id` | `Id<"staff">` | |
 | `name` | `string` | Display name |
 | `pin_hash` | `string` | argon2id encoded string ([ADR-004](./ADR/004-pin-hashing-server-side.md)) |
-| `role` | `"staff" \| "manager"` | Manager approves refunds, manual confirms, negative-stock confirms, voids, stock adjustments, on-device settings ([ADR-005](./ADR/005-manager-pin-one-off.md)) |
+| `role` | `"staff" \| "manager" \| "owner"` | Manager approves refunds, manual confirms, negative-stock confirms, voids, stock adjustments, on-device settings ([ADR-005](./ADR/005-manager-pin-one-off.md)). *(v2.0)* `"owner"` bypasses `staff_outlet_access` (implicit access to all outlets); promoted via `setStaffRole`, never by `createStaff` ([ADR-052](./ADR/052-owner-auth-telegram-otp.md)). |
 | `active` | `boolean` | Soft delete |
 | `preferences` | `object?` | `{ founders_share_on: boolean }` (defaults true per [ADR-033](./ADR/033-founders-shift-summary-share.md)) |
 | `created_at` | `number` | ms epoch |
 | `last_login_at` | `number?` | |
 | `must_change_pin` | `boolean?` | SEC-03 (v1.1). `true` on the bootstrap-seeded manager → FE forces a one-time rotation prompt after login. Cleared (`false`) by `_changePinCommit_internal` on any successful PIN change. Absent on existing rows = falsy. |
 | `locale` | `"en" \| "id"` `?` | v1.2 #1 (i18n). Per-staff UI language preference. Absent ⇒ `"en"` English default (no migration; set by `setOwnLocale` mutation, Task 4). Projected by `getSession` → flows through `useSession` → consumed by `LocaleProvider`. |
+| `telegram_user_id` | `number?` | *(v2.0, ADR-052)* Owner's Telegram `from.id`. Written by the bot when the owner redeems the binding `/start <token>` deep-link. Required before any OTP can be delivered (DM-only — must have been `started`). Absent on non-owner staff. |
 
-Indexes: `by_active` on `active`, `by_role` on `role`.
+Indexes: `by_active` on `active`, `by_role` on `role`, `by_code` on `code` (unique), `by_telegram_user_id` on `telegram_user_id` *(v2.0)*.
 
 ### `staff_sessions`
 Active and historical sessions. Multiple concurrent sessions allowed on the same device for shift overlap ([ADR-003](./ADR/003-shared-device-ephemeral-session.md)).
@@ -117,7 +166,9 @@ Active and historical sessions. Multiple concurrent sessions allowed on the same
 | `started_at` | `number` | |
 | `ended_at` | `number?` | Null while active |
 | `end_reason` | `"manual_lock" \| "timeout" \| "force_logout"` \| null | |
-| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Resolved from the device's bound outlet at login. Window-tolerant: unbound devices get the default outlet. SESSION_NO_OUTLET throw deferred to Task 12 (enforce phase). |
+| `kind` | `"booth" \| "cockpit"` `?` | *(v2.0, ADR-052)* Session plane discriminator. Absent ⇒ `"booth"` (backward-compat). Cockpit sessions are owner-only, outlet-unscoped, and rejected by `requireSession` / `_resolveSession_internal` / `_resolveSessionRole_internal` with `NOT_BOOTH_SESSION`. |
+| `last_active_at` | `number?` | *(v2.0, ADR-052)* Cockpit idle-timeout anchor (sliding; refreshed on activity). Absent for booth sessions. |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Resolved from the device's bound outlet at login. Task 12 (enforce) is LIVE: a booth session with no outlet hard-throws `SESSION_NO_OUTLET` in `requireSession` (and `resolveDeviceOutletId` throws `DEVICE_HAS_NO_OUTLET` for an unbound device). Stays schema-`optional` **only** because cockpit sessions are deliberately outlet-less — that relaxation is what allows `kind: "cockpit"` rows; `assertZeroNullOutletIds` excludes cockpit rows. |
 
 Indexes: `by_staff_active` on `[staff_id, ended_at]`, `by_device_active` on `[device_id, ended_at]`, `by_outlet_active` on `[outlet_id, ended_at]` *(v2.0)*.
 
@@ -852,6 +903,15 @@ device.activated            # device activated by consuming a setup code. ALWAYS
 settlement.upserted             # one row inserted OR a non-supersede patch (poll-over-poll, manual-over-manual). Covers manual entries too — distinguish via metadata.source="manual". source=booth_inline (manual) | system (poll); metadata={ settlement_date, source, net_amount }
 settlement.poll_superseded_manual # a nightly xendit_poll overwrote a prior manual row (poll-wins-on-conflict). source=system; metadata={ settlement_date, source:"xendit_poll", net_amount }
 settlement.sync_skipped         # _auditSyncSkip_internal — sync cron ran and found zero settled rows (expected pre-KYB). actor=system; source=system; no entity_id; metadata={ reason, ... }
+# v2.0 owner auth plane (ADR-052; all source=system)
+owner.bind_link_issued          # issueOwnerBindLink action — manager or existing owner issued a telegram_bind token to an owner staff; metadata={ staff_id, expires_at }
+owner.telegram_bound            # /start <token> redeemed in the owner's private DM — staff.telegram_user_id written; metadata={ telegram_user_id }
+owner.otp_requested             # requestOwnerOtp action — 6-digit OTP minted and sent to owner's private DM; metadata={ staff_id, device_id }
+owner.otp_failed                # verifyOwnerOtp action — wrong OTP entered; metadata={ staff_id, fail_count }. Does NOT touch pos_auth_attempts (cockpit isolation, SEC-07)
+owner.login                     # verifyOwnerOtp action (success) — kind:"cockpit" staff_sessions row created; metadata={ staff_id, device_id }
+owner.logout                    # cockpit logout action — staff_sessions row ended; metadata={ staff_id, session_id }
+owner.device_remembered         # remember-device checkbox at cockpit login — remember_device binding row created; metadata={ staff_id, device_id }
+owner.quick_pin_failed          # quick-PIN miss on remembered-device re-entry; metadata={ staff_id, device_id, fail_count }. Isolated to per-binding counter; does NOT touch pos_auth_attempts or owner_auth_attempts
 ```
 
 ## Relationship to Frollie Pro tables

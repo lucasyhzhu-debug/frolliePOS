@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useSession } from "@/hooks/useSession";
 import { useDeviceId } from "@/hooks/useDeviceId";
@@ -59,6 +59,25 @@ export function RootLayout() {
   // resolving or no active session).
   useStartupReconciliation(session.status === "active" ? session.sessionId : undefined);
 
+  // v2.0 owner-auth (ADR-052): the cockpit is a separate auth plane. /cockpit/*
+  // routes are gated on a COCKPIT session (not a booth one) and carry the owner
+  // amber theme. They live under the same RootLayout subtree but bypass the booth
+  // device-registration + SOP gates entirely (cockpit needs neither a registered
+  // booth device nor a shift checklist). `/cockpit/login` is the cockpit no-session
+  // exemption (mirrors /login for the booth) — see the cockpit branch below.
+  const isCockpit = location.pathname.startsWith("/cockpit");
+  const isCockpitLogin = location.pathname === "/cockpit/login";
+
+  // Apply / remove the owner theme class on <html> for the whole cockpit plane so
+  // every cockpit surface (this login + Spec-3 screens) re-tints via the scoped
+  // .theme-owner token override. Removed off /cockpit/* so the booth keeps phthalo.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isCockpit) root.classList.add("theme-owner");
+    else root.classList.remove("theme-owner");
+    return () => root.classList.remove("theme-owner");
+  }, [isCockpit]);
+
   const isLogin = location.pathname === "/login";
   const onHandoverRoute = location.pathname === "/shift/handover";
   // Single source for the "handover_pending" check — consumed by both the
@@ -78,6 +97,28 @@ export function RootLayout() {
   // active-session visitor on /shift/handover is unaffected (the SOP gate handles them).
   const isHandoverIn = onHandoverRoute && boothPending;
 
+  // ── Cockpit plane gate (v2.0 owner-auth, ADR-052) ──────────────────────────
+  // Handled BEFORE the booth device-registration / session / SOP gates so the
+  // cockpit never inherits them — in particular it must NOT stall on the booth
+  // `isDeviceRegistered` query (cockpit needs no registered booth device), which
+  // would flash the loading fallback on every cockpit load. /cockpit/login is
+  // exempt from the no-session redirect (mirrors /login — no bounce loop). Any
+  // other /cockpit/* route requires an ACTIVE COCKPIT session; a booth/no session
+  // there bounces to /cockpit/login once. (A cockpit session that drifts onto a
+  // booth route is handled by the booth branch below.)
+  if (isCockpit) {
+    if (isCockpitLogin) {
+      return <CockpitShell />;
+    }
+    if (deviceId === null || session.status === "loading") {
+      return <RouteFallback />;
+    }
+    if (session.status === "none" || session.kind !== "cockpit") {
+      return <Navigate to="/cockpit/login" replace />;
+    }
+    return <CockpitShell />;
+  }
+
   // Show loading while: deviceId hasn't resolved, device-registration query is
   // in-flight, session is still validating, OR we're session-less on /shift/handover
   // and booth state hasn't resolved yet. The last clause matters: `isHandoverIn` is
@@ -92,6 +133,16 @@ export function RootLayout() {
     (onHandoverRoute && session.status === "none" && boothState === undefined)
   ) {
     return <RouteFallback />;
+  }
+
+  // A cockpit session must NOT operate booth routes (it has no outlet and cannot
+  // call booth mutations — Item 3). Redirect it back to the cockpit plane once.
+  if (
+    !isLogin &&
+    session.status === "active" &&
+    session.kind === "cockpit"
+  ) {
+    return <Navigate to="/cockpit/login" replace />;
   }
 
   if (!deviceRegistered) {
@@ -163,6 +214,22 @@ export function RootLayout() {
           <Outlet />
         </Suspense>
       </PrinterProvider>
+    </div>
+  );
+}
+
+/**
+ * Cockpit subtree shell (v2.0 owner-auth). Distinct from the booth shell: no
+ * PrinterProvider (cockpit doesn't drive the thermal printer). The owner amber
+ * theme is applied on <html> by the effect above, so bg-background here resolves
+ * to the tinted canvas.
+ */
+function CockpitShell() {
+  return (
+    <div className="min-h-dvh flex flex-col bg-background">
+      <Suspense fallback={<RouteFallback />}>
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

@@ -48,4 +48,34 @@ describe("buildCommandMatcher", () => {
     expect(matcher("/PING")).toBeNull();
     expect(matcher("/Ping")).toBeNull();
   });
+
+  // v2.0 owner-auth (C1): the `/start <token>` deep-link binding needs a command
+  // that head-matches with a trailing token. `acceptsArgs: true` opts a single
+  // command into head-only matching; strict commands are unchanged.
+  it("acceptsArgs command matches with a trailing token; strict commands still don't", () => {
+    const start: CommandRegistration = {
+      name: "start",
+      acceptsArgs: true,
+      dispatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const ping = reg("ping");
+    const matcher = buildCommandMatcher([start, ping]);
+    expect(matcher("/start")?.command.name).toBe("start");
+    expect(matcher("/start abc123")?.command.name).toBe("start");
+    expect(matcher("/start@FrolliePOS_Bot abc123")?.command.name).toBe("start");
+    expect(matcher("/ping now")).toBeNull(); // strict unchanged
+  });
+
+  it("acceptsArgs still rejects a different command name with the same prefix", () => {
+    // `/started` must NOT match a `start` acceptsArgs registration — the head
+    // boundary is the command name followed by EOL, @bot, or whitespace.
+    const start: CommandRegistration = {
+      name: "start",
+      acceptsArgs: true,
+      dispatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const matcher = buildCommandMatcher([start]);
+    expect(matcher("/started")).toBeNull();
+    expect(matcher("/startx token")).toBeNull();
+  });
 });

@@ -525,6 +525,12 @@ export const assertZeroNullOutletIds = internalQuery({
     for (const tableName of outletScopedTables) {
       const rows = await ctx.db.query(tableName as any).collect();
       for (const row of rows) {
+        // v2.0 owner-auth: cockpit sessions (staff_sessions.kind="cockpit") are
+        // deliberately outlet-less — like the 3 excluded tables, their writer
+        // legitimately never stamps an outlet. Skip them so a re-run on a
+        // deployment that has owner cockpit sessions doesn't falsely report the
+        // booth backfill "incomplete".
+        if (tableName === "staff_sessions" && (row as any).kind === "cockpit") continue;
         if ((row as any).outlet_id == null) return false;
       }
     }

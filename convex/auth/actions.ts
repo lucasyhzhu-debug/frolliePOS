@@ -33,6 +33,43 @@ export const _hashPin_internal = internalAction({
 });
 
 /**
+ * Hash a 6-digit cockpit OTP with argon2id (v2.0 owner-auth, ADR-052). Mirrors
+ * `_hashPin_internal` but validates a 6-digit code. OTPs are LOW-entropy, so they
+ * are argon2id-hashed (NOT sha256Hex — that's for high-entropy bind tokens).
+ * Returns the PHC-encoded string. Called by ownerActions.requestOwnerOtp.
+ */
+export const _hashOtpCode_internal = internalAction({
+  args: { code: v.string() },
+  handler: async (_ctx, args): Promise<string> => {
+    if (!/^\d{6}$/.test(args.code)) {
+      throw new Error("OTP must be exactly 6 digits");
+    }
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return argon2id({ password: args.code, salt, ...ARGON2_PARAMS });
+  },
+});
+
+/**
+ * Hash a remembered-device quick-PIN with argon2id (v2.0 owner-auth WS5, ADR-052).
+ * Mirrors `_hashPin_internal`/`_hashOtpCode_internal` but accepts a 4–6 digit
+ * quick-PIN. Quick-PINs are LOW-entropy, so they are argon2id-hashed (NOT
+ * sha256Hex — that's reserved for the high-entropy 32-byte rememberToken).
+ * Returns the PHC-encoded string. Called by ownerActions.registerRememberedDevice.
+ */
+export const _hashQuickPin_internal = internalAction({
+  args: { quickPin: v.string() },
+  handler: async (_ctx, args): Promise<string> => {
+    if (!/^\d{4,6}$/.test(args.quickPin)) {
+      throw new Error("QUICK_PIN_INVALID");
+    }
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return argon2id({ password: args.quickPin, salt, ...ARGON2_PARAMS });
+  },
+});
+
+/**
  * Public surface for PIN login. Runs argon2Verify in the Node action runtime
  * (so the ~200ms verify cost doesn't block the V8 mutation event loop), then
  * commits the session via the internal mutation. ADR-001 + ADR-002 + ADR-003 + ADR-004.
@@ -60,7 +97,7 @@ export const loginWithPin = action({
     pin: v.string(),
     deviceId: v.string(),
   },
-  handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" }> => {
+  handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" }> => {
     // Short-circuit on cache hit BEFORE running argon2
     const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,
@@ -72,7 +109,7 @@ export const loginWithPin = action({
     // _loginCommit_internal idempotency cache is also bypassed.
     let commitKey = args.idempotencyKey;
     if (cached) {
-      const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" };
+      const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" };
       const live = await ctx.runQuery(api.auth.public.getSession, { sessionId: parsed.sessionId });
       if (live) return parsed; // session still valid — replay cache
       // Session is dead. Use a derived commit key so the stale commit-level

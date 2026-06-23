@@ -18,14 +18,56 @@ import { Id } from "../_generated/dataModel";
 export async function requireSession(
   ctx: QueryCtx | MutationCtx,
   sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager"; outlet_id: Id<"outlets"> }> {
+): Promise<{ staffId: Id<"staff">; deviceId: string; role: "staff" | "manager" | "owner"; outlet_id: Id<"outlets"> }> {
   const s = await ctx.db.get(sessionId);
   if (!s || s.ended_at != null) throw new Error("NO_SESSION");
   const staff = await ctx.db.get(s.staff_id);
   if (!staff || !staff.active) throw new Error("NO_SESSION");
-  // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped. Absent ⇒ throw.
+  // v2.0 owner-auth (C5): a cockpit session must NEVER authenticate a booth
+  // operation. Guard BEFORE the outlet check — a cockpit session carries no
+  // outlet, so if SESSION_NO_OUTLET ran first it would mask the real reason
+  // (wrong plane). NOT_BOOTH_SESSION must precede SESSION_NO_OUTLET. (ADR-052)
+  if ((s.kind ?? "booth") !== "booth") throw new Error("NOT_BOOTH_SESSION");
+  // Booth sessions must be outlet-stamped (ADR-051). Cockpit sessions (kind="cockpit")
+  // are outlet-less — callers that want cockpit sessions should NOT call requireSession.
   if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
-  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role, outlet_id: s.outlet_id };
+  return { staffId: s.staff_id, deviceId: s.device_id, role: staff.role, outlet_id: s.outlet_id as Id<"outlets"> };
+}
+
+/**
+ * Sliding idle-timeout for cockpit (owner) sessions. A cockpit session whose
+ * last_active_at is older than this is treated as expired (re-auth required).
+ * Booth sessions have no idle timeout (ADR-003) — this applies to cockpit only.
+ */
+export const COCKPIT_IDLE_MS = 30 * 60 * 1000; // 30 min
+
+/**
+ * Resolve a cockpit (owner) session — the third auth plane (ADR-052,
+ * "OTP authorises MANAGE"). Distinct from requireSession (booth): cockpit
+ * sessions carry NO outlet_id, are owner-role only, and are idle-timeout gated.
+ *
+ * Throws:
+ *  - NO_SESSION: missing / ended session, or inactive / non-owner staff.
+ *  - NOT_COCKPIT_SESSION: a booth session passed to a cockpit gate (cross-plane).
+ *  - SESSION_IDLE_TIMEOUT: last_active_at older than COCKPIT_IDLE_MS.
+ */
+export async function requireCockpitSession(
+  ctx: QueryCtx | MutationCtx,
+  sessionId: Id<"staff_sessions">,
+): Promise<{ staffId: Id<"staff">; deviceId: string }> {
+  const s = await ctx.db.get(sessionId);
+  if (!s || s.ended_at != null) throw new Error("NO_SESSION");
+  // Cross-plane guard: a booth session must never authenticate a cockpit op.
+  if ((s.kind ?? "booth") !== "cockpit") throw new Error("NOT_COCKPIT_SESSION");
+  const staff = await ctx.db.get(s.staff_id);
+  if (!staff || !staff.active || staff.role !== "owner") throw new Error("NO_SESSION");
+  // Fail-closed: a cockpit session always carries last_active_at (set at commit),
+  // so an absent anchor is a malformed row — treat it as timed-out rather than
+  // always-live, so it can never bypass the idle gate.
+  if (s.last_active_at == null || Date.now() - s.last_active_at > COCKPIT_IDLE_MS) {
+    throw new Error("SESSION_IDLE_TIMEOUT");
+  }
+  return { staffId: s.staff_id, deviceId: s.device_id };
 }
 
 export async function requireManagerSession(

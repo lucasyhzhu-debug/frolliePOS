@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { buildHandleTelegramWebhook } from "./telegram/webhook";
 import { buildRegistryCommands } from "./telegram/registryCommands";
 import { buildActivatePosCommand } from "./telegram/activatePos";
+import { buildStartBindingCommand } from "./telegram/startBinding";
 import { xenditWebhook } from "./payments/webhook";
 import { handleReceiptRoute } from "./receipts/http";
 import { opsErrorRoute } from "./ops/http";
@@ -20,7 +21,11 @@ http.route({
   method: "POST",
   handler: buildHandleTelegramWebhook(
     (scheduler) => [
-      ...buildRegistryCommands(scheduler),
+      // v2.0 owner-auth (WS2): the arg-aware `/start <token>` binding REPLACES
+      // the registry's bare `/start` — filter it out so exactly ONE `start`
+      // registration (the arg-aware one) is in the final list. `/register` stays.
+      ...buildRegistryCommands(scheduler).filter((c) => c.name !== "start"),
+      ...buildStartBindingCommand(scheduler),
       ...buildActivatePosCommand(scheduler),
     ],
     { trackLastSeen: true },

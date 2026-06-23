@@ -2,6 +2,22 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-23 — v2.0 Owner auth plane (Telegram-OTP cockpit login)
+
+**Scope:** Third auth plane extending ADR-029 (token=VIEW; PIN=ACT; **OTP=MANAGE** — ADR-052). Cockpit sessions are outlet-unscoped; booth resolvers reject them with `NOT_BOOTH_SESSION`. Task 7 FE (cockpit login UI) ships separately pending owner accent-colour pick.
+
+- **3 new tables** (`owner_auth_otp`, `owner_auth_bindings`, `owner_auth_attempts`), all owned by `convex/auth/`. See SCHEMA.md for full field detail.
+- **`staff.role` gains `"owner"`** (promoted via `setStaffRole` manager-PIN only; `createStaff` never mints owners). Owner bypasses `staff_outlet_access` — implicit access to all outlets. `staff.telegram_user_id?: number` added (written by `/start <token>` binding), with `by_telegram_user_id` index.
+- **`staff_sessions` gains `kind?: "booth" | "cockpit"`** (absent ⇒ booth for backward-compat) and `last_active_at?: number` (cockpit idle-timeout anchor). `outlet_id` intentionally absent on cockpit sessions — this is the [SPEC-1 AMENDMENT] that relaxes the Spec-1 "outlet required" invariant for cockpit rows; booth session integrity is preserved by the runtime `SESSION_NO_OUTLET` throw in `requireSession`; `assertZeroNullOutletIds` excludes cockpit rows.
+- **OTP flow** — `requestOwnerOtp` (action): resolve owner by `staff.code`; confirm `telegram_user_id` bound; mint 6-digit OTP; store `code_hash`; deliver to private DM via `chatIdOverride` (`owner_otp` template). `verifyOwnerOtp` (action): constant-time compare; on success mint `kind: "cockpit"` session; on miss increment `fail_count` (cap 5 → invalidate, force re-request). Rate-limited via `owner_auth_attempts` (isolated from booth `pos_auth_attempts` per SEC-07).
+- **Telegram binding** — single-use deep-link `https://t.me/<TELEGRAM_BOT_USERNAME>?start=<token>`. Token stored in `owner_auth_bindings` (kind: `"telegram_bind"`, 60-min TTL, hashed). Bot webhook processes `/start <token>`: verifies token, writes `staff.telegram_user_id`, emits `owner.telegram_bound`. New env var: `TELEGRAM_BOT_USERNAME` (required on both dev + prod).
+- **Remembered-device quick-PIN** — optional; `owner_auth_bindings` row (kind: `"remember_device"`, ~30d TTL) carries `quick_pin_hash` + per-binding lockout counters (`quick_pin_fail_count`, `quick_pin_locked_until`). Isolated triple-silo: misses never touch `pos_auth_attempts` or `owner_auth_attempts`.
+- **Cross-plane guard (verify-hardening)** — `requireSession` + `_resolveSession_internal` + `_resolveSessionRole_internal` all reject cockpit sessions with `NOT_BOOTH_SESSION` before the outlet check. Cockpit sessions can never call booth mutations.
+- **New cron** — `owner-auth-housekeeping` daily 03:10 WIB / 20:10 UTC → `auth.internal._purgeOwnerAuthHousekeeping_internal` (purges expired/consumed OTP rows + expired/redeemed binding rows).
+- **8 new audit verbs** (all `source: "system"`): `owner.bind_link_issued`, `owner.telegram_bound`, `owner.otp_requested`, `owner.otp_failed`, `owner.login`, `owner.logout`, `owner.device_remembered`, `owner.quick_pin_failed`. OTP code REDACTED from `telegram_log`.
+- **Owner theme** — cockpit plane scoped under `.theme-owner` CSS token override for visual distinction from booth: **amber/gold** canvas (bg `#231905`, card `#33270F`, accent `#E9B43C`) vs. booth phthalo-green + teal. Ref: `docs/superpowers/specs/2026-06-23-cockpit-login-accent-mockups.html`.
+- **`setStaffRole` expanded** — now accepts `"owner"` (both `staff/actions.ts` + `_setStaffRoleCommit_internal`). Owner staff-management (cross-outlet roster, access grants) is Spec-3 territory.
+
 ## 2026-06-22 — v2.0 Multi-outlet foundation (additive data plane)
 
 **Scope:** This phase is purely additive — `outlet_id` is `optional` on all new indexes, old indexes are kept alongside new `by_outlet_*` ones, and session scoping is window-tolerant (default-outlet fallback). The enforce step (required flip, index drop, hard `SESSION_NO_OUTLET` / `DEVICE_HAS_NO_OUTLET` throws) is a documented follow-up gated on prod backfill completion (`assertZeroNullOutletIds`).

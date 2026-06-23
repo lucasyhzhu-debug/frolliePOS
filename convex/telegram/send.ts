@@ -15,6 +15,7 @@ import {
   renderSystemError,
   renderTxnTicker,
   renderStaffShiftSignoff,
+  renderOwnerOtp,
   type RenderedMessage,
   type LowStockAlertPayload,
   type RecountNoticePayload,
@@ -23,6 +24,7 @@ import {
   type SystemErrorPayload,
   type TxnTickerPayload,
   type StaffShiftSignoffPayload,
+  type OwnerOtpPayload,
 } from "../lib/telegramHtml";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ export const sendTemplate = action({
       v.literal("system_error"),        // v1.0.1 ops alert
       v.literal("txn_ticker"),          // v1.0.1 sales ticker
       v.literal("staff_shift_signoff"), // v1.2 #6 per-shift summary → founders
+      v.literal("owner_otp"),           // v2.0 cockpit login OTP DM (ADR-052)
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -155,6 +158,8 @@ export const sendTemplate = action({
         endedBy: v.union(v.literal("self"), v.literal("manager")),
         outgoingUncounted: v.optional(v.boolean()),
       }),
+      // owner_otp — matches OwnerOtpPayload in lib/telegramHtml.ts
+      v.object({ code: v.string(), expires_minutes: v.number() }),
     ),
     idempotencyKey: v.string(),
     disableNotification: v.optional(v.boolean()),
@@ -254,6 +259,9 @@ export const sendTemplate = action({
       case "staff_shift_signoff":
         rendered = renderStaffShiftSignoff(args.payload as StaffShiftSignoffPayload);
         break;
+      case "owner_otp":
+        rendered = renderOwnerOtp(args.payload as OwnerOtpPayload);
+        break;
     }
 
     // Step 4: send to Telegram
@@ -298,10 +306,21 @@ export const sendTemplate = action({
       );
     }
 
-    // Step 6: keep the outbound debug trail
+    // Step 6: keep the outbound debug trail.
+    // C3 (ADR-052): an owner_otp DM carries a low-entropy login code in
+    // body.text — NEVER persist it to telegram_log. Redact the text and keep
+    // only response.ok so the debug trail stays useful without leaking the code.
+    const redacted = args.kind === "owner_otp";
     await ctx.runMutation(internal.telegram.internal.logOutbound, {
       template_kind: args.kind,
-      payload_json: JSON.stringify({ request: body, response: responseJson }),
+      payload_json: JSON.stringify(
+        redacted
+          ? {
+              request: { ...body, text: "[redacted owner_otp]" },
+              response: { ok: responseJson?.ok },
+            }
+          : { request: body, response: responseJson },
+      ),
       message_id: messageId,
     });
 
