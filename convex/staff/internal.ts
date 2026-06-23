@@ -596,7 +596,7 @@ export const _createStaffCommit_internal = internalMutation({
   >(
     "staff.createStaff",
     async (ctx, args) => {
-      const { staffId: mgrId, deviceId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId
+      const { staffId: mgrId, deviceId, outlet_id: mgrOutletId } = await requireManagerSession(ctx, args.sessionId); // defensive — also provides mgrId/deviceId/outlet
       // Allocate next S-NNNN. Reading all staff codes inside the mutation makes
       // the read part of the OCC read-set: a concurrent createStaff that also
       // allocated will conflict and retry, so codes never collide (ADR-031 server-time
@@ -615,10 +615,23 @@ export const _createStaffCommit_internal = internalMutation({
         name: args.name, pin_hash: args.pin_hash, role: args.role,
         active: true, created_at: Date.now(), code,
       });
+      // v2.0 Task 12 (ENFORCE): login now asserts a staff_outlet_access row
+      // (NO_OUTLET_ACCESS otherwise). Grant the new staffer access to the
+      // creating manager's outlet so they can log in immediately — mirrors the
+      // backfill (_insertStaffOutletAccess_internal) for pre-existing staff and
+      // the _grantOutletAccess_internal row shape. (staff module is ALLOWLIST-ed
+      // for the auth-owned staff_outlet_access table — ADR-034.)
+      await ctx.db.insert("staff_outlet_access", {
+        staff_id: newId,
+        outlet_id: mgrOutletId,
+        granted_at: Date.now(),
+        granted_by: mgrId,
+      });
       await logAudit(ctx, {
         actor_id: mgrId, action: "staff.created",
         entity_type: "staff", entity_id: newId,
         source: "booth_inline", device_id: deviceId,
+        metadata: { outlet_id: mgrOutletId },
       });
       return { _id: newId, name: args.name, role: args.role, code };
     },

@@ -494,10 +494,13 @@ export const _loadCursor_internal = internalQuery({
 export const assertZeroNullOutletIds = internalQuery({
   args: {},
   handler: async (ctx): Promise<boolean> => {
+    // v2.0 Task 12 (ENFORCE): excludes the 3 deliberately-OPTIONAL tables
+    // (pos_auth_attempts, registered_devices, pos_error_reports — see their
+    // schema comments). Their writers legitimately don't stamp outlet, so once
+    // any new such row is written post-deploy a scan would falsely report the
+    // migration "incomplete". This assert verifies the REQUIRED tables only.
     const outletScopedTables = [
       "staff_sessions",
-      "pos_auth_attempts",
-      "registered_devices",
       "pos_inventory_skus",
       "pos_products",
       "pos_product_components",
@@ -517,7 +520,6 @@ export const assertZeroNullOutletIds = internalQuery({
       "pos_shift_events",
       "pos_settings",
       "pos_recount_state",
-      "pos_error_reports",
     ] as const;
 
     for (const tableName of outletScopedTables) {

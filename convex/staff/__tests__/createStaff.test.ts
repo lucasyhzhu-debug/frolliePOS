@@ -20,4 +20,24 @@ describe("staff code allocation", () => {
       ctx.db.query("staff").filter((q) => q.eq(q.field("name"), "New")).first());
     expect(created!.code).toBe("S-0008");
   });
+
+  // v2.0 Task 12 (ENFORCE): login asserts a staff_outlet_access row, so the
+  // create-staff flow MUST grant the new staffer access to the creating
+  // manager's outlet — else they'd hit NO_OUTLET_ACCESS at first login.
+  it("grants the new staff access to the creating manager's outlet", async () => {
+    const t = convexTest(schema);
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const { _id: newId } = await t.mutation(
+      internal.staff.internal._createStaffCommit_internal,
+      { idempotencyKey: "k1", sessionId, name: "New", role: "staff", pin_hash: "h" },
+    );
+    const access = await t.run((ctx) =>
+      ctx.db
+        .query("staff_outlet_access")
+        .withIndex("by_staff_outlet", (q) =>
+          q.eq("staff_id", newId).eq("outlet_id", outletId),
+        )
+        .first());
+    expect(access).not.toBeNull();
+  });
 });
