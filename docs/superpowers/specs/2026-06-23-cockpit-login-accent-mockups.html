@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Cockpit login — owner theme options</title>
+<style>
+  /* Booth reference tokens (src/index.css .dark, phthalo) */
+  :root{
+    --page:#0c1f1a;            /* page behind everything (deep phthalo) */
+    --booth-screen:#102821;    /* phthalo paper */
+    --booth-surface:#1E4740;
+    --ink:#F1E9D8;             /* warm ink */
+    --border:rgba(241,233,216,0.10);
+    --citrus:#F9A84A;
+    --radius:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:40px 24px 80px;
+  }
+  .wrap{max-width:1240px;margin:0 auto}
+  .kicker{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#8aa39a;font-weight:600}
+  h1{font-size:26px;margin:6px 0 6px;font-weight:700;letter-spacing:-.01em}
+  .lede{color:#9fb1a8;max-width:820px;line-height:1.55;margin:0 0 14px;font-size:15px}
+  .lede b{color:var(--ink)}
+  .assume{color:#9fb1a8;font-size:13px;line-height:1.5;border-left:2px solid var(--border);padding-left:12px;margin:0 0 28px;max-width:820px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+  @media(max-width:1100px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:620px){.grid{grid-template-columns:1fr}}
+
+  /* Each tile carries its OWN theme via inline vars:
+     --screen (canvas), --surface (lifted), --acc, --acc-ink, --acc-soft, --tile-ink, --mut */
+  .tile{
+    border-radius:26px;
+    padding:16px;
+    background:
+      radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--acc) 22%, transparent) 0%, transparent 55%),
+      var(--screen);
+    border:1px solid var(--border);
+    box-shadow:0 30px 60px -34px rgba(0,0,0,.75);
+    position:relative;
+  }
+  .phone{
+    background:var(--screen);
+    border:1px solid color-mix(in srgb, var(--acc) 16%, var(--border));
+    border-radius:22px;
+    padding:16px 14px 18px;
+  }
+  .ref{position:absolute;top:18px;right:20px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  .topbar{height:7px;width:40%;margin:0 auto 16px;border-radius:99px;background:color-mix(in srgb, var(--acc) 30%, transparent)}
+
+  .glyph{
+    width:52px;height:52px;border-radius:16px;margin:4px auto 14px;
+    display:grid;place-items:center;
+    background:var(--acc-soft);
+    border:1px solid color-mix(in srgb, var(--acc) 45%, transparent);
+  }
+  .glyph svg{width:25px;height:25px;stroke:var(--acc);fill:none;stroke-width:2}
+  .eyebrow{text-align:center;font-size:11px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;color:var(--acc)}
+  .title{text-align:center;font-size:20px;font-weight:700;margin:6px 0 6px;letter-spacing:-.01em;color:var(--tile-ink)}
+  .sub{text-align:center;color:var(--mut);font-size:13px;line-height:1.45;margin:0 auto 16px;max-width:230px}
+  .tg{color:var(--tile-ink);font-weight:600}
+
+  .dots{display:flex;gap:11px;justify-content:center;margin:4px 0 12px}
+  .dot{width:13px;height:13px;border-radius:99px;border:1.5px solid color-mix(in srgb, var(--acc) 30%, var(--border))}
+  .dot.on{background:var(--acc);border-color:var(--acc);box-shadow:0 0 12px var(--acc-soft)}
+
+  .field{display:flex;align-items:center;gap:7px;justify-content:center;font-size:12.5px;margin:2px 0 14px;min-height:18px;color:var(--acc)}
+  .field .ic{width:15px;height:15px;border-radius:99px;display:inline-grid;place-items:center;font-size:10px;font-weight:800;background:var(--acc-soft);color:var(--acc)}
+
+  .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0 4px 14px}
+  .key{
+    background:var(--surface);border:1px solid var(--border);border-radius:13px;
+    padding:12px 0;text-align:center;font-size:18px;font-weight:600;color:var(--tile-ink);
+  }
+  .key.blank{background:transparent;border-color:transparent}
+  .key.fn{color:var(--mut);font-size:13px}
+
+  .cta{
+    background:var(--acc);color:var(--acc-ink);
+    border:none;border-radius:13px;width:100%;padding:14px 0;
+    font-size:15px;font-weight:700;cursor:pointer;
+    box-shadow:0 12px 26px -12px var(--acc);
+  }
+  .ghost{display:block;text-align:center;margin:13px auto 0;font-size:12.5px;color:var(--mut);text-decoration:underline;text-underline-offset:3px}
+
+  .caption{margin:16px 4px 2px;text-align:center}
+  .label{font-weight:700;color:var(--tile-ink);font-size:14px}
+  .hexrow{display:flex;gap:8px;justify-content:center;align-items:center;font-size:12px;color:var(--mut);margin-top:3px}
+  .sw{display:inline-flex;gap:4px}
+  .sw i{width:12px;height:12px;border-radius:4px;border:1px solid var(--border);display:inline-block}
+  .why{color:var(--mut);font-size:12px;line-height:1.45;margin-top:7px;max-width:240px;margin-left:auto;margin-right:auto}
+
+  .note{margin-top:34px;color:#9fb1a8;font-size:13px;line-height:1.6;border-left:2px solid var(--border);padding-left:14px;max-width:860px}
+  .note b{color:var(--ink)}
+  code{background:rgba(241,233,216,.06);padding:1px 5px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">v2.0 · Owner auth plane · ADR-052 · round 2</div>
+  <h1>Owner cockpit theme — tinted canvas options</h1>
+  <p class="lede">Per your note: the owner plane gets its <b>own tinted canvas</b>, not just an accent — so every Owner-level interface (this login + all Spec-3 cockpit screens) is unmistakably <i>not the booth</i>. The <b>booth stays phthalo-green + teal</b> (reference, far left). Each owner option below is a full dark theme in its hue.</p>
+  <p class="assume">Assumption I made (tell me to push further or pull back): the owner canvas is a <b>deep, desaturated tint</b> of the hue — clearly a different environment, but still a calm dark surface so a 6-digit keypad + inline errors stay legible. If you want it more saturated / more obviously coloured, say so.</p>
+
+  <div class="grid">
+
+    <!-- BOOTH reference: phthalo + teal -->
+    <div class="tile" style="--screen:#102821;--surface:#1E4740;--acc:#14B8A6;--acc-ink:#06241F;--acc-soft:rgba(20,184,166,.16);--tile-ink:#F1E9D8;--mut:#A9A290">
+      <div class="ref">booth · reference</div>
+      <div class="topbar"></div>
+      <div class="glyph"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+      <div class="eyebrow">Staff · Booth</div>
+      <div class="title">Enter your PIN</div>
+      <div class="sub">Tap your name, then your 4-digit PIN.</div>
+      <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span></div>
+      <div class="field">&nbsp;</div>
+      <div class="keys">
+        <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+        <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+        <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+        <div class="key blank"></div><div class="key">0</div><div class="key fn">⌫</div>
+      </div>
+      <button class="cta">Verify</button>
+      <div class="caption">
+        <div class="label">Booth — phthalo + teal</div>
+        <div class="hexrow"><span class="sw"><i style="background:#102821"></i><i style="background:#14B8A6"></i></span> #102821 · #14B8A6</div>
+        <div class="why">Unchanged staff till. Shown so you can judge the owner themes against it.</div>
+      </div>
+    </div>
+
+    <!-- IRIS theme -->
+    <div class="tile" style="--screen:#15112E;--surface:#221B43;--acc:#8B7BFF;--acc-ink:#120B2A;--acc-soft:rgba(139,123,255,.20);--tile-ink:#ECE9FB;--mut:#9F98C4">
+      <div class="ref">option A</div>
+      <div class="topbar"></div>
+      <div class="glyph"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 1 1-5-7.8"/><path d="M21 4l-9 9-3-3"/></svg></div>
+      <div class="eyebrow">Owner · Cockpit</div>
+      <div class="title">Enter your code</div>
+      <div class="sub">We sent a 6-digit code to your <span class="tg">Telegram</span>.</div>
+      <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="field"><span class="ic">↻</span> Code expires in 4:32</div>
+      <div class="keys">
+        <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+        <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+        <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+        <div class="key blank"></div><div class="key">0</div><div class="key fn">⌫</div>
+      </div>
+      <button class="cta">Verify</button>
+      <a class="ghost">Resend code</a>
+      <div class="caption">
+        <div class="label">Iris — violet canvas</div>
+        <div class="hexrow"><span class="sw"><i style="background:#15112E"></i><i style="background:#8B7BFF"></i></span> #15112E · #8B7BFF</div>
+        <div class="why">Furthest from booth green; reads "elevated owner." Calm, premium, unmistakable.</div>
+      </div>
+    </div>
+
+    <!-- AMBER theme -->
+    <div class="tile" style="--screen:#231905;--surface:#33270F;--acc:#E9B43C;--acc-ink:#241B06;--acc-soft:rgba(233,180,60,.18);--tile-ink:#F6ECD6;--mut:#C0AE86">
+      <div class="ref">option B</div>
+      <div class="topbar"></div>
+      <div class="glyph"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 1 1-5-7.8"/><path d="M21 4l-9 9-3-3"/></svg></div>
+      <div class="eyebrow">Owner · Cockpit</div>
+      <div class="title">Enter your code</div>
+      <div class="sub">We sent a 6-digit code to your <span class="tg">Telegram</span>.</div>
+      <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="field"><span class="ic">↻</span> Code expires in 4:32</div>
+      <div class="keys">
+        <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+        <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+        <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+        <div class="key blank"></div><div class="key">0</div><div class="key fn">⌫</div>
+      </div>
+      <button class="cta">Verify</button>
+      <a class="ghost">Resend code</a>
+      <div class="caption">
+        <div class="label">Amber — warm gold canvas</div>
+        <div class="hexrow"><span class="sw"><i style="background:#231905"></i><i style="background:#E9B43C"></i></span> #231905 · #E9B43C</div>
+        <div class="why">"Premium owner" warmth. Distinct, but the hue family is nearest the booth citrus accent.</div>
+      </div>
+    </div>
+
+    <!-- CORAL theme -->
+    <div class="tile" style="--screen:#2A120F;--surface:#3A1C18;--acc:#F58379;--acc-ink:#2A0A08;--acc-soft:rgba(245,131,121,.18);--tile-ink:#F8E7E3;--mut:#C7A39D">
+      <div class="ref">option C</div>
+      <div class="topbar"></div>
+      <div class="glyph"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 1 1-5-7.8"/><path d="M21 4l-9 9-3-3"/></svg></div>
+      <div class="eyebrow">Owner · Cockpit</div>
+      <div class="title">Enter your code</div>
+      <div class="sub">We sent a 6-digit code to your <span class="tg">Telegram</span>.</div>
+      <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="field"><span class="ic">↻</span> Code expires in 4:32</div>
+      <div class="keys">
+        <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+        <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+        <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+        <div class="key blank"></div><div class="key">0</div><div class="key fn">⌫</div>
+      </div>
+      <button class="cta">Verify</button>
+      <a class="ghost">Resend code</a>
+      <div class="caption">
+        <div class="label">Coral — warm rose canvas</div>
+        <div class="hexrow"><span class="sw"><i style="background:#2A120F"></i><i style="background:#F58379"></i></span> #2A120F · #F58379</div>
+        <div class="why">True complement of teal — boldest, most energetic owner environment.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <b>What changed this round:</b> the owner options now theme the <b>whole canvas</b> (background + lifted surfaces + accent), not just an accent on the booth's green. This becomes the <b>owner theme</b> for the entire cockpit plane — the login here and every Spec-3 cockpit screen (dashboard, settings) inherit it, so an owner always knows which plane they're in. Booth/staff UI stays phthalo+teal. The plan (<code>docs/superpowers/plans/2026-06-22-v2.0-owner-auth-plane.md</code>) is updated to specify the owner-theme token set.<br><br>
+    Pick a letter, or pin a note (e.g. "more saturated", "lighter cards") and Send.
+  </div>
+</div>
+
+<script>
+  window.__PROOFING_CONFIG = {
+    sendPrefix: "proofing-cockpit-accent-",
+    specPath: "docs/superpowers/plans/2026-06-22-v2.0-owner-auth-plane.md"
+  };
+</script>
+<script src="proofing-room.js"></script>
+</body>
+</html>
