@@ -3,7 +3,7 @@ import {
   escapeHtml,
   formatIdr,
   renderManualPaymentApproval,
-  renderFoundersSummary,
+  renderOwnersSummary,
   renderStaffPinReset,
   makeNonce,
 } from "./telegramHtml";
@@ -72,9 +72,9 @@ describe("renderManualPaymentApproval", () => {
   });
 });
 
-describe("renderFoundersSummary", () => {
+describe("renderOwnersSummary", () => {
   test("produces formatted text with sales, txn count, flagged", () => {
-    const result = renderFoundersSummary({
+    const result = renderOwnersSummary({
       dateLabel: "Selasa, 27 Mei",
       totalSalesIdr: 4275000,
       txnCount: 42,
@@ -88,7 +88,7 @@ describe("renderFoundersSummary", () => {
   });
 
   test("escapes the dateLabel", () => {
-    const result = renderFoundersSummary({
+    const result = renderOwnersSummary({
       dateLabel: "<test>",
       totalSalesIdr: 1,
       txnCount: 1,

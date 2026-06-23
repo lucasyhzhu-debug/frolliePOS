@@ -380,6 +380,7 @@ async function checkLowStockOne(
         low_threshold: sku.low_threshold,
       },
       idempotencyKey: `lowstock:${skuId}:${now}`,
+      outletId: outlet_id,
     });
   } else if (!below && flag) {
     await ctx.db.delete(flag._id);
@@ -565,21 +566,17 @@ export const _recordSpoilage_internal = internalMutation({
  * survives later SKU renames (mirrors voucher code_snapshot rationale).
  */
 export const _runStockRecon_internal = internalMutation({
-  args: {},
-  handler: async (ctx): Promise<{
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, args): Promise<{
     scanned: number;
     drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }>;
   }> => {
-    // v2.0 Task 11: resolve the default outlet so cron reads are outlet-scoped.
-    // Task 12 (ENFORCE): an active outlet always exists post-backfill — throw if not.
-    const defaultOutlet = await ctx.runQuery(
-      internal.outlets.internal._getDefaultOutlet_internal,
-      {},
-    );
-    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
-    const outletId = defaultOutlet._id;
+    // v2.0 Spec-4 Task 6: outletId is now passed by the cron caller which iterates
+    // all active outlets. The old _getDefaultOutlet_internal lookup is deleted here;
+    // the cron owns outlet enumeration so each recon run is strictly per-outlet.
+    const outletId = args.outletId;
 
-    // Scope to the default outlet's active SKUs.
+    // Scope to this outlet's active SKUs.
     const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {
       outletId,
     });

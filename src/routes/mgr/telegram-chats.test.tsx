@@ -316,15 +316,15 @@ describe("MgrTelegramChats — role assignment", () => {
     const trigger = screen.getByRole("combobox", { name: /role select/i });
     fireEvent.click(trigger);
 
-    await waitFor(() => expect(screen.getByText("founders")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("founders"));
+    await waitFor(() => expect(screen.getByText("owners")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("owners"));
 
     await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
 
     const args = stubAssignRole.mock.calls[0][0] as Record<string, unknown>;
     expect(args.sessionId).toBe("sess-mgr");
     expect(args.chatId).toBe("123456");
-    expect(args.role).toBe("founders");
+    expect(args.role).toBe("owners");
     expect(typeof args.idempotencyKey).toBe("string");
     expect((args.idempotencyKey as string).length).toBeGreaterThan(0);
   });
@@ -334,8 +334,8 @@ describe("MgrTelegramChats — role assignment", () => {
 
     const trigger = screen.getByRole("combobox", { name: /role select/i });
     fireEvent.click(trigger);
-    await waitFor(() => expect(screen.getByText("founders")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("founders"));
+    await waitFor(() => expect(screen.getByText("owners")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("owners"));
 
     await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
     const key = stubAssignRole.mock.calls[0][0].idempotencyKey as string;

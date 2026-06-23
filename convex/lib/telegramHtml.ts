@@ -153,10 +153,6 @@ export function renderOwnersSummary(p: FoundersSummaryPayload): RenderedMessage 
   return { text: lines.join("\n") };
 }
 
-/** @deprecated renamed to renderOwnersSummary — kept as alias for any call sites
- *  that haven't been updated yet; remove after migration window. */
-export const renderFoundersSummary = renderOwnersSummary;
-
 export type StaffPinResetPayload = {
   staff_name: string;
   staff_code: string;
