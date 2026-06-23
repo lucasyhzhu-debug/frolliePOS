@@ -22,12 +22,14 @@ beforeEach(() => {
 
 it("no-ops with audited skip when the founders toggle is off", async () => {
   const t = convexTest(schema);
-  await t.run((ctx) =>
-    ctx.db.insert("pos_settings", {
+  await t.run(async (ctx) => {
+    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+    await ctx.db.insert("pos_settings", {
       founders_summary_enabled: false,
       updated_at: Date.now(),
-    }),
-  );
+      outlet_id: outletId,
+    } as any);
+  });
   const res = await t.action(
     internal.telegram.foundersSummary.sendFoundersSummary,
     {},
@@ -42,12 +44,14 @@ it("no-ops with audited skip when the founders toggle is off", async () => {
 it("sends successfully when toggle is on and founders chat is bound", async () => {
   const t = convexTest(schema);
   // Toggle defaults to true (no row needed), but insert a row to be explicit.
-  await t.run((ctx) =>
-    ctx.db.insert("pos_settings", {
+  await t.run(async (ctx) => {
+    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+    await ctx.db.insert("pos_settings", {
       founders_summary_enabled: true,
       updated_at: Date.now(),
-    }),
-  );
+      outlet_id: outletId,
+    } as any);
+  });
   await t.run((ctx) =>
     ctx.db.insert("telegramChats", {
       chatId: "-100founders",
@@ -68,6 +72,9 @@ it("sends successfully when toggle is on and founders chat is bound", async () =
 it("defaults to enabled when pos_settings row is absent", async () => {
   // No pos_settings row → founders_summary_enabled defaults to true.
   const t = convexTest(schema);
+  await t.run((ctx) =>
+    ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any),
+  );
   await t.run((ctx) =>
     ctx.db.insert("telegramChats", {
       chatId: "-100founders",
@@ -91,6 +98,9 @@ it("audits skip + returns {skipped: 'role_unbound'} when the founders role is un
   // skips, distinguishing config errors from real Telegram 5xx (send_failed).
   const t = convexTest(schema);
   // No pos_settings row → defaults to enabled.
+  await t.run((ctx) =>
+    ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any),
+  );
   const res = await t.action(internal.telegram.foundersSummary.sendFoundersSummary, {});
   expect(res).toEqual({ skipped: "role_unbound" });
   const audit = await t.run((ctx) => ctx.db.query("audit_log").collect());
@@ -114,6 +124,7 @@ it("audits skip + returns {skipped: 'role_unbound'} when the founders role is un
 });
 
 it("race window closed: chatId resolved once — send uses captured chatId even if role is unbound after resolve", async () => {
+  // NOTE: outlet seeded below before telegramChats insert
   // Behavioral assertion for the chatIdOverride fix (Task 14, v050-be-founders-race):
   //
   // In the old code, sendFoundersSummary called getChatIdByRole (pre-check) then
@@ -141,6 +152,9 @@ it("race window closed: chatId resolved once — send uses captured chatId even 
   );
 
   const t = convexTest(schema);
+  await t.run((ctx) =>
+    ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any),
+  );
   await t.run((ctx) =>
     ctx.db.insert("telegramChats", {
       chatId: seededChatId,
@@ -171,6 +185,9 @@ it("resilient wrapper: surfaces role_unbound skip cleanly (no retry, no throw)",
   // No telegramChats → pre-check skip. The wrapper passes the skip return
   // through without scheduling a retry (config errors don't recover by waiting).
   const t = convexTest(schema);
+  await t.run((ctx) =>
+    ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any),
+  );
   const res = await t.action(
     internal.telegram.foundersSummary.sendFoundersSummaryResilient,
     { attempt: 0 },
@@ -180,6 +197,9 @@ it("resilient wrapper: surfaces role_unbound skip cleanly (no retry, no throw)",
 
 it("resilient wrapper: succeeds when founders chat is bound", async () => {
   const t = convexTest(schema);
+  await t.run((ctx) =>
+    ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any),
+  );
   await t.run((ctx) =>
     ctx.db.insert("telegramChats", {
       chatId: "-100founders",

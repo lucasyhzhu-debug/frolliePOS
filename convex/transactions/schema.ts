@@ -43,7 +43,7 @@ export const transactionsTables = {
     )),
     confirmed_mgr_approver_id: v.optional(v.id("staff")),
     confirmed_manual_reason: v.optional(v.string()),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_status_created", ["status", "created_at"])   // ADR-026 reconciliation
     // by_status_paid_at scopes the founders shift-summary aggregate to paid rows
@@ -71,7 +71,7 @@ export const transactionsTables = {
     // stay schema-valid. All reads go through helper `lineRefundedQty(line) =
     // line.refunded_qty ?? 0`. Patch writes set a number, not undefined.
     refunded_qty: v.optional(v.number()),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_transaction", ["transaction_id"])
     .index("by_outlet_transaction", ["outlet_id", "transaction_id"]),
@@ -82,7 +82,7 @@ export const transactionsTables = {
                                                  //   and the new WIB year takes effect at 17:00 UTC Dec 31.
                                                  //   Booth + accounting + customers all expect WIB calendar.
     next_number: v.number(),                     // monotonic; allocated atomically inside _confirmPaid
-    outlet_id: v.optional(v.id("outlets")),      // v2.0 Stream 4: per-outlet counter; optional during migration window
+    outlet_id: v.id("outlets"),                  // v2.0 Task 12: enforced; per-outlet counter
   })
     .index("by_year", ["year"])
     .index("by_outlet_year", ["outlet_id", "year"]),

@@ -15,10 +15,18 @@ async function seedManagerId(ctx: any) {
   });
 }
 
+async function seedOutlet(ctx: any) {
+  return ctx.db.insert("outlets", {
+    code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+    created_at: Date.now(), created_by: null,
+  });
+}
+
 describe("vouchers/internal._createVoucher_internal", () => {
   it("inserts pos_vouchers row with used_count:0, active:true; audits voucher.created", async () => {
     const t = convexTest(schema);
     const mgrId = await t.run(async (ctx) => seedManagerId(ctx));
+    const outletId = await t.run(async (ctx) => seedOutlet(ctx));
 
     const expiresAt = Date.now() + 30 * 86_400_000;
     const id = await t.mutation(internal.vouchers.internal._createVoucher_internal, {
@@ -30,6 +38,7 @@ describe("vouchers/internal._createVoucher_internal", () => {
       expires_at: expiresAt,
       createdBy: mgrId,
       deviceId: "dev-booth",
+      outletId,
     });
 
     const row = await t.run(async (ctx) => ctx.db.get(id));
@@ -66,6 +75,7 @@ describe("vouchers/internal._createVoucher_internal", () => {
   it("omits optional fields when not supplied (no min_cart_value/max_redemptions/expires_at)", async () => {
     const t = convexTest(schema);
     const mgrId = await t.run(async (ctx) => seedManagerId(ctx));
+    const outletId = await t.run(async (ctx) => seedOutlet(ctx));
 
     const id = await t.mutation(internal.vouchers.internal._createVoucher_internal, {
       code: "FLAT5K",
@@ -73,6 +83,7 @@ describe("vouchers/internal._createVoucher_internal", () => {
       value: 5_000,
       createdBy: mgrId,
       deviceId: "dev-booth",
+      outletId,
     });
 
     const row = await t.run(async (ctx) => ctx.db.get(id));

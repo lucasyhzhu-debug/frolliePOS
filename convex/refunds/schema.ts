@@ -29,7 +29,7 @@ export const refundsTables = {
     settled_at: v.optional(v.number()),
 
     created_at: v.number(),                      // server-set per ADR-031
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     // For receipt rendering: "get all refunds for this txn"
     .index("by_transaction", ["transaction_id"])

@@ -36,7 +36,7 @@ function resolveWindow(
 async function resolveSessionStaff(
   ctx: MutationCtx,
   sessionId: Id<"staff_sessions">,
-): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> | undefined }> {
+): Promise<{ staffId: Id<"staff">; deviceId: string; outlet_id: Id<"outlets"> }> {
   const resolved = await ctx.runQuery(
     internal.auth.internal._resolveSession_internal,
     { sessionId },
@@ -303,7 +303,7 @@ export const commitCart = mutation({
       if (args.voucherCode) {
         const voucher = await ctx.runQuery(
           internal.vouchers.internal._getVoucherByCode_internal,
-          { code: args.voucherCode },
+          { code: args.voucherCode, outletId: outlet_id },
         );
         const result = validateVoucherAgainst(voucher, subtotal, Date.now());
         if (result.valid) {
@@ -337,7 +337,7 @@ export const commitCart = mutation({
         flags,
         staff_id: staffId,
         created_at: Date.now(),
-        ...(outlet_id ? { outlet_id } : {}),
+        outlet_id,
       });
       for (const l of linesWithSnapshot) {
         await ctx.db.insert("pos_transaction_lines", {
@@ -349,7 +349,7 @@ export const commitCart = mutation({
           tax_rate_snapshot: l.tax_rate,
           qty: l.qty,
           line_subtotal: l.unit_price * l.qty,
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
 
@@ -536,14 +536,14 @@ export const cancelAwaitingPayment = mutation({
       // surface the invoice-cancel half of the operation.
       await ctx.runMutation(
         internal.payments.internal._cancelActiveInvoiceForTxn_internal,
-        { txnId: args.txnId, cancel_reason: "txn_cancelled", actor_id: staffId, source: "booth_inline" },
+        { txnId: args.txnId, cancel_reason: "txn_cancelled", actor_id: staffId, source: "booth_inline", outlet_id: txn.outlet_id },
       );
 
       // Cascade-deny any live pending manual_payment_override approvals for
       // this txn so managers can't approve a stale request.
       await ctx.runMutation(
         internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
-        { txnId: args.txnId, reason: "txn_cancelled" },
+        { txnId: args.txnId, reason: "txn_cancelled", outletId: txn.outlet_id },
       );
 
       await logAudit(ctx, {
@@ -598,7 +598,7 @@ export const getTransactionDetail = query({
         .collect(),
       ctx.runQuery(
         internal.refunds.internal._listForTransaction_internal,
-        { transactionId: args.txnId },
+        { transactionId: args.txnId, outletId: txn.outlet_id },
       ),
     ]);
     // Note: receipt_token is intentionally NOT returned. The FE goes through

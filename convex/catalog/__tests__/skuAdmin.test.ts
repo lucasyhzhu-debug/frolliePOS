@@ -7,7 +7,7 @@ import { seedManagerSession } from "../../staff/__tests__/_helpers";
 describe("_createInventorySkuCommit_internal", () => {
   it("inserts an SKU row + audit row on happy path", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const res = await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
       idempotencyKey: "sku-happy:commit",
       mgrId: managerId,
@@ -15,6 +15,7 @@ describe("_createInventorySkuCommit_internal", () => {
       sku: "matcha",
       name: "Matcha cookies",
       low_threshold: 5,
+      outletId,
     });
     expect(res.skuId).toBeDefined();
     const sku = await t.run(async (ctx) => ctx.db.get(res.skuId));
@@ -28,7 +29,7 @@ describe("_createInventorySkuCommit_internal", () => {
 
   it("treats whitespace `code` as not-provided", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const { skuId } = await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
       idempotencyKey: "sku-blank-code:commit",
       mgrId: managerId,
@@ -37,6 +38,7 @@ describe("_createInventorySkuCommit_internal", () => {
       name: "Lotus",
       low_threshold: 0,
       code: "   ",
+      outletId,
     });
     const sku = await t.run(async (ctx) => ctx.db.get(skuId));
     expect(sku?.code).toBeUndefined();
@@ -44,26 +46,26 @@ describe("_createInventorySkuCommit_internal", () => {
 
   it("rejects duplicate sku", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-      idempotencyKey: "dup1:commit", mgrId: managerId, deviceId: "d", sku: "choco", name: "Choco", low_threshold: 0,
+      idempotencyKey: "dup1:commit", mgrId: managerId, deviceId: "d", sku: "choco", name: "Choco", low_threshold: 0, outletId,
     });
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: "dup2:commit", mgrId: managerId, deviceId: "d", sku: "choco", name: "Choco 2", low_threshold: 0,
+        idempotencyKey: "dup2:commit", mgrId: managerId, deviceId: "d", sku: "choco", name: "Choco 2", low_threshold: 0, outletId,
       }),
     ).rejects.toThrow(/SKU_EXISTS/);
   });
 
   it("rejects duplicate code when provided", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-      idempotencyKey: "c1:commit", mgrId: managerId, deviceId: "d", sku: "a", name: "A", low_threshold: 0, code: "X1",
+      idempotencyKey: "c1:commit", mgrId: managerId, deviceId: "d", sku: "a", name: "A", low_threshold: 0, code: "X1", outletId,
     });
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: "c2:commit", mgrId: managerId, deviceId: "d", sku: "b", name: "B", low_threshold: 0, code: "X1",
+        idempotencyKey: "c2:commit", mgrId: managerId, deviceId: "d", sku: "b", name: "B", low_threshold: 0, code: "X1", outletId,
       }),
     ).rejects.toThrow(/CODE_EXISTS/);
   });
@@ -75,42 +77,42 @@ describe("_createInventorySkuCommit_internal", () => {
     ["", "SKU_INVALID"],
   ])("rejects bad sku shape: %s", async (badSku, code) => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: `bad:${badSku}:commit`, mgrId: managerId, deviceId: "d", sku: badSku, name: "N", low_threshold: 0,
+        idempotencyKey: `bad:${badSku}:commit`, mgrId: managerId, deviceId: "d", sku: badSku, name: "N", low_threshold: 0, outletId,
       }),
     ).rejects.toThrow(new RegExp(code));
   });
 
   it("rejects empty / too-long name", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: "n1:commit", mgrId: managerId, deviceId: "d", sku: "x", name: "", low_threshold: 0,
+        idempotencyKey: "n1:commit", mgrId: managerId, deviceId: "d", sku: "x", name: "", low_threshold: 0, outletId,
       }),
     ).rejects.toThrow(/NAME_INVALID/);
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: "n2:commit", mgrId: managerId, deviceId: "d", sku: "y", name: "z".repeat(81), low_threshold: 0,
+        idempotencyKey: "n2:commit", mgrId: managerId, deviceId: "d", sku: "y", name: "z".repeat(81), low_threshold: 0, outletId,
       }),
     ).rejects.toThrow(/NAME_INVALID/);
   });
 
   it.each([-1, 1.5, Number.NaN])("rejects bad low_threshold: %s", async (bad) => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     await expect(
       t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, {
-        idempotencyKey: `lt:${bad}:commit`, mgrId: managerId, deviceId: "d", sku: "ok", name: "OK", low_threshold: bad as number,
+        idempotencyKey: `lt:${bad}:commit`, mgrId: managerId, deviceId: "d", sku: "ok", name: "OK", low_threshold: bad as number, outletId,
       }),
     ).rejects.toThrow(/LOW_THRESHOLD_INVALID/);
   });
 
   it("is idempotent under the same :commit key", async () => {
     const t = convexTest(schema);
-    const { managerId } = await seedManagerSession(t);
+    const { managerId, outletId } = await seedManagerSession(t);
     const args = {
       idempotencyKey: "replay:commit",
       mgrId: managerId,
@@ -118,6 +120,7 @@ describe("_createInventorySkuCommit_internal", () => {
       sku: "replay",
       name: "Replay",
       low_threshold: 0,
+      outletId,
     };
     const first = await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, args);
     const second = await t.mutation(internal.catalog.internal._createInventorySkuCommit_internal, args);

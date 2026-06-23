@@ -3,9 +3,43 @@ import { convexTest } from "convex-test";
 import { createHash } from "node:crypto";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
 
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s).digest("hex");
+}
+
+// v2.0 Task 12 (ENFORCE): _createRequest_internal requires outletId; loginWithPin
+// resolves the outlet from a bound device + asserts staff_outlet_access. Seeds the
+// default outlet (returns its id).
+async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+// Bind device "d" to the outlet + grant the staff access so loginWithPin succeeds.
+async function bindLogin(
+  t: ReturnType<typeof convexTest>,
+  outletId: Id<"outlets">,
+  staffId: Id<"staff">,
+): Promise<void> {
+  await t.run(async (ctx: any) => {
+    const devices = await ctx.db.query("registered_devices").collect();
+    const dev = devices.find((d: any) => d.device_id === "d");
+    if (!dev) {
+      await ctx.db.insert("registered_devices", {
+        device_id: "d", label: "d", activated_by: staffId,
+        activated_at: Date.now(), last_seen_at: Date.now(), active: true,
+        outlet_id: outletId,
+      });
+    }
+    await ctx.db.insert("staff_outlet_access", {
+      staff_id: staffId, outlet_id: outletId, granted_at: 0, granted_by: null,
+    });
+  });
 }
 
 describe("approvals/actions.approveStaffPinReset", () => {
@@ -28,6 +62,8 @@ describe("approvals/actions.approveStaffPinReset", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(mgrId, { code: MGR_CODE });
     });
+    const outletId = await seedOutlet(t);
+    await bindLogin(t, outletId, lucyId);
 
     const rawToken = "raw-token-abc";
     const { requestId } = await t.mutation(
@@ -39,6 +75,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
         triggered_at: Date.now(),
         token_hash: sha256Hex(rawToken),
         token_expires_at: Date.now() + 3_600_000,
+        outletId,
       },
     );
 
@@ -96,6 +133,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(mgrId, { code: MGR_CODE });
     });
+    const outletId = await seedOutlet(t);
 
     const rawToken = "tok";
     await t.mutation(internal.approvals.internal._createRequest_internal, {
@@ -105,6 +143,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
       triggered_at: Date.now(),
       token_hash: sha256Hex(rawToken),
       token_expires_at: Date.now() - 1000, // already expired
+      outletId,
     });
 
     await expect(
@@ -135,6 +174,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(mgrId, { code: MGR_CODE });
     });
+    const outletId = await seedOutlet(t);
 
     const rawToken = "good-token";
     await t.mutation(internal.approvals.internal._createRequest_internal, {
@@ -144,6 +184,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
       triggered_at: Date.now(),
       token_hash: sha256Hex(rawToken),
       token_expires_at: Date.now() + 3_600_000,
+      outletId,
     });
 
     await expect(
@@ -200,6 +241,8 @@ describe("approvals/actions.approveStaffPinReset", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(mgrId, { code: MGR_CODE });
     });
+    const outletId = await seedOutlet(t);
+    await bindLogin(t, outletId, lucyId);
 
     const rawToken = "deny-pin-tok";
     const { requestId } = await t.mutation(
@@ -211,6 +254,7 @@ describe("approvals/actions.approveStaffPinReset", () => {
         triggered_at: Date.now(),
         token_hash: sha256Hex(rawToken),
         token_expires_at: Date.now() + 3_600_000,
+        outletId,
       },
     );
 

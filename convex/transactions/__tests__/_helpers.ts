@@ -49,6 +49,7 @@ export async function seedStaff(
 export async function seedSession(
   t: ReturnType<typeof convexTest>,
   staffId: Id<"staff">,
+  outletId?: Id<"outlets">,
 ): Promise<Id<"staff_sessions">> {
   return await t.run(async (ctx) =>
     ctx.db.insert("staff_sessions", {
@@ -57,6 +58,29 @@ export async function seedSession(
       started_at: 0,
       ended_at: null,
       end_reason: null,
+      // v2.0 Task 12 (ENFORCE): sessions must carry an outlet. Tests that hit
+      // require*Session must pass an outletId (seed one via seedDefaultOutlet).
+      ...(outletId ? { outlet_id: outletId } : {}),
+    } as any),
+  );
+}
+
+/**
+ * v2.0 Task 12 (ENFORCE): grant a staff member access to an outlet so
+ * loginWithPin (and any access-gated path) succeeds. Mirrors the production
+ * staff_outlet_access row written by _grantOutletAccess_internal.
+ */
+export async function seedOutletAccess(
+  t: ReturnType<typeof convexTest>,
+  staffId: Id<"staff">,
+  outletId: Id<"outlets">,
+): Promise<void> {
+  await t.run(async (ctx) =>
+    ctx.db.insert("staff_outlet_access", {
+      staff_id: staffId,
+      outlet_id: outletId,
+      granted_by: staffId,
+      granted_at: 0,
     } as any),
   );
 }

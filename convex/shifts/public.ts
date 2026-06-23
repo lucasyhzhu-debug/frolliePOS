@@ -28,7 +28,7 @@ async function assertBoothState(
   deviceId: string,
   required: BoothState,
   errorCode: string,
-  outletId?: import("../_generated/dataModel").Id<"outlets">,
+  outletId: import("../_generated/dataModel").Id<"outlets">,
 ): Promise<ReturnType<typeof deriveBoothState>> {
   const latest = await ctx.runQuery(
     internal.shifts.internal._latestShiftEvent_internal,
@@ -67,11 +67,13 @@ export const boothState = query({
     staffName: string | null;
     staleAutoclose: boolean;
   }> => {
-    const outletId =
-      (await ctx.runQuery(
-        internal.auth.internal._getDeviceOutletId_internal,
-        { deviceId },
-      )) ?? undefined;
+    // v2.0 Task 12 (ENFORCE): _getDeviceOutletId_internal throws
+    // DEVICE_HAS_NO_OUTLET on an unbound device — the device-binding gate means
+    // an unbound device cannot operate the booth anyway.
+    const outletId = await ctx.runQuery(
+      internal.auth.internal._getDeviceOutletId_internal,
+      { deviceId },
+    );
     const latest = await ctx.runQuery(
       internal.shifts.internal._latestShiftEvent_internal,
       { deviceId, outletId },

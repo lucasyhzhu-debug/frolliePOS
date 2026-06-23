@@ -14,7 +14,11 @@ import { describe, it, expect } from "vitest";
 describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("mints a fresh token + audit row on a tokenless paid txn", async () => {
     const t = convexTest(schema);
-    const { staffId, txnId } = await t.run(async (ctx) => {
+    const { staffId, txnId } = await t.run(async (ctx: any) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-AUDIT", name: "Auditor", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -24,6 +28,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
         subtotal: 50000, voucher_discount: 0, total: 50000,
         flags: 0, staff_id: staffId,
         created_at: Date.now(), paid_at: Date.now(),
+        outlet_id: outletId,
       });
       return { staffId, txnId };
     });
@@ -35,7 +40,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
     expect(token.length).toBe(43);
 
     await t.run(async (ctx) => {
-      const txn = await ctx.db.get(txnId);
+      const txn = await ctx.db.get(txnId) as any;
       expect(txn?.receipt_token).toBe(token);
       const auditRows = await ctx.db
         .query("audit_log")
@@ -47,7 +52,11 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
 
   it("rejects with TXN_NOT_PAID when called on a non-paid txn", async () => {
     const t = convexTest(schema);
-    const { staffId, txnId } = await t.run(async (ctx) => {
+    const { staffId, txnId } = await t.run(async (ctx: any) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-NP", name: "N", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
       });
@@ -55,6 +64,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
         status: "awaiting_payment",
         subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: staffId,
         created_at: Date.now(),
+        outlet_id: outletId,
       });
       return { staffId, txnId };
     });
@@ -67,7 +77,11 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
 
   it("rejects with TXN_NOT_FOUND for a non-existent transaction id", async () => {
     const t = convexTest(schema);
-    const { staffId, fakeId } = await t.run(async (ctx) => {
+    const { staffId, fakeId } = await t.run(async (ctx: any) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       // create then delete a txn to get a valid-shaped but non-existent id
       const staffId = await ctx.db.insert("staff", {
         code: "S-DD", name: "D", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
@@ -75,6 +89,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
       const id = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: staffId,
         created_at: Date.now(), paid_at: Date.now(),
+        outlet_id: outletId,
       });
       await ctx.db.delete(id);
       return { staffId, fakeId: id };
@@ -88,13 +103,18 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
 
   it("is idempotent — second call returns the same token", async () => {
     const t = convexTest(schema);
-    const { staffId, txnId } = await t.run(async (ctx) => {
+    const { staffId, txnId } = await t.run(async (ctx: any) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-IDEM", name: "I", role: "staff", active: true, pin_hash: "x", created_at: Date.now(),
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: staffId,
         created_at: Date.now(), paid_at: Date.now(),
+        outlet_id: outletId,
       });
       return { staffId, txnId };
     });

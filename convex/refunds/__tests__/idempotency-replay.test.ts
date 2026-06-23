@@ -20,6 +20,7 @@ describe("_commitRefund_internal idempotency replay (C1)", () => {
     const t = convexTest(schema);
 
     const seed = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-IDM", name: "IDM", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -36,28 +37,30 @@ describe("_commitRefund_internal idempotency replay (C1)", () => {
         low_threshold: 0,
         active: true,
         created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       const productId = await ctx.db.insert("pos_products", {
         sku_family: "dubai", code: "DUBIDM", name: "Dubai IDM 1pc", pack_label: "1pc",
         price_idr: 50000, active: true, sort_order: 0, tax_rate: 0,
-        created_at: Date.now(), updated_at: Date.now(),
-      });
+        created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+      } as any);
       await ctx.db.insert("pos_product_components", {
         product_id: productId,
         inventory_sku_id: skuId,
         qty: 1,
-      });
+        outlet_id: outletId,
+      } as any);
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 50000, voucher_discount: 0, total: 50000,
         flags: 0, staff_id: staffId, created_at: Date.now(), paid_at: Date.now(),
-        receipt_number: "R-2026-IDM1", receipt_token: "tok-idem-replay",
-      });
+        receipt_number: "R-2026-IDM1", receipt_token: "tok-idem-replay", outlet_id: outletId,
+      } as any);
       const lineId = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "DUBIDM", product_name_snapshot: "Dubai IDM 1pc",
         unit_price_snapshot: 50000, tax_rate_snapshot: 0,
-        qty: 1, line_subtotal: 50000,
-      });
+        qty: 1, line_subtotal: 50000, outlet_id: outletId,
+      } as any);
       // I3: _refundReCredit_internal now reads pos_stock_movements (the
       // immutable sale-time record), so the fixture must seed one. qty -1 =
       // component_qty (1) × line_qty (1).
@@ -67,7 +70,8 @@ describe("_commitRefund_internal idempotency replay (C1)", () => {
         source: "sale",
         source_transaction_line_id: lineId,
         created_at: Date.now(),
-      });
+        outlet_id: outletId,
+      } as any);
       return { staffId, mgrId, txnId, lineId, skuId };
     });
 

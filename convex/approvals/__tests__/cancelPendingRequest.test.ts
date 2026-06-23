@@ -7,6 +7,10 @@ import { api } from "../../_generated/api";
 // session. Returns staffId (manager) and sessionId.
 async function seedManagerSession(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
+    const outletId = await (ctx.db as any).insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    });
     const managerId = await ctx.db.insert("staff", {
       name: "Manager",
       code: "M-1",
@@ -21,7 +25,8 @@ async function seedManagerSession(t: ReturnType<typeof convexTest>) {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     return { managerId, sessionId };
   });
 }
@@ -29,6 +34,10 @@ async function seedManagerSession(t: ReturnType<typeof convexTest>) {
 // Seed a non-manager (staff role) session.
 async function seedStaffSession(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
+    const outletId = await (ctx.db as any).insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    });
     const staffId = await ctx.db.insert("staff", {
       name: "Cashier",
       code: "S-1",
@@ -43,7 +52,8 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     return { staffId, sessionId };
   });
 }
@@ -51,7 +61,15 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
 // Insert a minimal pending approval request.
 async function seedPendingRequest(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
-    return await ctx.db.insert("pos_approval_requests", {
+    // Reuse existing outlet if already seeded by seedManagerSession/seedStaffSession.
+    const outlets = await (ctx.db as any).query("outlets").collect();
+    const outletId =
+      outlets[0]?._id ??
+      (await (ctx.db as any).insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      }));
+    return await (ctx.db as any).insert("pos_approval_requests", {
       kind: "manual_payment_override",
       triggered_by_event: "test",
       triggered_at: Date.now(),
@@ -62,6 +80,7 @@ async function seedPendingRequest(t: ReturnType<typeof convexTest>) {
       entity_type: "pos_transactions",
       entity_id: "fake-txn",
       context: { txn_id: "fake-txn", amount_idr: 50_000, reason: "test" },
+      outlet_id: outletId,
     });
   });
 }
@@ -81,7 +100,7 @@ describe("cancelPendingRequest", () => {
 
     expect(result).toEqual({ denied: true });
 
-    const row = await t.run(async (ctx) => ctx.db.get(requestId));
+    const row = await t.run(async (ctx) => ctx.db.get(requestId)) as any;
     expect(row?.status).toBe("denied");
     expect(row?.denied_by_manager_id).toBe(managerId);
     expect(row?.deny_reason).toBe("test-cancel");

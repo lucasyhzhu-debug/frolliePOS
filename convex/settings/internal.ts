@@ -2,6 +2,7 @@ import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { logAudit } from "../audit/internal";
+import { getDefaultOutletDoc } from "../outlets/internal";
 
 // Receipt-config defaults — equal to the pre-v0.5.3b hardcoded values so an
 // absent/partial pos_settings row renders receipts identically to before.
@@ -30,7 +31,7 @@ export const MANUAL_BCA_DEFAULTS = {
 } as const;
 
 export const _getSettings_internal = internalQuery({
-  args: { outletId: v.optional(v.id("outlets")) },
+  args: { outletId: v.id("outlets") },
   handler: async (ctx, args) => {
     // When outletId is provided, look up the per-outlet row via the by_outlet index.
     // When absent (cron / session-less callers), fall back to .first() for the
@@ -114,7 +115,12 @@ export const _updateManualBcaConfig_internal = internalMutation({
     if (row) {
       await ctx.db.patch(row._id, patch);
     } else {
-      await ctx.db.insert("pos_settings", { founders_summary_enabled: true, ...patch });
+      // v2.0 Task 12 (ENFORCE): a fresh settings row must carry an outlet. This
+      // ops-only writer resolves the default outlet (the row is created at
+      // bootstrap before this normally runs).
+      const defaultOutlet = await getDefaultOutletDoc(ctx);
+      if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+      await ctx.db.insert("pos_settings", { founders_summary_enabled: true, ...patch, outlet_id: defaultOutlet._id });
     }
     await logAudit(ctx, {
       actor_id: "system",

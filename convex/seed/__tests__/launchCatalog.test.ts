@@ -3,9 +3,20 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { internal } from "../../_generated/api";
 
+/** Seed the default outlet so _seedLaunchCatalog_internal can find it via getDefaultOutletDoc. */
+async function seedDefaultOutlet(t: ReturnType<typeof import("convex-test").convexTest>) {
+  return t.run((ctx: any) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+
 describe("seed/_seedLaunchCatalog_internal", () => {
   it("seeds 2 SKUs (dubai, water) with no stock-level rows (lazy-init)", async () => {
     const t = convexTest(schema);
+    await seedDefaultOutlet(t);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
 
     const skus = await t.run((ctx) =>
@@ -37,6 +48,7 @@ describe("seed/_seedLaunchCatalog_internal", () => {
 
   it("seeds 4 products with correct prices and pack labels", async () => {
     const t = convexTest(schema);
+    await seedDefaultOutlet(t);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
 
     const products = await t.run((ctx) =>
@@ -57,6 +69,7 @@ describe("seed/_seedLaunchCatalog_internal", () => {
 
   it("seeds correct component quantities: Single→1, Triple→3, Eight→8 dubai; water 1:1", async () => {
     const t = convexTest(schema);
+    await seedDefaultOutlet(t);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
 
     const [products, skus, components] = await t.run((ctx) =>
@@ -93,6 +106,7 @@ describe("seed/_seedLaunchCatalog_internal", () => {
 
   it("second invocation throws catalog_already_populated", async () => {
     const t = convexTest(schema);
+    await seedDefaultOutlet(t);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
     await expect(
       t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {}),
@@ -102,10 +116,11 @@ describe("seed/_seedLaunchCatalog_internal", () => {
   it("throws catalog_already_populated when SKUs exist even with no products (partial-seed guard)", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       await ctx.db.insert("pos_inventory_skus", {
         sku: "dubai", code: "DUBAI", name: "Dubai cookie", unit: "piece",
-        low_threshold: 4, active: true, created_at: Date.now(),
-      });
+        low_threshold: 4, active: true, created_at: Date.now(), outlet_id: outletId,
+      } as any);
     });
     await expect(
       t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {}),
@@ -114,6 +129,7 @@ describe("seed/_seedLaunchCatalog_internal", () => {
 
   it("writes an audit_log row with action seed.launch_catalog", async () => {
     const t = convexTest(schema);
+    await seedDefaultOutlet(t);
     await t.mutation(internal.seed.internal._seedLaunchCatalog_internal, {});
 
     const auditRows = await t.run((ctx) =>

@@ -32,7 +32,7 @@ export const _projectedNegStockFlag_internal = internalQuery({
       productId: v.id("pos_products"),
       qty: v.number(),
     })),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<boolean> => {
     if (args.lines.length === 0) return false;
@@ -281,7 +281,7 @@ export const _confirmPaid_internal = internalMutation({
     if (txn.voucher_code_snapshot && txn.voucher_discount > 0) {
       const voucher = await ctx.runQuery(
         internal.vouchers.internal._getVoucherByCode_internal,
-        { code: txn.voucher_code_snapshot },
+        { code: txn.voucher_code_snapshot, outletId: txn.outlet_id },
       );
       if (voucher) {
         const r = await ctx.runMutation(internal.vouchers.internal._redeemVoucher_internal, {
@@ -289,6 +289,7 @@ export const _confirmPaid_internal = internalMutation({
           transaction_id: args.txnId,
           code_snapshot: txn.voucher_code_snapshot,
           discount_amount: txn.voucher_discount,
+          outletId: txn.outlet_id,
         });
         if (r.overRedeemed) flags = withFlag(flags, VOUCHER_OVER_REDEEMED);
       }
@@ -348,7 +349,7 @@ export const _confirmPaid_internal = internalMutation({
  * counts as flagged for manager review.
  */
 export const _dailySalesSummary_internal = internalQuery({
-  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.optional(v.id("outlets")) },
+  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.id("outlets") },
   handler: async (
     ctx,
     args,
@@ -563,11 +564,12 @@ export const _cancelCommit_internal = internalMutation({
           cancel_reason: "txn_cancelled",
           actor_id: args.actor_staff_id,
           source: "booth_inline",
+          outlet_id: txn.outlet_id,
         },
       );
       await ctx.runMutation(
         internal.approvals.internal._cancelPendingManualPaymentForTxn_internal,
-        { txnId: args.txnId, reason: "txn_cancelled" },
+        { txnId: args.txnId, reason: "txn_cancelled", outletId: txn.outlet_id },
       );
       return { cancelled: true as const };
     },
@@ -584,7 +586,7 @@ export const _cancelCommit_internal = internalMutation({
  * refunds/public routes here rather than querying directly.
  */
 export const _listPaidTxnsSince_internal = internalQuery({
-  args: { sinceMs: v.number(), outletId: v.optional(v.id("outlets")) },
+  args: { sinceMs: v.number(), outletId: v.id("outlets") },
   handler: async (ctx, args): Promise<Doc<"pos_transactions">[]> => {
     // v2.0: always use the outlet-scoped index (window-tolerant: outletId may be undefined).
     return await ctx.db
@@ -617,7 +619,7 @@ export const _listPaidTxnsSince_internal = internalQuery({
  * day window to pass.
  */
 export const _fetchDayWindow_internal = internalQuery({
-  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.optional(v.id("outlets")) },
+  args: { dayStartMs: v.number(), dayEndMs: v.number(), outletId: v.id("outlets") },
   handler: async (ctx, args): Promise<DayTxn[]> => {
     // Window by paid_at (not created_at) so cross-midnight late confirmations
     // land in the day they paid, matching _dailySalesSummary_internal (founders
@@ -803,7 +805,7 @@ export const _getTxnForTicker_internal = internalQuery({
     paid_at: number;
     staff_id: Id<"staff">;
     confirmed_via: "webhook" | "polling" | "manual" | "manual_bca" | null;
-    outlet_id: Id<"outlets"> | undefined;
+    outlet_id: Id<"outlets">;
     lines: Array<{ name: string; qty: number }>;
   } | null> => {
     const txn = await ctx.db.get(args.txnId);
@@ -864,7 +866,7 @@ export const _manualBcaReconciliation_internal = internalQuery({
   args: {
     dayStartMs: v.number(),
     dayEndMs: v.number(),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (
     ctx,

@@ -15,27 +15,36 @@ async function seedStaffId(ctx: any) {
   });
 }
 
+async function seedOutletId(ctx: any) {
+  return ctx.db.insert("outlets", {
+    code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+    created_at: Date.now(), created_by: null,
+  });
+}
+
 describe("vouchers/internal._redeemVoucher_internal", () => {
   it("happy path: increments used_count, writes redemption row, returns { overRedeemed: false }", async () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staffId = await seedStaffId(ctx);
+      const outletId = await seedOutletId(ctx);
       const vId = await ctx.db.insert("pos_vouchers", {
         code: "WELCOME10", type: "percentage", value: 10,
         max_redemptions: 100, used_count: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 100_000, voucher_discount: 10_000,
         total: 90_000, flags: 0, staff_id: staffId,
-        created_at: Date.now(),
+        created_at: Date.now(), outlet_id: outletId,
       });
-      return { vId, txnId };
+      return { vId, txnId, outletId };
     });
 
     const result = await t.mutation(internal.vouchers.internal._redeemVoucher_internal, {
       voucher_id: setup.vId, transaction_id: setup.txnId,
       code_snapshot: "WELCOME10", discount_amount: 10_000,
+      outletId: setup.outletId,
     });
 
     expect(result.overRedeemed).toBe(false);
@@ -54,22 +63,24 @@ describe("vouchers/internal._redeemVoucher_internal", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staffId = await seedStaffId(ctx);
+      const outletId = await seedOutletId(ctx);
       const vId = await ctx.db.insert("pos_vouchers", {
         code: "ONESHOT", type: "amount", value: 5_000,
         max_redemptions: 1, used_count: 1,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 20_000, voucher_discount: 5_000,
         total: 15_000, flags: 0, staff_id: staffId,
-        created_at: Date.now(),
+        created_at: Date.now(), outlet_id: outletId,
       });
-      return { vId, txnId };
+      return { vId, txnId, outletId };
     });
 
     const result = await t.mutation(internal.vouchers.internal._redeemVoucher_internal, {
       voucher_id: setup.vId, transaction_id: setup.txnId,
       code_snapshot: "ONESHOT", discount_amount: 5_000,
+      outletId: setup.outletId,
     });
 
     expect(result.overRedeemed).toBe(true);
@@ -84,25 +95,28 @@ describe("vouchers/internal._redeemVoucher_internal", () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
       const staffId = await seedStaffId(ctx);
+      const outletId = await seedOutletId(ctx);
       const vId = await ctx.db.insert("pos_vouchers", {
         code: "FLAT20K", type: "amount", value: 20_000,
-        max_redemptions: 1, used_count: 0, active: true, created_at: Date.now(),
+        max_redemptions: 1, used_count: 0, active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 100_000, voucher_discount: 20_000,
         total: 80_000, flags: 0, staff_id: staffId,
-        created_at: Date.now(),
+        created_at: Date.now(), outlet_id: outletId,
       });
-      return { vId, txnId };
+      return { vId, txnId, outletId };
     });
 
     const r1 = await t.mutation(internal.vouchers.internal._redeemVoucher_internal, {
       voucher_id: setup.vId, transaction_id: setup.txnId,
       code_snapshot: "FLAT20K", discount_amount: 20_000,
+      outletId: setup.outletId,
     });
     const r2 = await t.mutation(internal.vouchers.internal._redeemVoucher_internal, {
       voucher_id: setup.vId, transaction_id: setup.txnId,
       code_snapshot: "FLAT20K", discount_amount: 20_000,
+      outletId: setup.outletId,
     });
 
     expect(r1).toEqual({ overRedeemed: false, alreadyRedeemed: false });

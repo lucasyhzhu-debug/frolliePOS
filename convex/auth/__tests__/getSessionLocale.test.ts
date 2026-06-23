@@ -15,13 +15,18 @@ describe("getSession surfaces locale", () => {
         pin_hash: "x",
         created_at: Date.now(),
       });
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       const sessionId = await ctx.db.insert("staff_sessions", {
         staff_id: staffNoLocale,
         device_id: "d1",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      });
+        outlet_id: outletId,
+      } as any);
       return { sessionId, staffNoLocale };
     });
 

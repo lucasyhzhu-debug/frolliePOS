@@ -56,10 +56,20 @@ export const sendFoundersSummary = internalAction({
   ): Promise<
     { ok: true } | { skipped: "disabled" } | { skipped: "role_unbound" }
   > => {
+    // v2.0 Task 12 (ENFORCE): resolve the default outlet up front — the cron is
+    // session-less, so it scopes everything to the first active outlet. Settings,
+    // sales aggregate, and manual-BCA tally all read per-outlet now.
+    const defaultOutlet = await ctx.runQuery(
+      internal.outlets.internal._getDefaultOutlet_internal,
+      {},
+    );
+    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+    const outletId = defaultOutlet._id;
+
     // Step 1: check the toggle
     const settings = await ctx.runQuery(
       internal.settings.internal._getSettings_internal,
-      {},
+      { outletId },
     );
     if (!settings.founders_summary_enabled) {
       await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
@@ -107,14 +117,7 @@ export const sendFoundersSummary = internalAction({
     const { dayStartMs, dayEndMs, dateLabel } = wibDayWindow(now);
 
     // Step 3 + 3b: daily sales aggregate + manual-BCA tally (v1.2 #10) for the
-    // same WIB day window. Independent reads — fetch in parallel.
-    // v2.0 Stream 5: resolve the default outlet so aggregates are outlet-scoped.
-    // Crons have no session, so we use _getDefaultOutlet_internal (first active outlet).
-    const defaultOutlet = await ctx.runQuery(
-      internal.outlets.internal._getDefaultOutlet_internal,
-      {},
-    );
-    const outletId = defaultOutlet?._id;
+    // same WIB day window, scoped to the default outlet resolved above.
     const [summary, manualBca] = await Promise.all([
       ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
         dayStartMs,

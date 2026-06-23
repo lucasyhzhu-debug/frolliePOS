@@ -76,9 +76,11 @@ export const _persistInvoiceCommit_internal = internalMutation({
   >(
     "payments._persistInvoiceCommit",
     async (ctx, args) => {
-      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      // v2.0 Task 12 (ENFORCE): stamp outlet_id from the associated transaction
+      // (txn.outlet_id is required now). Throw if the txn is missing.
       const txnRow = await ctx.db.get(args.txnId);
-      const txnOutletId = txnRow?.outlet_id;
+      if (!txnRow) throw new Error("TRANSACTION_NOT_FOUND");
+      const txnOutletId = txnRow.outlet_id;
       const invoiceId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.xendit_invoice_id,
@@ -89,7 +91,7 @@ export const _persistInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
-        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
+        outlet_id: txnOutletId,
       });
       await ctx.runMutation(internal.transactions.internal._setCurrentInvoice_internal, {
         txnId: args.txnId,
@@ -163,9 +165,11 @@ export const _replaceInvoiceCommit_internal = internalMutation({
   >(
     "payments._replaceInvoiceCommit",
     async (ctx, args) => {
-      // v2.0 Task 5: stamp outlet_id from the associated transaction.
+      // v2.0 Task 12 (ENFORCE): stamp outlet_id from the associated transaction
+      // (txn.outlet_id is required now). Throw if the txn is missing.
       const txnRow = await ctx.db.get(args.txnId);
-      const txnOutletId = txnRow?.outlet_id;
+      if (!txnRow) throw new Error("TRANSACTION_NOT_FOUND");
+      const txnOutletId = txnRow.outlet_id;
       const newId = await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: args.txnId,
         xendit_invoice_id: args.new_xendit_id,
@@ -176,7 +180,7 @@ export const _replaceInvoiceCommit_internal = internalMutation({
         va_number: args.va_number,
         status_at_create: args.status_at_create,
         created_at: Date.now(),
-        ...(txnOutletId ? { outlet_id: txnOutletId } : {}),
+        outlet_id: txnOutletId,
       });
       await ctx.db.patch(args.prev_invoice_id, {
         cancelled_at: Date.now(),
@@ -238,7 +242,7 @@ export const _cancelActiveInvoiceForTxn_internal = internalMutation({
     actor_id: v.optional(v.union(v.id("staff"), v.literal("system"))),
     source: v.optional(v.union(v.literal("booth_inline"), v.literal("system"))),
     // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
-    outlet_id: v.optional(v.id("outlets")),
+    outlet_id: v.id("outlets"),
   },
   handler: async (ctx, args) => {
     // M6: JS post-filter — Convex q.eq(field, undefined) does not reliably match
@@ -413,7 +417,7 @@ export const _getPaidInvoiceForTxn_internal = internalQuery({
   args: {
     transactionId: v.id("pos_transactions"),
     // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args) => {
     // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).
@@ -446,7 +450,7 @@ export const _getCurrentInvoice_internal = internalQuery({
   args: {
     txnId: v.id("pos_transactions"),
     // v2.0 Stream 5: outlet scope for index migration (window-tolerant, no throw).
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Doc<"pos_xendit_invoices"> | null> => {
     // v2.0: always use outlet-scoped index (window-tolerant: args.outletId may be undefined).

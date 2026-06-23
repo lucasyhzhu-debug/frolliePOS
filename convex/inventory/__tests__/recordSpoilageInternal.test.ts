@@ -14,27 +14,35 @@ import { internal } from "../../_generated/api";
  *
  * audit_log.metadata is JSON.stringify'd by logAudit — parse before inspect.
  */
+async function seedOutletId(ctx: any) {
+  return ctx.db.insert("outlets", {
+    code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+    created_at: Date.now(), created_by: null,
+  });
+}
+
 describe("inventory._recordSpoilage_internal", () => {
   it("inserts movements + decrements stock + emits one stock.spoilage audit", async () => {
     const t = convexTest(schema);
+    const outletId = await t.run(async (ctx) => seedOutletId(ctx));
     const skuA = await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
         sku: "a", name: "Sku A", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     const skuB = await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
         sku: "b", name: "Sku B", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuA, on_hand: 10, updated_at: Date.now(),
+        inventory_sku_id: skuA, on_hand: 10, updated_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuB, on_hand: 5, updated_at: Date.now(),
+        inventory_sku_id: skuB, on_hand: 5, updated_at: Date.now(), outlet_id: outletId,
       });
     });
     const mgr = await t.run(async (ctx) =>
@@ -54,6 +62,7 @@ describe("inventory._recordSpoilage_internal", () => {
       actor_id: mgr,
       source: "booth_inline",
       device_id: "dev",
+      outlet_id: outletId,
     });
 
     const movs = await t.run(async (ctx) =>
@@ -87,10 +96,11 @@ describe("inventory._recordSpoilage_internal", () => {
 
   it("threads telegram_approval source onto the audit row", async () => {
     const t = convexTest(schema);
+    const outletId = await t.run(async (ctx) => seedOutletId(ctx));
     const sku = await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
         sku: "a", name: "A", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     const mgr = await t.run(async (ctx) =>
@@ -105,6 +115,7 @@ describe("inventory._recordSpoilage_internal", () => {
       reason: "tg path",
       actor_id: mgr,
       source: "telegram_approval",
+      outlet_id: outletId,
     });
     const audits = await t.run(async (ctx) =>
       ctx.db.query("audit_log").filter((q) => q.eq(q.field("action"), "stock.spoilage")).collect(),
@@ -114,6 +125,7 @@ describe("inventory._recordSpoilage_internal", () => {
 
   it("rejects empty lines", async () => {
     const t = convexTest(schema);
+    const outletId = await t.run(async (ctx) => seedOutletId(ctx));
     const mgr = await t.run(async (ctx) =>
       ctx.db.insert("staff", {
         name: "M", code: "S-0001", pin_hash: "$argon2id$x", role: "manager",
@@ -127,16 +139,18 @@ describe("inventory._recordSpoilage_internal", () => {
         reason: "x",
         actor_id: mgr,
         source: "booth_inline",
+        outlet_id: outletId,
       }),
     ).rejects.toThrow(/LINES_EMPTY/);
   });
 
   it("rejects empty reason / too long reason / zero qty", async () => {
     const t = convexTest(schema);
+    const outletId = await t.run(async (ctx) => seedOutletId(ctx));
     const sku = await t.run(async (ctx) =>
       ctx.db.insert("pos_inventory_skus", {
         sku: "a", name: "A", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       }),
     );
     const mgr = await t.run(async (ctx) =>
@@ -153,6 +167,7 @@ describe("inventory._recordSpoilage_internal", () => {
         reason: "   ",
         actor_id: mgr,
         source: "booth_inline",
+        outlet_id: outletId,
       }),
     ).rejects.toThrow(/REASON_INVALID/);
     // Over 200 chars
@@ -163,6 +178,7 @@ describe("inventory._recordSpoilage_internal", () => {
         reason: "a".repeat(201),
         actor_id: mgr,
         source: "booth_inline",
+        outlet_id: outletId,
       }),
     ).rejects.toThrow(/REASON_INVALID/);
     // Zero qty
@@ -173,6 +189,7 @@ describe("inventory._recordSpoilage_internal", () => {
         reason: "x",
         actor_id: mgr,
         source: "booth_inline",
+        outlet_id: outletId,
       }),
     ).rejects.toThrow(/QTY_INVALID/);
   });

@@ -7,7 +7,7 @@ import { seedManagerSession } from "../../staff/__tests__/_helpers";
 describe("vouchers admin queries", () => {
   it("listAllVouchers includes archived; rejects non-manager", async () => {
     const t = convexTest(schema);
-    const { sessionId: mSid } = await seedManagerSession(t);
+    const { sessionId: mSid, outletId } = await seedManagerSession(t);
     await t.run(async (ctx) =>
       ctx.db.insert("pos_vouchers", {
         code: "A",
@@ -16,6 +16,7 @@ describe("vouchers admin queries", () => {
         used_count: 0,
         active: true,
         created_at: 1,
+        outlet_id: outletId,
       }),
     );
     await t.run(async (ctx) =>
@@ -26,6 +27,7 @@ describe("vouchers admin queries", () => {
         used_count: 0,
         active: false,
         created_at: 2,
+        outlet_id: outletId,
       }),
     );
     const rows = await t.query(api.vouchers.public.listAllVouchers, { sessionId: mSid });
@@ -49,6 +51,7 @@ describe("vouchers admin queries", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
+        outlet_id: outletId,
       }),
     );
     await expect(
@@ -58,7 +61,7 @@ describe("vouchers admin queries", () => {
 
   it("getVoucherRedemptions annotates receipt_number; limit bounded", async () => {
     const t = convexTest(schema);
-    const { managerId, sessionId: sid } = await seedManagerSession(t);
+    const { managerId, sessionId: sid, outletId } = await seedManagerSession(t);
     const vid = await t.run(async (ctx) =>
       ctx.db.insert("pos_vouchers", {
         code: "V",
@@ -67,6 +70,7 @@ describe("vouchers admin queries", () => {
         used_count: 1,
         active: true,
         created_at: Date.now(),
+        outlet_id: outletId,
       }),
     );
     const txn = await t.run(async (ctx) =>
@@ -80,6 +84,7 @@ describe("vouchers admin queries", () => {
         paid_at: Date.now(),
         created_at: Date.now(),
         staff_id: managerId,
+        outlet_id: outletId,
       }),
     );
     await t.run(async (ctx) =>
@@ -89,6 +94,7 @@ describe("vouchers admin queries", () => {
         code_snapshot: "V",
         discount_amount: 1000,
         redeemed_at: Date.now(),
+        outlet_id: outletId,
       }),
     );
 

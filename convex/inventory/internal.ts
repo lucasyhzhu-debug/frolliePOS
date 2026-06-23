@@ -26,7 +26,7 @@ export async function upsertStockLevel(
   skuId: Id<"pos_inventory_skus">,
   delta: number,
   now: number,
-  outlet_id?: Id<"outlets">,
+  outlet_id: Id<"outlets">,
 ): Promise<void> {
   // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
   const level = await ctx.db
@@ -45,7 +45,7 @@ export async function upsertStockLevel(
       inventory_sku_id: skuId,
       on_hand: delta,
       updated_at: now,
-      ...(outlet_id ? { outlet_id } : {}),
+      outlet_id,
     });
   }
 }
@@ -64,7 +64,7 @@ export const _recordSaleMovement_internal = internalMutation({
       skuId: v.id("pos_inventory_skus"),
       qty: v.number(),
     })),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B: passed from transactions/internal
+    outlet_id: v.id("outlets"),  // v2.0 Task 9B: passed from transactions/internal
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -85,7 +85,7 @@ export const _recordSaleMovement_internal = internalMutation({
         source: "sale",
         source_transaction_line_id: line.lineId,
         created_at: now,
-        ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
+        outlet_id: args.outlet_id,
       });
 
       // Decrement the denormalised on_hand cache (ADR-018: negative allowed).
@@ -132,7 +132,7 @@ export const _recordSaleMovement_internal = internalMutation({
 export const _projectedOnHand_internal = internalQuery({
   args: {
     skuQtys: v.array(v.object({ skuId: v.id("pos_inventory_skus"), qty: v.number() })),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
@@ -166,7 +166,7 @@ export const _projectedOnHand_internal = internalQuery({
 export const _getOnHandBySkus_internal = internalQuery({
   args: {
     skuIds: v.array(v.id("pos_inventory_skus")),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Record<string, number>> => {
     // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
@@ -193,12 +193,21 @@ export const _getOnHandBySkus_internal = internalQuery({
  * stock-adjustment flows where the movement was already written separately.
  * Intentionally unexported for public use in v0.3 — kept for v0.5 callers.
  * ADR-018: may produce negative on_hand.
+ *
+ * v2.0 Task 12 (ENFORCE): no live callers (dead since v0.5). upsertStockLevel
+ * now requires an outlet, so this session-less mutation resolves the default
+ * outlet (mirrors the cron) — throws NO_DEFAULT_OUTLET if none exists.
  */
 export const _decrementOnHandUnchecked_internal = internalMutation({
   args: { skuId: v.id("pos_inventory_skus"), qty: v.number() },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await upsertStockLevel(ctx, args.skuId, -args.qty, now);
+    const defaultOutlet = await ctx.runQuery(
+      internal.outlets.internal._getDefaultOutlet_internal,
+      {},
+    );
+    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+    await upsertStockLevel(ctx, args.skuId, -args.qty, now, defaultOutlet._id);
   },
 });
 
@@ -235,7 +244,7 @@ export const _refundReCredit_internal = internalMutation({
                                 // to ratio the sale movements down to per-unit components.
       qty: v.number(),         // refund qty
     })),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+    outlet_id: v.id("outlets"),  // v2.0 Task 9B
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -273,7 +282,7 @@ export const _refundReCredit_internal = internalMutation({
           source: "refund",
           source_transaction_line_id: line_id,
           created_at: now,
-          ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
+          outlet_id: args.outlet_id,
         });
 
         // INCREMENT the denormalised on_hand cache (opposite of sale).
@@ -324,7 +333,7 @@ async function checkLowStockOne(
   ctx: MutationCtx,
   skuId: Id<"pos_inventory_skus">,
   sku: { name: string; low_threshold: number },
-  outlet_id?: Id<"outlets">,
+  outlet_id: Id<"outlets">,
 ): Promise<void> {
   // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outlet_id may be undefined).
   const level = await ctx.db
@@ -348,7 +357,7 @@ async function checkLowStockOne(
     await ctx.db.insert("pos_low_stock_alerts", {
       inventory_sku_id: skuId,
       alerted_at: now,
-      ...(outlet_id ? { outlet_id } : {}),
+      outlet_id,
     });
     await logAudit(ctx, {
       actor_id: "system",
@@ -394,7 +403,7 @@ async function checkLowStockOne(
 export const _checkLowStock_internal = internalMutation({
   args: {
     skuId: v.id("pos_inventory_skus"),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+    outlet_id: v.id("outlets"),  // v2.0 Task 9B
   },
   handler: async (ctx, { skuId, outlet_id }) => {
     const [sku] = await ctx.runQuery(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
@@ -412,7 +421,7 @@ export const _checkLowStock_internal = internalMutation({
 export const _checkLowStockBatch_internal = internalMutation({
   args: {
     skuIds: v.array(v.id("pos_inventory_skus")),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+    outlet_id: v.id("outlets"),  // v2.0 Task 9B
   },
   handler: async (ctx, { skuIds, outlet_id }) => {
     if (skuIds.length === 0) return;
@@ -469,7 +478,7 @@ export const _recordSpoilage_internal = internalMutation({
     actor_id: v.id("staff"),
     source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
     device_id: v.optional(v.string()),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 9B
+    outlet_id: v.id("outlets"),  // v2.0 Task 9B
   },
   handler: async (
     ctx,
@@ -495,7 +504,7 @@ export const _recordSpoilage_internal = internalMutation({
         spoilage_reason: args.reason,
         recorded_by_staff_id: args.actor_id,
         created_at: now,
-        ...(args.outlet_id ? { outlet_id: args.outlet_id } : {}),
+        outlet_id: args.outlet_id,
       });
 
       // Decrement on_hand cache via the shared upsert helper — matches the
@@ -562,15 +571,15 @@ export const _runStockRecon_internal = internalMutation({
     drifted: Array<{ sku_code: string; delta: number; cached: number; reconstructed: number }>;
   }> => {
     // v2.0 Task 11: resolve the default outlet so cron reads are outlet-scoped.
+    // Task 12 (ENFORCE): an active outlet always exists post-backfill — throw if not.
     const defaultOutlet = await ctx.runQuery(
       internal.outlets.internal._getDefaultOutlet_internal,
       {},
     );
-    const outletId = defaultOutlet?._id;
+    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+    const outletId = defaultOutlet._id;
 
-    // Scope to the default outlet's active SKUs (window-tolerant: outletId may
-    // be undefined during the backfill window — _getActiveSkus_internal falls
-    // back to the global by_active index in that case).
+    // Scope to the default outlet's active SKUs.
     const skus = await ctx.runQuery(internal.catalog.internal._getActiveSkus_internal, {
       outletId,
     });
@@ -601,7 +610,7 @@ export const _runStockRecon_internal = internalMutation({
           reconstructed_on_hand: reconstructed,
           delta,
           detected_at: now,
-          ...(outletId ? { outlet_id: outletId } : {}),
+          outlet_id: outletId,
         });
         await logAudit(ctx, {
           actor_id: "system",

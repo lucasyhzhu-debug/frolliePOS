@@ -6,6 +6,10 @@ import { TOKEN_PIN_ATTEMPT_CAP } from "../lib";
 
 async function seedPendingManualPayment(t: any) {
   return await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any);
     return await ctx.db.insert("pos_approval_requests", {
       kind: "manual_payment_override",
       triggered_by_event: "test",
@@ -17,7 +21,8 @@ async function seedPendingManualPayment(t: any) {
       entity_type: "pos_transactions",
       entity_id: "fake-txn",
       context: { amount_idr: 100_000, reason: "test" },
-    });
+      outlet_id: outletId,
+    } as any);
   });
 }
 

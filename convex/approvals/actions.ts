@@ -65,6 +65,16 @@ export const notifyStaffLockout = internalAction({
     const tokenHash = sha256Hex(rawToken);
     const now = Date.now();
 
+    // v2.0 Task 12 (ENFORCE): pos_approval_requests.outlet_id is required, but a
+    // staff lockout is system-triggered (no session/device). PIN-reset is
+    // staff-identity-scoped (like pos_auth_attempts), so there is no single
+    // "correct" outlet — stamp the default outlet (single-booth v2.0 reality).
+    const defaultOutlet = await ctx.runQuery(
+      internal.outlets.internal._getDefaultOutlet_internal,
+      {},
+    );
+    if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+
     const { requestId } = await ctx.runMutation(
       internal.approvals.internal._createRequest_internal,
       {
@@ -74,6 +84,7 @@ export const notifyStaffLockout = internalAction({
         triggered_at: now,
         token_hash: tokenHash,
         token_expires_at: now + TOKEN_TTL_MS,
+        outletId: defaultOutlet._id,
       },
     );
 

@@ -8,7 +8,15 @@ async function seedPaidTxnWithToken(
   token: string,
   opts: { status?: "paid" | "cancelled" } = {},
 ) {
-  return await t.run(async (ctx) => {
+  return await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW",
+      name: "x",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: Date.now(),
+      created_by: null,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       code: "S-HTTP",
       name: "H",
@@ -28,6 +36,7 @@ async function seedPaidTxnWithToken(
       tax_rate: 0,
       created_at: Date.now(),
       updated_at: Date.now(),
+      outlet_id: outletId,
     });
     const txnId = await ctx.db.insert("pos_transactions", {
       status: opts.status ?? "paid",
@@ -40,6 +49,7 @@ async function seedPaidTxnWithToken(
       paid_at: Date.now(),
       receipt_number: "R-2026-0001",
       receipt_token: token,
+      outlet_id: outletId,
     });
     await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txnId,
@@ -50,6 +60,7 @@ async function seedPaidTxnWithToken(
       tax_rate_snapshot: 0,
       qty: 1,
       line_subtotal: 50000,
+      outlet_id: outletId,
     });
     return txnId;
   });
@@ -100,9 +111,14 @@ describe("GET /r/:token httpAction", () => {
     const t = convexTest(schema);
     const token = "tok-cancelled-invoice-1";
     const txnId = await seedPaidTxnWithToken(t, token);
+    // Get the outlet_id from the transaction for the invoice insert
+    const outletId = await t.run(async (ctx: any) => {
+      const txn = await ctx.db.get(txnId);
+      return txn!.outlet_id;
+    });
     // Seed an invoice that has been cancelled (PR B refund scenario) — receipt
     // must still surface the method + RRN.
-    await t.run(async (ctx) => {
+    await t.run(async (ctx: any) => {
       await ctx.db.insert("pos_xendit_invoices", {
         transaction_id: txnId,
         xendit_invoice_id: "qr_test_cancelled_1",
@@ -115,6 +131,7 @@ describe("GET /r/:token httpAction", () => {
         created_at: Date.now() - 1000,
         cancelled_at: Date.now(),
         cancelled_reason: "refund",
+        outlet_id: outletId,
       });
     });
     const res = await t.fetch(`/r/${token}`, { method: "GET" });

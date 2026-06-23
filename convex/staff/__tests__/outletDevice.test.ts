@@ -62,9 +62,25 @@ test("isDeviceOutlet returns false for a deactivated device", async () => {
 
 test("listRegisteredDevices returns devices without outletDeviceId (PR#124 field retired)", async () => {
   const t = convexTest(schema);
-  const { sessionId } = await seedManagerSession(t);
-  await seedDevice(t, "booth-phone", "Booth phone");
-  await seedDevice(t, "managers-pc", "Manager PC");
+  const { sessionId, outletId } = await seedManagerSession(t);
+  await t.run((ctx) =>
+    ctx.db.insert("registered_devices", {
+      device_id: "booth-phone",
+      label: "Booth phone",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any),
+  );
+  await t.run((ctx) =>
+    ctx.db.insert("registered_devices", {
+      device_id: "managers-pc",
+      label: "Manager PC",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any),
+  );
 
   const res = await t.query(api.staff.public.listRegisteredDevices, { sessionId });
   expect(res.devices.map((d: { device_id: string }) => d.device_id).sort()).toEqual([

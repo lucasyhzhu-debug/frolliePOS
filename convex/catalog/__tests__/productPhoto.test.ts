@@ -13,6 +13,12 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
     pin: "1111",
     role: "staff",
   });
+  const outletId = await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any)
+  ) as any;
   const sessionId = await t.run(async (ctx) =>
     ctx.db.insert("staff_sessions", {
       staff_id: staffId,
@@ -20,7 +26,8 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    }),
+      outlet_id: outletId,
+    } as any),
   );
   return { staffId, sessionId };
 }

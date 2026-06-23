@@ -7,7 +7,7 @@ import { seedManagerSession } from "../../staff/__tests__/_helpers";
 describe("vouchers.archiveVoucher", () => {
   it("sets active:false; preserves redemption rows; audits voucher.deactivated", async () => {
     const t = convexTest(schema);
-    const { managerId, sessionId: sid } = await seedManagerSession(t);
+    const { managerId, sessionId: sid, outletId } = await seedManagerSession(t);
     const vid = await t.run(async (ctx) =>
       ctx.db.insert("pos_vouchers", {
         code: "V",
@@ -16,6 +16,7 @@ describe("vouchers.archiveVoucher", () => {
         used_count: 1,
         active: true,
         created_at: Date.now(),
+        outlet_id: outletId,
       }),
     );
     const txn = await t.run(async (ctx) =>
@@ -29,6 +30,7 @@ describe("vouchers.archiveVoucher", () => {
         paid_at: Date.now(),
         created_at: Date.now(),
         staff_id: managerId,
+        outlet_id: outletId,
       }),
     );
     const red = await t.run(async (ctx) =>
@@ -38,6 +40,7 @@ describe("vouchers.archiveVoucher", () => {
         code_snapshot: "V",
         discount_amount: 1000,
         redeemed_at: Date.now(),
+        outlet_id: outletId,
       }),
     );
 
@@ -67,7 +70,7 @@ describe("vouchers.archiveVoucher", () => {
 
   it("throws VOUCHER_NOT_FOUND for non-existent id", async () => {
     const t = convexTest(schema);
-    const { sessionId: sid } = await seedManagerSession(t);
+    const { sessionId: sid, outletId } = await seedManagerSession(t);
     const fakeId = await t.run(async (ctx) => {
       const id = await ctx.db.insert("pos_vouchers", {
         code: "TEMP",
@@ -76,6 +79,7 @@ describe("vouchers.archiveVoucher", () => {
         used_count: 0,
         active: true,
         created_at: Date.now(),
+        outlet_id: outletId,
       });
       await ctx.db.delete(id);
       return id;

@@ -11,7 +11,19 @@ setupTelegramStub();
 
 test("handoverOut closes outgoing session → handover_pending; handoverIn → open(new staff)", async () => {
   const t = convexTest(schema);
-  const { aSession, bSession } = await t.run(async (ctx) => {
+  const { aSession, bSession } = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
+    // Bind device so boothState can resolve outletId
+    await ctx.db.insert("registered_devices", {
+      device_id: "d1",
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
     const a = await ctx.db.insert("staff", {
       name: "Budi",
       code: "S-0002",
@@ -36,6 +48,7 @@ test("handoverOut closes outgoing session → handover_pending; handoverIn → o
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     });
     const bSession = await ctx.db.insert("staff_sessions", {
       staff_id: b,
@@ -43,6 +56,7 @@ test("handoverOut closes outgoing session → handover_pending; handoverIn → o
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     });
     return { aSession, bSession };
   });
@@ -103,7 +117,11 @@ test("handoverOut closes outgoing session → handover_pending; handoverIn → o
 
 test("handoverOut rejects an already-ended session", async () => {
   const t = convexTest(schema);
-  const { sessionId } = await t.run(async (ctx) => {
+  const { sessionId } = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
     const staffId = await ctx.db.insert("staff", {
       name: "Budi",
       code: "S-0002",
@@ -119,6 +137,7 @@ test("handoverOut rejects an already-ended session", async () => {
       started_at: Date.now(),
       ended_at: Date.now(),
       end_reason: "manual_lock",
+      outlet_id: outletId,
     });
     return { sessionId };
   });

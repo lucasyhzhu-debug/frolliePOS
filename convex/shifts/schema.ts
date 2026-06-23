@@ -40,7 +40,7 @@ export const shiftsTables = {
       v.null(),
     ),
     created_at: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_device_created", ["device_id", "created_at"])
     .index("by_staff_started", ["staff_id", "shift_started_at"])

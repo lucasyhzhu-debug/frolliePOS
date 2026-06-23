@@ -4,7 +4,6 @@ import { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { internal } from "../_generated/api";
-import { getDefaultOutletDoc } from "../outlets/internal";
 
 /**
  * List active staff for the login screen.
@@ -92,12 +91,11 @@ export const getSession = query({
     if (!s || s.ended_at != null) return null;
     const staff = await ctx.db.get(s.staff_id);
     if (!staff || !staff.active) return null;
-    // v2.0 Stream 5: resolve outlet via ctx.db directly (queries cannot runQuery).
-    // auth/ is allowlisted for cross-module db reads (ADR-034 §"Layer 1").
-    // Window-typed: unstamped sessions fall back to the single active outlet.
-    const outlet = s.outlet_id
-      ? await ctx.db.get(s.outlet_id)
-      : await getDefaultOutletDoc(ctx);
+    // v2.0 Task 12 (ENFORCE): every live session is backfill-stamped, so the
+    // session always carries an outlet — no default-outlet fallback branch.
+    // (auth/ is allowlisted for cross-module db reads, ADR-034 §"Layer 1".)
+    if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
+    const outlet = await ctx.db.get(s.outlet_id);
     return {
       sessionId: s._id,
       // SEC-03: surface must_change_pin so the FE can force a rotation prompt.

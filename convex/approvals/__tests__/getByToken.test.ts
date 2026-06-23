@@ -31,6 +31,10 @@ async function seedStaffAndRequest(
       created_at: Date.now(),
     });
 
+    const outletId = await ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any);
     const now = Date.now();
     const tokenHash = sha256HexNode(opts.rawToken);
     const requestId = await ctx.db.insert("pos_approval_requests", {
@@ -41,7 +45,8 @@ async function seedStaffAndRequest(
       token_hash: tokenHash,
       token_expires_at: opts.tokenExpiresAt ?? now + 60 * 60 * 1000,
       status: "pending",
-    });
+      outlet_id: outletId,
+    } as any);
 
     return { staffId, requestId };
   });
@@ -55,6 +60,10 @@ describe("getByToken — manual_payment_override", () => {
   it("getByToken returns manual_payment display fields", async () => {
     const t = convexTest(schema);
     const { rawToken } = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
       const token_hash = sha256HexNode("tok-1");
       await ctx.db.insert("pos_approval_requests", {
         kind: "manual_payment_override",
@@ -67,7 +76,8 @@ describe("getByToken — manual_payment_override", () => {
         token_hash,
         token_expires_at: Date.now() + 3600_000,
         status: "pending",
-      });
+        outlet_id: outletId,
+      } as any);
       return { rawToken: "tok-1" };
     });
 

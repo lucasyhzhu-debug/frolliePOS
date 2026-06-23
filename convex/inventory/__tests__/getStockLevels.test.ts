@@ -9,20 +9,24 @@ describe("inventory/public.getStockLevels", () => {
     const now = Date.now();
 
     const { activeSkuId, inactiveSkuId } = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: now, created_by: null,
+      } as never);
       const activeSkuId = await ctx.db.insert("pos_inventory_skus", {
         sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 5,
-        active: true, created_at: now,
+        active: true, created_at: now, outlet_id: outletId,
       });
       const inactiveSkuId = await ctx.db.insert("pos_inventory_skus", {
         sku: "retired", name: "Retired SKU", unit: "piece", low_threshold: 0,
-        active: false, created_at: now,
+        active: false, created_at: now, outlet_id: outletId,
       });
       // Stock levels for both SKUs.
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: activeSkuId, on_hand: 12, updated_at: now,
+        inventory_sku_id: activeSkuId, on_hand: 12, updated_at: now, outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: inactiveSkuId, on_hand: 99, updated_at: now,
+        inventory_sku_id: inactiveSkuId, on_hand: 99, updated_at: now, outlet_id: outletId,
       });
       return { activeSkuId, inactiveSkuId };
     });

@@ -3,12 +3,13 @@ import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
 import { Id } from "../../_generated/dataModel";
+import { seedDefaultOutlet } from "./_helpers";
 
 // ---------------------------------------------------------------------------
 // Seed helpers
 // ---------------------------------------------------------------------------
 
-async function seedStaffSession(t: ReturnType<typeof convexTest>) {
+async function seedStaffSession(t: ReturnType<typeof convexTest>, outletId: Id<"outlets">) {
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       name: "Ali", code: "S-0001", pin_hash: "x", role: "staff", active: true,
@@ -17,7 +18,8 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "dev-1",
       started_at: Date.now(), ended_at: null, end_reason: null,
-    });
+      outlet_id: outletId,
+    } as any);
     return { staffId, sessionId };
   });
 }
@@ -25,12 +27,14 @@ async function seedStaffSession(t: ReturnType<typeof convexTest>) {
 async function seedAwaitingPaymentTxnWithInvoice(
   t: ReturnType<typeof convexTest>,
   staffId: Id<"staff">,
+  outletId: Id<"outlets">,
 ) {
   return await t.run(async (ctx) => {
     const txnId = await ctx.db.insert("pos_transactions", {
       status: "awaiting_payment", subtotal: 25_000, voucher_discount: 0,
       total: 25_000, flags: 0, staff_id: staffId, created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     await ctx.db.insert("pos_xendit_invoices", {
       transaction_id: txnId,
       xendit_invoice_id: "qr-abc123",
@@ -39,7 +43,8 @@ async function seedAwaitingPaymentTxnWithInvoice(
       qr_string: "00020101021226...",
       status_at_create: "PENDING",
       created_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
     return txnId;
   });
 }
@@ -47,6 +52,7 @@ async function seedAwaitingPaymentTxnWithInvoice(
 async function seedPendingManualPaymentForTxn(
   t: ReturnType<typeof convexTest>,
   txnId: Id<"pos_transactions">,
+  outletId: Id<"outlets">,
 ) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("pos_approval_requests", {
@@ -60,20 +66,23 @@ async function seedPendingManualPaymentForTxn(
       token_hash: "deadbeef".repeat(8),       // 64 hex chars
       token_expires_at: Date.now() + 60 * 60 * 1000,
       context: {},
-    });
+      outlet_id: outletId,
+    } as any);
   });
 }
 
 async function seedPaidTxn(
   t: ReturnType<typeof convexTest>,
   staffId: Id<"staff">,
+  outletId: Id<"outlets">,
 ) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("pos_transactions", {
       status: "paid", subtotal: 25_000, voucher_discount: 0,
       total: 25_000, flags: 0, staff_id: staffId,
       created_at: Date.now(), paid_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
   });
 }
 
@@ -84,9 +93,10 @@ async function seedPaidTxn(
 describe("transactions/public.cancelAwaitingPayment", () => {
   it("transitions txn to cancelled + supersedes active invoice + cascades approvals", async () => {
     const t = convexTest(schema);
-    const { staffId, sessionId } = await seedStaffSession(t);
-    const txnId = await seedAwaitingPaymentTxnWithInvoice(t, staffId);
-    const approvalId = await seedPendingManualPaymentForTxn(t, txnId);
+    const outletId = await seedDefaultOutlet(t);
+    const { staffId, sessionId } = await seedStaffSession(t, outletId);
+    const txnId = await seedAwaitingPaymentTxnWithInvoice(t, staffId, outletId);
+    const approvalId = await seedPendingManualPaymentForTxn(t, txnId, outletId);
 
     const result = await t.mutation(api.transactions.public.cancelAwaitingPayment, {
       idempotencyKey: "k1",
@@ -131,8 +141,9 @@ describe("transactions/public.cancelAwaitingPayment", () => {
 
   it("non-awaiting txn throws TXN_NOT_AWAITING (race with paid webhook)", async () => {
     const t = convexTest(schema);
-    const { staffId, sessionId } = await seedStaffSession(t);
-    const txnId = await seedPaidTxn(t, staffId);
+    const outletId = await seedDefaultOutlet(t);
+    const { staffId, sessionId } = await seedStaffSession(t, outletId);
+    const txnId = await seedPaidTxn(t, staffId, outletId);
 
     await expect(
       t.mutation(api.transactions.public.cancelAwaitingPayment, {
@@ -145,12 +156,14 @@ describe("transactions/public.cancelAwaitingPayment", () => {
 
   it("works when no invoice exists (payment was never requested)", async () => {
     const t = convexTest(schema);
-    const { staffId, sessionId } = await seedStaffSession(t);
+    const outletId = await seedDefaultOutlet(t);
+    const { staffId, sessionId } = await seedStaffSession(t, outletId);
     const txnId = await t.run((ctx) =>
       ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 10_000, voucher_discount: 0,
         total: 10_000, flags: 0, staff_id: staffId, created_at: Date.now(),
-      }),
+        outlet_id: outletId,
+      } as any),
     );
 
     const result = await t.mutation(api.transactions.public.cancelAwaitingPayment, {
@@ -166,8 +179,9 @@ describe("transactions/public.cancelAwaitingPayment", () => {
 
   it("idempotency replay returns same response, no double-cancel", async () => {
     const t = convexTest(schema);
-    const { staffId, sessionId } = await seedStaffSession(t);
-    const txnId = await seedAwaitingPaymentTxnWithInvoice(t, staffId);
+    const outletId = await seedDefaultOutlet(t);
+    const { staffId, sessionId } = await seedStaffSession(t, outletId);
+    const txnId = await seedAwaitingPaymentTxnWithInvoice(t, staffId, outletId);
 
     const r1 = await t.mutation(api.transactions.public.cancelAwaitingPayment, {
       idempotencyKey: "k-idem",

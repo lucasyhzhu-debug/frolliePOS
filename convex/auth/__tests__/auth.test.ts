@@ -50,6 +50,62 @@ export async function seedStaff(
   });
 }
 
+// v2.0 Task 12 (ENFORCE): loginWithPin now (a) resolves the outlet from the
+// device binding (throws DEVICE_HAS_NO_OUTLET if unbound) and (b) asserts a
+// staff_outlet_access row (throws NO_OUTLET_ACCESS otherwise). This helper seeds
+// the default outlet, binds the given device to it, and grants the staff access —
+// the minimal set so a happy-path login succeeds. Returns the outletId.
+async function seedOutletDeviceAccess(
+  t: ReturnType<typeof convexTest>,
+  staffId: Awaited<ReturnType<typeof seedStaff>>,
+  deviceId: string,
+) {
+  // ctx typed as any so test-helper index lookups don't fight generated-index
+  // typing inside t.run (matches the device-outlet.test.ts helper convention).
+  return await t.run(async (ctx: any) => {
+    // Reuse an existing default outlet if one was already seeded this test.
+    const outlets = await ctx.db.query("outlets").collect();
+    const outletId =
+      outlets[0]?._id ??
+      (await ctx.db.insert("outlets", {
+        code: "PKW",
+        name: "x",
+        timezone: "Asia/Jakarta",
+        active: true,
+        created_at: Date.now(),
+        created_by: null,
+      }));
+    // Bind device (idempotent on device_id for this test scope).
+    const devices = await ctx.db.query("registered_devices").collect();
+    const dev = devices.find((d: any) => d.device_id === deviceId);
+    if (!dev) {
+      await ctx.db.insert("registered_devices", {
+        device_id: deviceId,
+        label: deviceId,
+        activated_by: staffId,
+        activated_at: Date.now(),
+        last_seen_at: Date.now(),
+        active: true,
+        outlet_id: outletId,
+      });
+    }
+    // Grant access (skip if present).
+    const accessRows = await ctx.db.query("staff_outlet_access").collect();
+    const access = accessRows.find(
+      (a: any) => a.staff_id === staffId && a.outlet_id === outletId,
+    );
+    if (!access) {
+      await ctx.db.insert("staff_outlet_access", {
+        staff_id: staffId,
+        outlet_id: outletId,
+        granted_at: 0,
+        granted_by: null,
+      });
+    }
+    return outletId;
+  });
+}
+
 describe("getActiveStaff", () => {
   it("returns active staff only, name+role+_id (no pin_hash)", async () => {
     const t = convexTest(schema);
@@ -72,15 +128,20 @@ describe("getSession", () => {
   it("returns the active session shape", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-1",
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      })
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).not.toBeNull();
     expect(s!.staff.name).toBe("Citra");
@@ -89,15 +150,20 @@ describe("getSession", () => {
   it("returns null for ended sessions", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "dev-1",
         started_at: Date.now() - 60_000,
         ended_at: Date.now(),
         end_reason: "manual_lock",
-      })
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).toBeNull();
   });
@@ -105,12 +171,17 @@ describe("getSession", () => {
   it("returns null when staff has been deactivated", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
-    const sessionId = await t.run(async (ctx) =>
-      ctx.db.insert("staff_sessions", {
+    const sessionId = await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      return ctx.db.insert("staff_sessions", {
         staff_id: staffId, device_id: "dev-1",
         started_at: Date.now(), ended_at: null, end_reason: null,
-      })
-    );
+        outlet_id: outletId,
+      } as any);
+    });
     await t.run(async (ctx) => ctx.db.patch(staffId, { active: false }));
     const s = await t.query(api.auth.public.getSession, { sessionId });
     expect(s).toBeNull();
@@ -121,6 +192,7 @@ describe("loginWithPin (action)", () => {
   it("creates a session on correct PIN + logs staff.login", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
 
     const { sessionId, role } = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: crypto.randomUUID(),
@@ -137,6 +209,7 @@ describe("loginWithPin (action)", () => {
   it("idempotent — same key returns cached response + skips argon2", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
     const key = crypto.randomUUID();
 
     const first = await t.action(api.auth.actions.loginWithPin, {
@@ -174,6 +247,8 @@ describe("loginWithPin (action)", () => {
   it("locks out after 3 fails for 60s", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
+    // notifyStaffLockout (scheduled on the 3rd fail) needs a default outlet.
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
 
     for (let i = 0; i < 3; i++) {
       await t.action(api.auth.actions.loginWithPin, {
@@ -193,12 +268,63 @@ describe("loginWithPin (action)", () => {
     const audits = await t.query(internal.audit.internal._list_internal, { action: "staff.locked_out" });
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
+
+  // v2.0 Task 12 (ENFORCE): logging in on a device that has NOT been bound to an
+  // outlet throws DEVICE_HAS_NO_OUTLET (resolveDeviceOutletId, the migration
+  // default-fallback is gone). No registered_devices row → unbound.
+  it("throws DEVICE_HAS_NO_OUTLET when logging in on an unbound device", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Hana", "1234");
+    // Seed an outlet + access, but DO NOT bind the device.
+    await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      await ctx.db.insert("staff_outlet_access", {
+        staff_id: staffId, outlet_id: outletId, granted_at: 0, granted_by: null,
+      } as any);
+    });
+
+    await expect(
+      t.action(api.auth.actions.loginWithPin, {
+        staffId, pin: "1234", deviceId: "unbound-device", idempotencyKey: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("DEVICE_HAS_NO_OUTLET");
+  });
+
+  // v2.0 Task 12 (ENFORCE): a staff member with no staff_outlet_access row for
+  // the device's outlet is rejected with NO_OUTLET_ACCESS — even with the
+  // correct PIN on a bound device.
+  it("throws NO_OUTLET_ACCESS when the staff lacks an access row for the device's outlet", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Indra", "1234");
+    // Bind the device to an outlet, but grant NO access row.
+    await t.run(async (ctx) => {
+      const outletId = await ctx.db.insert("outlets", {
+        code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+        created_at: Date.now(), created_by: null,
+      } as any);
+      await ctx.db.insert("registered_devices", {
+        device_id: "bound-noaccess", label: "x", activated_by: staffId,
+        activated_at: Date.now(), last_seen_at: Date.now(), active: true,
+        outlet_id: outletId,
+      } as any);
+    });
+
+    await expect(
+      t.action(api.auth.actions.loginWithPin, {
+        staffId, pin: "1234", deviceId: "bound-noaccess", idempotencyKey: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("NO_OUTLET_ACCESS");
+  });
 });
 
 describe("logout (mutation)", () => {
   it("sets ended_at + end_reason on the session", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
+    await seedOutletDeviceAccess(t, staffId, "dev-1"); // login needs bound device + access
     const { sessionId } = await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "1234", deviceId: "dev-1", idempotencyKey: "login-1",
     });
@@ -220,6 +346,7 @@ describe("Fix 7: fail_count resets after lockout expires", () => {
   it("single wrong PIN after expired lockout sets fail_count=1, not re-locked", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Dini", "1234");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
 
     // Trigger a lockout by failing 3 times
     for (let i = 0; i < 3; i++) {
@@ -276,6 +403,7 @@ describe("SEC-01: failed-attempt counter increments unconditionally", () => {
   it("third call locks the account", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Eko", "5678");
+    await seedOutletDeviceAccess(t, staffId, "dev-1"); // notifyStaffLockout needs a default outlet
     for (let i = 0; i < 2; i++)
       await t.mutation(internal.auth.internal._recordFailedAttempt_internal, {
         staffId, deviceId: "dev-1", countTowardLockout: true });
@@ -305,6 +433,7 @@ describe("SEC-01: failed-attempt counter increments unconditionally", () => {
     // (A legit network-retry now over-counts by one — deliberate fail-safe.)
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Gita", "4321");
+    await seedOutletDeviceAccess(t, staffId, "dev-1"); // notifyStaffLockout needs a default outlet
     const sameKey = "reused-client-key";
     await t.action(api.auth.actions.loginWithPin, {
       staffId, pin: "0000", deviceId: "dev-1", idempotencyKey: sameKey,
@@ -328,6 +457,7 @@ describe("Fix 14: probe during lockout emits staff.locked_out audit row", () => 
   it("each probe while locked emits an additional staff.locked_out audit row", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Fahri", "9999");
+    await seedOutletDeviceAccess(t, staffId, "dev-1"); // notifyStaffLockout needs a default outlet
 
     // Trigger lockout
     for (let i = 0; i < 3; i++) {
@@ -359,6 +489,7 @@ describe("Fix 5: cache hit with ended session triggers fresh login", () => {
   it("force-ended session causes retry with same key to return a new sessionId", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Gita", "4321");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
     const key = "fix5-idem-key";
 
     // First login — caches the result

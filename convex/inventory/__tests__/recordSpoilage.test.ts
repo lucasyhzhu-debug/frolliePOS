@@ -12,7 +12,7 @@ import { seedManagerSession } from "../../staff/__tests__/_helpers";
  * _recordSpoilage_internal (S3) with source="booth_inline". Wrapped in
  * withActionCache so a replay short-circuits BEFORE the argon2 verify.
  */
-async function seedSku(t: ReturnType<typeof convexTest>, sku: string) {
+async function seedSku(t: ReturnType<typeof convexTest>, sku: string, outletId: any) {
   const skuId = await t.run(async (ctx) =>
     ctx.db.insert("pos_inventory_skus", {
       sku,
@@ -21,14 +21,16 @@ async function seedSku(t: ReturnType<typeof convexTest>, sku: string) {
       low_threshold: 0,
       active: true,
       created_at: Date.now(),
-    }),
+      outlet_id: outletId,
+    } as any),
   );
   await t.run(async (ctx) => {
     await ctx.db.insert("pos_stock_levels", {
       inventory_sku_id: skuId,
       on_hand: 10,
       updated_at: Date.now(),
-    });
+      outlet_id: outletId,
+    } as any);
   });
   return skuId;
 }
@@ -36,8 +38,8 @@ async function seedSku(t: ReturnType<typeof convexTest>, sku: string) {
 describe("inventory.actions.recordSpoilage", () => {
   it("happy path with correct PIN", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const sku = await seedSku(t, "a");
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const sku = await seedSku(t, "a", outletId);
     const r = await t.action(api.inventory.actions.recordSpoilage, {
       idempotencyKey: "k",
       sessionId,
@@ -53,8 +55,8 @@ describe("inventory.actions.recordSpoilage", () => {
 
   it("wrong PIN rejected", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const sku = await seedSku(t, "a");
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const sku = await seedSku(t, "a", outletId);
     await expect(
       t.action(api.inventory.actions.recordSpoilage, {
         idempotencyKey: "k",
@@ -68,8 +70,8 @@ describe("inventory.actions.recordSpoilage", () => {
 
   it("replay returns cached result, no second insert", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedManagerSession(t);
-    const sku = await seedSku(t, "a");
+    const { sessionId, outletId } = await seedManagerSession(t);
+    const sku = await seedSku(t, "a", outletId);
     const args = {
       idempotencyKey: "rk",
       sessionId,

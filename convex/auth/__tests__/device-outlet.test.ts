@@ -64,14 +64,18 @@ async function insertDevice(
 // ---------------------------------------------------------------------------
 
 describe("_loginCommit_internal — outlet stamping (window-tolerant)", () => {
-  it("stamps the default outlet when the device is unbound", async () => {
+  it("stamps the default outlet when the device is bound to it", async () => {
     const t = convexTest(schema);
 
     const { outletId, staffId } = await t.run(async (ctx) => {
       const outletId = await insertOutlet(ctx, "PKW-A");
       const staffId = await insertStaff(ctx, "S-T001");
-      // Device registered but no outlet_id (unbound)
-      await insertDevice(ctx, "dev-unbound-1", staffId);
+      // Device bound to the outlet
+      await insertDevice(ctx, "dev-unbound-1", staffId, outletId);
+      // Grant access
+      await (ctx as any).db.insert("staff_outlet_access", {
+        staff_id: staffId, outlet_id: outletId, granted_at: 0, granted_by: null,
+      });
       return { outletId, staffId };
     });
 
@@ -84,7 +88,7 @@ describe("_loginCommit_internal — outlet stamping (window-tolerant)", () => {
 
     expect(result.sessionId).toBeDefined();
 
-    // Verify session row has outlet_id stamped as the default outlet
+    // Verify session row has outlet_id stamped
     const session = await t.run((ctx) => ctx.db.get(result.sessionId));
     expect((session as any)?.outlet_id).toBe(outletId);
   });
@@ -97,6 +101,10 @@ describe("_loginCommit_internal — outlet stamping (window-tolerant)", () => {
       const staffId = await insertStaff(ctx, "S-T002");
       // Device BOUND to outletId
       await insertDevice(ctx, "dev-bound-1", staffId, outletId);
+      // Grant access
+      await (ctx as any).db.insert("staff_outlet_access", {
+        staff_id: staffId, outlet_id: outletId, granted_at: 0, granted_by: null,
+      });
       return { outletId, staffId };
     });
 
@@ -117,6 +125,10 @@ describe("_loginCommit_internal — outlet stamping (window-tolerant)", () => {
       const outletId = await insertOutlet(ctx, "PKW-C");
       const staffId = await insertStaff(ctx, "S-T003");
       await insertDevice(ctx, "dev-audit-1", staffId, outletId);
+      // Grant access
+      await (ctx as any).db.insert("staff_outlet_access", {
+        staff_id: staffId, outlet_id: outletId, granted_at: 0, granted_by: null,
+      });
       return { outletId, staffId };
     });
 
@@ -171,14 +183,14 @@ describe("_managerTakeoverSession_internal — outlet stamping", () => {
     expect((session as any)?.outlet_id).toBe(outletId);
   });
 
-  it("manager takeover on unbound device falls back to default outlet", async () => {
+  it("manager takeover on device bound to outlet carries that outlet_id", async () => {
     const t = convexTest(schema);
 
     const { outletId, mgr } = await t.run(async (ctx) => {
       const outletId = await insertOutlet(ctx, "PKW-E");
       const mgr = await insertStaff(ctx, "S-T012", "manager");
-      // Device UNBOUND — no outlet_id
-      await insertDevice(ctx, "dev-takeover-2", mgr);
+      // Device BOUND to outlet
+      await insertDevice(ctx, "dev-takeover-2", mgr, outletId);
       return { outletId, mgr };
     });
 

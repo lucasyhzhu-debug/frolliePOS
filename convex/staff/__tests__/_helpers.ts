@@ -27,6 +27,19 @@ export async function seedManagerSession(t: ReturnType<typeof convexTest>) {
   await t.run(async (ctx) => {
     await ctx.db.patch(managerId, { code: "S-0001" });
   });
+  // v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required and
+  // require*Session throws SESSION_NO_OUTLET when absent. Seed an outlet and
+  // stamp it so this manager session resolves an outlet for all consumers.
+  const outletId = await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW",
+      name: "Pakuwon Mall",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: Date.now(),
+      created_by: null,
+    } as never),
+  );
   const sessionId = await t.run(async (ctx) =>
     ctx.db.insert("staff_sessions", {
       staff_id: managerId,
@@ -34,7 +47,8 @@ export async function seedManagerSession(t: ReturnType<typeof convexTest>) {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
-    }),
+      outlet_id: outletId,
+    } as never),
   );
-  return { managerId, sessionId, deviceId };
+  return { managerId, sessionId, deviceId, outletId };
 }

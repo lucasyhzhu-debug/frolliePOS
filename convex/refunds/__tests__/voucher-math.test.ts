@@ -7,6 +7,7 @@ function txn(subtotal: number, voucher: number): Doc<"pos_transactions"> {
     _id: "x" as any, _creationTime: 0,
     status: "paid", subtotal, voucher_discount: voucher, total: subtotal - voucher,
     flags: 0, staff_id: "s" as any, created_at: 0, paid_at: 0,
+    outlet_id: "placeholder" as any,
   };
 }
 
@@ -18,6 +19,7 @@ function line(qty: number, unit_price: number, refunded_qty?: number): Doc<"pos_
     unit_price_snapshot: unit_price, tax_rate_snapshot: 0,
     qty, line_subtotal: qty * unit_price,
     refunded_qty,
+    outlet_id: "placeholder" as any,
   };
 }
 

@@ -10,6 +10,14 @@ import { setupTelegramStub, drainScheduled } from "../../__tests__/_helpers";
 // pending dispatches before teardown.
 setupTelegramStub();
 
+/** Insert the default outlet so required-table rows can be stamped. */
+async function seedOutletId(ctx: any) {
+  return ctx.db.insert("outlets", {
+    code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+    created_at: Date.now(), created_by: null,
+  });
+}
+
 /** Insert a minimal staff row so pos_transactions.staff_id validates. */
 async function seedStaffId(ctx: any) {
   return ctx.db.insert("staff", {
@@ -23,33 +31,39 @@ async function seedStaffId(ctx: any) {
 }
 
 /** Insert a minimal product row so pos_transaction_lines.product_id validates. */
-async function seedProductId(ctx: any) {
+async function seedProductId(ctx: any, outletId: any) {
   const now = Date.now();
   return ctx.db.insert("pos_products", {
     sku_family: "_seed", code: "SEED_1PC", name: "Seed Product", pack_label: "1pc",
     price_idr: 0, tax_rate: 0, active: true, sort_order: 0,
-    created_at: now, updated_at: now,
+    created_at: now, updated_at: now, outlet_id: outletId,
   });
 }
 
-/** Insert a staff + an active staff_sessions row; returns both ids. */
+/**
+ * Insert a staff + an active staff_sessions row (outlet-stamped); returns ids.
+ * v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required and
+ * require*Session throws SESSION_NO_OUTLET when absent.
+ */
 async function seedStaffSession(t: any, role: "staff" | "manager" = "staff") {
   return t.run(async (ctx: any) => {
+    const outletId = await seedOutletId(ctx);
     const staffId = await ctx.db.insert("staff", {
       name: "S", code: "S-0002", pin_hash: "$argon2id$x", role, active: true, created_at: Date.now(),
     });
     const sessionId = await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "dev-1", started_at: Date.now(), ended_at: null, end_reason: null,
+      outlet_id: outletId,
     });
-    return { staffId, sessionId };
+    return { staffId, sessionId, outletId };
   });
 }
 
 /** Insert a minimal inventory SKU with an explicit low_threshold. */
-async function seedSkuWithThreshold(t: any, sku: string, low_threshold: number) {
+async function seedSkuWithThreshold(t: any, sku: string, low_threshold: number, outletId: any) {
   return t.run((ctx: any) =>
     ctx.db.insert("pos_inventory_skus", {
-      sku, name: sku, unit: "piece", low_threshold, active: true, created_at: Date.now(),
+      sku, name: sku, unit: "piece", low_threshold, active: true, created_at: Date.now(), outlet_id: outletId,
     }),
   );
 }
@@ -60,18 +74,18 @@ async function seedSkuWithThreshold(t: any, sku: string, low_threshold: number) 
  * keep their inline seed bodies — leaving them alone keeps regression surface
  * zero.
  */
-async function seedTxnAndLine(ctx: any) {
+async function seedTxnAndLine(ctx: any, outletId: any) {
   const staffId = await seedStaffId(ctx);
-  const productId = await seedProductId(ctx);
+  const productId = await seedProductId(ctx, outletId);
   const txnId = await ctx.db.insert("pos_transactions", {
     status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
-    total: 0, flags: 0, staff_id: staffId, created_at: Date.now(),
+    total: 0, flags: 0, staff_id: staffId, created_at: Date.now(), outlet_id: outletId,
   });
   const lineId = await ctx.db.insert("pos_transaction_lines", {
     transaction_id: txnId, product_id: productId,
     product_code_snapshot: "DBP8", product_name_snapshot: "Dubai 8pc",
     unit_price_snapshot: 200_000, tax_rate_snapshot: 0,
-    qty: 1, line_subtotal: 200_000,
+    qty: 1, line_subtotal: 200_000, outlet_id: outletId,
   });
   return { txnId, lineId };
 }
@@ -80,32 +94,34 @@ describe("inventory/internal", () => {
   it("_recordSaleMovement_internal: writes one movement row per line, decrements on_hand, updates updated_at", async () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
+      const outletId = await seedOutletId(ctx);
       const staffId = await seedStaffId(ctx);
-      const productId = await seedProductId(ctx);
+      const productId = await seedProductId(ctx, outletId);
       const skuId = await ctx.db.insert("pos_inventory_skus", {
         sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 5,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
         total: 0, flags: 0, staff_id: staffId,
-        created_at: Date.now(),
+        created_at: Date.now(), outlet_id: outletId,
       });
       const lineId = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "DBP8", product_name_snapshot: "Dubai 8pc",
         unit_price_snapshot: 200_000, tax_rate_snapshot: 0,
-        qty: 1, line_subtotal: 200_000,
+        qty: 1, line_subtotal: 200_000, outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuId, on_hand: 10, updated_at: Date.now() - 1000,
+        inventory_sku_id: skuId, on_hand: 10, updated_at: Date.now() - 1000, outlet_id: outletId,
       });
-      return { skuId, txnId, lineId };
+      return { skuId, txnId, lineId, outletId };
     });
 
     await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
       transactionId: setup.txnId,
       lines: [{ lineId: setup.lineId, skuId: setup.skuId, qty: 8 }],
+      outlet_id: setup.outletId,
     });
 
     const result = await t.run(async (ctx) => {
@@ -129,34 +145,35 @@ describe("inventory/internal", () => {
   it("_recordSaleMovement_internal: ADR-026 dedup — same line_id+sku_id call twice writes only one movement", async () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
+      const outletId = await seedOutletId(ctx);
       const staffId = await seedStaffId(ctx);
-      const productId = await seedProductId(ctx);
+      const productId = await seedProductId(ctx, outletId);
       const skuId = await ctx.db.insert("pos_inventory_skus", {
         sku: "choco", name: "Choco", unit: "piece", low_threshold: 5,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
-        total: 0, flags: 0, staff_id: staffId, created_at: Date.now(),
+        total: 0, flags: 0, staff_id: staffId, created_at: Date.now(), outlet_id: outletId,
       });
       const lineId = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "C1", product_name_snapshot: "Choco 1pc",
         unit_price_snapshot: 25_000, tax_rate_snapshot: 0,
-        qty: 1, line_subtotal: 25_000,
+        qty: 1, line_subtotal: 25_000, outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuId, on_hand: 10, updated_at: Date.now(),
+        inventory_sku_id: skuId, on_hand: 10, updated_at: Date.now(), outlet_id: outletId,
       });
-      return { skuId, txnId, lineId };
+      return { skuId, txnId, lineId, outletId };
     });
 
     const lines = [{ lineId: setup.lineId, skuId: setup.skuId, qty: 1 }];
     await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
-      transactionId: setup.txnId, lines,
+      transactionId: setup.txnId, lines, outlet_id: setup.outletId,
     });
     await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
-      transactionId: setup.txnId, lines,
+      transactionId: setup.txnId, lines, outlet_id: setup.outletId,
     });
 
     const movements = await t.run((ctx) => ctx.db.query("pos_stock_movements").collect());
@@ -166,21 +183,22 @@ describe("inventory/internal", () => {
   it("_projectedOnHand_internal: returns on_hand - pending_qty per SKU", async () => {
     const t = convexTest(schema);
     const setup = await t.run(async (ctx) => {
+      const outletId = await seedOutletId(ctx);
       const skuA = await ctx.db.insert("pos_inventory_skus", {
         sku: "a", name: "A", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const skuB = await ctx.db.insert("pos_inventory_skus", {
         sku: "b", name: "B", unit: "piece", low_threshold: 0,
-        active: true, created_at: Date.now(),
+        active: true, created_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuA, on_hand: 10, updated_at: Date.now(),
+        inventory_sku_id: skuA, on_hand: 10, updated_at: Date.now(), outlet_id: outletId,
       });
       await ctx.db.insert("pos_stock_levels", {
-        inventory_sku_id: skuB, on_hand: 5, updated_at: Date.now(),
+        inventory_sku_id: skuB, on_hand: 5, updated_at: Date.now(), outlet_id: outletId,
       });
-      return { skuA, skuB };
+      return { skuA, skuB, outletId };
     });
 
     const projected = await t.query(internal.inventory.internal._projectedOnHand_internal, {
@@ -188,6 +206,7 @@ describe("inventory/internal", () => {
         { skuId: setup.skuA, qty: 3 },
         { skuId: setup.skuB, qty: 7 },
       ],
+      outletId: setup.outletId,
     });
 
     expect(projected[setup.skuA]).toBe(7);
@@ -198,7 +217,8 @@ describe("inventory/internal", () => {
 describe("catalog internals for inventory", () => {
   it("_getSkusByIds_internal returns name + low_threshold; _setLowThreshold_internal patches", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 5);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "x", 5, outletId);
     const got = await t.query(internal.catalog.internal._getSkusByIds_internal, { skuIds: [skuId] });
     expect(got[0]).toMatchObject({ skuId, name: "x", low_threshold: 5 });
     await t.mutation(internal.catalog.internal._setLowThreshold_internal, { skuId, lowThreshold: 25 });
@@ -211,19 +231,20 @@ describe("inventory/schema v0.5.2", () => {
   it("pos_low_stock_alerts + pos_recount_state round-trip; recount source accepted", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
+      const outletId = await seedOutletId(ctx);
       const skuId = await ctx.db.insert("pos_inventory_skus", {
-        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 20, active: true, created_at: Date.now(),
+        sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 20, active: true, created_at: Date.now(), outlet_id: outletId,
       });
       const flag = await ctx.db.insert("pos_low_stock_alerts", {
-        inventory_sku_id: skuId, alerted_at: Date.now(),
+        inventory_sku_id: skuId, alerted_at: Date.now(), outlet_id: outletId,
       });
       expect((await ctx.db.get(flag))!.inventory_sku_id).toBe(skuId);
 
-      const state = await ctx.db.insert("pos_recount_state", { last_recount_at: 123 });
+      const state = await ctx.db.insert("pos_recount_state", { last_recount_at: 123, outlet_id: outletId });
       expect((await ctx.db.get(state))!.last_recount_at).toBe(123);
 
       const mv = await ctx.db.insert("pos_stock_movements", {
-        inventory_sku_id: skuId, qty: 5, source: "recount", created_at: Date.now(),
+        inventory_sku_id: skuId, qty: 5, source: "recount", created_at: Date.now(), outlet_id: outletId,
       });
       expect((await ctx.db.get(mv))!.source).toBe("recount");
     });
@@ -233,17 +254,18 @@ describe("inventory/schema v0.5.2", () => {
 describe("_checkLowStock_internal", () => {
   it("inserts a flag row + schedules alert the first time on_hand < low_threshold", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "dubai", 20);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "dubai", 20, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 3, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 3, updated_at: Date.now(), outlet_id: outletId });
     });
-    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId, outlet_id: outletId });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
     expect(flag).not.toBeNull();
     // dedup: second call does not add a second flag
-    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId, outlet_id: outletId });
     const flags = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).collect(),
     );
@@ -254,12 +276,13 @@ describe("_checkLowStock_internal", () => {
 
   it("re-arms (deletes flag) when on_hand climbs back to/above low_threshold", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "dubai", 20);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "dubai", 20, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 100, updated_at: Date.now() });
-      await ctx.db.insert("pos_low_stock_alerts", { inventory_sku_id: skuId, alerted_at: 999 });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 100, updated_at: Date.now(), outlet_id: outletId });
+      await ctx.db.insert("pos_low_stock_alerts", { inventory_sku_id: skuId, alerted_at: 999, outlet_id: outletId });
     });
-    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId, outlet_id: outletId });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
@@ -268,11 +291,12 @@ describe("_checkLowStock_internal", () => {
 
   it("low_threshold 0: only negative on_hand alerts", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "dubai0", 0);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "dubai0", 0, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 0, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 0, updated_at: Date.now(), outlet_id: outletId });
     });
-    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId, outlet_id: outletId });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
@@ -282,9 +306,10 @@ describe("_checkLowStock_internal", () => {
   it("alerts when no level row exists yet (defaults to 0 < threshold)", async () => {
     const t = convexTest(schema);
     // global fetch stub from beforeEach still applies
-    const skuId = await seedSkuWithThreshold(t, "fresh", 20);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "fresh", 20, outletId);
     // NO pos_stock_levels insert — first-ever sale scenario
-    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId });
+    await t.mutation(internal.inventory.internal._checkLowStock_internal, { skuId, outlet_id: outletId });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
     );
@@ -296,16 +321,18 @@ describe("_checkLowStock_internal", () => {
 describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => {
   it("triggers one low-stock check per unique decremented SKU", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "dubai-decr", 20);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "dubai-decr", 20, outletId);
     const setup = await t.run(async (ctx) => {
-      const seeded = await seedTxnAndLine(ctx);
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 21, updated_at: Date.now() });
+      const seeded = await seedTxnAndLine(ctx, outletId);
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 21, updated_at: Date.now(), outlet_id: outletId });
       return seeded;
     });
     // 21 → 16 crosses threshold-20.
     await t.mutation(internal.inventory.internal._recordSaleMovement_internal, {
       transactionId: setup.txnId,
       lines: [{ lineId: setup.lineId, skuId, qty: 5 }],
+      outlet_id: outletId,
     });
     const flag = await t.run(async (ctx) =>
       ctx.db.query("pos_low_stock_alerts").withIndex("by_sku", (q) => q.eq("inventory_sku_id", skuId)).first(),
@@ -316,25 +343,26 @@ describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => 
 
   it("two lines on the same SKU trigger ONE low-stock check (Set dedup)", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "dubai-dedup", 20);
+    const outletId = await t.run((ctx: any) => seedOutletId(ctx));
+    const skuId = await seedSkuWithThreshold(t, "dubai-dedup", 20, outletId);
     const setup = await t.run(async (ctx) => {
       const staffId = await seedStaffId(ctx);
-      const productId = await seedProductId(ctx);
+      const productId = await seedProductId(ctx, outletId);
       const txnId = await ctx.db.insert("pos_transactions", {
         status: "awaiting_payment", subtotal: 0, voucher_discount: 0,
-        total: 0, flags: 0, staff_id: staffId, created_at: Date.now(),
+        total: 0, flags: 0, staff_id: staffId, created_at: Date.now(), outlet_id: outletId,
       });
       const lineA = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "A", product_name_snapshot: "A",
-        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100,
+        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100, outlet_id: outletId,
       });
       const lineB = await ctx.db.insert("pos_transaction_lines", {
         transaction_id: txnId, product_id: productId,
         product_code_snapshot: "B", product_name_snapshot: "B",
-        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100,
+        unit_price_snapshot: 100, tax_rate_snapshot: 0, qty: 1, line_subtotal: 100, outlet_id: outletId,
       });
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 25, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 25, updated_at: Date.now(), outlet_id: outletId });
       return { txnId, lineA, lineB };
     });
     // Two lines, same SKU. 25 → 20 → 18 crosses threshold-20 on the second decrement.
@@ -344,6 +372,7 @@ describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => 
         { lineId: setup.lineA, skuId, qty: 5 },
         { lineId: setup.lineB, skuId, qty: 2 },
       ],
+      outlet_id: outletId,
     });
     // Assert exactly one alert audit row (proves Set dedup — without it, two would fire).
     const audit = await t.run(async (ctx) =>
@@ -362,10 +391,10 @@ describe("_recordSaleMovement_internal — low-stock injection (v0.5.2)", () => 
 describe("recordRecount", () => {
   it("writes recount movement (signed delta), sets on_hand to entered, stamps recount-state", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now(), outlet_id: outletId } as any);
     });
     await t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-1", sessionId, counts: [{ skuId, entered: 30 }],
@@ -385,10 +414,10 @@ describe("recordRecount", () => {
 
   it("skips SKUs where entered === on_hand", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 40, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 40, updated_at: Date.now(), outlet_id: outletId } as any);
     });
     await t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-2", sessionId, counts: [{ skuId, entered: 40 }],
@@ -402,8 +431,8 @@ describe("recordRecount", () => {
 
   it("first-ever count with no level row inserts on_hand = entered", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-4", sessionId, counts: [{ skuId, entered: 10 }],
     });
@@ -416,8 +445,8 @@ describe("recordRecount", () => {
 
   it("rejects negative entered", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await expect(t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-3", sessionId, counts: [{ skuId, entered: -1 }],
     })).rejects.toThrow();
@@ -425,8 +454,8 @@ describe("recordRecount", () => {
 
   it("rejects duplicate skuId in counts", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await expect(t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-dup-sku",
       sessionId,
@@ -436,8 +465,8 @@ describe("recordRecount", () => {
 
   it("rejects non-integer entered in recordRecount", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await expect(t.mutation(api.inventory.public.recordRecount, {
       idempotencyKey: "rc-float", sessionId, counts: [{ skuId, entered: 10.5 }],
     })).rejects.toThrow();
@@ -445,10 +474,10 @@ describe("recordRecount", () => {
 
   it("idempotent replay does not double-apply", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 0);
-    const { sessionId } = await seedStaffSession(t);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const skuId = await seedSkuWithThreshold(t, "x", 0, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: skuId, on_hand: 50, updated_at: Date.now(), outlet_id: outletId } as any);
     });
     const args = { idempotencyKey: "rc-dup", sessionId, counts: [{ skuId, entered: 30 }] };
     await t.mutation(api.inventory.public.recordRecount, args);
@@ -464,8 +493,8 @@ describe("recordRecount", () => {
 describe("setLowThreshold", () => {
   it("manager updates the catalog low_threshold", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 5);
-    const { sessionId } = await seedStaffSession(t, "manager");
+    const { sessionId, outletId } = await seedStaffSession(t, "manager");
+    const skuId = await seedSkuWithThreshold(t, "x", 5, outletId);
     await t.mutation(api.inventory.public.setLowThreshold, {
       idempotencyKey: "lt-1", sessionId, skuId, lowThreshold: 25,
     });
@@ -474,8 +503,8 @@ describe("setLowThreshold", () => {
   });
   it("rejects non-manager", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 5);
-    const { sessionId } = await seedStaffSession(t, "staff");
+    const { sessionId, outletId } = await seedStaffSession(t, "staff");
+    const skuId = await seedSkuWithThreshold(t, "x", 5, outletId);
     await expect(t.mutation(api.inventory.public.setLowThreshold, {
       idempotencyKey: "lt-2", sessionId, skuId, lowThreshold: 25,
     })).rejects.toThrow();
@@ -483,8 +512,8 @@ describe("setLowThreshold", () => {
 
   it("setLowThreshold rejects non-integer", async () => {
     const t = convexTest(schema);
-    const skuId = await seedSkuWithThreshold(t, "x", 5);
-    const { sessionId } = await seedStaffSession(t, "manager");
+    const { sessionId, outletId } = await seedStaffSession(t, "manager");
+    const skuId = await seedSkuWithThreshold(t, "x", 5, outletId);
     await expect(t.mutation(api.inventory.public.setLowThreshold, {
       idempotencyKey: "lt-float", sessionId, skuId, lowThreshold: 20.5,
     })).rejects.toThrow();
@@ -494,14 +523,14 @@ describe("setLowThreshold", () => {
 describe("listInventory", () => {
   it("returns status per active SKU (ok/low/negative)", async () => {
     const t = convexTest(schema);
-    const { sessionId } = await seedStaffSession(t);
-    const okSku = await seedSkuWithThreshold(t, "ok", 20);
-    const lowSku = await seedSkuWithThreshold(t, "low", 20);
-    const negSku = await seedSkuWithThreshold(t, "neg", 20);
+    const { sessionId, outletId } = await seedStaffSession(t);
+    const okSku = await seedSkuWithThreshold(t, "ok", 20, outletId);
+    const lowSku = await seedSkuWithThreshold(t, "low", 20, outletId);
+    const negSku = await seedSkuWithThreshold(t, "neg", 20, outletId);
     await t.run(async (ctx) => {
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: okSku, on_hand: 100, updated_at: Date.now() });
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: lowSku, on_hand: 5, updated_at: Date.now() });
-      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: negSku, on_hand: -2, updated_at: Date.now() });
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: okSku, on_hand: 100, updated_at: Date.now(), outlet_id: outletId } as any);
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: lowSku, on_hand: 5, updated_at: Date.now(), outlet_id: outletId } as any);
+      await ctx.db.insert("pos_stock_levels", { inventory_sku_id: negSku, on_hand: -2, updated_at: Date.now(), outlet_id: outletId } as any);
     });
     const rows = await t.query(api.inventory.public.listInventory, { sessionId });
     const byId: Record<string, "ok" | "low" | "negative"> = {};

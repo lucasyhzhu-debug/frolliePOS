@@ -14,13 +14,17 @@ import { withIdempotency } from "../idempotency/internal";
  * when outletId is undefined (window-tolerant — old rows lack outlet_id).
  */
 export const _getActiveSkuIds_internal = internalQuery({
+  // v2.0 Task 12: outletId LEFT OPTIONAL — the session-less getStockLevels public
+  // query (no sessionId) passes none and needs the global by_active read (a
+  // KEEP index). Outlet scoping is deferred until sessionId is injected.
   args: { outletId: v.optional(v.id("outlets")) },
   handler: async (ctx, args): Promise<Id<"pos_inventory_skus">[]> => {
-    const skus = args.outletId
+    const outletId = args.outletId;
+    const skus = outletId
       ? await ctx.db
           .query("pos_inventory_skus")
           .withIndex("by_outlet_active", (q) =>
-            q.eq("outlet_id", args.outletId).eq("active", true),
+            q.eq("outlet_id", outletId).eq("active", true),
           )
           .collect()
       : // eslint-disable-next-line frollie-internal/index-leads-with-outlet_id -- session-less callers (getStockLevels) pass no outletId and need a global read; outlet scoping deferred to Task 12 when sessionId is injected
@@ -45,7 +49,7 @@ export const _getActiveSkuIds_internal = internalQuery({
  * pass no outletId — they process all SKUs globally; scoping is a TODO for a later task.
  */
 export const _getActiveSkus_internal = internalQuery({
-  args: { outletId: v.optional(v.id("outlets")) },
+  args: { outletId: v.id("outlets") },
   handler: async (ctx, args): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
     // v2.0 Task 11: cron callers (_runStockRecon_internal) now resolve the
     // default outlet and pass outletId — use the by_outlet_active index when
@@ -84,7 +88,7 @@ export const _getActiveSkus_internal = internalQuery({
 export const _getComponentsForProducts_internal = internalQuery({
   args: {
     productIds: v.array(v.id("pos_products")),
-    outletId: v.optional(v.id("outlets")),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args): Promise<Array<{
     productId: Id<"pos_products">;
@@ -220,7 +224,7 @@ export async function insertInventorySku(
     code?: string;
     initials?: string;
     hue?: number;
-    outlet_id?: Id<"outlets">;
+    outlet_id: Id<"outlets">;
   },
 ): Promise<Id<"pos_inventory_skus">> {
   return ctx.db.insert("pos_inventory_skus", {
@@ -233,7 +237,7 @@ export async function insertInventorySku(
     hue: fields.hue,
     active: true,
     created_at: fields.now,
-    ...(fields.outlet_id ? { outlet_id: fields.outlet_id } : {}),
+    outlet_id: fields.outlet_id,
   });
 }
 
@@ -262,7 +266,7 @@ export const _createInventorySkuCommit_internal = internalMutation({
     code: v.optional(v.string()),
     initials: v.optional(v.string()),
     hue: v.optional(v.number()),
-    outletId: v.optional(v.id("outlets")),  // v2.0 Task 9B: passed from action caller's session
+    outletId: v.id("outlets"),  // v2.0 Task 9B: passed from action caller's session
   },
   handler: withIdempotency<
     {
@@ -275,7 +279,7 @@ export const _createInventorySkuCommit_internal = internalMutation({
       code?: string;
       initials?: string;
       hue?: number;
-      outletId?: Id<"outlets">;
+      outletId: Id<"outlets">;
     },
     { skuId: Id<"pos_inventory_skus"> }
   >(
@@ -376,7 +380,7 @@ export const _createProductCommit_internal = internalMutation({
     inventorySkuLowThreshold: v.optional(v.number()),
     inventorySkuComponentQty: v.optional(v.number()),
     deviceId: v.optional(v.string()),
-    outletId: v.optional(v.id("outlets")),  // v2.0 Task 9B: stamped on product + bundled SKU + component
+    outletId: v.id("outlets"),  // v2.0 Task 9B: stamped on product + bundled SKU + component
   },
   handler: withIdempotency<
     {
@@ -395,7 +399,7 @@ export const _createProductCommit_internal = internalMutation({
       inventorySkuLowThreshold?: number;
       inventorySkuComponentQty?: number;
       deviceId?: string;
-      outletId?: Id<"outlets">;
+      outletId: Id<"outlets">;
     },
     {
       productId: Id<"pos_products">;
@@ -486,7 +490,7 @@ export const _createProductCommit_internal = internalMutation({
         active: true,
         created_at: now,
         updated_at: now,
-        ...(args.outletId ? { outlet_id: args.outletId } : {}),
+        outlet_id: args.outletId,
       });
       await logAudit(ctx, {
         actor_id: args.mgrId,
@@ -521,7 +525,7 @@ export const _createProductCommit_internal = internalMutation({
           product_id: productId,
           inventory_sku_id: bundledSkuId,
           qty: bundledQty,
-          ...(args.outletId ? { outlet_id: args.outletId } : {}),
+          outlet_id: args.outletId,
         });
         // Reuse setProductComponents' verb (product.updated +
         // components_changed) rather than minting product.components_set,

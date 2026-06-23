@@ -69,6 +69,8 @@ export const createProduct = action({
           sessionId: args.sessionId,
         });
         const outletId = session?.staff.outlet_id;
+        // v2.0 Task 12 (ENFORCE): the session always carries an outlet now.
+        if (!outletId) throw new Error("SESSION_NO_OUTLET");
         // v2.0 Task 9F: assert the idempotency key is outlet-prefixed for the
         // session outlet (OUTLET_KEY_MISMATCH on cross-outlet replay).
         assertOutletKeyPrefix(args.idempotencyKey, outletId);
@@ -142,6 +144,8 @@ export const createInventorySku = action({
           sessionId: args.sessionId,
         });
         const outletId = session?.staff.outlet_id;
+        // v2.0 Task 12 (ENFORCE): the session always carries an outlet now.
+        if (!outletId) throw new Error("SESSION_NO_OUTLET");
         // v2.0 Task 9F: assert the idempotency key is outlet-prefixed.
         assertOutletKeyPrefix(args.idempotencyKey, outletId);
         return await ctx.runMutation(internal.catalog.internal._createInventorySkuCommit_internal, {

@@ -24,6 +24,12 @@ async function seedPaidTxn(
     unit_price: number;
   },
 ) {
+  const outletId = await t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta",
+      active: true, created_at: Date.now(), created_by: null,
+    } as any),
+  );
   return await t.run(async (ctx) => {
     const staffId = await ctx.db.insert("staff", {
       code: "S-RP", name: "RP", role: "staff", active: true,
@@ -36,8 +42,8 @@ async function seedPaidTxn(
     const productId = await ctx.db.insert("pos_products", {
       sku_family: "dubai", code: "DUB1", name: "Dubai 1pc", pack_label: "1pc",
       price_idr: opts.unit_price, active: true, sort_order: 0, tax_rate: 0,
-      created_at: Date.now(), updated_at: Date.now(),
-    });
+      created_at: Date.now(), updated_at: Date.now(), outlet_id: outletId,
+    } as any);
     const total = opts.subtotal - opts.voucher;
     const txnId = await ctx.db.insert("pos_transactions", {
       status: "paid",
@@ -46,13 +52,15 @@ async function seedPaidTxn(
       created_at: Date.now(), paid_at: Date.now(),
       receipt_number: "R-2026-PROJ",
       receipt_token: opts.token,
-    });
+      outlet_id: outletId,
+    } as any);
     const lineId = await ctx.db.insert("pos_transaction_lines", {
       transaction_id: txnId, product_id: productId,
       product_code_snapshot: "DUB1", product_name_snapshot: "Dubai 1pc",
       unit_price_snapshot: opts.unit_price, tax_rate_snapshot: 0,
       qty: opts.qty, line_subtotal: opts.qty * opts.unit_price,
-    });
+      outlet_id: outletId,
+    } as any);
     return { staffId, mgrId, txnId, lineId };
   });
 }

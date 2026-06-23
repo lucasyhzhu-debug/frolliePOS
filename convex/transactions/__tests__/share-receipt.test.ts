@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api } from "../../_generated/api";
-import { seedStaff, seedSession } from "./_helpers";
+import { seedStaff, seedSession, seedDefaultOutlet } from "./_helpers";
 
-async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; total?: number }) {
+async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; total?: number; outletId: any }) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("pos_transactions", {
       status: "paid",
@@ -15,16 +15,18 @@ async function seedPaidTxn(t: ReturnType<typeof convexTest>, args: { staffId: an
       staff_id: args.staffId,
       created_at: 1000,
       paid_at: 1500,
+      outlet_id: args.outletId,
     } as any);
   });
 }
 
-async function seedDraftTxn(t: ReturnType<typeof convexTest>, args: { staffId: any }) {
+async function seedDraftTxn(t: ReturnType<typeof convexTest>, args: { staffId: any; outletId: any }) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("pos_transactions", {
       status: "draft",
       subtotal: 10_000, voucher_discount: 0, total: 10_000,
       flags: 0, staff_id: args.staffId, created_at: 1000,
+      outlet_id: args.outletId,
     } as any);
   });
 }
@@ -32,9 +34,10 @@ async function seedDraftTxn(t: ReturnType<typeof convexTest>, args: { staffId: a
 describe("shareReceipt", () => {
   it("mints a token for a paid txn without one", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
-    const txnId = await seedPaidTxn(t, { staffId });
+    const sessionId = await seedSession(t, staffId, outletId);
+    const txnId = await seedPaidTxn(t, { staffId, outletId });
     const r = await t.mutation(api.transactions.public.shareReceipt, {
       idempotencyKey: "k1", sessionId, txnId,
     });
@@ -46,9 +49,10 @@ describe("shareReceipt", () => {
 
   it("re-tap with a different idempotencyKey returns the same token", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
-    const txnId = await seedPaidTxn(t, { staffId });
+    const sessionId = await seedSession(t, staffId, outletId);
+    const txnId = await seedPaidTxn(t, { staffId, outletId });
     const a = await t.mutation(api.transactions.public.shareReceipt, {
       idempotencyKey: "k-first", sessionId, txnId,
     });
@@ -60,9 +64,10 @@ describe("shareReceipt", () => {
 
   it("idempotency cache: same key returns cached result on replay", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
-    const txnId = await seedPaidTxn(t, { staffId });
+    const sessionId = await seedSession(t, staffId, outletId);
+    const txnId = await seedPaidTxn(t, { staffId, outletId });
     const a = await t.mutation(api.transactions.public.shareReceipt, {
       idempotencyKey: "same-key", sessionId, txnId,
     });
@@ -74,11 +79,12 @@ describe("shareReceipt", () => {
 
   it("rejects an invalid session (authCheck)", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const txnId = await seedPaidTxn(t, { staffId });
+    const txnId = await seedPaidTxn(t, { staffId, outletId });
     // Build a sessionId that does not exist (insert+delete).
     const goneId = await t.run(async (ctx) => {
-      const sess = await ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: 0, ended_at: null, end_reason: null } as any);
+      const sess = await ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: 0, ended_at: null, end_reason: null, outlet_id: outletId } as any);
       await ctx.db.delete(sess);
       return sess;
     });
@@ -91,9 +97,10 @@ describe("shareReceipt", () => {
 
   it("rejects a non-paid (draft) txn", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
-    const draftId = await seedDraftTxn(t, { staffId });
+    const sessionId = await seedSession(t, staffId, outletId);
+    const draftId = await seedDraftTxn(t, { staffId, outletId });
     await expect(
       t.mutation(api.transactions.public.shareReceipt, {
         idempotencyKey: "k-draft", sessionId, txnId: draftId,
@@ -103,12 +110,14 @@ describe("shareReceipt", () => {
 
   it("rejects a missing txn", async () => {
     const t = convexTest(schema);
+    const outletId = await seedDefaultOutlet(t);
     const staffId = await seedStaff(t, { name: "Sari", role: "staff", code: "S1" });
-    const sessionId = await seedSession(t, staffId);
+    const sessionId = await seedSession(t, staffId, outletId);
     const goneTxnId = await t.run(async (ctx) => {
       const id = await ctx.db.insert("pos_transactions", {
         status: "paid", subtotal: 10_000, voucher_discount: 0, total: 10_000,
         flags: 0, staff_id: staffId, created_at: 0, paid_at: 0,
+        outlet_id: outletId,
       } as any);
       await ctx.db.delete(id);
       return id;

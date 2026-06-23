@@ -2,6 +2,50 @@ import { describe, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+
+// v2.0 Task 12 (ENFORCE): sessions must carry outlet_id (requireSession /
+// requireManagerSession throw SESSION_NO_OUTLET otherwise) and loginWithPin
+// resolves the outlet from a bound device + asserts staff_outlet_access. This
+// helper seeds the default outlet, binds device "d", and grants both the caller
+// and (optionally) a target staff access — then returns { outletId }.
+async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+async function bindDeviceAndAccess(
+  t: ReturnType<typeof convexTest>,
+  outletId: Id<"outlets">,
+  deviceId: string,
+  staffIds: Id<"staff">[],
+): Promise<void> {
+  await t.run(async (ctx: any) => {
+    const devices = await ctx.db.query("registered_devices").collect();
+    const dev = devices.find((d: any) => d.device_id === deviceId);
+    if (!dev) {
+      await ctx.db.insert("registered_devices", {
+        device_id: deviceId, label: deviceId, activated_by: staffIds[0],
+        activated_at: Date.now(), last_seen_at: Date.now(), active: true,
+        outlet_id: outletId,
+      });
+    }
+    const accessRows = await ctx.db.query("staff_outlet_access").collect();
+    for (const sid of staffIds) {
+      const access = accessRows.find(
+        (a: any) => a.staff_id === sid && a.outlet_id === outletId,
+      );
+      if (!access) {
+        await ctx.db.insert("staff_outlet_access", {
+          staff_id: sid, outlet_id: outletId, granted_at: 0, granted_by: null,
+        });
+      }
+    }
+  });
+}
 
 describe("auth/actions.changePin", () => {
   it("verifies currentPin, hashes newPin, calls _changePinCommit with actor=self", async () => {
@@ -11,6 +55,8 @@ describe("auth/actions.changePin", () => {
       pin: "1234",
       role: "staff",
     });
+    const outletId = await seedOutlet(t);
+    await bindDeviceAndAccess(t, outletId, "d", [staffId]);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: staffId,
@@ -18,7 +64,8 @@ describe("auth/actions.changePin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
 
     await t.action(api.auth.actions.changePin, {
@@ -53,6 +100,7 @@ describe("auth/actions.changePin", () => {
       pin: "1234",
       role: "staff",
     });
+    const outletId = await seedOutlet(t);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: staffId,
@@ -60,7 +108,8 @@ describe("auth/actions.changePin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     await expect(
       t.action(api.auth.actions.changePin, {
@@ -86,6 +135,8 @@ describe("auth/actions.resetStaffPin", () => {
       pin: "1234",
       role: "staff",
     });
+    const outletId = await seedOutlet(t);
+    await bindDeviceAndAccess(t, outletId, "d", [mgrId, staffId]);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: mgrId,
@@ -93,7 +144,8 @@ describe("auth/actions.resetStaffPin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
 
     await t.action(api.auth.actions.resetStaffPin, {
@@ -126,6 +178,7 @@ describe("auth/actions.resetStaffPin", () => {
       pin: "1234",
       role: "staff",
     });
+    const outletId = await seedOutlet(t);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: mgrId,
@@ -133,7 +186,8 @@ describe("auth/actions.resetStaffPin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     await expect(
       t.action(api.auth.actions.resetStaffPin, {
@@ -163,6 +217,7 @@ describe("auth/actions.resetStaffPin", () => {
       pin: "1111",
       role: "staff",
     });
+    const outletId = await seedOutlet(t);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: callerId,
@@ -170,7 +225,8 @@ describe("auth/actions.resetStaffPin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     await expect(
       t.action(api.auth.actions.resetStaffPin, {
@@ -190,6 +246,7 @@ describe("auth/actions.resetStaffPin", () => {
       pin: "9999",
       role: "manager",
     });
+    const outletId = await seedOutlet(t);
     const session = await t.run((ctx) =>
       ctx.db.insert("staff_sessions", {
         staff_id: mgrId,
@@ -197,7 +254,8 @@ describe("auth/actions.resetStaffPin", () => {
         started_at: Date.now(),
         ended_at: null,
         end_reason: null,
-      }),
+        outlet_id: outletId,
+      } as any),
     );
     await expect(
       t.action(api.auth.actions.resetStaffPin, {

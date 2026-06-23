@@ -4,6 +4,15 @@ import schema from "../../schema";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 
+async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  );
+}
+
 async function seedStaff(t: ReturnType<typeof convexTest>): Promise<Id<"staff">> {
   return await t.run((ctx) =>
     ctx.db.insert("staff", {
@@ -41,6 +50,7 @@ describe("getRecentPinResetForStaff", () => {
   it("returns null for a pending row outside the recency window", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_approval_requests", {
         kind: "staff_pin_reset",
@@ -51,7 +61,8 @@ describe("getRecentPinResetForStaff", () => {
         token_expires_at: Date.now() - 60_000,
         status: "pending",
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
     });
     const result = await t.query(api.approvals.public.getRecentPinResetForStaff, { staffId });
     expect(result).toBeNull();
@@ -60,6 +71,7 @@ describe("getRecentPinResetForStaff", () => {
   it("returns pending for a pending row within the window", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_approval_requests", {
         kind: "staff_pin_reset",
@@ -70,7 +82,8 @@ describe("getRecentPinResetForStaff", () => {
         token_expires_at: Date.now() + 60_000,
         status: "pending",
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
     });
     const result = await t.query(api.approvals.public.getRecentPinResetForStaff, { staffId });
     expect(result).not.toBeNull();
@@ -81,6 +94,7 @@ describe("getRecentPinResetForStaff", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
     const managerId = await seedManager(t);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_approval_requests", {
         kind: "staff_pin_reset",
@@ -93,7 +107,8 @@ describe("getRecentPinResetForStaff", () => {
         resolved_at: Date.now(),
         resolved_by_manager_id: managerId,
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
     });
     const result = await t.query(api.approvals.public.getRecentPinResetForStaff, { staffId });
     expect(result).toBeNull();
@@ -102,6 +117,7 @@ describe("getRecentPinResetForStaff", () => {
   it("returns denied (not null) for a denied row within the window", async () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
+    const outletId = await seedOutlet(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("pos_approval_requests", {
         kind: "staff_pin_reset",
@@ -113,7 +129,8 @@ describe("getRecentPinResetForStaff", () => {
         status: "denied",
         denied_at: Date.now() - 30_000,
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
     });
     const result = await t.query(api.approvals.public.getRecentPinResetForStaff, { staffId });
     expect(result).not.toBeNull();
@@ -124,6 +141,7 @@ describe("getRecentPinResetForStaff", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t);
     const managerId = await seedManager(t);
+    const outletId = await seedOutlet(t);
     const now = Date.now();
     await t.run(async (ctx) => {
       // resolved row — older
@@ -138,7 +156,8 @@ describe("getRecentPinResetForStaff", () => {
         resolved_at: now - 4 * 60 * 1000,
         resolved_by_manager_id: managerId,
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
       // pending row — newer
       await ctx.db.insert("pos_approval_requests", {
         kind: "staff_pin_reset",
@@ -149,7 +168,8 @@ describe("getRecentPinResetForStaff", () => {
         token_expires_at: now + 60_000,
         status: "pending",
         notification_channel: "telegram",
-      });
+        outlet_id: outletId,
+      } as any);
     });
     const result = await t.query(api.approvals.public.getRecentPinResetForStaff, { staffId });
     expect(result).not.toBeNull();

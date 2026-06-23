@@ -7,19 +7,16 @@ import { logAudit } from "../audit/internal";
 import { withIdempotency } from "../idempotency/internal";
 
 /**
- * v2.0: the per-outlet pos_settings row lookup — by_outlet when the session has
- * an outlet, else the lone singleton during the migration window. Shared by the
- * three write-path mutations below so the window-tolerant branch lives once.
- * (The read path `_getSettings_internal` deliberately does NOT singleton-fall-
- * back — outlet isolation — so this helper is write-path only.)
+ * v2.0 Task 12 (ENFORCE): the per-outlet pos_settings row lookup, scoped by the
+ * manager session's (now required) outlet. Shared by the three write-path
+ * mutations below. (The read path `_getSettings_internal` deliberately does NOT
+ * singleton-fall-back — outlet isolation — so this helper is write-path only.)
  */
 function settingsRowForOutlet(
   ctx: MutationCtx,
-  outlet_id: Id<"outlets"> | undefined,
+  outlet_id: Id<"outlets">,
 ): Promise<Doc<"pos_settings"> | null> {
-  return outlet_id
-    ? ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first()
-    : ctx.db.query("pos_settings").first();
+  return ctx.db.query("pos_settings").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id)).first();
 }
 
 // Intentionally unauthenticated — returns only two non-sensitive notification
@@ -75,7 +72,7 @@ export const setFoundersSummaryEnabled = mutation({
           txn_ticker_enabled: true,
           updated_at: Date.now(),
           updated_by: staffId,
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
       await logAudit(ctx, {
@@ -128,7 +125,7 @@ export const setTxnTickerEnabled = mutation({
           txn_ticker_enabled: args.enabled,
           updated_at: Date.now(),
           updated_by: staffId,
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
       await logAudit(ctx, {
@@ -278,7 +275,7 @@ export const updateReceiptConfig = mutation({
         await ctx.db.insert("pos_settings", {
           founders_summary_enabled: true,
           ...patch,
-          ...(outlet_id ? { outlet_id } : {}),
+          outlet_id,
         });
       }
       // Purge the receipt HTML cache so the next /r/<token> render picks up

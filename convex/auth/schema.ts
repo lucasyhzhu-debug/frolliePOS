@@ -32,7 +32,7 @@ export const authTables = {
       v.literal("force_logout"),
       v.null(),
     ),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.id("outlets"),  // v2.0 Task 12: enforced (was optional during migration window)
   })
     .index("by_staff_active", ["staff_id", "ended_at"])
     .index("by_device_active", ["device_id", "ended_at"])
@@ -43,7 +43,7 @@ export const authTables = {
     fail_count: v.number(),
     locked_until: v.union(v.number(), v.null()),
     last_attempt_at: v.number(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: audit context only; no by_outlet index (lockout is per-staff)
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 12: LEFT OPTIONAL — written by the failed-login counter pre-session (no session/outlet yet); audit context only; lockout is per-staff
   }).index("by_staff", ["staff_id"]),
 
   // SEC-04: brute-force throttle for /activate device-setup-code entry.
@@ -65,7 +65,7 @@ export const authTables = {
     activated_at: v.number(),
     last_seen_at: v.optional(v.number()),
     active: v.boolean(),
-    outlet_id: v.optional(v.id("outlets")),  // v2.0 Stream 2: optional during migration window
+    outlet_id: v.optional(v.id("outlets")),  // v2.0 Task 12: LEFT OPTIONAL — devices activate UNBOUND (OQ4); a manager binds later via assignDeviceOutlet, so activateDevice cannot stamp an outlet
   })
     .index("by_device_id", ["device_id"])
     .index("by_active", ["active"])

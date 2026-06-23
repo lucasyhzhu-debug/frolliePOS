@@ -2,6 +2,16 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+
+async function makeOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
+  return t.run((ctx: any) =>
+    ctx.db.insert("outlets", {
+      code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null,
+    } as any),
+  ) as Promise<Id<"outlets">>;
+}
 
 it("defaults founders_summary_enabled to true when the row is absent", async () => {
   const t = convexTest(schema);
@@ -11,7 +21,8 @@ it("defaults founders_summary_enabled to true when the row is absent", async () 
 
 it("manager toggles the flag; staff is rejected", async () => {
   const t = convexTest(schema);
-  const { mgr, staff } = await t.run(async (ctx) => ({
+  const outletId = await makeOutlet(t);
+  const { mgr, staff } = await t.run(async (ctx: any) => ({
     mgr: await ctx.db.insert("staff_sessions", {
       staff_id: await ctx.db.insert("staff", {
         name: "M",
@@ -25,6 +36,7 @@ it("manager toggles the flag; staff is rejected", async () => {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
     staff: await ctx.db.insert("staff_sessions", {
       staff_id: await ctx.db.insert("staff", {
@@ -39,6 +51,7 @@ it("manager toggles the flag; staff is rejected", async () => {
       started_at: Date.now(),
       ended_at: null,
       end_reason: null,
+      outlet_id: outletId,
     }),
   }));
   await t.mutation(api.settings.public.setFoundersSummaryEnabled, {
@@ -61,20 +74,23 @@ it("manager toggles the flag; staff is rejected", async () => {
 describe("txn_ticker_enabled", () => {
   it("defaults txn_ticker_enabled true when row absent", async () => {
     const t = convexTest(schema);
-    const s = await t.query(internal.settings.internal._getSettings_internal, {});
+    const outletId = await makeOutlet(t);
+    const s = await t.query(internal.settings.internal._getSettings_internal, { outletId });
     expect(s.txn_ticker_enabled).toBe(true);
   });
 
   it("returns false when row has txn_ticker_enabled: false", async () => {
     const t = convexTest(schema);
-    await t.run(async (ctx) => {
+    const outletId = await makeOutlet(t);
+    await t.run(async (ctx: any) => {
       await ctx.db.insert("pos_settings", {
         founders_summary_enabled: true,
         txn_ticker_enabled: false,
         updated_at: Date.now(),
+        outlet_id: outletId,
       });
     });
-    const s = await t.query(internal.settings.internal._getSettings_internal, {});
+    const s = await t.query(internal.settings.internal._getSettings_internal, { outletId });
     expect(s.txn_ticker_enabled).toBe(false);
   });
 });
@@ -87,13 +103,15 @@ it("getSettings surfaces txn_ticker_enabled (default true when row absent)", asy
 
 describe("setTxnTickerEnabled", () => {
   async function seedSessions(t: ReturnType<typeof convexTest>) {
-    return await t.run(async (ctx) => ({
+    const outletId = await makeOutlet(t);
+    return await t.run(async (ctx: any) => ({
       mgr: await ctx.db.insert("staff_sessions", {
         staff_id: await ctx.db.insert("staff", {
           name: "M", code: "S-1", role: "manager", active: true,
           pin_hash: "x", created_at: Date.now(),
         }),
         device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,
+        outlet_id: outletId,
       }),
       staff: await ctx.db.insert("staff_sessions", {
         staff_id: await ctx.db.insert("staff", {
@@ -101,6 +119,7 @@ describe("setTxnTickerEnabled", () => {
           pin_hash: "x", created_at: Date.now(),
         }),
         device_id: "d", started_at: Date.now(), ended_at: null, end_reason: null,
+        outlet_id: outletId,
       }),
     }));
   }
@@ -156,7 +175,8 @@ describe("setTxnTickerEnabled", () => {
 
 it("setFoundersSummaryEnabled replays the cached result for the same idempotencyKey without re-auditing", async () => {
   const t = convexTest(schema);
-  const mgr = await t.run(async (ctx) => {
+  const outletId = await makeOutlet(t);
+  const mgr = await t.run(async (ctx: any) => {
     const staffId = await ctx.db.insert("staff", {
       name: "M", code: "S-1", role: "manager", active: true,
       pin_hash: "x", created_at: Date.now(),
@@ -164,6 +184,7 @@ it("setFoundersSummaryEnabled replays the cached result for the same idempotency
     return await ctx.db.insert("staff_sessions", {
       staff_id: staffId, device_id: "d",
       started_at: Date.now(), ended_at: null, end_reason: null,
+      outlet_id: outletId,
     });
   });
   const r1 = await t.mutation(api.settings.public.setFoundersSummaryEnabled, {
@@ -185,7 +206,8 @@ it("setFoundersSummaryEnabled replays the cached result for the same idempotency
 
 it("_getSettings_internal returns manual_bca defaults when row absent", async () => {
   const t = convexTest(schema);
-  const s = await t.query(internal.settings.internal._getSettings_internal, {});
+  const outletId = await makeOutlet(t);
+  const s = await t.query(internal.settings.internal._getSettings_internal, { outletId });
   expect(s.manual_bca.enabled).toBe(true);
   expect(s.manual_bca.bank_name).toBe("BCA");
   expect(s.manual_bca.account_name).toBe("PT Malo Group Bahagia");
@@ -195,7 +217,8 @@ it("_getSettings_internal returns manual_bca defaults when row absent", async ()
 // ─── manual-BCA config (v1.2 #10 T4) ────────────────────────────────────────
 describe("manual-BCA", () => {
   async function seedSessions(t: ReturnType<typeof convexTest>) {
-    return t.run(async (ctx) => {
+    const outletId = await makeOutlet(t);
+    return t.run(async (ctx: any) => {
       const mgrStaffId = await ctx.db.insert("staff", {
         name: "M", code: "S-M1", role: "manager", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -207,10 +230,12 @@ describe("manual-BCA", () => {
       const mgr = await ctx.db.insert("staff_sessions", {
         staff_id: mgrStaffId, device_id: "d",
         started_at: Date.now(), ended_at: null, end_reason: null,
+        outlet_id: outletId,
       });
       const staff = await ctx.db.insert("staff_sessions", {
         staff_id: staffStaffId, device_id: "d",
         started_at: Date.now(), ended_at: null, end_reason: null,
+        outlet_id: outletId,
       });
       return { mgr, staff };
     });
