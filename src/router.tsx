@@ -71,6 +71,8 @@ const MgrDeviceSetup = lazy(() => import("@/routes/mgr/device-setup"));
 const MgrDevice = lazy(() => import("@/routes/mgr/device"));
 const MgrAudit = lazy(() => import("@/routes/mgr/audit"));
 
+const CockpitLogin = lazy(() => import("@/routes/cockpit/login"));
+
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
 
@@ -97,6 +99,10 @@ const routes: RouteObject[] = [
     errorElement: <RouteErrorBoundary />,
     children: [
       { path: "login", element: <Login /> },
+      // Owner cockpit login (v2.0 owner-auth, ADR-052). Lives under RootLayout so
+      // the session gate runs; RootLayout exempts /cockpit/login from the no-session
+      // redirect (mirrors /login) and bounces wrong-plane sessions here.
+      { path: "cockpit/login", element: <CockpitLogin /> },
       { index: true, element: <Home /> },
       { path: "sale", element: <Sale /> },
       { path: "sale/drafts", element: <SaleDrafts /> },
