@@ -405,6 +405,32 @@ export function renderStaffShiftSignoff(p: StaffShiftSignoffPayload): RenderedMe
   return { text: lines.join("\n") };
 }
 
+// ── managers_daily_summary (v2.0 per-outlet managers chat) ──────────────────
+// Per-outlet EOD summary sent to the managers chat for the specific outlet.
+// Mirrors renderFoundersSummary's formatting but scoped to one outlet.
+// No inline_keyboard — informational only.
+export interface ManagersDailySummaryPayload {
+  dateLabel: string;
+  outletLabel: string;
+  totalSalesIdr: number;
+  txnCount: number;
+  flaggedCount: number;
+  manualBca?: ManualBcaTally;
+}
+
+export function renderManagersDailySummary(p: ManagersDailySummaryPayload): RenderedMessage {
+  const lines = [
+    `📊 <b>${escapeHtml(p.outletLabel)} — ${escapeHtml(p.dateLabel)}</b>`,
+    `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}`,
+    `<b>Transactions:</b> ${p.txnCount}`,
+  ];
+  if (p.flaggedCount > 0) {
+    lines.push(`<b>Flagged for review:</b> ${p.flaggedCount}`);
+  }
+  if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
+  return { text: lines.join("\n") };
+}
+
 // ── owner_otp (v2.0 cockpit login, ADR-052) ─────────────────────────────────
 // A private DM to the owner's bound Telegram chat carrying the 6-digit cockpit
 // login code. Sent via sendTemplate with chatIdOverride (NOT a role broadcast).

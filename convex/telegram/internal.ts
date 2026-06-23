@@ -24,6 +24,9 @@ export const _auditSendFailed_internal = internalMutation({
     // other fields. Optional because if chatId resolution itself fails the
     // value may not be available.
     chat_id: v.optional(v.string()),
+    // v2.0 Spec-4: outlet_id for per-outlet scoped sends — helps triage which
+    // outlet's Telegram binding is missing/broken.
+    outlet_id: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args) => {
     await logAudit(ctx, {
@@ -31,7 +34,13 @@ export const _auditSendFailed_internal = internalMutation({
       action: "telegram.send_failed",
       entity_type: "telegram",
       source: "system",
-      metadata: { role: args.role, kind: args.kind, status: args.status, chat_id: args.chat_id },
+      metadata: {
+        role: args.role,
+        kind: args.kind,
+        status: args.status,
+        chat_id: args.chat_id,
+        outlet_id: args.outlet_id,
+      },
     });
   },
 });

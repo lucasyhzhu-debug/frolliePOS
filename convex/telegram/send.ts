@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import {
   renderManualPaymentApproval,
   renderFoundersSummary,
+  renderManagersDailySummary,
   renderStaffPinReset,
   renderRefund,
   renderLowStockAlert,
@@ -18,6 +19,7 @@ import {
   renderOwnerOtp,
   type RenderedMessage,
   type LowStockAlertPayload,
+  type ManagersDailySummaryPayload,
   type RecountNoticePayload,
   type SpoilageApprovalPayload,
   type StockDriftAlertPayload,
@@ -26,6 +28,8 @@ import {
   type StaffShiftSignoffPayload,
   type OwnerOtpPayload,
 } from "../lib/telegramHtml";
+import { ROLE_SCOPE } from "./config";
+import { resolveOutletChatId } from "./resolveOutletChat";
 
 // ─── sendTemplate ─────────────────────────────────────────────────────────────
 //
@@ -50,7 +54,8 @@ export const sendTemplate = action({
       v.literal("system_error"),        // v1.0.1 ops alert
       v.literal("txn_ticker"),          // v1.0.1 sales ticker
       v.literal("staff_shift_signoff"), // v1.2 #6 per-shift summary → founders
-      v.literal("owner_otp"),           // v2.0 cockpit login OTP DM (ADR-052)
+      v.literal("owner_otp"),             // v2.0 cockpit login OTP DM (ADR-052)
+      v.literal("managers_daily_summary"), // v2.0 per-outlet managers EOD summary
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -160,6 +165,21 @@ export const sendTemplate = action({
       }),
       // owner_otp — matches OwnerOtpPayload in lib/telegramHtml.ts
       v.object({ code: v.string(), expires_minutes: v.number() }),
+      // managers_daily_summary — matches ManagersDailySummaryPayload
+      v.object({
+        dateLabel: v.string(),
+        outletLabel: v.string(),
+        totalSalesIdr: v.number(),
+        txnCount: v.number(),
+        flaggedCount: v.number(),
+        manualBca: v.optional(v.object({
+          count: v.number(), totalIdr: v.number(),
+          items: v.array(v.object({
+            paidAt: v.number(), total: v.number(),
+            staffName: v.string(), receiptNumber: v.string(),
+          })),
+        })),
+      }),
     ),
     idempotencyKey: v.string(),
     disableNotification: v.optional(v.boolean()),
@@ -169,6 +189,10 @@ export const sendTemplate = action({
     // the binding check and the send — eliminating the unbind race window).
     // `role` is still required for audit logging even when this is set.
     chatIdOverride: v.optional(v.string()),
+    // v2.0 Spec-4: required when role is outlet-scoped (ROLE_SCOPE[role] === "outlet").
+    // Callers MUST pass this for managers/inventory sends; business-scoped roles
+    // (owners, ops) and chatIdOverride paths ignore it.
+    outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<{ message_id: number; ok: true }> => {
     // Step 1: action-level idempotency pre-check
@@ -177,14 +201,23 @@ export const sendTemplate = action({
     });
     if (cached) return JSON.parse(cached) as { message_id: number; ok: true };
 
-    // Step 2: resolve chat id — prefer chatIdOverride if provided (race-safe
-    // path), otherwise resolve from role (standard path).
+    // Step 2: resolve chat id.
+    // Priority: chatIdOverride → outlet-scoped lookup → bare role lookup.
+    // Outlet-scoped roles (managers, inventory) REQUIRE outletId; business-scoped
+    // roles (owners, ops) and chatIdOverride callers skip the outlet path.
     const chatId = args.chatIdOverride
       ? args.chatIdOverride
-      : await ctx.runQuery(
-          internal.telegram.chatRegistry.internal.getChatIdByRole,
-          { role: args.role },
-        );
+      : ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] === "outlet"
+        ? await (async () => {
+            if (!args.outletId) {
+              throw new Error(`OUTLET_REQUIRED_FOR_ROLE:${args.role}`);
+            }
+            return resolveOutletChatId(ctx, args.role, args.outletId);
+          })()
+        : await ctx.runQuery(
+            internal.telegram.chatRegistry.internal.getChatIdByRole,
+            { role: args.role },
+          );
 
     // Step 3: render the message
     let rendered: RenderedMessage;
@@ -262,6 +295,9 @@ export const sendTemplate = action({
       case "owner_otp":
         rendered = renderOwnerOtp(args.payload as OwnerOtpPayload);
         break;
+      case "managers_daily_summary":
+        rendered = renderManagersDailySummary(args.payload as ManagersDailySummaryPayload);
+        break;
     }
 
     // Step 4: send to Telegram
@@ -300,6 +336,7 @@ export const sendTemplate = action({
         kind: args.kind,
         status: String(responseJson?.description ?? response.status),
         chat_id: typeof chatId === "string" ? chatId : undefined,
+        outlet_id: args.outletId,
       });
       throw new Error(
         `TELEGRAM_SEND_FAILED: ${responseJson?.description ?? response.status}`,
