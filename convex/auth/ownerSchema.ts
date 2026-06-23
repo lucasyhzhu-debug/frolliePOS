@@ -23,6 +23,12 @@ export const ownerAuthTables = {
     created_at: v.number(),
     device_id: v.optional(v.string()),
     quick_pin_hash: v.optional(v.string()),
+    // Per-binding quick-PIN lockout (WS5, SEC-07). The binding row IS the
+    // per-device record, so its failure counter is fully isolated from
+    // pos_auth_attempts (booth) AND owner_auth_attempts (OTP request throttle) —
+    // no path can lock another. 3 misses → 60s lockout.
+    quick_pin_fail_count: v.optional(v.number()),
+    quick_pin_locked_until: v.optional(v.union(v.number(), v.null())),
   })
     .index("by_token_hash", ["token_hash"])
     .index("by_staff_kind", ["staff_id", "kind"])

@@ -27,6 +27,15 @@ const OTP_FAIL_CAP = 5; // 5 wrong codes consume the challenge
 const OTP_RATE_WINDOW_MS = 15 * 60_000; // rolling 15-minute request window
 const OTP_RATE_MAX = 3; // 3 requests per window; 4th → OTP_COOLDOWN
 
+// ── Remembered-device quick-PIN constants (WS5, SEC-07) ───────────────────────
+// The quick-PIN failure counter lives ENTIRELY on the owner_auth_bindings row
+// (quick_pin_fail_count / quick_pin_locked_until). It MUST NEVER touch
+// pos_auth_attempts (booth) or owner_auth_attempts (OTP request throttle) — the
+// three lockout planes are fully isolated so no path can DoS-lock another.
+const REMEMBER_TTL_MS = 30 * 864e5; // 30-day remembered-device validity
+const QUICK_PIN_FAIL_CAP = 3; // 3 wrong quick-PINs → lockout
+const QUICK_PIN_LOCKOUT_MS = 60_000; // 60-second lockout
+
 /**
  * Resolve a bind/remember binding row by its exact token_hash. Non-throwing —
  * returns null when no binding matches. Read-only; callers enforce validity.
@@ -339,9 +348,12 @@ export const _cockpitLoginCommit_internal = internalMutation({
     idempotencyKey: v.string(),
     staffId: v.id("staff"),
     deviceId: v.string(),
+    // WS5: a quick-PIN login passes "quick_pin" so the single owner.login audit
+    // writer carries metadata { sub_reason: "quick_pin" }. Absent for OTP logins.
+    subReason: v.optional(v.string()),
   },
   handler: withIdempotency<
-    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string },
+    { idempotencyKey: string; staffId: Id<"staff">; deviceId: string; subReason?: string },
     { sessionId: Id<"staff_sessions">; role: "owner" }
   >(
     "auth.cockpitLogin",
@@ -370,9 +382,147 @@ export const _cockpitLoginCommit_internal = internalMutation({
         entity_id: sessionId,
         source: "system",
         device_id: args.deviceId,
+        ...(args.subReason ? { metadata: { sub_reason: args.subReason } } : {}),
       });
       return { sessionId, role: "owner" as const };
     },
     { staffIdFromArgs: (a) => a.staffId },
   ),
+});
+
+// ── Remembered-device quick-PIN plane (WS5) ───────────────────────────────────
+
+/**
+ * Insert a fresh `remember_device` binding (called by registerRememberedDevice,
+ * which has already minted the rememberToken + argon2-hashed the quick-PIN). The
+ * action passes the pre-computed sha256 token hash + argon2 PIN hash; this
+ * mutation never sees either raw value. 30-day TTL (REMEMBER_TTL_MS), server time
+ * (ADR-031). Audits owner.device_remembered (source "system").
+ */
+export const _createRememberBinding_internal = internalMutation({
+  args: {
+    staffId: v.id("staff"),
+    deviceId: v.string(),
+    tokenHash: v.string(),
+    quickPinHash: v.string(),
+  },
+  handler: async (ctx, { staffId, deviceId, tokenHash, quickPinHash }) => {
+    const now = Date.now();
+    const bindingId = await ctx.db.insert("owner_auth_bindings", {
+      kind: "remember_device",
+      staff_id: staffId,
+      token_hash: tokenHash,
+      expires_at: now + REMEMBER_TTL_MS,
+      redeemed_at: null,
+      created_at: now,
+      device_id: deviceId,
+      quick_pin_hash: quickPinHash,
+      quick_pin_fail_count: 0,
+      quick_pin_locked_until: null,
+    });
+    await logAudit(ctx, {
+      actor_id: staffId,
+      action: "owner.device_remembered",
+      entity_type: "owner_auth_bindings",
+      entity_id: bindingId,
+      source: "system",
+      device_id: deviceId,
+    });
+    return { bindingId };
+  },
+});
+
+/**
+ * Resolve a `remember_device` binding for a quick-PIN login attempt and run the
+ * per-binding lockout PRE-CHECK in one mutation (so the lockout state is read +
+ * gated atomically). Looks up by exact token_hash (by_token_hash).
+ *
+ * Throws (all generic, no oracle):
+ *  - REMEMBER_INVALID: unknown token / wrong kind / device_id mismatch / expired.
+ *    A wrong device or expired token is indistinguishable from an unknown one.
+ *  - LOCKED_OUT:<secs>: this binding is in its 60s quick-PIN lockout window.
+ *
+ * On success returns the binding id + staff id + the quick_pin_hash so the
+ * calling action can argon2Verify it in the Node runtime. Never touches
+ * pos_auth_attempts / owner_auth_attempts (SEC-07).
+ */
+export const _loadRememberBindingForLogin_internal = internalMutation({
+  args: { tokenHash: v.string(), deviceId: v.string() },
+  handler: async (
+    ctx,
+    { tokenHash, deviceId },
+  ): Promise<{
+    bindingId: Id<"owner_auth_bindings">;
+    staffId: Id<"staff">;
+    quickPinHash: string;
+  }> => {
+    const now = Date.now();
+    const b = await ctx.db
+      .query("owner_auth_bindings")
+      .withIndex("by_token_hash", (q) => q.eq("token_hash", tokenHash))
+      .first();
+    // Generic REMEMBER_INVALID for every validity failure — no enumeration of
+    // which dimension (token / device / expiry) was wrong.
+    if (
+      !b ||
+      b.kind !== "remember_device" ||
+      b.device_id !== deviceId ||
+      b.expires_at < now ||
+      b.quick_pin_hash == null
+    ) {
+      throw new Error("REMEMBER_INVALID");
+    }
+    // Per-binding lockout pre-check (SEC-07).
+    if (b.quick_pin_locked_until != null && b.quick_pin_locked_until > now) {
+      const secs = Math.ceil((b.quick_pin_locked_until - now) / 1000);
+      throw new Error(`LOCKED_OUT:${secs}`);
+    }
+    return { bindingId: b._id, staffId: b.staff_id, quickPinHash: b.quick_pin_hash };
+  },
+});
+
+/**
+ * Record a wrong quick-PIN attempt against a binding (SEC-07). Increments
+ * quick_pin_fail_count; at QUICK_PIN_FAIL_CAP sets a 60s quick_pin_locked_until.
+ * Touches ONLY owner_auth_bindings — never pos_auth_attempts / owner_auth_attempts,
+ * so a brute-forced quick-PIN cannot DoS-lock booth PIN logins or OTP requests.
+ * Audits owner.quick_pin_failed.
+ */
+export const _recordQuickPinFailure_internal = internalMutation({
+  args: { bindingId: v.id("owner_auth_bindings") },
+  handler: async (ctx, { bindingId }) => {
+    const b = await ctx.db.get(bindingId);
+    if (!b) return;
+    const now = Date.now();
+    const nextCount = (b.quick_pin_fail_count ?? 0) + 1;
+    const lock = nextCount >= QUICK_PIN_FAIL_CAP;
+    await ctx.db.patch(bindingId, {
+      quick_pin_fail_count: nextCount,
+      ...(lock ? { quick_pin_locked_until: now + QUICK_PIN_LOCKOUT_MS } : {}),
+    });
+    await logAudit(ctx, {
+      actor_id: b.staff_id,
+      action: "owner.quick_pin_failed",
+      entity_type: "owner_auth_bindings",
+      entity_id: bindingId,
+      source: "system",
+    });
+  },
+});
+
+/**
+ * Clear a binding's quick-PIN failure counter + lockout on a successful login.
+ * Touches ONLY owner_auth_bindings (SEC-07).
+ */
+export const _clearQuickPinFailures_internal = internalMutation({
+  args: { bindingId: v.id("owner_auth_bindings") },
+  handler: async (ctx, { bindingId }) => {
+    const b = await ctx.db.get(bindingId);
+    if (!b) return;
+    if ((b.quick_pin_fail_count ?? 0) === 0 && b.quick_pin_locked_until == null) return;
+    await ctx.db.patch(bindingId, {
+      quick_pin_fail_count: 0,
+      quick_pin_locked_until: null,
+    });
+  },
 });

@@ -243,3 +243,145 @@ export const verifyOwnerOtp = action({
     return result;
   },
 });
+
+/**
+ * Enroll a remembered-device quick-PIN (WS5, ADR-052). After a full OTP login an
+ * owner can register the FAST return path on the current device: subsequent
+ * logins on this device use the quick-PIN instead of waiting for a Telegram OTP.
+ *
+ * authCheck (BEFORE the cache lookup, ADR-046): a live owner COCKPIT session via
+ * _assertCockpitSession_internal (bridged the same way issueOwnerTelegramBindLink
+ * bridges requireCockpitSession from "use node"). A booth session is rejected
+ * (NOT_COCKPIT_SESSION).
+ *
+ * On a cache miss: mint a high-entropy rememberToken (mintUrlSafeToken 32B,
+ * hashed with the async sha256Hex — only the hash is persisted), argon2-hash the
+ * LOW-entropy quick-PIN (Node), and insert a `remember_device` binding (30-day
+ * TTL). The raw rememberToken is returned ONCE for the FE to persist under a
+ * namespaced storage-keys entry; the quick-PIN is never returned or logged.
+ * Audit owner.device_remembered (source "system") by the commit internal.
+ *
+ * Errors: NO_SESSION / NOT_COCKPIT_SESSION / SESSION_IDLE_TIMEOUT (cockpit gate),
+ * QUICK_PIN_INVALID (not 4–6 digits).
+ */
+export const registerRememberedDevice = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    deviceId: v.string(),
+    quickPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ rememberToken: string }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "auth.registerRememberedDevice" },
+      // ── authCheck (runs BEFORE the cache lookup, ADR-046) ──
+      async () => {
+        await ctx.runQuery(internal.auth.ownerInternal._assertCockpitSession_internal, {
+          sessionId: args.sessionId,
+        });
+      },
+      // ── fn (cache miss only) ──
+      async () => {
+        // Resolve the cockpit session's owner inside fn (the authCheck proved it
+        // is live; re-resolve to get the staff id for the binding).
+        const { staffId } = await ctx.runQuery(
+          internal.auth.ownerInternal._assertCockpitSession_internal,
+          { sessionId: args.sessionId },
+        );
+
+        // argon2-hash the quick-PIN (validates /^\d{4,6}$/ inside).
+        const quickPinHash: string = await ctx.runAction(
+          internal.auth.actions._hashQuickPin_internal,
+          { quickPin: args.quickPin },
+        );
+
+        const raw = mintUrlSafeToken(32);
+        const tokenHash = await sha256Hex(raw);
+        await ctx.runMutation(
+          internal.auth.ownerInternal._createRememberBinding_internal,
+          { staffId, deviceId: args.deviceId, tokenHash, quickPinHash },
+        );
+        return { rememberToken: raw };
+      },
+    ),
+});
+
+/**
+ * Quick-PIN login on a remembered device (WS5, ADR-052). The FAST return path —
+ * no Telegram OTP. Mirrors verifyOwnerOtp's shape: cache pre-check → resolve the
+ * binding by sha256Hex(rememberToken) + per-binding lockout pre-check →
+ * argon2Verify the quick-PIN in Node → on miss record the failure (SEC-07,
+ * owner_auth_bindings ONLY) and throw a generic REMEMBER_INVALID → on hit clear
+ * the failure counter and mint the cockpit session via _cockpitLoginCommit_internal
+ * (DISTINCT commit key `${key}:commit`, subReason "quick_pin").
+ *
+ * A wrong-device / expired / unknown token throws REMEMBER_INVALID (no oracle).
+ * A wrong quick-PIN throws REMEMBER_INVALID too — the SAME generic error — so a
+ * caller can't distinguish "wrong device" from "wrong PIN". A locked binding
+ * throws LOCKED_OUT:<secs>.
+ */
+export const quickPinLogin = action({
+  args: {
+    idempotencyKey: v.string(),
+    identifier: v.string(),
+    deviceId: v.string(),
+    rememberToken: v.string(),
+    quickPin: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ sessionId: Id<"staff_sessions">; role: "owner" }> => {
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) {
+      return JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "owner" };
+    }
+
+    // Resolve the binding by token hash + run the per-binding lockout pre-check
+    // (REMEMBER_INVALID on a bad token/device/expiry; LOCKED_OUT:<secs> if locked).
+    const tokenHash = await sha256Hex(args.rememberToken);
+    const binding = await ctx.runMutation(
+      internal.auth.ownerInternal._loadRememberBindingForLogin_internal,
+      { tokenHash, deviceId: args.deviceId },
+    );
+
+    const match = await argon2Verify({
+      password: args.quickPin,
+      hash: binding.quickPinHash,
+    });
+    if (!match) {
+      // SEC-07: failure counter lives on the binding, never pos_auth_attempts /
+      // owner_auth_attempts. Generic REMEMBER_INVALID — no PIN-vs-device oracle.
+      await ctx.runMutation(
+        internal.auth.ownerInternal._recordQuickPinFailure_internal,
+        { bindingId: binding.bindingId },
+      );
+      throw new Error("REMEMBER_INVALID");
+    }
+
+    // Correct quick-PIN — clear the counter and mint the cockpit session.
+    await ctx.runMutation(
+      internal.auth.ownerInternal._clearQuickPinFailures_internal,
+      { bindingId: binding.bindingId },
+    );
+    const result = await ctx.runMutation(
+      internal.auth.ownerInternal._cockpitLoginCommit_internal,
+      {
+        idempotencyKey: `${args.idempotencyKey}:commit`,
+        staffId: binding.staffId,
+        deviceId: args.deviceId,
+        subReason: "quick_pin",
+      },
+    );
+
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "auth.quickPinLogin",
+      response: JSON.stringify(result),
+    });
+    return result;
+  },
+});
