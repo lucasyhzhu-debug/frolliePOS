@@ -97,6 +97,28 @@ export function RootLayout() {
   // active-session visitor on /shift/handover is unaffected (the SOP gate handles them).
   const isHandoverIn = onHandoverRoute && boothPending;
 
+  // ── Cockpit plane gate (v2.0 owner-auth, ADR-052) ──────────────────────────
+  // Handled BEFORE the booth device-registration / session / SOP gates so the
+  // cockpit never inherits them — in particular it must NOT stall on the booth
+  // `isDeviceRegistered` query (cockpit needs no registered booth device), which
+  // would flash the loading fallback on every cockpit load. /cockpit/login is
+  // exempt from the no-session redirect (mirrors /login — no bounce loop). Any
+  // other /cockpit/* route requires an ACTIVE COCKPIT session; a booth/no session
+  // there bounces to /cockpit/login once. (A cockpit session that drifts onto a
+  // booth route is handled by the booth branch below.)
+  if (isCockpit) {
+    if (isCockpitLogin) {
+      return <CockpitShell />;
+    }
+    if (deviceId === null || session.status === "loading") {
+      return <RouteFallback />;
+    }
+    if (session.status === "none" || session.kind !== "cockpit") {
+      return <Navigate to="/cockpit/login" replace />;
+    }
+    return <CockpitShell />;
+  }
+
   // Show loading while: deviceId hasn't resolved, device-registration query is
   // in-flight, session is still validating, OR we're session-less on /shift/handover
   // and booth state hasn't resolved yet. The last clause matters: `isHandoverIn` is
@@ -111,23 +133,6 @@ export function RootLayout() {
     (onHandoverRoute && session.status === "none" && boothState === undefined)
   ) {
     return <RouteFallback />;
-  }
-
-  // ── Cockpit plane gate (v2.0 owner-auth, ADR-052) ──────────────────────────
-  // Runs BEFORE the booth device/session/SOP gates so the cockpit never inherits
-  // them. /cockpit/login is exempt from the no-session redirect (mirrors /login —
-  // no bounce loop). Any other /cockpit/* route requires an ACTIVE COCKPIT
-  // session; a booth session on /cockpit/* is wrong-plane → bounce to /cockpit/login
-  // once. (A cockpit session that drifts onto a booth route is handled by the
-  // booth branch below, which bounces it to /cockpit/login.)
-  if (isCockpit) {
-    if (isCockpitLogin) {
-      return <CockpitShell />;
-    }
-    if (session.status === "none" || session.kind !== "cockpit") {
-      return <Navigate to="/cockpit/login" replace />;
-    }
-    return <CockpitShell />;
   }
 
   // A cockpit session must NOT operate booth routes (it has no outlet and cannot

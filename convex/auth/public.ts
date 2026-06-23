@@ -126,9 +126,15 @@ export const getSession = query({
 
 /**
  * Refresh a cockpit session's idle anchor (sliding 30-min timeout, ADR-052).
- * Owner-only via the requireCockpitSession authCheck (runs BEFORE the
- * idempotency cache lookup, rule #20). Graceful no-op on a stale/ended/non-cockpit
- * session so the FE keepalive ping is always safe to retry.
+ * Owner-only via the requireCockpitSession authCheck (runs BEFORE the idempotency
+ * cache lookup, rule #20).
+ *
+ * The authCheck THROWS (not a no-op) when the session is missing/ended
+ * (NO_SESSION), a booth session (NOT_COCKPIT_SESSION), or already past the idle
+ * window (SESSION_IDLE_TIMEOUT) — a keepalive must NOT silently revive a session
+ * that has legitimately timed out. The FE keepalive treats any throw as
+ * "session ended → redirect to /cockpit/login". The handler body's null-return is
+ * the success path only.
  */
 export const touchCockpitSession = mutation({
   args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
@@ -156,7 +162,7 @@ export const logoutCockpit = mutation({
     async (ctx, args) => {
       const s = await ctx.db.get(args.sessionId);
       if (!s || s.ended_at != null) return null;
-      await ctx.db.patch(args.sessionId, { ended_at: Date.now(), end_reason: "manual_lock" });
+      await ctx.db.patch(args.sessionId, { ended_at: Date.now(), end_reason: "owner_logout" });
       await logAudit(ctx, {
         actor_id: s.staff_id, action: "owner.logout",
         entity_type: "staff_session", entity_id: args.sessionId,

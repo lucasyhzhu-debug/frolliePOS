@@ -61,7 +61,10 @@ export async function requireCockpitSession(
   if ((s.kind ?? "booth") !== "cockpit") throw new Error("NOT_COCKPIT_SESSION");
   const staff = await ctx.db.get(s.staff_id);
   if (!staff || !staff.active || staff.role !== "owner") throw new Error("NO_SESSION");
-  if (s.last_active_at != null && Date.now() - s.last_active_at > COCKPIT_IDLE_MS) {
+  // Fail-closed: a cockpit session always carries last_active_at (set at commit),
+  // so an absent anchor is a malformed row — treat it as timed-out rather than
+  // always-live, so it can never bypass the idle gate.
+  if (s.last_active_at == null || Date.now() - s.last_active_at > COCKPIT_IDLE_MS) {
     throw new Error("SESSION_IDLE_TIMEOUT");
   }
   return { staffId: s.staff_id, deviceId: s.device_id };

@@ -133,7 +133,18 @@ export const requestOwnerOtp = action({
     );
 
     // Leak-free: a non-owner / unbound identifier looks identical to success.
-    if (!owner) return { ok: true };
+    // Cache the generic result on this path too so a replay returns it without
+    // re-running the resolve (ADR-013 replay guarantee; SEC-07 isolation holds —
+    // never reaches the rate-limit / pos_auth_attempts path).
+    if (!owner) {
+      const ok = { ok: true as const };
+      await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+        key: args.idempotencyKey,
+        mutationName: "auth.requestOwnerOtp",
+        response: JSON.stringify(ok),
+      });
+      return ok;
+    }
 
     // SEC-07: rate limit is isolated to owner_auth_attempts. OTP_COOLDOWN is the
     // ONE non-generic error — a throttled caller needs the cooldown seconds.
@@ -212,6 +223,11 @@ export const verifyOwnerOtp = action({
       { staffId: owner.staffId },
     );
     if (!challenge) throw new Error("OTP_INVALID");
+
+    // ADR-052 edge #11: the OTP is bound to the device that requested it. A verify
+    // from a different device is rejected with the same generic OTP_INVALID (no
+    // oracle). Not a code guess, so it does NOT consume a failure attempt.
+    if (challenge.deviceId !== args.deviceId) throw new Error("OTP_INVALID");
 
     const match = await argon2Verify({ password: args.code, hash: challenge.codeHash });
     if (!match) {
@@ -324,7 +340,6 @@ export const registerRememberedDevice = action({
 export const quickPinLogin = action({
   args: {
     idempotencyKey: v.string(),
-    identifier: v.string(),
     deviceId: v.string(),
     rememberToken: v.string(),
     quickPin: v.string(),
@@ -343,7 +358,7 @@ export const quickPinLogin = action({
     // Resolve the binding by token hash + run the per-binding lockout pre-check
     // (REMEMBER_INVALID on a bad token/device/expiry; LOCKED_OUT:<secs> if locked).
     const tokenHash = await sha256Hex(args.rememberToken);
-    const binding = await ctx.runMutation(
+    const binding = await ctx.runQuery(
       internal.auth.ownerInternal._loadRememberBindingForLogin_internal,
       { tokenHash, deviceId: args.deviceId },
     );

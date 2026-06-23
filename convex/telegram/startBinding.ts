@@ -91,8 +91,12 @@ export const handleStartWithToken = internalAction({
       );
     } catch (err) {
       // Redeem failures are expected (expired/reused link, group chat, dup
-      // account). Reply generically; let Convex log the real reason.
-      console.warn("[telegram] /start bind redeem failed", err);
+      // account). Reply generically; log only the error MESSAGE — never the raw
+      // `err` (whose context could echo the raw token) and never `args.token`.
+      console.warn(
+        "[telegram] /start bind redeem failed:",
+        err instanceof Error ? err.message : String(err),
+      );
       await sendTelegramHtml(botToken, args.chatId, generic).catch(() => {
         /* best-effort reply */
       });

@@ -162,7 +162,6 @@ export default function CockpitLoginRoute() {
     try {
       const { sessionId } = await quickLogin({
         idempotencyKey: quickKey,
-        identifier: identifier.trim(), // optional for the user; backend resolves by token
         deviceId,
         rememberToken,
         quickPin,
@@ -264,7 +263,7 @@ export default function CockpitLoginRoute() {
                 id="cockpit-identifier"
                 type="text"
                 autoComplete="username"
-                inputMode="email"
+                autoCapitalize="characters"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 placeholder={t("cockpitLogin.identifierPlaceholder")}

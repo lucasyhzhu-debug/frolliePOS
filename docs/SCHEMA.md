@@ -168,7 +168,7 @@ Active and historical sessions. Multiple concurrent sessions allowed on the same
 | `end_reason` | `"manual_lock" \| "timeout" \| "force_logout"` \| null | |
 | `kind` | `"booth" \| "cockpit"` `?` | *(v2.0, ADR-052)* Session plane discriminator. Absent ⇒ `"booth"` (backward-compat). Cockpit sessions are owner-only, outlet-unscoped, and rejected by `requireSession` / `_resolveSession_internal` / `_resolveSessionRole_internal` with `NOT_BOOTH_SESSION`. |
 | `last_active_at` | `number?` | *(v2.0, ADR-052)* Cockpit idle-timeout anchor (sliding; refreshed on activity). Absent for booth sessions. |
-| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Resolved from the device's bound outlet at login. Window-tolerant: unbound devices get the default outlet. SESSION_NO_OUTLET throw deferred to Task 12 (enforce phase). **Deliberately absent for cockpit sessions** — this is the correct relaxation that allows `kind: "cockpit"` rows; `assertZeroNullOutletIds` excludes cockpit rows. |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0)* Resolved from the device's bound outlet at login. Task 12 (enforce) is LIVE: a booth session with no outlet hard-throws `SESSION_NO_OUTLET` in `requireSession` (and `resolveDeviceOutletId` throws `DEVICE_HAS_NO_OUTLET` for an unbound device). Stays schema-`optional` **only** because cockpit sessions are deliberately outlet-less — that relaxation is what allows `kind: "cockpit"` rows; `assertZeroNullOutletIds` excludes cockpit rows. |
 
 Indexes: `by_staff_active` on `[staff_id, ended_at]`, `by_device_active` on `[device_id, ended_at]`, `by_outlet_active` on `[outlet_id, ended_at]` *(v2.0)*.
 

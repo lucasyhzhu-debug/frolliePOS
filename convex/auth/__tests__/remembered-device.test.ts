@@ -143,7 +143,6 @@ test("quickPinLogin on the remembered device mints a cockpit session with NO out
 
   const res = await t.action(api.auth.ownerActions.quickPinLogin, {
     idempotencyKey: "qpl1",
-    identifier: "S-QPL",
     deviceId: "phone-D",
     rememberToken,
     quickPin: "4321",
@@ -182,7 +181,6 @@ test("wrong quick-PIN 3x locks the binding (per-binding counter); pos_auth_attem
     await expect(
       t.action(api.auth.ownerActions.quickPinLogin, {
         idempotencyKey: `qpl-bad-${i}`,
-        identifier: "S-LOCK",
         deviceId: "phone-E",
         rememberToken,
         quickPin: "9999",
@@ -194,7 +192,6 @@ test("wrong quick-PIN 3x locks the binding (per-binding counter); pos_auth_attem
   await expect(
     t.action(api.auth.ownerActions.quickPinLogin, {
       idempotencyKey: "qpl-locked",
-      identifier: "S-LOCK",
       deviceId: "phone-E",
       rememberToken,
       quickPin: "1111",
@@ -246,7 +243,6 @@ test("a correct quick-PIN before the cap resets the failure counter", async () =
     await expect(
       t.action(api.auth.ownerActions.quickPinLogin, {
         idempotencyKey: `qpl-r-${i}`,
-        identifier: "S-RESET",
         deviceId: "phone-F",
         rememberToken,
         quickPin: "0000",
@@ -257,7 +253,6 @@ test("a correct quick-PIN before the cap resets the failure counter", async () =
   // …then a correct login succeeds and clears the counter.
   const res = await t.action(api.auth.ownerActions.quickPinLogin, {
     idempotencyKey: "qpl-r-ok",
-    identifier: "S-RESET",
     deviceId: "phone-F",
     rememberToken,
     quickPin: "2222",
@@ -289,7 +284,6 @@ test("quickPinLogin rejects a foreign-device token (REMEMBER_INVALID, no oracle)
   await expect(
     t.action(api.auth.ownerActions.quickPinLogin, {
       idempotencyKey: "qpl-foreign",
-      identifier: "S-FOREIGN",
       deviceId: "phone-OTHER",
       rememberToken,
       quickPin: "3333",
@@ -319,7 +313,6 @@ test("quickPinLogin rejects an expired remember token (REMEMBER_INVALID)", async
   await expect(
     t.action(api.auth.ownerActions.quickPinLogin, {
       idempotencyKey: "qpl-exp",
-      identifier: "S-EXP",
       deviceId: "phone-H",
       rememberToken,
       quickPin: "4444",
@@ -333,7 +326,6 @@ test("quickPinLogin rejects an unknown remember token (REMEMBER_INVALID)", async
   await expect(
     t.action(api.auth.ownerActions.quickPinLogin, {
       idempotencyKey: "qpl-ghost",
-      identifier: "S-GHOST2",
       deviceId: "phone-X",
       rememberToken: "not-a-real-token-aaaaaaaaaaaaaaaaaaaa",
       quickPin: "1234",

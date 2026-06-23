@@ -176,19 +176,6 @@ export const _getOwnerByIdentifier_internal = internalQuery({
 });
 
 /**
- * Return the bound Telegram user id for an owner so telegram/send.ts never reads
- * the auth-owned `staff` table directly (no-cross-module-db-access, ADR-034).
- * Null when unbound.
- */
-export const _getOwnerTelegramTarget_internal = internalQuery({
-  args: { staffId: v.id("staff") },
-  handler: async (ctx, { staffId }): Promise<number | null> => {
-    const s = await ctx.db.get(staffId);
-    return s?.telegram_user_id ?? null;
-  },
-});
-
-/**
  * Rolling 15-minute OTP-request rate limit (SEC-07). Reads/writes ONLY
  * owner_auth_attempts — never pos_auth_attempts. The 4th request inside a window
  * throws OTP_COOLDOWN:<secs>. The window resets once OTP_RATE_WINDOW_MS elapses
@@ -283,7 +270,11 @@ export const _loadActiveOtpChallenge_internal = internalQuery({
   handler: async (
     ctx,
     { staffId },
-  ): Promise<{ challengeId: Id<"owner_auth_otp">; codeHash: string } | null> => {
+  ): Promise<{
+    challengeId: Id<"owner_auth_otp">;
+    codeHash: string;
+    deviceId: string;
+  } | null> => {
     const now = Date.now();
     const c = await ctx.db
       .query("owner_auth_otp")
@@ -291,7 +282,7 @@ export const _loadActiveOtpChallenge_internal = internalQuery({
       .order("desc")
       .first();
     if (!c || c.expires_at < now || c.fail_count >= OTP_FAIL_CAP) return null;
-    return { challengeId: c._id, codeHash: c.code_hash };
+    return { challengeId: c._id, codeHash: c.code_hash, deviceId: c.device_id };
   },
 });
 
@@ -445,8 +436,13 @@ export const _createRememberBinding_internal = internalMutation({
  * On success returns the binding id + staff id + the quick_pin_hash so the
  * calling action can argon2Verify it in the Node runtime. Never touches
  * pos_auth_attempts / owner_auth_attempts (SEC-07).
+ *
+ * Read-only (an internalQuery): the failure-counter WRITE happens in a separate
+ * _recordQuickPinFailure_internal after the argon2 check, so this pre-check takes
+ * no write lock on owner_auth_bindings. The lockout TOCTOU window already existed
+ * given the action→mutation split; a query doesn't widen it.
  */
-export const _loadRememberBindingForLogin_internal = internalMutation({
+export const _loadRememberBindingForLogin_internal = internalQuery({
   args: { tokenHash: v.string(), deviceId: v.string() },
   handler: async (
     ctx,

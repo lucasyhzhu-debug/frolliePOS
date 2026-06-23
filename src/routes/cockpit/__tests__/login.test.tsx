@@ -125,14 +125,14 @@ describe("Cockpit login — identifier phase", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument(),
     );
-    fireEvent.change(screen.getByLabelText(/email or staff code/i), {
-      target: { value: "lucas@frollie.id" },
+    fireEvent.change(screen.getByLabelText(/staff code/i), {
+      target: { value: "S-0001" },
     });
     fireEvent.click(screen.getByRole("button", { name: /send code/i }));
 
     await waitFor(() => expect(mockRequestOtp).toHaveBeenCalledTimes(1));
     expect(mockRequestOtp).toHaveBeenCalledWith(
-      expect.objectContaining({ identifier: "lucas@frollie.id", deviceId: "test-device-id" }),
+      expect.objectContaining({ identifier: "S-0001", deviceId: "test-device-id" }),
     );
     // Advances to the 6-digit code phase.
     await waitFor(() =>
@@ -146,8 +146,8 @@ describe("Cockpit login — identifier phase", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument(),
     );
-    fireEvent.change(screen.getByLabelText(/email or staff code/i), {
-      target: { value: "lucas@frollie.id" },
+    fireEvent.change(screen.getByLabelText(/staff code/i), {
+      target: { value: "S-0001" },
     });
     fireEvent.click(screen.getByRole("button", { name: /send code/i }));
 
@@ -167,8 +167,8 @@ describe("Cockpit login — OTP verify", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument(),
     );
-    fireEvent.change(screen.getByLabelText(/email or staff code/i), {
-      target: { value: "lucas@frollie.id" },
+    fireEvent.change(screen.getByLabelText(/staff code/i), {
+      target: { value: "S-0001" },
     });
     fireEvent.click(screen.getByRole("button", { name: /send code/i }));
     await waitFor(() =>
@@ -182,7 +182,7 @@ describe("Cockpit login — OTP verify", () => {
 
     await waitFor(() => expect(mockVerifyOtp).toHaveBeenCalledTimes(1));
     expect(mockVerifyOtp).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "123456", identifier: "lucas@frollie.id" }),
+      expect.objectContaining({ code: "123456", identifier: "S-0001" }),
     );
     expect(mockStoreCockpitSession).toHaveBeenCalledWith("kn7ses000000000000000000000");
     // No remembered token yet → offered the remember-device enrolment phase.

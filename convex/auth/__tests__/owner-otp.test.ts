@@ -212,6 +212,28 @@ test("verifyOwnerOtp mints a cockpit session on the correct code", async () => {
   expect(session?.outlet_id).toBeUndefined();
 });
 
+test("verifyOwnerOtp from a DIFFERENT device throws generic OTP_INVALID even with the correct code (ADR-052 #11)", async () => {
+  const t = convexTest(schema);
+  const ownerId = await seedOwner(t, { code: "S-VDEV", telegram: 8005 });
+  // Challenge is bound to "cockpit-dev" by seedChallenge.
+  const challengeId = await seedChallenge(t, ownerId, { code: "424242" });
+
+  await expect(
+    t.action(api.auth.ownerActions.verifyOwnerOtp, {
+      idempotencyKey: "vk-dev",
+      identifier: "S-VDEV",
+      code: "424242", // correct code, wrong device
+      deviceId: "some-other-device",
+    }),
+  ).rejects.toThrow("OTP_INVALID");
+
+  // A device mismatch is NOT a code guess — fail_count must stay 0 and the
+  // challenge stays live (the owner can still verify on the right device).
+  const row = await t.run((ctx) => ctx.db.get(challengeId));
+  expect(row!.fail_count).toBe(0);
+  expect(row!.consumed_at).toBeNull();
+});
+
 test("verifyOwnerOtp on a wrong code throws OTP_INVALID and bumps fail_count", async () => {
   const t = convexTest(schema);
   const ownerId = await seedOwner(t, { code: "S-VBAD", telegram: 8002 });

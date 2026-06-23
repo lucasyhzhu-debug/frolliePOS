@@ -33,6 +33,9 @@ export const authTables = {
       v.literal("manual_lock"),
       v.literal("timeout"),
       v.literal("force_logout"),
+      // v2.0 (ADR-052): owner cockpit "Sign out" — distinct from a booth device
+      // lock so the session/audit trail doesn't conflate the two planes.
+      v.literal("owner_logout"),
       v.null(),
     ),
     // v2.0 (ADR-052): absent ⇒ booth (legacy rows). Cockpit sessions have no outlet.
