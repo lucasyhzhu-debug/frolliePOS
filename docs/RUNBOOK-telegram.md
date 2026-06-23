@@ -210,7 +210,9 @@ When the Telegram integration is ready to ship to prod:
    npx convex env set TELEGRAM_WEBHOOK_SECRET <new_random_secret> --prod
    npx convex env set POS_BASE_URL https://frollie-pos.vercel.app --prod
    npx convex env set TELEGRAM_FALLBACK_ROLE managers --prod
+   npx convex env set TELEGRAM_BOT_USERNAME <bot_username_without_at> --prod
    ```
+   `TELEGRAM_BOT_USERNAME` is the bot username without the `@` prefix (e.g. `FrolliePOS_Bot`). Required for the owner binding deep-link (`https://t.me/<bot>?start=<token>`). Set on **both** dev and prod.
 5. **Deploy the code:** `npx convex deploy`
 6. **Register the prod webhook:**
    ```powershell
@@ -339,7 +341,7 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 | `POS_BASE_URL` | Yes | Base URL of the frontend (e.g. `https://frollie-pos.vercel.app`). Used to build `/approve/:token` URLs in Telegram messages. |
 | `TELEGRAM_CHAT_ID` | Fallback only | Legacy env-fallback for the `managers` role until `getChatIdByRole` finds a bound row. Required during initial setup before `/mgr/telegram-chats` assigns roles. Keep set during prod cutover. |
 | `TELEGRAM_FALLBACK_ROLE` | Fallback only | Which role the `TELEGRAM_CHAT_ID` fallback applies to (usually `managers`). Must match `TELEGRAM_CHAT_ID` to work. |
-| `TELEGRAM_BOT_USERNAME` | Optional | Used in `/start` help text and test-message copy. Defaults to `FrolliePOS_Bot` in `config.ts`. |
+| `TELEGRAM_BOT_USERNAME` | Yes *(v2.0)* | Bot username without `@` (e.g. `FrolliePOS_Bot`). **Required for owner binding deep-links** (`https://t.me/<bot>?start=<token>`). Also used in `/start` help text. Set on **both** dev and prod. |
 | `TELEGRAM_ADMIN_URL` | Optional | URL to the `/mgr/telegram-chats` admin UI. Shown in `/register` confirmation messages. Defaults to `POS_BASE_URL/mgr/telegram-chats`. |
 
 ## Telegram roles
@@ -361,3 +363,40 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 |---|---|---|---|
 | `system_error` *(v1.0.1)* | `ops` | none (informational) | Fired by the error pipe when a `pos_error_reports` row crosses the dedup/storm-cap gate. |
 | `txn_ticker` *(v1.0.1)* | `managers` | none (informational) | Live sales ticker — one message per paid sale. Sent **silent** (`disableNotification`) so the running feed never buzzes. Toggle via `pos_settings.txn_ticker_enabled` (default on). **Launch path (v1.0.2):** open `/mgr/telegram-chats` as a manager → toggle **"Post each paid sale to the Managers channel"** off. Takes effect on the next paid sale; no deploy. **Break-glass:** the Convex-dashboard `pos_settings.txn_ticker_enabled = false` edit still works if the FE is unavailable. |
+| `owner_otp` *(v2.0)* | private DM to `staff.telegram_user_id` | none (informational) | Sent via `chatIdOverride` directly to the owner's Telegram user ID — **not** to any group role. The 6-digit code is **REDACTED** from `telegram_log` (C3). `KNOWN_TELEGRAM_ROLES` is unchanged. |
+
+---
+
+## Owner auth — first-owner cutover sequence (v2.0)
+
+One-time setup per deployment to enable cockpit login for the owner.
+
+**Prerequisites:** `TELEGRAM_BOT_USERNAME` set on the target deployment; the owner has messaged any bot before so Telegram will permit the DM (the binding `/start` step itself opens the channel).
+
+1. **Promote a manager to owner:**
+   ```
+   # As a booth manager, enter your PIN to promote the target staff row to "owner"
+   # via the /mgr/staff UI → setStaffRole (manager-PIN action).
+   # Owner is never minted by createStaff — promotion only.
+   ```
+
+2. **Issue a binding link** (manager-PIN or existing owner action `issueOwnerBindLink`):
+   ```powershell
+   # The action returns a deep-link of the form:
+   # https://t.me/<TELEGRAM_BOT_USERNAME>?start=<single-use-token>
+   ```
+
+3. **Send the link to the owner** (e.g. copy-paste, or the cockpit UI will surface it). The owner taps the deep-link on their personal phone.
+
+4. **Owner taps `/start <token>` in the Telegram bot DM.** The bot webhook fires: validates the token (single-use, 60-min TTL), writes `staff.telegram_user_id = from.id`, opens the DM channel, emits `owner.telegram_bound` audit verb.
+
+5. **Owner requests first OTP** from the cockpit login screen at `<POS_BASE_URL>/cockpit/login` (Task 7 FE — pending). Enters their `staff.code` → bot sends 6-digit code to their private DM.
+
+6. **Owner enters OTP.** On success: `kind: "cockpit"` session minted, `owner.login` audited. From this point, cockpit sessions can be resumed via quick-PIN on remembered devices.
+
+**Recovery — owner loses Telegram access:** issue a new binding link from a manager or another owner (step 2–4). The old `telegram_user_id` is overwritten on successful re-bind.
+
+**`owner_otp` delivery failure diagnosis:**
+- `staff.telegram_user_id` absent → binding step was never completed. Re-issue the bind link.
+- Bot returns `"Forbidden: bot was blocked by the user"` → owner blocked the bot. Ask them to unblock via Telegram → `@<BotUsername>` → **Unblock**.
+- `TELEGRAM_BOT_USERNAME` unset → deep-link generation throws. Set the env var on the correct deployment and redeploy.

@@ -1,7 +1,7 @@
 # ADR-052. Owner auth plane — Telegram-OTP authorises MANAGE
 
 **Date:** 2026-06-21
-**Status:** Proposed
+**Status:** Accepted
 **Group:** Auth
 
 ## Context
