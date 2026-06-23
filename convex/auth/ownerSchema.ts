@@ -38,6 +38,8 @@ export const ownerAuthTables = {
     staff_id: v.id("staff"),
     request_count: v.number(),
     window_start_at: v.number(),
-    locked_until: v.union(v.number(), v.null()),
+    // No lockout field: the OTP request throttle is purely rolling-window
+    // (window_start_at + request_count). Quick-PIN lockout lives on the binding
+    // row (quick_pin_locked_until); this table never needs its own.
   }).index("by_staff", ["staff_id"]),
 };

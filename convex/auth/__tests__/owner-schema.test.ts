@@ -33,7 +33,7 @@ test("owner_auth_otp + bindings + attempts round-trip on their indexes", async (
     const staffId = await ctx.db.insert("staff", { name: "O", code: "S-9003", pin_hash: "h", role: "owner", active: true, created_at: Date.now() } as any);
     await ctx.db.insert("owner_auth_otp", { staff_id: staffId, code_hash: "h", expires_at: Date.now() + 1e5, fail_count: 0, consumed_at: null, created_at: Date.now(), device_id: "d" });
     await ctx.db.insert("owner_auth_bindings", { kind: "telegram_bind", staff_id: staffId, token_hash: "th", expires_at: Date.now() + 1e5, redeemed_at: null, created_at: Date.now() });
-    await ctx.db.insert("owner_auth_attempts", { staff_id: staffId, request_count: 1, window_start_at: Date.now(), locked_until: null });
+    await ctx.db.insert("owner_auth_attempts", { staff_id: staffId, request_count: 1, window_start_at: Date.now() });
     const otp = await ctx.db.query("owner_auth_otp").withIndex("by_staff_active", (q) => q.eq("staff_id", staffId).eq("consumed_at", null)).first();
     expect(otp).not.toBeNull();
   });

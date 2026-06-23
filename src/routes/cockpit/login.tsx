@@ -67,10 +67,13 @@ export default function CockpitLoginRoute() {
   const registerRemembered = useAction(api.auth.ownerActions.registerRememberedDevice);
 
   // A remembered-device token on THIS device picks the quick-PIN fast path first.
-  const rememberToken =
+  // Read once at mount (lazy init) — the value only gates the initial phase and
+  // the submit handlers; it doesn't need a re-read on every render.
+  const [rememberToken] = useState(() =>
     typeof localStorage !== "undefined"
       ? localStorage.getItem(REMEMBER_DEVICE_TOKEN_KEY)
-      : null;
+      : null,
+  );
 
   const [identifier, setIdentifier] = useState("");
   // `committedIdentifier` is the value the OTP / quick-PIN was issued against —

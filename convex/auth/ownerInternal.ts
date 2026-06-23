@@ -195,7 +195,6 @@ export const _checkOtpRateLimit_internal = internalMutation({
         staff_id: staffId,
         request_count: 1,
         window_start_at: now,
-        locked_until: null,
       });
       return;
     }
@@ -205,7 +204,6 @@ export const _checkOtpRateLimit_internal = internalMutation({
       await ctx.db.patch(row._id, {
         request_count: 1,
         window_start_at: now,
-        locked_until: null,
       });
       return;
     }

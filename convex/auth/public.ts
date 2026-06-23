@@ -98,13 +98,9 @@ export const getSession = query({
     // guarantees every live session is backfill-stamped, so an absent outlet is a
     // hard SESSION_NO_OUTLET throw. (auth/ is allowlisted for cross-module db
     // reads, ADR-034 §"Layer 1".)
+    if (kind === "booth" && !s.outlet_id) throw new Error("SESSION_NO_OUTLET");
     const outlet =
-      kind === "cockpit"
-        ? null
-        : await (async () => {
-            if (!s.outlet_id) throw new Error("SESSION_NO_OUTLET");
-            return ctx.db.get(s.outlet_id);
-          })();
+      kind === "cockpit" || !s.outlet_id ? null : await ctx.db.get(s.outlet_id);
     return {
       sessionId: s._id,
       kind, // WS6 + I4: "booth" | "cockpit" — FE routes the session gate on this.
@@ -135,6 +131,11 @@ export const getSession = query({
  * that has legitimately timed out. The FE keepalive treats any throw as
  * "session ended → redirect to /cockpit/login". The handler body's null-return is
  * the success path only.
+ *
+ * NOTE (Spec-2 scope): no FE caller wires this yet — the cockpit keepalive ships
+ * with the Spec-3 dashboard. Until then the idle window is effectively a FIXED
+ * 30-min-from-login expiry (last_active_at is stamped once at commit); the
+ * "sliding" refresh activates when Spec-3 starts pinging this.
  */
 export const touchCockpitSession = mutation({
   args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
