@@ -31,7 +31,7 @@ describe("inventory._runStockRecon_internal", () => {
       inventory_sku_id: sku, on_hand: 5, updated_at: Date.now(), outlet_id: outletId,
     } as never));
 
-    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
+    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, { outletId });
     expect(result.scanned).toBe(1);
     expect(result.drifted).toHaveLength(0);
     const drifts = await t.run(async (ctx) => ctx.db.query("pos_stock_drift_log").collect());
@@ -49,7 +49,7 @@ describe("inventory._runStockRecon_internal", () => {
       inventory_sku_id: sku, on_hand: 7, updated_at: Date.now(), outlet_id: outletId,
     } as never)); // 2 above ledger
 
-    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
+    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, { outletId });
     expect(result.scanned).toBe(1);
     expect(result.drifted).toHaveLength(1);
     expect(result.drifted[0]).toMatchObject({ sku_code: "A", delta: 2 });
@@ -69,7 +69,7 @@ describe("inventory._runStockRecon_internal", () => {
     await t.run(async (ctx) => ctx.db.insert("pos_stock_levels", {
       inventory_sku_id: sku, on_hand: 0, updated_at: Date.now(), outlet_id: outletId,
     } as never));
-    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
+    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, { outletId });
     expect(result.scanned).toBe(1);
     expect(result.drifted).toHaveLength(0);
   });
@@ -90,7 +90,7 @@ describe("inventory._runStockRecon_internal", () => {
       inventory_sku_id: skuA, qty: 5, source: "stock_in", created_at: 1, outlet_id: outletId,
     } as never));
 
-    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, {});
+    const result = await t.mutation(internal.inventory.internal._runStockRecon_internal, { outletId });
     expect(result.scanned).toBe(1);
     expect(result.drifted).toHaveLength(0);
   });

@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
 import { instrumentFromInvoice } from "../payments/internal";
+import { resolveOutletChatId } from "./resolveOutletChat";
 
 function instrumentLabel(
   confirmedVia: "webhook" | "polling" | "manual" | "manual_bca" | null,
@@ -56,14 +57,13 @@ export const sendTxnTicker = internalAction({
       }),
     ]);
 
-    // 4. Role resolve — narrow-catch (foundersSummary.ts pattern): unbound → silent
-    //    skip; transient/unknown → rethrow so platform surfaces it.
+    // 4. Role resolve — per-outlet narrow-catch (foundersSummary.ts pattern):
+    //    unbound → silent skip; transient/unknown → rethrow so platform surfaces it.
+    //    v2.0 Spec-4 Task 6: use resolveOutletChatId so each outlet's managers chat
+    //    is reached independently (no cross-outlet routing).
     let chatId: string;
     try {
-      chatId = await ctx.runQuery(
-        internal.telegram.chatRegistry.internal.getChatIdByRole,
-        { role: "managers" },
-      );
+      chatId = await resolveOutletChatId(ctx, "managers", txn.outlet_id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("No Telegram chat assigned to role")) {
@@ -93,6 +93,7 @@ export const sendTxnTicker = internalAction({
       },
       idempotencyKey: `ticker:${args.txnId}`,
       chatIdOverride: chatId,
+      outletId: txn.outlet_id,
       disableNotification: true,
     });
 

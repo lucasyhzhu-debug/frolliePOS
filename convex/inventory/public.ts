@@ -200,6 +200,7 @@ export const recordRecount = mutation({
           lines: noticeLines,
         },
         idempotencyKey: `recount:${recorded_at_iso}`,
+        outletId: outlet_id,
       });
       // ADR-042: low-stock check per touched SKU. Recount can cross threshold
       // in either direction; the check is the single source of truth for

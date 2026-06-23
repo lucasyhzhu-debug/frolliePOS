@@ -11,12 +11,14 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
+import { resolveOutletChatId } from "./resolveOutletChat";
 
 /**
- * Resolve the Telegram chat for `role` via the chat registry and hand off to
- * `sendTemplate`. If the role has no bound chat, write a `telegram.skipped`
- * audit row and return without throwing — the canonical "fail-isolated dispatch"
- * pattern shared across inventory dispatches (low-stock, recount notice).
+ * Resolve the Telegram chat for `role` via the per-outlet chat registry and
+ * hand off to `sendTemplate`. If the role+outlet has no bound chat, write a
+ * `telegram.skipped` audit row and return without throwing — the canonical
+ * "fail-isolated dispatch" pattern shared across inventory dispatches
+ * (low-stock, recount notice).
  *
  * Other errors (transient outage, sendTemplate failure) propagate so they
  * surface in the Convex dashboard.
@@ -24,6 +26,10 @@ import { internal, api } from "../_generated/api";
  * `payload` is typed `v.any()` because sendTemplate's runtime validator
  * re-checks the per-kind union — the lost compile-time check is the price
  * of one shared helper across multiple kinds.
+ *
+ * v2.0 Spec-4 Task 6: `outletId` added — resolves via `resolveOutletChatId`
+ * (per-outlet lookup with single-outlet bare-row fallback) instead of the
+ * global `getChatIdByRole`. Class (b) chatIdOverride path: no safety-net.
  */
 export const dispatchRoleAlert = internalAction({
   args: {
@@ -31,14 +37,12 @@ export const dispatchRoleAlert = internalAction({
     kind: v.string(),
     payload: v.any(),
     idempotencyKey: v.string(),
+    outletId: v.id("outlets"),
   },
   handler: async (ctx, args) => {
     let chatId: string;
     try {
-      chatId = await ctx.runQuery(
-        internal.telegram.chatRegistry.internal.getChatIdByRole,
-        { role: args.role },
-      );
+      chatId = await resolveOutletChatId(ctx, args.role, args.outletId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("No Telegram chat assigned to role")) {
@@ -57,6 +61,7 @@ export const dispatchRoleAlert = internalAction({
       payload: args.payload,
       idempotencyKey: args.idempotencyKey,
       chatIdOverride: chatId,
+      outletId: args.outletId,
     });
   },
 });
