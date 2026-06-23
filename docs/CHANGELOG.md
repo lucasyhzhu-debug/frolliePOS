@@ -15,7 +15,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 - **Cross-plane guard (verify-hardening)** — `requireSession` + `_resolveSession_internal` + `_resolveSessionRole_internal` all reject cockpit sessions with `NOT_BOOTH_SESSION` before the outlet check. Cockpit sessions can never call booth mutations.
 - **New cron** — `owner-auth-housekeeping` daily 03:10 WIB / 20:10 UTC → `auth.internal._purgeOwnerAuthHousekeeping_internal` (purges expired/consumed OTP rows + expired/redeemed binding rows).
 - **8 new audit verbs** (all `source: "system"`): `owner.bind_link_issued`, `owner.telegram_bound`, `owner.otp_requested`, `owner.otp_failed`, `owner.login`, `owner.logout`, `owner.device_remembered`, `owner.quick_pin_failed`. OTP code REDACTED from `telegram_log`.
-- **Owner theme** — cockpit plane scoped under `.theme-owner` CSS token override for visual distinction from booth. Exact hue TBD pending owner's pick (candidates: iris/amber/coral). Ref: `docs/superpowers/specs/2026-06-23-cockpit-login-accent-mockups.html`.
+- **Owner theme** — cockpit plane scoped under `.theme-owner` CSS token override for visual distinction from booth: **amber/gold** canvas (bg `#231905`, card `#33270F`, accent `#E9B43C`) vs. booth phthalo-green + teal. Ref: `docs/superpowers/specs/2026-06-23-cockpit-login-accent-mockups.html`.
 - **`setStaffRole` expanded** — now accepts `"owner"` (both `staff/actions.ts` + `_setStaffRoleCommit_internal`). Owner staff-management (cross-outlet roster, access grants) is Spec-3 territory.
 
 ## 2026-06-22 — v2.0 Multi-outlet foundation (additive data plane)
