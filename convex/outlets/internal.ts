@@ -43,3 +43,24 @@ export const _getDefaultOutlet_internal = internalQuery({
   args: {},
   handler: (ctx) => getDefaultOutletDoc(ctx),
 });
+
+/**
+ * Session-less list of all active outlets for cron/resolver use.
+ * Spec-4 Task 1: consumed by per-outlet Telegram routing to enumerate outlets
+ * when fanning out role-scoped sends (managers, inventory) across all outlets.
+ */
+export const _listActiveOutlets_internal = internalQuery({
+  args: {},
+  handler: (ctx) =>
+    ctx.db.query("outlets").withIndex("by_active", (q) => q.eq("active", true)).collect(),
+});
+
+/**
+ * Single-outlet doc fetch by id for labeling/display.
+ * Spec-4 Task 8: notification templates need the outlet name/code for
+ * per-outlet message headers.
+ */
+export const _getOutlet_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: (ctx, { outletId }) => ctx.db.get(outletId),
+});

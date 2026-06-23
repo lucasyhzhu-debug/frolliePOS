@@ -32,6 +32,7 @@ export const telegramTables = {
     ),
     title: v.string(),
     role: v.optional(v.string()),
+    outlet_id: v.optional(v.id("outlets")), // NEW: set for outlet-scoped roles (managers/inventory); ABSENT for owners/ops + dormant. Two-tier routing key.
     registeredBy: v.optional(v.number()),
     registeredAt: v.number(),
     lastSeenAt: v.number(),
@@ -39,7 +40,8 @@ export const telegramTables = {
     lastError: v.optional(v.object({ at: v.number(), message: v.string() })),
   })
     .index("by_chatId", ["chatId"])
-    .index("by_role", ["role"]),
+    .index("by_role", ["role"])
+    .index("by_role_outlet", ["role", "outlet_id"]), // NEW: leads with role (NOT outlet_id) — telegramChats stays fence-excluded.
 
   telegramUpdates: defineTable({
     updateId: v.number(),
