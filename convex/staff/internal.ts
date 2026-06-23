@@ -406,14 +406,14 @@ export const _setStaffRoleCommit_internal = internalMutation({
   args: {
     idempotencyKey: v.string(),
     staffId: v.id("staff"),
-    role: v.union(v.literal("staff"), v.literal("manager")),
+    role: v.union(v.literal("staff"), v.literal("manager"), v.literal("owner")),
     mgrId: v.id("staff"),
   },
   handler: withIdempotency<
     {
       idempotencyKey: string;
       staffId: Id<"staff">;
-      role: "staff" | "manager";
+      role: "staff" | "manager" | "owner";
       mgrId: Id<"staff">;
     },
     { ok: true }

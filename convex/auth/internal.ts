@@ -809,3 +809,58 @@ export const _revokeOutletAccess_internal = internalMutation({
     return { deleted: true };
   },
 });
+
+/**
+ * Nightly housekeeping for owner-auth tables. Deletes:
+ *   - `owner_auth_otp` rows where `expires_at < now` OR `consumed_at != null`
+ *   - `owner_auth_bindings` rows where `expires_at < now` OR `redeemed_at != null`
+ *
+ * Uses the `by_expires` index for the expired-row scan to bound the number of
+ * reads. Consumed/redeemed rows without an expired TTL are caught by a full
+ * collect + JS filter (low-cardinality in practice — they are normally expired
+ * before the next cron fires; the JS pass is a safety net). Mirrors the pattern
+ * of `api/v1/internal._purgeApiHousekeeping_internal`.
+ *
+ * Registered in crons.ts as "owner-auth-housekeeping" at 20:10 UTC / 03:10 WIB.
+ */
+export const _purgeOwnerAuthHousekeeping_internal = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const now = Date.now();
+
+    // ── owner_auth_otp ────────────────────────────────────────────────────────
+    // Pass 1: expired rows via index (cheap — bounded by by_expires).
+    const expiredOtps = await ctx.db
+      .query("owner_auth_otp")
+      .withIndex("by_expires", (q) => q.lt("expires_at", now))
+      .collect();
+    for (const row of expiredOtps) {
+      await ctx.db.delete(row._id);
+    }
+    // Pass 2: consumed rows not yet expired (safety net; collect full table
+    // post-pass-1 so we only touch what remains).
+    const remainingOtps = await ctx.db.query("owner_auth_otp").collect();
+    for (const row of remainingOtps) {
+      if (row.consumed_at !== null) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
+    // ── owner_auth_bindings ───────────────────────────────────────────────────
+    // Pass 1: expired rows via index.
+    const expiredBindings = await ctx.db
+      .query("owner_auth_bindings")
+      .withIndex("by_expires", (q) => q.lt("expires_at", now))
+      .collect();
+    for (const row of expiredBindings) {
+      await ctx.db.delete(row._id);
+    }
+    // Pass 2: redeemed rows not yet expired.
+    const remainingBindings = await ctx.db.query("owner_auth_bindings").collect();
+    for (const row of remainingBindings) {
+      if (row.redeemed_at !== null) {
+        await ctx.db.delete(row._id);
+      }
+    }
+  },
+});

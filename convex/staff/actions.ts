@@ -21,7 +21,7 @@ export const setStaffRole = action({
     idempotencyKey: v.string(),
     sessionId: v.id("staff_sessions"),
     staffId: v.id("staff"),
-    role: v.union(v.literal("staff"), v.literal("manager")),
+    role: v.union(v.literal("staff"), v.literal("manager"), v.literal("owner")),
     managerPin: v.string(),
   },
   handler: async (ctx, args): Promise<{ ok: true }> =>
