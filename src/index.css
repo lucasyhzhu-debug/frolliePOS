@@ -103,6 +103,41 @@
   --citrus-foreground: #1B1B1F;
 }
 
+/*
+ * Owner cockpit theme (v2.0 owner-auth, ADR-052). A scoped token override applied
+ * by RootLayout on /cockpit/* so the owner plane is unmistakably distinct from the
+ * booth's phthalo-green + teal: an amber/gold tinted dark canvas. Overrides the
+ * SAME semantic tokens the .dark block declares — every cockpit surface uses
+ * semantic utilities (bg-background, bg-card, text-primary, FieldMessage), so the
+ * override re-themes them automatically (no hardcoded owner hexes in components).
+ * Sits AFTER .dark so it wins when both classes are present on the subtree.
+ */
+.theme-owner {
+  --background: #231905;          /* deep amber paper */
+  --foreground: #F6ECD6;          /* warm cream ink */
+  --card: #33270F;                /* lifted gold panel */
+  --card-foreground: #F6ECD6;
+  --popover: #33270F;
+  --popover-foreground: #F6ECD6;
+  --primary: #E9B43C;             /* gold */
+  --primary-foreground: #241B06;  /* deep ink on gold */
+  --secondary: #3A2D12;           /* elevated surface */
+  --secondary-foreground: #F6ECD6;
+  --muted: #3A2D12;
+  --muted-foreground: #C0AE86;    /* AA-checked muted ink on amber */
+  --accent: #3A2D12;
+  --accent-foreground: #F6ECD6;
+  --destructive: #E5484D;
+  --destructive-foreground: #F6ECD6;
+  --error:   #F87171;   /* red-400 — AA body text on amber card */
+  --success: #34D399;   /* emerald-400 — AA body text on amber card */
+  --border: rgba(246, 236, 214, 0.10);
+  --input: rgba(246, 236, 214, 0.14);
+  --ring: #E9B43C;
+  --citrus: #F9A84A;              /* keep — info/warn still read correctly */
+  --citrus-foreground: #1B1B1F;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

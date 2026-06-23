@@ -18,6 +18,7 @@ export type SessionState =
   | {
       status: "active";
       sessionId: Id<"staff_sessions">;
+      kind: "booth" | "cockpit"; // v2.0 owner-auth (ADR-052): plane discriminant from getSession.kind
       staff: {
         _id: Id<"staff">;
         name: string;
@@ -68,6 +69,7 @@ export function useSession(): SessionState {
   return {
     status: "active",
     sessionId: validation.sessionId,
+    kind: validation.kind,
     staff: validation.staff,
   };
 }
@@ -75,6 +77,17 @@ export function useSession(): SessionState {
 export function storeSession(sessionId: string, staffId: Id<"staff">): void {
   localStorage.setItem(SESSION_KEY, sessionId);
   localStorage.setItem(LAST_STAFF_KEY, staffId);
+  notify(sessionId);
+}
+
+/**
+ * Store a cockpit (owner) session. v2.0 owner-auth (ADR-052): the cockpit plane
+ * has no staff picker, so unlike `storeSession` it does NOT write LAST_STAFF_KEY
+ * (which is the booth login's last-known-staffer optimisation). Notifies same-tab
+ * listeners so `useSession` picks up the session without a reload.
+ */
+export function storeCockpitSession(sessionId: string): void {
+  localStorage.setItem(SESSION_KEY, sessionId);
   notify(sessionId);
 }
 
