@@ -100,6 +100,7 @@ export const notifyStaffLockout = internalAction({
           request_url: requestUrl,
         },
         idempotencyKey: `notifyLockout:${requestId}`,
+        outletId: defaultOutlet._id, // v2.0 Spec-4 Task 5: route to per-outlet managers
       });
     } catch (err) {
       // Telegram send failed (network / 5xx). The request row is already pending
@@ -337,6 +338,7 @@ export const requestManualPaymentApproval = action({
           approve_url: `${baseUrl}/approve/${rawToken}`,
         },
         idempotencyKey: `${args.idempotencyKey}:send`,
+        outletId, // v2.0 Spec-4 Task 5: route to per-outlet managers (outletId = requester.outlet_id)
       });
       messageId = sendRes.message_id;
     } catch (err) {
@@ -895,6 +897,7 @@ export const requestSpoilageApproval = action({
           request_url: `${baseUrl}/approve/${rawToken}`,
         },
         idempotencyKey: `${args.idempotencyKey}:send`,
+        outletId, // v2.0 Spec-4 Task 5: route to per-outlet managers (outletId = requester.outlet_id)
       });
       messageId = sendRes.message_id;
     } catch (err) {
