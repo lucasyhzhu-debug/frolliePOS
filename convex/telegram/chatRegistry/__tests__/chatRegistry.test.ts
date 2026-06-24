@@ -5,6 +5,24 @@ import { api, internal } from "../../../_generated/api";
 import { parseCommand } from "../internal";
 import type { Id } from "../../../_generated/dataModel";
 
+// ─── seedOutlet helper ────────────────────────────────────────────────────────
+
+async function seedOutlet(
+  t: ReturnType<typeof convexTest>,
+  code: string = "PKW",
+): Promise<Id<"outlets">> {
+  return t.run(async (ctx) =>
+    ctx.db.insert("outlets", {
+      code,
+      name: `Outlet ${code}`,
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: Date.now(),
+      created_by: null,
+    } as any),
+  );
+}
+
 // ─── PART A: parseCommand (pure) ─────────────────────────────────────────────
 //
 // parseCommand only knows the two registry built-ins (/register, /start). It
@@ -51,10 +69,10 @@ describe("parseCommand", () => {
 
 const NOW = 1_700_000_000_000;
 
-/** Seed an active telegramChats row directly, optionally with a role. */
+/** Seed an active telegramChats row directly, optionally with a role and outlet_id. */
 async function seedRow(
   t: ReturnType<typeof convexTest>,
-  opts: { chatId: string; role?: string; archivedAt?: number; title?: string },
+  opts: { chatId: string; role?: string; archivedAt?: number; title?: string; outletId?: Id<"outlets"> },
 ) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("telegramChats", {
@@ -62,6 +80,7 @@ async function seedRow(
       chatType: "supergroup" as const,
       title: opts.title ?? `Chat ${opts.chatId}`,
       role: opts.role,
+      outlet_id: opts.outletId,
       registeredAt: NOW,
       lastSeenAt: NOW,
       archivedAt: opts.archivedAt,
@@ -348,9 +367,10 @@ describe("seedFromEnvWrite allowlist guard", () => {
 // ─── PART C: mgr* (manager-session gated) surface ────────────────────────────
 
 describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency", () => {
-  it("assigns a role for a manager session", async () => {
+  it("assigns a role for a manager session (outlet-scoped role requires outletId)", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedSession(t);
+    const outletId = await seedOutlet(t);
     await seedRow(t, { chatId: "-100MGR1" });
 
     await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
@@ -358,6 +378,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
       sessionId,
       chatId: "-100MGR1",
       role: "managers",
+      outletId,
     });
 
     const row = await t.run((ctx) =>
@@ -367,11 +388,13 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
         .unique(),
     );
     expect(row?.role).toBe("managers");
+    expect(row?.outlet_id).toBe(outletId);
   });
 
   it("staff session → MANAGER_ONLY", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedSession(t, { role: "staff" });
+    const outletId = await seedOutlet(t, "BLK");
     await seedRow(t, { chatId: "-100MGR2" });
 
     await expect(
@@ -380,6 +403,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
         sessionId,
         chatId: "-100MGR2",
         role: "managers",
+        outletId,
       }),
     ).rejects.toThrow(/MANAGER_ONLY/);
   });
@@ -399,10 +423,11 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     ).rejects.toThrow(/Unknown telegram role/);
   });
 
-  it("role uniqueness — second chat cannot claim same role without forceReassign", async () => {
+  it("role uniqueness — same (role, outlet) pair cannot have two holders without forceReassign", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedSession(t);
-    await seedRow(t, { chatId: "-100A", role: "managers" });
+    const outletId = await seedOutlet(t);
+    await seedRow(t, { chatId: "-100A", role: "managers", outletId });
     await seedRow(t, { chatId: "-100B" });
 
     await expect(
@@ -411,6 +436,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
         sessionId,
         chatId: "-100B",
         role: "managers",
+        outletId,
       }),
     ).rejects.toThrow(/already held by chat/);
   });
@@ -418,6 +444,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
   it("same idempotencyKey is deduped — second call replays cached result, no double-write", async () => {
     const t = convexTest(schema);
     const { sessionId } = await seedSession(t);
+    const outletId = await seedOutlet(t);
     await seedRow(t, { chatId: "-100IDEM1" });
     await seedRow(t, { chatId: "-100IDEM2" });
 
@@ -429,6 +456,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
       sessionId,
       chatId: "-100IDEM1",
       role: "managers",
+      outletId,
     });
 
     // Second call WITH SAME KEY but DIFFERENT chatId. If withIdempotency works,
@@ -438,6 +466,7 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
       sessionId,
       chatId: "-100IDEM2",
       role: "managers",
+      outletId,
     });
 
     const a = await t.run((ctx) =>
@@ -454,6 +483,109 @@ describe("mgrAssignRole — manager-session gate + role uniqueness + idempotency
     );
     expect(a?.role).toBe("managers");
     expect(b?.role).toBeUndefined(); // second call deduped — never ran
+  });
+
+  // ─── Task 9: 5 new TDD scenarios ───────────────────────────────────────────
+
+  it("Task9-1: outlet-scoped role (managers) without outletId → OUTLET_REQUIRED_FOR_ROLE", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedSession(t);
+    await seedRow(t, { chatId: "-100T9-1" });
+
+    await expect(
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
+        idempotencyKey: "mgr-t9-1",
+        sessionId,
+        chatId: "-100T9-1",
+        role: "managers",
+        // outletId intentionally absent
+      }),
+    ).rejects.toThrow(/OUTLET_REQUIRED_FOR_ROLE/);
+  });
+
+  it("Task9-2: business role (owners) with outletId → OUTLET_NOT_ALLOWED_FOR_ROLE", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedSession(t);
+    const outletId = await seedOutlet(t);
+    await seedRow(t, { chatId: "-100T9-2" });
+
+    await expect(
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
+        idempotencyKey: "mgr-t9-2",
+        sessionId,
+        chatId: "-100T9-2",
+        role: "owners",
+        outletId,
+      }),
+    ).rejects.toThrow(/OUTLET_NOT_ALLOWED_FOR_ROLE/);
+  });
+
+  it("Task9-3: two manager chats can bind the SAME role to DIFFERENT outlets (no collision)", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedSession(t);
+    const outletA = await seedOutlet(t, "PKW");
+    const outletB = await seedOutlet(t, "BLK");
+    await seedRow(t, { chatId: "-100T9-3A", role: "managers", outletId: outletA });
+    await seedRow(t, { chatId: "-100T9-3B" });
+
+    // This must NOT throw — different outlets means no uniqueness collision.
+    await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
+      idempotencyKey: "mgr-t9-3",
+      sessionId,
+      chatId: "-100T9-3B",
+      role: "managers",
+      outletId: outletB,
+    });
+
+    const rowB = await t.run((ctx) =>
+      ctx.db
+        .query("telegramChats")
+        .withIndex("by_chatId", (q) => q.eq("chatId", "-100T9-3B"))
+        .unique(),
+    );
+    expect(rowB?.role).toBe("managers");
+    expect(rowB?.outlet_id).toBe(outletB);
+  });
+
+  it("Task9-4: same (managers, outletX) twice without forceReassign → 'already held' for that pair", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedSession(t);
+    const outletId = await seedOutlet(t);
+    await seedRow(t, { chatId: "-100T9-4A", role: "managers", outletId });
+    await seedRow(t, { chatId: "-100T9-4B" });
+
+    await expect(
+      t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
+        idempotencyKey: "mgr-t9-4",
+        sessionId,
+        chatId: "-100T9-4B",
+        role: "managers",
+        outletId,
+      }),
+    ).rejects.toThrow(/already held by chat/);
+  });
+
+  it("Task9-5: role: null clears both role and outlet_id on the row", async () => {
+    const t = convexTest(schema);
+    const { sessionId } = await seedSession(t);
+    const outletId = await seedOutlet(t);
+    await seedRow(t, { chatId: "-100T9-5", role: "managers", outletId });
+
+    await t.mutation(api.telegram.chatRegistry.public.mgrAssignRole, {
+      idempotencyKey: "mgr-t9-5",
+      sessionId,
+      chatId: "-100T9-5",
+      role: null,
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("telegramChats")
+        .withIndex("by_chatId", (q) => q.eq("chatId", "-100T9-5"))
+        .unique(),
+    );
+    expect(row?.role).toBeUndefined();
+    expect(row?.outlet_id).toBeUndefined();
   });
 });
 

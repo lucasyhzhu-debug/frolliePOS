@@ -467,6 +467,11 @@ export const en = {
   "mgrTelegram.noChatsHint": "Invite the bot to a group and send",
   "mgrTelegram.noChatsHintSuffix": "from the chat",
   "mgrTelegram.roleUnknown": "{role} (unknown)",
+  "mgrTelegram.labelOutlet": "Outlet",
+  "mgrTelegram.ariaOutletSelect": "outlet select",
+  "mgrTelegram.outletPickerPlaceholder": "Pick outlet…",
+  "mgrTelegram.sectionBusinessWide": "Business-wide",
+  "mgrTelegram.boundOutletLabel": "Outlet: {name}",
   // mgrVouchers
   "mgrVouchers.title": "Vouchers",
   "mgrVouchers.description": "Create, edit, archive, view redemptions.",

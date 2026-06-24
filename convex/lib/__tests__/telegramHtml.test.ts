@@ -1,5 +1,5 @@
 import { describe, it, expect, test } from "vitest";
-import { renderFoundersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker, renderStaffShiftSignoff } from "../telegramHtml";
+import { renderOwnersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker, renderStaffShiftSignoff } from "../telegramHtml";
 
 describe("renderSystemError", () => {
   it("escapes HTML and has no buttons", () => {
@@ -46,9 +46,9 @@ describe("renderTxnTicker", () => {
   });
 });
 
-describe("renderFoundersSummary manual-BCA section", () => {
+describe("renderOwnersSummary manual-BCA section", () => {
   it("appends an itemized manual-BCA section when count > 0", () => {
-    const m = renderFoundersSummary({
+    const m = renderOwnersSummary({
       dateLabel: "19 Jun 2026", totalSalesIdr: 500000, txnCount: 10, flaggedCount: 0,
       manualBca: {
         count: 2, totalIdr: 80000,
@@ -64,7 +64,7 @@ describe("renderFoundersSummary manual-BCA section", () => {
   });
 
   it("omits the manual-BCA section when count is 0", () => {
-    const m = renderFoundersSummary({
+    const m = renderOwnersSummary({
       dateLabel: "19 Jun 2026", totalSalesIdr: 500000, txnCount: 10, flaggedCount: 0,
       manualBca: { count: 0, totalIdr: 0, items: [] },
     });

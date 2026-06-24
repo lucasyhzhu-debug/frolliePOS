@@ -38,22 +38,12 @@ export const handleActivatePos = internalAction({
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN missing");
 
-    // Chat-role gate: only the chat bound to "managers" may mint codes.
-    // Narrow catch (mirrors dispatch.ts:42-51): treat ONLY an unbound role as a
-    // silent no-op; rethrow anything else so transient failures surface in the
-    // Convex dashboard instead of looking like an auth rejection.
-    let managersChatId: string;
-    try {
-      managersChatId = await ctx.runQuery(
-        internal.telegram.chatRegistry.internal.getChatIdByRole,
-        { role: "managers" },
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) return; // unbound — silent
-      throw err; // unexpected — surface it
-    }
-    if (managersChatId !== args.chatId) return;
+    // Accept ANY per-outlet managers chat (was: equality vs the single getChatIdByRole("managers")).
+    // Now that "managers" is per-outlet there are MULTIPLE managers chats; gate on the row's role
+    // field instead of a single-chat equality check. No outlet threading — minted code stays
+    // outlet-less (device→outlet binding is post-activation manager-PIN assignDeviceOutlet).
+    const row = await ctx.runQuery(internal.telegram.chatRegistry.internal.getChatRow, { chatId: args.chatId });
+    if (!row || row.role !== "managers" || row.archivedAt !== undefined) return; // not a managers chat — silent no-op
 
     // Mint the code. Narrow the catch to the EXPECTED failure (collision
     // exhaustion) so the manager gets a clear "try again" — but rethrow anything

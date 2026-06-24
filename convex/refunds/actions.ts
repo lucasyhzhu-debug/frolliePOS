@@ -302,6 +302,7 @@ export const requestRefundApproval = action({
           request_url: `${baseUrl}/approve/${rawToken}`,
         },
         idempotencyKey: `${args.idempotencyKey}:send`,
+        outletId: requester.outlet_id, // v2.0 Spec-4 Task 5: route to per-outlet managers
       });
       messageId = sendRes.message_id;
     } catch (err) {

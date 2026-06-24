@@ -37,6 +37,7 @@ import { internalAction, internalMutation, internalQuery } from "../_generated/s
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
+import { logAudit } from "../audit/internal";
 
 // ── Page size for all paginate calls ────────────────────────────────────────
 const PAGE_SIZE = 100;
@@ -535,5 +536,65 @@ export const assertZeroNullOutletIds = internalQuery({
       }
     }
     return true;
+  },
+});
+
+// ─── bindTelegramChatsToDefaultOutlet ───────────────────────────────────────
+
+/**
+ * Migrates telegramChats rows for per-outlet routing (Spec 4 Task 12):
+ *  - managers + inventory chats: stamp outlet_id = default PKW outlet
+ *  - founders chat: rebind role to "owners", outlet_id stays absent (business-wide)
+ *  - ops + dormant rows: untouched
+ *
+ * Idempotent: managers already stamped skip; founders->owners is naturally
+ * idempotent (second run won't match the "founders" branch).
+ *
+ * Must run AFTER seedDefaultOutlet + backfillOutletId.
+ *
+ * Run command (dev):  npx convex run migrations/internal:bindTelegramChatsToDefaultOutlet
+ * Run command (prod): npx convex run migrations/internal:bindTelegramChatsToDefaultOutlet --prod
+ */
+export const bindTelegramChatsToDefaultOutlet = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ ok: true }> => {
+    const def = await ctx.db
+      .query("outlets")
+      .withIndex("by_code", (q) => q.eq("code", "PKW"))
+      .unique();
+    if (!def) throw new Error("DEFAULT_OUTLET_MISSING");
+
+    const chats = await ctx.db.query("telegramChats").collect();
+    for (const c of chats) {
+      if (c.archivedAt !== undefined) continue;
+      if (c.role === "managers" || c.role === "inventory") {
+        if (c.outlet_id === def._id) continue; // already bound — idempotent skip
+        await ctx.db.patch(c._id, { outlet_id: def._id });
+        await logAudit(ctx, {
+          actor_id: "system",
+          action: "telegram.chat_outlet_bound",
+          entity_type: "telegramChats",
+          entity_id: c.chatId,
+          source: "system",
+          metadata: { role: c.role, outlet_id: def._id },
+        });
+      } else if (c.role === "founders") {
+        // Rebind to "owners" (business-wide role). outlet_id stays absent.
+        // Naturally idempotent: after rebind c.role === "owners", so this
+        // branch won't match on a second run.
+        await ctx.db.patch(c._id, { role: "owners" });
+        await logAudit(ctx, {
+          actor_id: "system",
+          action: "telegram.chat_outlet_bound",
+          entity_type: "telegramChats",
+          entity_id: c.chatId,
+          source: "system",
+          metadata: { role: "owners", rebound_from: "founders" },
+        });
+      }
+      // ops + dormant (no role): untouched — business-wide, no outlet scoping needed
+    }
+
+    return { ok: true };
   },
 });

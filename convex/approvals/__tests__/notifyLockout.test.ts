@@ -192,4 +192,73 @@ describe("approvals/actions.notifyStaffLockout", () => {
     );
     expect(reqs.length).toBe(0);
   });
+
+  it("v2.0 Spec-4: routes the PIN-reset card to the LOCKOUT DEVICE's outlet, not the default", async () => {
+    const t = convexTest(schema);
+    let sentChatId: string | undefined;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("telegram")) {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentChatId = body.chat_id;
+        return {
+          ok: true, status: 200,
+          json: async () => ({ ok: true, result: { message_id: 1 } }),
+          text: async () => "{}",
+        } as unknown as Response;
+      }
+      return realFetch(url as RequestInfo);
+    }) as typeof fetch;
+
+    // Two outlets: A is the default (PKW), B is where the lockout happens (BLK).
+    const { outletB } = await t.run(async (ctx) => {
+      const outletA = await ctx.db.insert("outlets", {
+        code: "PKW", name: "Pakuwon", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      });
+      const outletB = await ctx.db.insert("outlets", {
+        code: "BLK", name: "Block M", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      });
+      // A managers chat bound to EACH outlet.
+      await ctx.db.insert("telegramChats", {
+        chatId: "-100mgrA", chatType: "supergroup", title: "Mgr A", role: "managers",
+        registeredAt: Date.now(), lastSeenAt: Date.now(), outlet_id: outletA,
+      });
+      await ctx.db.insert("telegramChats", {
+        chatId: "-100mgrB", chatType: "supergroup", title: "Mgr B", role: "managers",
+        registeredAt: Date.now(), lastSeenAt: Date.now(), outlet_id: outletB,
+      });
+      // The failing device is bound to outlet B.
+      await ctx.db.insert("registered_devices", {
+        device_id: "dev-B", label: "Booth B", activated_at: Date.now(),
+        active: true, outlet_id: outletB,
+      });
+      return { outletA, outletB };
+    });
+
+    const staffId = await t.run((ctx) =>
+      ctx.db.insert("staff", {
+        name: "Lucy", code: "S-42", pin_hash: "x", role: "staff",
+        active: true, created_at: Date.now(),
+      }),
+    );
+
+    const r = await t.action(internal.approvals.actions.notifyStaffLockout, {
+      staffId,
+      deviceId: "dev-B",
+    });
+    expect(r.skipped ?? false).toBe(false);
+
+    // Routed to outlet B's managers chat — NOT outlet A (the default).
+    expect(sentChatId).toBe("-100mgrB");
+
+    // The approval request row is stamped with outlet B too.
+    const req = await t.run((ctx) =>
+      ctx.db
+        .query("pos_approval_requests")
+        .withIndex("by_subject_staff", (q) => q.eq("subject_staff_id", staffId))
+        .first(),
+    );
+    expect(req?.outlet_id).toBe(outletB);
+  });
 });

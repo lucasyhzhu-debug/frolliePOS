@@ -28,6 +28,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { getFunctionName } from "convex/server";
 import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
@@ -108,42 +109,44 @@ const baseChat: Doc<"telegramChats"> = {
 };
 
 /**
- * Set up useQuery to return settings and chats by dispatching on args shape.
+ * Set up useQuery to return settings, chats, and outlets by dispatching on args shape.
  *
  * useQuery receives (apiRef, args):
  *   - settings query args: {} (no sessionId, no includeArchived)
  *   - chats query args: { sessionId, includeArchived } (has "includeArchived")
+ *   - outlets query args: { sessionId } (has sessionId, no includeArchived)
  *
  * Because Convex API proxy objects are not identity-stable, we dispatch on
  * args shape rather than identity. This is re-render-safe.
  */
-function setupQueryMock(settings: unknown, chats: unknown) {
+function setupQueryMock(settings: unknown, chats: unknown, outlets: unknown = []) {
   mockUseQuery.mockImplementation((_api: unknown, args: unknown) => {
     if (args !== null && typeof args === "object" && "includeArchived" in (args as object)) {
       return chats;
+    }
+    if (args !== null && typeof args === "object" && "sessionId" in (args as object) && !("includeArchived" in (args as object))) {
+      return outlets;
     }
     return settings;
   });
 }
 
 /**
- * Set up useMutation to return named stubs by call order.
- * The mutation call order per render tree (depth-first):
- *   0 = setFoundersSummaryEnabled (FoundersSummaryToggle)
- *   1 = setTxnTickerEnabled       (TxnTickerToggle)
- *   2 = assignRole  (ChatCard)
- *   3 = archiveChat (ChatCard)
- *   4 = restoreChat (ChatCard)
+ * Set up useMutation to return named stubs dispatched by FUNCTION NAME (via
+ * getFunctionName), NOT call order. Order-based dispatch desyncs when only a
+ * child (ChatCard) re-renders without the toggles — the global counter offsets
+ * and assignRole maps to the wrong stub. Name-based dispatch is render-order-
+ * independent and re-render-safe.
  */
 function setupMutationMock() {
-  let mutIdx = 0;
-  const order = [stubSetFounders, stubSetTicker, stubAssignRole, stubArchiveChat, stubRestoreChat];
-  mockUseMutation.mockImplementation(() => {
-    const slot = mutIdx % order.length;
-    mutIdx++;
-    // Return a stable wrapper function. On re-renders React calls useMutation
-    // again — modulo wraps so we cycle through the same stubs.
-    return (...args: unknown[]) => order[slot](...args);
+  mockUseMutation.mockImplementation((apiRef: unknown) => {
+    const name = getFunctionName(apiRef as Parameters<typeof getFunctionName>[0]);
+    if (name.includes("setFoundersSummaryEnabled")) return (...a: unknown[]) => stubSetFounders(...a);
+    if (name.includes("setTxnTickerEnabled")) return (...a: unknown[]) => stubSetTicker(...a);
+    if (name.includes("mgrAssignRole")) return (...a: unknown[]) => stubAssignRole(...a);
+    if (name.includes("mgrArchiveChat")) return (...a: unknown[]) => stubArchiveChat(...a);
+    if (name.includes("mgrRestoreChat")) return (...a: unknown[]) => stubRestoreChat(...a);
+    return (..._a: unknown[]) => undefined;
   });
 }
 
@@ -316,15 +319,15 @@ describe("MgrTelegramChats — role assignment", () => {
     const trigger = screen.getByRole("combobox", { name: /role select/i });
     fireEvent.click(trigger);
 
-    await waitFor(() => expect(screen.getByText("founders")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("founders"));
+    await waitFor(() => expect(screen.getByText("owners")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("owners"));
 
     await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
 
     const args = stubAssignRole.mock.calls[0][0] as Record<string, unknown>;
     expect(args.sessionId).toBe("sess-mgr");
     expect(args.chatId).toBe("123456");
-    expect(args.role).toBe("founders");
+    expect(args.role).toBe("owners");
     expect(typeof args.idempotencyKey).toBe("string");
     expect((args.idempotencyKey as string).length).toBeGreaterThan(0);
   });
@@ -334,8 +337,8 @@ describe("MgrTelegramChats — role assignment", () => {
 
     const trigger = screen.getByRole("combobox", { name: /role select/i });
     fireEvent.click(trigger);
-    await waitFor(() => expect(screen.getByText("founders")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("founders"));
+    await waitFor(() => expect(screen.getByText("owners")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("owners"));
 
     await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
     const key = stubAssignRole.mock.calls[0][0].idempotencyKey as string;
@@ -464,5 +467,228 @@ describe("MgrTelegramChats — sales ticker toggle", () => {
         expect.objectContaining({ enabled: true }),
       ),
     );
+  });
+});
+
+// ---------- outlet picker + grouped list -------------------------------------
+
+const stubOutlets = [
+  { _id: "outlet1" as Doc<"outlets">["_id"], code: "PKW", name: "Pakuwon Mall", active: true },
+  { _id: "outlet2" as Doc<"outlets">["_id"], code: "BSD", name: "BSD City", active: true },
+];
+
+describe("MgrTelegramChats — outlet picker (outlet-scoped roles)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockNavigate.mockReset();
+
+    stubAssignRole = vi.fn().mockResolvedValue({ ok: true });
+    stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
+    stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
+    stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
+    stubSendTest = vi.fn().mockResolvedValue(undefined);
+
+    mockUseSession.mockReturnValue(activeManagerSession);
+    mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [baseChat],
+      stubOutlets,
+    );
+    setupMutationMock();
+  });
+
+  it("selecting an outlet-scoped role (managers) reveals the outlet picker without assigning", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    const trigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByText("managers")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("managers"));
+
+    // Outlet picker should now be visible; no assignment yet
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /outlet select/i })).toBeInTheDocument(),
+    );
+    expect(stubAssignRole).not.toHaveBeenCalled();
+  });
+
+  it("selecting an outlet-scoped role (inventory) reveals the outlet picker without assigning", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    const trigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByText("inventory")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("inventory"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /outlet select/i })).toBeInTheDocument(),
+    );
+    expect(stubAssignRole).not.toHaveBeenCalled();
+  });
+
+  it("selecting a business role (owners) assigns immediately without showing outlet picker", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    const trigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByText("owners")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("owners"));
+
+    await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("combobox", { name: /outlet select/i })).not.toBeInTheDocument();
+  });
+
+  it("selecting a business role (ops) assigns immediately without showing outlet picker", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    const trigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByText("ops")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("ops"));
+
+    await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("combobox", { name: /outlet select/i })).not.toBeInTheDocument();
+  });
+
+  it("picking an outlet after selecting managers calls mgrAssignRole with outletId", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    // Step 1: pick outlet-scoped role
+    const roleTrigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(roleTrigger);
+    await waitFor(() => expect(screen.getByText("managers")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("managers"));
+
+    // Step 2: outlet picker appears; pick an outlet
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /outlet select/i })).toBeInTheDocument(),
+    );
+    const outletTrigger = screen.getByRole("combobox", { name: /outlet select/i });
+    fireEvent.click(outletTrigger);
+    await waitFor(() => expect(screen.getByText("Pakuwon Mall")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Pakuwon Mall"));
+
+    // Step 3: assignRole called WITH outletId
+    await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
+    const args = stubAssignRole.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.role).toBe("managers");
+    expect(args.outletId).toBe("outlet1");
+    expect(args.chatId).toBe("123456");
+  });
+
+  it("outlet picker is hidden after a successful outlet-scoped assignment", async () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, role: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+
+    const roleTrigger = screen.getByRole("combobox", { name: /role select/i });
+    fireEvent.click(roleTrigger);
+    await waitFor(() => expect(screen.getByText("managers")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("managers"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /outlet select/i })).toBeInTheDocument(),
+    );
+
+    const outletTrigger = screen.getByRole("combobox", { name: /outlet select/i });
+    fireEvent.click(outletTrigger);
+    await waitFor(() => expect(screen.getByText("Pakuwon Mall")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Pakuwon Mall"));
+
+    await waitFor(() => expect(stubAssignRole).toHaveBeenCalledTimes(1));
+    // After successful assignment, outlet picker should be gone
+    await waitFor(() =>
+      expect(screen.queryByRole("combobox", { name: /outlet select/i })).not.toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------- grouped list by outlet -------------------------------------------
+
+describe("MgrTelegramChats — grouped list", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockNavigate.mockReset();
+
+    stubAssignRole = vi.fn().mockResolvedValue({ ok: true });
+    stubArchiveChat = vi.fn().mockResolvedValue({ ok: true });
+    stubRestoreChat = vi.fn().mockResolvedValue({ ok: true });
+    stubSetFounders = vi.fn().mockResolvedValue({ ok: true });
+    stubSetTicker = vi.fn().mockResolvedValue({ ok: true });
+    stubSendTest = vi.fn().mockResolvedValue(undefined);
+
+    mockUseSession.mockReturnValue(activeManagerSession);
+    mockUseAction.mockImplementation(() => (...args: unknown[]) => stubSendTest(...args));
+    setupMutationMock();
+  });
+
+  it("shows a Business-wide section header for chats without outlet_id", () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, outlet_id: undefined }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+    expect(screen.getByText(/business.wide/i)).toBeInTheDocument();
+  });
+
+  it("shows outlet name as section header for chats with outlet_id", () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, outlet_id: "outlet1" as Doc<"outlets">["_id"] }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+    expect(screen.getByText("Pakuwon Mall")).toBeInTheDocument();
+  });
+
+  it("shows bound outlet label on a chat card when chat.outlet_id is set", () => {
+    setupQueryMock(
+      { founders_summary_enabled: true, txn_ticker_enabled: true },
+      [{ ...baseChat, outlet_id: "outlet2" as Doc<"outlets">["_id"] }],
+      stubOutlets,
+    );
+    setupMutationMock();
+    renderPage();
+    // The outlet name should appear on the card (as label or in heading)
+    expect(screen.getAllByText("BSD City").length).toBeGreaterThan(0);
   });
 });

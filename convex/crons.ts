@@ -3,14 +3,16 @@ import { internal } from "./_generated/api";
 
 // 22:00 WIB booth close = 15:00 UTC (WIB = UTC+7, confirmed at execution).
 // Resilient wrapper retries transient overload via cronRetry; non-transient
-// errors (e.g. founders role unbound, malformed payload) surface to the cron
-// dashboard with an audited skip — see telegram/foundersSummary.ts.
+// errors (e.g. owners role unbound, malformed payload) surface to the cron
+// dashboard with an audited skip — see telegram/ownersSummary.ts.
+// v2.0 Spec-4 Task 7: renamed from founders-shift-summary; now sends both
+// the owners business rollup AND per-outlet managers_daily_summary.
 const crons = cronJobs();
 
 crons.daily(
-  "founders-shift-summary",
+  "owners-shift-summary",
   { hourUTC: 15, minuteUTC: 0 },
-  internal.telegram.foundersSummary.sendFoundersSummaryResilient,
+  internal.telegram.ownersSummary.sendOwnersSummaryResilient,
   { attempt: 0 },
 );
 

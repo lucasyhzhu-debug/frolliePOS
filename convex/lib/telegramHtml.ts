@@ -102,10 +102,17 @@ export type FoundersSummaryPayload = {
   txnCount: number;
   flaggedCount: number;
   manualBca?: ManualBcaTally; // v1.2 #10
+  /** v2.0 Spec-4: per-outlet breakdown appended when > 1 active outlet. */
+  perOutlet?: Array<{
+    outletLabel: string;
+    totalSalesIdr: number;
+    txnCount: number;
+    flaggedCount: number;
+  }>;
 };
 
 /** Shared helper: appends Manual BCA summary lines into an existing lines array.
- * Called by both renderFoundersSummary and renderStaffShiftSignoff. V8-safe. */
+ * Called by both renderOwnersSummary and renderStaffShiftSignoff. V8-safe. */
 function renderManualBcaBlock(tally: ManualBcaTally, lines: string[]): void {
   if (tally.count <= 0) return;
   lines.push("", `🏦 <b>Manual BCA:</b> ${tally.count} txn · Rp ${formatIdr(tally.totalIdr)}`);
@@ -118,7 +125,15 @@ function renderManualBcaBlock(tally: ManualBcaTally, lines: string[]): void {
   if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
 }
 
-export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessage {
+/**
+ * Render the owners shift-summary (business rollup, with optional per-outlet
+ * breakdown when more than one outlet is active).
+ *
+ * Single-outlet: the perOutlet array is absent (or length ≤ 1) — renders
+ * identically to the old renderFoundersSummary.
+ * Multi-outlet: a "── By outlet ──" section is appended beneath the totals.
+ */
+export function renderOwnersSummary(p: FoundersSummaryPayload): RenderedMessage {
   const lines = [
     `📊 <b>Frollie — ${escapeHtml(p.dateLabel)}</b>`,
     `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}`,
@@ -126,6 +141,15 @@ export function renderFoundersSummary(p: FoundersSummaryPayload): RenderedMessag
     `<b>Flagged for review:</b> ${p.flaggedCount}`,
   ];
   if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
+  // Per-outlet breakdown — only rendered when more than one outlet is present.
+  if (p.perOutlet && p.perOutlet.length > 1) {
+    lines.push("", `<b>── By outlet ──</b>`);
+    for (const o of p.perOutlet) {
+      lines.push(
+        `<b>${escapeHtml(o.outletLabel)}</b>: Rp ${formatIdr(o.totalSalesIdr)} · ${o.txnCount} txn${o.flaggedCount > 0 ? ` · ${o.flaggedCount} flagged` : ""}`,
+      );
+    }
+  }
   return { text: lines.join("\n") };
 }
 
@@ -295,6 +319,8 @@ export function renderStockDriftAlert(p: StockDriftAlertPayload): RenderedMessag
 }
 
 // v1.0.1: ops error alert — informational, no inline keyboard.
+// v2.0 Spec-4 Task 8: outlet_label added — shown in body when present;
+// routing stays business-wide (role: "ops", no outletId).
 export type SystemErrorPayload = {
   kind: string;
   message: string;
@@ -303,6 +329,8 @@ export type SystemErrorPayload = {
   device_id?: string;
   app_version?: string;
   occurred_at: number;
+  /** v2.0 Spec-4: originating outlet label, omitted for cron/system errors. */
+  outlet_label?: string;
 };
 
 export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
@@ -314,6 +342,7 @@ export function renderSystemError(p: SystemErrorPayload): RenderedMessage {
      p.device_id ? `dev ${escapeHtml(p.device_id)}` : null,
      p.app_version ? `v${escapeHtml(p.app_version)}` : null]
       .filter(Boolean).join(" · ") || null,
+    p.outlet_label ? `outlet: ${escapeHtml(p.outlet_label)}` : null,
     escapeHtml(formatWibDateTime(p.occurred_at)),
   ].filter(Boolean);
   return { text: lines.join("\n") };
@@ -402,6 +431,32 @@ export function renderStaffShiftSignoff(p: StaffShiftSignoffPayload): RenderedMe
 
   if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
 
+  return { text: lines.join("\n") };
+}
+
+// ── managers_daily_summary (v2.0 per-outlet managers chat) ──────────────────
+// Per-outlet EOD summary sent to the managers chat for the specific outlet.
+// Mirrors renderFoundersSummary's formatting but scoped to one outlet.
+// No inline_keyboard — informational only.
+export interface ManagersDailySummaryPayload {
+  dateLabel: string;
+  outletLabel: string;
+  totalSalesIdr: number;
+  txnCount: number;
+  flaggedCount: number;
+  manualBca?: ManualBcaTally;
+}
+
+export function renderManagersDailySummary(p: ManagersDailySummaryPayload): RenderedMessage {
+  const lines = [
+    `📊 <b>${escapeHtml(p.outletLabel)} — ${escapeHtml(p.dateLabel)}</b>`,
+    `<b>Sales:</b> Rp ${formatIdr(p.totalSalesIdr)}`,
+    `<b>Transactions:</b> ${p.txnCount}`,
+  ];
+  if (p.flaggedCount > 0) {
+    lines.push(`<b>Flagged for review:</b> ${p.flaggedCount}`);
+  }
+  if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
   return { text: lines.join("\n") };
 }
 

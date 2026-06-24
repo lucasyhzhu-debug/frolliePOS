@@ -629,14 +629,15 @@ Self-registration registry. One row per Telegram chat that has sent `/register@<
 | `chatId` | `string` | Telegram chat ID |
 | `chatType` | `"private" \| "group" \| "supergroup"` | |
 | `title` | `string` | Chat display name |
-| `role` | `string?` | Logical role (e.g. `"managers"`, `"founders"`) — set via bot command post-registration |
+| `role` | `string?` | Logical role (`"managers"`, `"owners"`, `"inventory"`, `"ops"`; legacy `"founders"` accepted as a transitional alias) — set via bot command post-registration. *(v2.0)* `managers`/`inventory` are per-outlet (carry `outlet_id`); `owners`/`ops` are business-wide (no `outlet_id`). |
+| `outlet_id` | `Id<"outlets">?` | *(v2.0, Spec 4)* Set for outlet-scoped roles (`managers`/`inventory`); ABSENT for business-wide roles (`owners`/`ops`) and dormant rows. Two-tier `(role, outlet_id)` routing key. |
 | `registeredBy` | `number?` | Telegram user ID of the registering user |
 | `registeredAt` | `number` | |
 | `lastSeenAt` | `number` | Updated on every inbound message from this chat |
-| `archivedAt` | `number?` | Set when the chat is deregistered; non-null = archived |
+| `archivedAt` | `number?` | Set when the chat is deregistered; non-null = archived. Archiving clears `role` AND `outlet_id`. |
 | `lastError` | `{ at: number, message: string }?` | Last send error for this chat; cleared on next success |
 
-Indexes: `by_chatId` on `chatId`, `by_role` on `[role]`. The active-only filter on `archivedAt === undefined` happens in JS post-collect — the Convex optional-field filter gotcha (see MEMORY.md) means `.eq("archivedAt", undefined)` diverges between convex-test and prod, so the bare-`by_role` + JS-post-filter pattern is the proven-safe lookup. A compound `by_role_archived` index existed pre-v0.5.1 but was dropped once the test was rewritten to mirror prod.
+Indexes: `by_chatId` on `chatId`, `by_role` on `[role]`, `by_role_outlet` on `[role, outlet_id]` *(v2.0)*. **`by_role_outlet` deliberately leads with `role`, NOT `outlet_id`** — `telegramChats` is in the outlet-fence EXCLUSION list (it is not an operational booth table; routing keys on role first). Outlet-scoped lookups use a concrete `(role, outletId)` equality on `by_role_outlet` (safe); business-wide lookups use bare `by_role` + JS post-filter (`archivedAt === undefined && outlet_id === undefined`). The active-only filter on `archivedAt === undefined` happens in JS post-collect — the Convex optional-field filter gotcha (see MEMORY.md) means `.eq("archivedAt", undefined)` (and `.eq("outlet_id", undefined)`) diverges between convex-test and prod, so the JS-post-filter pattern is the proven-safe lookup. A compound `by_role_archived` index existed pre-v0.5.1 but was dropped once the test was rewritten to mirror prod.
 
 ### `telegramUpdates` — v0.4 shipped *(owned by `telegram/`)*
 Webhook dedupe table. One row per processed Telegram update ID. Prevents double-processing Telegram retries before the bot responds 200. Insert-before-process; row persists forever (low volume, no reap needed for v1).
@@ -883,6 +884,7 @@ settings.outlet_device_set  # (v1.2) RETIRED in v2.0 — was staff.setOutletDevi
 device.assignOutlet         # assignDeviceOutlet (staff/actions.ts) — manager-PIN gated; binds registered_devices.outlet_id to a specific outlet; ends all existing sessions on the device when re-assigning; source=booth_inline; metadata={ device_id, outlet_id, outlet_name }
 staff.grantOutletAccess     # grantOutletAccess (staff/actions.ts) — manager-PIN gated; inserts staff_outlet_access row (idempotent); source=booth_inline; metadata={ staff_id, outlet_id }
 staff.revokeOutletAccess    # revokeOutletAccess (staff/actions.ts) — manager-PIN gated; deletes staff_outlet_access row; source=booth_inline; metadata={ staff_id, outlet_id }
+telegram.chat_outlet_bound  # (v2.0 Spec 4) bindTelegramChatsToDefaultOutlet backfill — one row per patched chat. managers/inventory: metadata={ role, outlet_id }. founders→owners rebind: metadata={ role:"owners", rebound_from:"founders" }. actor_id="system"; source=system
 # v0.6 vouchers admin slice (manager-PIN gated; source=booth_inline)
 voucher.created             # createVoucher — new voucher row; metadata={ code, type, value }
 voucher.edited              # updateVoucher — metadata captures changed fields

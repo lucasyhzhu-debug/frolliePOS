@@ -236,7 +236,7 @@ v0.4 replaces the manual `TELEGRAM_CHAT_ID` env-var approach with a self-registr
 1. **Create the role groups** in Telegram (e.g. "Frollie · Managers" and "Frollie · Founders"). Add `@FrolliePOS_Bot` (or whatever your bot username is) to each group.
 2. **Register each group** — in each group chat, any member sends: `/register` (or `/register@YourBotUsername` in supergroups). The bot replies with a confirmation message containing the `chat_id` and a link to the admin UI.
 3. **Open the admin UI** at `<POS_BASE_URL>/mgr/telegram-chats` (requires a manager session). This is `api.telegram.chatRegistry.mgrListChats`.
-4. **Assign a role** to each registered chat via the `<Select>` dropdown — choose `managers` or `founders`. This calls `api.telegram.chatRegistry.mgrAssignRole`.
+4. **Assign a role** to each registered chat via the `<Select>` dropdown — choose `managers`, `owners`, `inventory`, or `ops`. **v2.0:** for a per-outlet role (`managers`/`inventory`) a second **outlet picker** appears — pick the outlet before the bind is sent (it calls `api.telegram.chatRegistry.mgrAssignRole` with `outletId`); business roles (`owners`/`ops`) assign immediately with no outlet. The list is grouped by outlet (plus a "Business-wide" section). Binding an outlet-scoped role without an outlet throws `OUTLET_REQUIRED_FOR_ROLE`; binding a business role with an outlet throws `OUTLET_NOT_ALLOWED_FOR_ROLE`.
 5. **Send a test message** via the "Send test message" button on each row to confirm delivery. This calls `api.telegram.chatRegistry.mgrSendTest`.
 6. Once both chats have confirmed roles, the `TELEGRAM_CHAT_ID` / `TELEGRAM_FALLBACK_ROLE` env vars can remain as a fallback but are no longer the primary routing path.
 
@@ -252,7 +252,7 @@ A manager who is away from the booth can mint a device setup code without physic
 
 The bot replies with a 6-digit setup code (15min TTL — SEC-04) and a `<POS_BASE_URL>/activate` link. The new phone/browser opens that link and enters the code to register itself.
 
-- **Chat-role gated:** only the chat bound to the `managers` role can mint codes; the command is ignored in any other chat. Bind a chat to `managers` first (see [Self-registration operator flow](#self-registration-operator-flow-v04)).
+- **Chat-role gated:** any chat whose row has `role === "managers"` can mint codes *(v2.0: per-outlet — any outlet's managers chat works, not just a single one)*; the command is ignored in any other chat. Bind a chat to `managers` first (see [Self-registration operator flow](#self-registration-operator-flow-v04)). The minted code is outlet-less (no device pre-assign — decision C); the device is bound to its outlet later via the manager-PIN `assignDeviceOutlet` flow.
 - **`POS_BASE_URL` must be set** on the deployment — the activation link is built from it.
 
 **Operational gotcha — group privacy mode swallows `/activatepos`.** The managers chat is a supergroup, and Telegram bot **privacy mode is ON by default**, so a bare `/activatepos` typed in the group is NOT delivered to the bot. Two fixes:
@@ -318,15 +318,17 @@ The `TELEGRAM_CHAT_ID` env-fallback also needs updating if you still rely on it.
 
 ---
 
-## Manual founders-summary test
+## Manual owners-summary test
 
-To fire the founders shift-summary immediately (toggle must be ON, `founders` role must be bound):
+*(v2.0 Spec 4 — renamed from "founders-summary"; the symbol was `telegram/foundersSummary:sendFoundersSummary`.)*
+
+To fire the daily summary immediately (the default outlet's toggle must be ON, `owners` role must be bound):
 
 ```powershell
-npx convex run telegram/foundersSummary:sendFoundersSummary
+npx convex run telegram/ownersSummary:sendOwnersSummary
 ```
 
-This calls the same logic as the 22:00 WIB cron but skips the resilient retry wrapper. If it returns `{ skipped: "disabled" }`, check the `founders_summary_enabled` toggle in `/mgr/telegram-chats`. If it throws `"No Telegram chat assigned to role 'founders'"`, bind the founders chat first.
+This calls the same logic as the 22:00 WIB cron but skips the resilient retry wrapper. It sends the business-wide `owners` rollup PLUS a per-outlet `managers_daily_summary` for each active outlet whose own toggle is on. If it returns `{ skipped: "disabled" }`, check the default outlet's `founders_summary_enabled` toggle in `/mgr/telegram-chats`. If it skips with `role_unbound`, bind the `owners` chat first (a `founders`-bound chat is accepted as a transitional alias until the backfill rebinds it to `owners`).
 
 ---
 
@@ -348,12 +350,16 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 
 `KNOWN_TELEGRAM_ROLES` in `convex/telegram/config.ts`. Roles are bound to registered chats via `/mgr/telegram-chats`. `sendTemplate` dispatches by role (with the legacy `TELEGRAM_CHAT_ID` env-fallback for `managers` only).
 
-| Role | Purpose |
-|---|---|
-| `managers` | Off-booth approval requests (PIN resets, manual payment overrides, refunds). Bind first. |
-| `founders` | Daily shift-summary cron at 22:00 WIB (ADR-033). Opt-out via `pos_settings.founders_summary_enabled`. |
-| `inventory` *(v0.5.2)* | Operations chat that receives recount notices + low-stock alerts. Bind via `/mgr/telegram-chats`. |
-| `ops` *(v1.0.1)* | POS error/crash alerts — deduped/storm-capped backend, payment, mutation and crash failures from the launch-day error pipe (`system_error` template). Bind a dedicated "Frollie · Ops" chat via `/mgr/telegram-chats`. |
+**v2.0 (Spec 4) — routing is two-tier `(role, outlet_id)`.** `ROLE_SCOPE` declares each role `outlet` or `business`:
+- **Per-outlet roles** (`managers`, `inventory`): bound to a SPECIFIC outlet. Bind via `/mgr/telegram-chats` — pick the role, then pick the outlet from the outlet picker. Each outlet can have its own managers/inventory chat; a send routes to the chat bound to `(role, that outlet)`. During the transitional window (Step-1 deployed, backfill not yet run) a single bare-`managers` row still routes via the single-outlet fallback (gated on exactly-one-active-outlet).
+- **Business-wide roles** (`owners`, `ops`): one chat for the whole business, no outlet. Bind via `/mgr/telegram-chats` (no outlet picker shown).
+
+| Role | Scope | Purpose |
+|---|---|---|
+| `managers` | per-outlet | Off-booth approval requests (PIN resets, manual payment overrides, refunds) + per-shift signoff summary + **recount notices** (`recount_notice` routes to `managers`, NOT `inventory`) + the daily per-outlet `managers_daily_summary`. Bind first. |
+| `owners` *(v2.0, was `founders`)* | business-wide | Daily business-wide shift-summary rollup at 22:00 WIB (ADR-033), with a per-outlet breakdown. Opt-out via the default outlet's `pos_settings.founders_summary_enabled`. (`founders` is accepted as a transitional alias until the backfill rebinds the chat to `owners`.) |
+| `inventory` *(v0.5.2)* | per-outlet | Operations chat that receives low-stock alerts + `stock_drift_alert` for THAT outlet. Bind via `/mgr/telegram-chats` (with outlet). |
+| `ops` *(v1.0.1)* | business-wide | POS error/crash alerts — deduped/storm-capped backend, payment, mutation and crash failures from the launch-day error pipe (`system_error` template, which now also renders the originating outlet label). Bind a dedicated "Frollie · Ops" chat via `/mgr/telegram-chats`. |
 
 ## Template kinds
 
@@ -361,9 +367,11 @@ Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env s
 
 | Kind | Routes to | Button | Notes |
 |---|---|---|---|
-| `system_error` *(v1.0.1)* | `ops` | none (informational) | Fired by the error pipe when a `pos_error_reports` row crosses the dedup/storm-cap gate. |
+| `system_error` *(v1.0.1)* | `ops` | none (informational) | Fired by the error pipe when a `pos_error_reports` row crosses the dedup/storm-cap gate. *(v2.0)* Renders the originating outlet label when the report carries an `outlet_id`; routing stays business-wide (`ops`, no outlet scoping). |
 | `txn_ticker` *(v1.0.1)* | `managers` | none (informational) | Live sales ticker — one message per paid sale. Sent **silent** (`disableNotification`) so the running feed never buzzes. Toggle via `pos_settings.txn_ticker_enabled` (default on). **Launch path (v1.0.2):** open `/mgr/telegram-chats` as a manager → toggle **"Post each paid sale to the Managers channel"** off. Takes effect on the next paid sale; no deploy. **Break-glass:** the Convex-dashboard `pos_settings.txn_ticker_enabled = false` edit still works if the FE is unavailable. |
 | `owner_otp` *(v2.0)* | private DM to `staff.telegram_user_id` | none (informational) | Sent via `chatIdOverride` directly to the owner's Telegram user ID — **not** to any group role. The 6-digit code is **REDACTED** from `telegram_log` (C3). `KNOWN_TELEGRAM_ROLES` is unchanged. |
+| `managers_daily_summary` *(v2.0 Spec 4)* | `managers` (per-outlet) | none (informational) | One per active outlet per day, sent by the `owners-shift-summary` cron alongside the business-wide owners rollup. Per-outlet idempotency key `mgrsum:<outletCode>:<dateLabel>`. Each outlet's send respects THAT outlet's `founders_summary_enabled` toggle; an unbound outlet chat → audited skip for that outlet only (loop not aborted). |
+| `shift_summary` *(owners rollup, v2.0)* | `owners` (business-wide) | none (informational) | The daily rollup; payload gains an optional `perOutlet[]` breakdown beneath the business total. Idempotency key `owners:<dateLabel>`. |
 
 ---
 

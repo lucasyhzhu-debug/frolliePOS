@@ -2,6 +2,19 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
 
+## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
+
+**Scope:** Two-tier `(role, outlet_id)` Telegram chat registry so each outlet's `managers`/`inventory` chats receive only that outlet's approvals/alerts, while `owners`/`ops` stay business-wide ([ADR-035](./ADR/035-telegram-as-internal-comms.md) per-outlet amendment).
+
+- `telegramChats.outlet_id` + `by_role_outlet` index (additive, optional); `telegramChats` stays in the outlet-fence EXCLUSION list (index leads with `role`).
+- `KNOWN_TELEGRAM_ROLES` recast: `founders` → `owners` (business-wide); `founders` kept as a transitional alias through the migration window. `ROLE_SCOPE` declares each role `business` or `outlet`.
+- Resolver: `getChatIdByRoleAndOutlet` + `getChatIdByRoleBareOrNull` (two-tier reads); shared action-layer `resolveOutletChatId` adds a single-outlet fallback (gated on exactly-one-active-outlet, else throws — no multi-outlet misroute).
+- `sendTemplate` scope-dispatches: outlet-scoped roles require `outletId` (throws `OUTLET_REQUIRED_FOR_ROLE`); business roles resolve as before. New `managers_daily_summary` template kind.
+- Callsite sweep: approvals/refunds/shift-signoff thread `outletId` (signoff → per-outlet `managers`, was `founders`); `chatIdOverride` paths (low-stock dispatch, recount, txn-ticker, drift cron) resolve per-outlet themselves (per-outlet idempotency keys). Recount stays `managers`.
+- Daily cron renamed `founders-shift-summary` → `owners-shift-summary`: business-wide owners rollup (with per-outlet breakdown) PLUS a per-outlet `managers_daily_summary`. `system_error` renders the originating outlet label (routing stays business-wide).
+- Admin: `mgrAssignRole` binds an outlet for outlet-scoped roles with per-`(role,outlet)` uniqueness; `/mgr/telegram-chats` gains an outlet picker + grouped list. `/activatepos` accepts any per-outlet `managers` chat (no device pre-assign — decision C).
+- Backfill `bindTelegramChatsToDefaultOutlet`: existing `managers`/`inventory` chats → default outlet; `founders` chat → `owners` (idempotent). New audit verb `telegram.chat_outlet_bound`. Prod run order: `seedDefaultOutlet` → `backfillOutletId` → `bindTelegramChatsToDefaultOutlet`.
+
 ## 2026-06-23 — v2.0 Owner auth plane (Telegram-OTP cockpit login)
 
 **Scope:** Third auth plane extending ADR-029 (token=VIEW; PIN=ACT; **OTP=MANAGE** — ADR-052). Cockpit sessions are outlet-unscoped; booth resolvers reject them with `NOT_BOOTH_SESSION`. Task 7 FE (cockpit login UI) ships separately pending owner accent-colour pick.

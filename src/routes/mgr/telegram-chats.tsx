@@ -7,13 +7,18 @@
  *   - admin*     → mgr*       (chatRegistry mgr* twins)
  *   - Inline row feedback → sonner toast
  *   - Founders summary toggle added (not in starter)
+ *
+ * v2.0 Spec-4 Task 10: outlet picker + grouped list.
+ *   - Outlet-scoped roles (managers/inventory) require a two-step select: role → outlet.
+ *   - Business roles (owners/ops) assign immediately (no outlet).
+ *   - Chat list is grouped by outlet (section header = outlet name; "Business-wide" for none).
  */
 
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { KNOWN_TELEGRAM_ROLES } from "../../../convex/telegram/config";
+import { KNOWN_TELEGRAM_ROLES, ROLE_SCOPE } from "../../../convex/telegram/config";
 import { useSession } from "@/hooks/useSession";
 import { useT, type TranslationKey } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -32,9 +37,11 @@ import { Separator } from "@/components/ui/separator";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { errorMessage } from "@/lib/errors";
 import { toast } from "sonner";
-import type { Doc } from "../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../convex/_generated/dataModel";
 
 type Chat = Doc<"telegramChats">;
+
+type OutletRow = { _id: Id<"outlets">; code: string; name: string; active: boolean };
 
 const NONE_VALUE = "__none__";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -160,9 +167,11 @@ function TxnTickerToggle({ sessionId }: { sessionId: string }) {
 function ChatCard({
   chat,
   sessionId,
+  outlets,
 }: {
   chat: Chat;
   sessionId: string;
+  outlets: OutletRow[] | undefined;
 }) {
   const assignRole = useMutation(api.telegram.chatRegistry.public.mgrAssignRole);
   const archiveChat = useMutation(api.telegram.chatRegistry.public.mgrArchiveChat);
@@ -171,13 +180,23 @@ function ChatCard({
   const t = useT();
 
   const [busy, setBusy] = useState(false);
+  // pendingRole is set when an outlet-scoped role has been picked but no outlet chosen yet.
+  const [pendingRole, setPendingRole] = useState<string | null>(null);
   const archived = chat.archivedAt !== undefined;
   const status = deriveStatus(chat);
 
+  // Resolve the outlet label for this chat card (shown in header if bound).
+  const boundOutlet = chat.outlet_id
+    ? (outlets ?? []).find((o) => o._id === chat.outlet_id)
+    : undefined;
+
   // ---- role select ----
 
-  async function handleRoleChange(value: string) {
-    const role = value === NONE_VALUE ? null : value;
+  async function doAssignRole(
+    role: string | null,
+    outletId?: Id<"outlets">,
+    overrides?: { forceReassign?: boolean; restoreIfArchived?: boolean },
+  ) {
     setBusy(true);
     try {
       await assignRole({
@@ -185,8 +204,11 @@ function ChatCard({
         sessionId: sessionId as Doc<"staff_sessions">["_id"],
         chatId: chat.chatId,
         role,
+        ...(outletId ? { outletId } : {}),
+        ...overrides,
       });
       toast.success(role ? t("mgrTelegram.roleSet", { role }) : t("mgrTelegram.roleCleared"));
+      setPendingRole(null);
     } catch (err) {
       const msg = errorMessage(err);
       // role already held by another chat
@@ -199,9 +221,11 @@ function ChatCard({
               sessionId: sessionId as Doc<"staff_sessions">["_id"],
               chatId: chat.chatId,
               role,
+              ...(outletId ? { outletId } : {}),
               forceReassign: true,
             });
             toast.success(t("mgrTelegram.roleReassigned", { role: role ?? "" }));
+            setPendingRole(null);
           } catch (err2) {
             toast.error(errorMessage(err2));
           }
@@ -215,9 +239,11 @@ function ChatCard({
               sessionId: sessionId as Doc<"staff_sessions">["_id"],
               chatId: chat.chatId,
               role,
+              ...(outletId ? { outletId } : {}),
               restoreIfArchived: true,
             });
             toast.success(t("mgrTelegram.roleRestoredAssigned", { role: role ?? "" }));
+            setPendingRole(null);
           } catch (err2) {
             toast.error(errorMessage(err2));
           }
@@ -228,6 +254,32 @@ function ChatCard({
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleRoleChange(value: string) {
+    const role = value === NONE_VALUE ? null : value;
+
+    if (role === null) {
+      // Clearing — assign immediately, hide picker
+      setPendingRole(null);
+      void doAssignRole(null);
+      return;
+    }
+
+    const scope = ROLE_SCOPE[role as keyof typeof ROLE_SCOPE] ?? "business";
+    if (scope === "outlet") {
+      // Two-step: show outlet picker, don't assign yet
+      setPendingRole(role);
+    } else {
+      // Business role — assign immediately
+      setPendingRole(null);
+      void doAssignRole(role);
+    }
+  }
+
+  function handleOutletChange(outletId: string) {
+    if (!pendingRole) return;
+    void doAssignRole(pendingRole, outletId as Id<"outlets">);
   }
 
   // ---- archive / restore ----
@@ -283,6 +335,10 @@ function ChatCard({
     }
   }
 
+  // The current role value for the select: if a pendingRole is in-flight show it,
+  // else show the chat's committed role.
+  const roleSelectValue = pendingRole ?? chat.role ?? NONE_VALUE;
+
   return (
     <Card className={`p-4 space-y-3 ${archived ? "opacity-60" : ""}`}>
       {/* header row */}
@@ -290,6 +346,11 @@ function ChatCard({
         <div className="min-w-0">
           <p className="text-sm font-medium leading-tight truncate">{chat.title}</p>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">{chat.chatId}</p>
+          {boundOutlet && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("mgrTelegram.boundOutletLabel", { name: boundOutlet.name })}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px]">{chat.chatType}</Badge>
@@ -314,7 +375,7 @@ function ChatCard({
       <div className="flex items-center gap-2">
         <Label className="text-xs text-muted-foreground shrink-0">{t("mgrTelegram.labelRole")}</Label>
         <Select
-          value={chat.role ?? NONE_VALUE}
+          value={roleSelectValue}
           onValueChange={handleRoleChange}
           disabled={busy}
         >
@@ -336,6 +397,28 @@ function ChatCard({
           </SelectContent>
         </Select>
       </div>
+
+      {/* outlet picker — only shown when an outlet-scoped role is pending */}
+      {pendingRole !== null && (
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground shrink-0">{t("mgrTelegram.labelOutlet")}</Label>
+          <Select
+            onValueChange={handleOutletChange}
+            disabled={busy || outlets === undefined}
+          >
+            <SelectTrigger className="h-8 text-xs flex-1" aria-label={t("mgrTelegram.ariaOutletSelect")}>
+              <SelectValue placeholder={t("mgrTelegram.outletPickerPlaceholder")} />
+            </SelectTrigger>
+            <SelectContent>
+              {(outlets ?? []).map((o) => (
+                <SelectItem key={o._id} value={o._id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* action buttons */}
       <div className="flex gap-2 flex-wrap">
@@ -420,6 +503,53 @@ function MgrTelegramChatsInner({
     sessionId: sessionId as Doc<"staff_sessions">["_id"],
     includeArchived,
   });
+  const outlets = useQuery(api.outlets.public.listOutlets, {
+    sessionId: sessionId as Doc<"staff_sessions">["_id"],
+  });
+
+  // ── Group chats by outlet_id ──────────────────────────────────────────────
+  // Groups: one section per outlet (ordered by first appearance) + "Business-wide"
+  // for chats without an outlet_id.
+  function groupChats(chatList: Chat[], outletList: OutletRow[] | undefined) {
+    type Group = { outletId: Id<"outlets"> | null; label: string; chats: Chat[] };
+    const outletMap = new Map<string, OutletRow>(
+      (outletList ?? []).map((o) => [o._id, o]),
+    );
+
+    const businessWide: Chat[] = [];
+    const byOutlet = new Map<string, { outlet: OutletRow; chats: Chat[] }>();
+    const outletOrder: string[] = [];
+
+    for (const chat of chatList) {
+      if (!chat.outlet_id) {
+        businessWide.push(chat);
+      } else {
+        const key = chat.outlet_id;
+        if (!byOutlet.has(key)) {
+          const outlet = outletMap.get(key) ?? {
+            _id: key as Id<"outlets">,
+            code: key,
+            name: key,
+            active: true,
+          };
+          byOutlet.set(key, { outlet, chats: [] });
+          outletOrder.push(key);
+        }
+        byOutlet.get(key)!.chats.push(chat);
+      }
+    }
+
+    const groups: Group[] = outletOrder.map((key) => {
+      const entry = byOutlet.get(key)!;
+      return { outletId: entry.outlet._id, label: entry.outlet.name, chats: entry.chats };
+    });
+
+    if (businessWide.length > 0) {
+      groups.push({ outletId: null, label: t("mgrTelegram.sectionBusinessWide"), chats: businessWide });
+    }
+
+    return groups;
+  }
 
   return (
     <SpokeLayout title={t("mgrTelegram.title")}>
@@ -454,9 +584,16 @@ function MgrTelegramChatsInner({
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {chats.map((chat) => (
-            <ChatCard key={chat._id} chat={chat} sessionId={sessionId} />
+        <div className="space-y-6">
+          {groupChats(chats, outlets).map((group) => (
+            <div key={group.outletId ?? "__business__"} className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {group.label}
+              </p>
+              {group.chats.map((chat) => (
+                <ChatCard key={chat._id} chat={chat} sessionId={sessionId} outlets={outlets} />
+              ))}
+            </div>
           ))}
         </div>
       )}

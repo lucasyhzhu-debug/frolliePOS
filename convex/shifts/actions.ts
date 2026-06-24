@@ -133,7 +133,7 @@ export const _sendSignoffSummary = internalAction({
     const { dateLabel } = wibDayWindow(args.shiftEndMs);
 
     await ctx.runAction(api.telegram.send.sendTemplate, {
-      role: "founders",
+      role: "managers",
       kind: "staff_shift_signoff",
       payload: {
         dateLabel,
@@ -149,6 +149,7 @@ export const _sendSignoffSummary = internalAction({
         endedBy: "self",
       },
       idempotencyKey: `signoff:${args.idempotencyKeySuffix}`,
+      outletId: args.outletId, // v2.0 Spec-4 Task 5: route to per-outlet managers
     });
   },
 });
@@ -201,7 +202,7 @@ export const _sendTakeoverSummary = internalAction({
     const { dateLabel } = wibDayWindow(args.displacedShiftEndMs);
 
     await ctx.runAction(api.telegram.send.sendTemplate, {
-      role: "founders",
+      role: "managers",
       kind: "staff_shift_signoff",
       payload: {
         dateLabel,
@@ -218,6 +219,7 @@ export const _sendTakeoverSummary = internalAction({
         outgoingUncounted: true,
       },
       idempotencyKey: `signoff:takeover:${args.idempotencyKeySuffix}`,
+      outletId: args.outletId, // v2.0 Spec-4 Task 5: route to per-outlet managers
     });
   },
 });

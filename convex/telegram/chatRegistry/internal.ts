@@ -17,12 +17,13 @@ import {
   type ActionCtx,
 } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import type { Doc } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import { sendTelegramHtml, escapeHtml } from "../../lib/telegramHtml";
 import { logAudit } from "../../audit/internal";
 import {
   KNOWN_TELEGRAM_ROLES,
   isKnownTelegramRole,
+  ROLE_SCOPE,
   TELEGRAM_ADMIN_URL,
   TELEGRAM_BOT_USERNAME,
 } from "../config";
@@ -61,6 +62,7 @@ export async function listChatsImpl(
 export const assignRoleArgs = {
   chatId: v.string(),
   role: v.union(v.string(), v.null()),
+  outletId: v.optional(v.id("outlets")), // required for outlet-scoped roles (managers/inventory); absent for business roles (owners/ops)
   forceReassign: v.optional(v.boolean()),
   restoreIfArchived: v.optional(v.boolean()),
 } as const;
@@ -70,6 +72,7 @@ export async function assignRoleImpl(
   args: {
     chatId: string;
     role: string | null;
+    outletId?: Id<"outlets">;
     forceReassign?: boolean;
     restoreIfArchived?: boolean;
   },
@@ -85,8 +88,19 @@ export async function assignRoleImpl(
   }
 
   if (args.role === null) {
-    await ctx.db.patch(target._id, { role: undefined });
+    // Clear both role and outlet_id atomically (role: null is a full de-assignment).
+    await ctx.db.patch(target._id, { role: undefined, outlet_id: undefined });
     return;
+  }
+
+  // Enforce scope: outlet roles require outletId; business roles forbid it.
+  // ROLE_SCOPE[role] is undefined for legacy "founders" alias — treat as "business".
+  const scope = ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] ?? "business";
+  if (scope === "outlet" && !args.outletId) {
+    throw new ConvexError("OUTLET_REQUIRED_FOR_ROLE");
+  }
+  if (scope !== "outlet" && args.outletId) {
+    throw new ConvexError("OUTLET_NOT_ALLOWED_FOR_ROLE");
   }
 
   const restoringArchived = target.archivedAt !== undefined;
@@ -96,22 +110,42 @@ export async function assignRoleImpl(
     );
   }
 
-  // Broader index + JS post-filter on archivedAt === undefined (prod gotcha pattern).
-  const roleRows = await ctx.db
-    .query("telegramChats")
-    .withIndex("by_role", (q) => q.eq("role", args.role!))
-    .collect();
-  const currentHolder = roleRows.filter((r) => r.archivedAt === undefined)[0] ?? null;
+  // Uniqueness check forks by scope:
+  //   outlet role  → per (role, outletId) pair via by_role_outlet + JS archivedAt filter
+  //   business role → bare by_role + JS filter (archivedAt===undefined && outlet_id===undefined)
+  // Never .eq("outlet_id", undefined) — Convex optional-field-filter gotcha.
+  let currentHolder: Doc<"telegramChats"> | null = null;
+  if (scope === "outlet") {
+    const rows = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_role_outlet", (q) =>
+        q.eq("role", args.role!).eq("outlet_id", args.outletId!),
+      )
+      .collect();
+    currentHolder = rows.filter((r) => r.archivedAt === undefined)[0] ?? null;
+  } else {
+    // Business role: only the row with no outlet_id is the "holder" for this role.
+    const rows = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_role", (q) => q.eq("role", args.role!))
+      .collect();
+    currentHolder =
+      rows.filter((r) => r.archivedAt === undefined && r.outlet_id === undefined)[0] ?? null;
+  }
+
   if (currentHolder && currentHolder._id !== target._id) {
     if (!args.forceReassign) {
       throw new ConvexError(
         `Role '${args.role}' already held by chat '${currentHolder.chatId}'. Pass forceReassign: true to override.`,
       );
     }
-    await ctx.db.patch(currentHolder._id, { role: undefined });
+    // On force-reassign, strip role + outlet_id from the displaced holder.
+    await ctx.db.patch(currentHolder._id, { role: undefined, outlet_id: undefined });
   }
+
   await ctx.db.patch(target._id, {
     role: args.role,
+    outlet_id: scope === "outlet" ? args.outletId : undefined,
     ...(restoringArchived ? { archivedAt: undefined } : {}),
   });
 }
@@ -122,7 +156,10 @@ export async function archiveChatImpl(ctx: MutationCtx, chatId: string): Promise
     .withIndex("by_chatId", (q) => q.eq("chatId", chatId))
     .unique();
   if (!row) throw new ConvexError(`No registered Telegram chat with id '${chatId}'`);
-  await ctx.db.patch(row._id, { archivedAt: Date.now(), role: undefined });
+  // Clear outlet_id too — archiving is a full de-assignment (mirrors role:null in
+  // assignRoleImpl). Leaving a stale outlet_id on an archived row would be a
+  // dangling key once Task 9 made the field load-bearing.
+  await ctx.db.patch(row._id, { archivedAt: Date.now(), role: undefined, outlet_id: undefined });
 }
 
 export async function restoreChatImpl(ctx: MutationCtx, chatId: string): Promise<void> {
@@ -158,21 +195,28 @@ export type SeedResult =
 
 // ─── getChatIdByRole ──────────────────────────────────────────────────────────
 
+// Shared bare-role resolution (JS post-filter on archivedAt + outlet_id absent — the
+// optional-field-filter gotcha; never .eq(field, undefined)). Returns chatId | null.
+async function _resolveBareRoleChatId(ctx: QueryCtx, role: string): Promise<string | null> {
+  // Use the bare by_role index then post-filter in JS on archivedAt === undefined.
+  // .eq("archivedAt", undefined) appears to work in convex-test but diverges in
+  // prod (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
+  // the proven-safe pattern; the historical by_role_archived compound index was
+  // dropped in v0.5.1 once the test was rewritten to match this same pattern.
+  // outlet_id absent check: same gotcha — never .eq("outlet_id", undefined).
+  const rows = await ctx.db
+    .query("telegramChats")
+    .withIndex("by_role", (q) => q.eq("role", role))
+    .collect();
+  const active = rows.filter((r) => r.archivedAt === undefined && r.outlet_id === undefined);
+  return active[0]?.chatId ?? null;
+}
+
 export const getChatIdByRole = internalQuery({
   args: { role: v.string() },
   handler: async (ctx, args): Promise<string> => {
-    // Use the bare by_role index then post-filter in JS on archivedAt === undefined.
-    // .eq("archivedAt", undefined) appears to work in convex-test but diverges in
-    // prod (Convex optional-field filter gotcha — see MEMORY.md). JS post-filter is
-    // the proven-safe pattern; the historical by_role_archived compound index was
-    // dropped in v0.5.1 once the test was rewritten to match this same pattern.
-    const rows = await ctx.db
-      .query("telegramChats")
-      .withIndex("by_role", (q) => q.eq("role", args.role))
-      .collect();
-    const active = rows.filter((r) => r.archivedAt === undefined);
-    const row = active[0];
-    if (row) return row.chatId;
+    const hit = await _resolveBareRoleChatId(ctx, args.role);
+    if (hit) return hit;
 
     if (
       process.env.TELEGRAM_FALLBACK_ROLE === args.role &&
@@ -182,6 +226,25 @@ export const getChatIdByRole = internalQuery({
     }
 
     throw new Error(`No Telegram chat assigned to role '${args.role}'`);
+  },
+});
+
+export const getChatIdByRoleBareOrNull = internalQuery({
+  args: { role: v.string() },
+  handler: (ctx, args) => _resolveBareRoleChatId(ctx, args.role), // no env fallback, no throw
+});
+
+export const getChatIdByRoleAndOutlet = internalQuery({
+  args: { role: v.string(), outletId: v.id("outlets") },
+  handler: async (ctx, args): Promise<string | null> => {
+    // Concrete outlet_id equality is safe (not the undefined-filter gotcha).
+    // Only JS-filter archivedAt (optional field — never .eq("archivedAt", undefined)).
+    const rows = await ctx.db
+      .query("telegramChats")
+      .withIndex("by_role_outlet", (q) => q.eq("role", args.role).eq("outlet_id", args.outletId))
+      .collect();
+    const active = rows.filter((r) => r.archivedAt === undefined);
+    return active[0]?.chatId ?? null;
   },
 });
 

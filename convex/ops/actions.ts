@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
+import { isRoleUnboundError } from "../telegram/resolveOutletChat";
 
 export const sendErrorAlert = internalAction({
   args: { reportId: v.id("pos_error_reports") },
@@ -15,7 +16,7 @@ export const sendErrorAlert = internalAction({
     });
     if (!report) return { skipped: "not_found" };
 
-    // Narrow-catch role resolve (foundersSummary.ts pattern): unbound → skip,
+    // Narrow-catch role resolve (ownersSummary.ts pattern): unbound → skip,
     // transient/unknown → rethrow so the platform surfaces it.
     let chatId: string;
     try {
@@ -24,9 +25,19 @@ export const sendErrorAlert = internalAction({
         { role: "ops" },
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) return { skipped: "role_unbound" };
+      if (isRoleUnboundError(err)) return { skipped: "role_unbound" };
       throw err;
+    }
+
+    // v2.0 Spec-4 Task 8: resolve outlet label for body annotation.
+    // Routing stays business-wide (role: "ops", NO outletId arg).
+    let outlet_label: string | undefined;
+    if (report.outlet_id) {
+      const outlet = await ctx.runQuery(
+        internal.outlets.internal._getOutlet_internal,
+        { outletId: report.outlet_id },
+      );
+      outlet_label = outlet?.name;
     }
 
     await ctx.runAction(api.telegram.send.sendTemplate, {
@@ -40,6 +51,7 @@ export const sendErrorAlert = internalAction({
         device_id: report.device_id,
         app_version: report.app_version,
         occurred_at: report.created_at,
+        outlet_label,
       },
       idempotencyKey: `ops_error:${args.reportId}`,
       chatIdOverride: chatId,

@@ -60,7 +60,10 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
     vi.restoreAllMocks();
   });
 
-  it("no drift → audited skip, no Telegram", async () => {
+  it("no drift → audited skip per-outlet, no Telegram", async () => {
+    // v2.0 Spec-4 Task 6: sendStockRecon now iterates all active outlets.
+    // no_drift is audited per-outlet (continues loop); the outer action returns
+    // { ok: true, outlets: N } not { skipped: "no_drift" }.
     const t = convexTest(schema);
     const outletId = await seedOutlet(t);
     const sku = await seedSku(t, "A", outletId);
@@ -87,7 +90,8 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
       internal.inventory.cronActions.sendStockReconResilient,
       { attempt: 0 },
     );
-    expect(r).toMatchObject({ skipped: "no_drift" });
+    // Now returns { ok: true, outlets: 1 } — per-outlet skip is audited inside the loop.
+    expect(r).toMatchObject({ ok: true, outlets: 1 });
     expect(fetchMock).not.toHaveBeenCalled();
 
     const audits = await t.run(async (ctx) =>
@@ -101,7 +105,9 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
     expect(meta.reason).toBe("no_drift");
   });
 
-  it("role_unbound → audited skip, no Telegram", async () => {
+  it("role_unbound → audited skip per-outlet, no Telegram", async () => {
+    // v2.0 Spec-4 Task 6: role_unbound is now per-outlet (loop continues).
+    // The outer action returns { ok: true, outlets: 1 } not { skipped: "role_unbound" }.
     const t = convexTest(schema);
     const outletId = await seedOutlet(t);
     const sku = await seedSku(t, "A", outletId);
@@ -129,7 +135,8 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
       internal.inventory.cronActions.sendStockReconResilient,
       { attempt: 0 },
     );
-    expect(r).toMatchObject({ skipped: "role_unbound" });
+    // Now returns { ok: true, outlets: 1 } — per-outlet skip is audited inside the loop.
+    expect(r).toMatchObject({ ok: true, outlets: 1 });
     expect(fetchMock).not.toHaveBeenCalled();
 
     const audits = await t.run(async (ctx) =>
