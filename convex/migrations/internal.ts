@@ -5,7 +5,7 @@
 // ── Why this module ─────────────────────────────────────────────────────────
 // v2.0 adds `outlet_id` to every OUTLET_SCOPED table. Existing rows (dev and
 // prod) have no `outlet_id`. This module:
-//   1. Seeds the single default outlet ("Frollie — Pakuwon", code "PKW").
+//   1. Seeds the single default outlet ("Block M", code "PKW").
 //   2. Back-fills outlet_id on all OUTLET_SCOPED rows (where absent) using
 //      paginate + per-page mutations so the job is resumable across Convex
 //      action time limits.
@@ -46,7 +46,7 @@ const PAGE_SIZE = 100;
 
 /**
  * Idempotent: if an outlet with code "PKW" already exists, return its _id.
- * Otherwise insert the default Pakuwon outlet and return the new _id.
+ * Otherwise insert the default outlet ("Block M") and return the new _id.
  *
  * Safe to call multiple times — will never create a second PKW row.
  *
@@ -63,13 +63,43 @@ export const seedDefaultOutlet = internalMutation({
     if (existing) return existing._id;
 
     return ctx.db.insert("outlets", {
-      code: "PKW",
-      name: "Frollie — Pakuwon", // em-dash
+      code: "PKW", // internal stable ID — NOT user-visible; kept as-is to preserve by_code idempotency + telegram bind lookups
+      name: "Block M",
       timezone: "Asia/Jakarta",
       active: true,
       created_at: Date.now(),
       created_by: null,
     });
+  },
+});
+
+// ─── renameDefaultOutlet ─────────────────────────────────────────────────────
+
+/**
+ * One-off rename of the default outlet's DISPLAY NAME (the `outlets.name` field,
+ * surfaced by the owners/managers Telegram summary via `o.name`). The booth's
+ * displayed outlet name is data, not a hardcoded string — `seedDefaultOutlet` is
+ * idempotent on `code` "PKW" and never updates an existing row's name, so a name
+ * change needs this explicit patch on already-seeded deployments (dev + prod).
+ *
+ * Targets the PKW row (the internal `code` is unchanged — opaque stable ID).
+ * Idempotent: no-op if the name already matches. Returns whether it changed.
+ *
+ * Run (dev):  npx convex run migrations/internal:renameDefaultOutlet
+ * Run (prod): npx convex run migrations/internal:renameDefaultOutlet --prod
+ */
+export const renameDefaultOutlet = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ changed: boolean; name: string }> => {
+    const NEW_NAME = "Block M";
+    const row = await ctx.db
+      .query("outlets")
+      .withIndex("by_code", (q) => q.eq("code", "PKW"))
+      .first();
+    if (!row) throw new Error("DEFAULT_OUTLET_MISSING");
+    if (row.name === NEW_NAME) return { changed: false, name: row.name };
+    await ctx.db.patch(row._id, { name: NEW_NAME });
+    return { changed: true, name: NEW_NAME };
   },
 });
 

@@ -28,7 +28,7 @@ describe("seedDefaultOutlet", () => {
       const rows = await ctx.db.query("outlets").collect();
       const pkwRows = rows.filter((r) => r.code === "PKW");
       expect(pkwRows).toHaveLength(1);
-      expect(pkwRows[0].name).toBe("Frollie — Pakuwon");
+      expect(pkwRows[0].name).toBe("Block M");
       expect(pkwRows[0].timezone).toBe("Asia/Jakarta");
       expect(pkwRows[0].active).toBe(true);
       expect(pkwRows[0].created_by).toBeNull();
