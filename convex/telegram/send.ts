@@ -200,7 +200,9 @@ export const sendTemplate = action({
     chatIdOverride: v.optional(v.string()),
     // v2.0 Spec-4: required when role is outlet-scoped (ROLE_SCOPE[role] === "outlet").
     // Callers MUST pass this for managers/inventory sends; business-scoped roles
-    // (owners, ops) and chatIdOverride paths ignore it.
+    // (owners, ops) don't need it. chatIdOverride callers still SHOULD pass it —
+    // it doesn't affect routing (the override wins) but IS threaded into the
+    // _auditSendFailed_internal row so a failed send carries its outlet tag.
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<{ message_id: number; ok: true }> => {
@@ -213,7 +215,10 @@ export const sendTemplate = action({
     // Step 2: resolve chat id.
     // Priority: chatIdOverride → outlet-scoped lookup → bare role lookup.
     // Outlet-scoped roles (managers, inventory) REQUIRE outletId; business-scoped
-    // roles (owners, ops) and chatIdOverride callers skip the outlet path.
+    // roles (owners, ops) and chatIdOverride callers skip the outlet path. A role
+    // NOT in ROLE_SCOPE (the legacy "founders" alias, pre-backfill) is `undefined`
+    // here → `!== "outlet"` → bare role path (business-wide) — the intended
+    // fallthrough; such a caller never passes outletId.
     const chatId = args.chatIdOverride
       ? args.chatIdOverride
       : ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] === "outlet"

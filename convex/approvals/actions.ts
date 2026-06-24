@@ -39,7 +39,13 @@ const OFF_BOOTH_DEVICE_ID = "approve-route";
  * Never logs the raw token: it appears only in the request URL we hand to Telegram.
  */
 export const notifyStaffLockout = internalAction({
-  args: { staffId: v.id("staff") },
+  args: {
+    staffId: v.id("staff"),
+    // v2.0 Spec-4: the device the lockout happened on — used to route the
+    // PIN-reset card to THAT outlet's managers chat (not the default outlet).
+    // Optional for backward-compat / system callers without device context.
+    deviceId: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<{ skipped?: boolean; reason?: string }> => {
     // Dedup: skip if a live request already exists for this staff.
     const existing = await ctx.runQuery(
@@ -65,15 +71,26 @@ export const notifyStaffLockout = internalAction({
     const tokenHash = sha256Hex(rawToken);
     const now = Date.now();
 
-    // v2.0 Task 12 (ENFORCE): pos_approval_requests.outlet_id is required, but a
-    // staff lockout is system-triggered (no session/device). PIN-reset is
-    // staff-identity-scoped (like pos_auth_attempts), so there is no single
-    // "correct" outlet — stamp the default outlet (single-booth v2.0 reality).
+    // v2.0 Spec-4: route to the outlet WHERE the lockout happened — resolve the
+    // device's bound outlet (non-throwing), falling back to the default outlet
+    // when no device context exists (system callers) or the device is unbound.
+    // The lockout is session-less (the staff is locked out before login), but the
+    // failing device IS outlet-bound, so its outlet is the correct managers chat.
+    // pos_approval_requests.outlet_id is required (Spec-1 enforce), so we always
+    // resolve a concrete outlet here.
+    let outletId: Id<"outlets"> | null = null;
+    if (args.deviceId) {
+      outletId = await ctx.runQuery(
+        internal.auth.internal._getDeviceOutletIdOrNull_internal,
+        { deviceId: args.deviceId },
+      );
+    }
     const defaultOutlet = await ctx.runQuery(
       internal.outlets.internal._getDefaultOutlet_internal,
       {},
     );
     if (!defaultOutlet) throw new Error("NO_DEFAULT_OUTLET");
+    const resolvedOutletId = outletId ?? defaultOutlet._id;
 
     const { requestId } = await ctx.runMutation(
       internal.approvals.internal._createRequest_internal,
@@ -84,7 +101,7 @@ export const notifyStaffLockout = internalAction({
         triggered_at: now,
         token_hash: tokenHash,
         token_expires_at: now + TOKEN_TTL_MS,
-        outletId: defaultOutlet._id,
+        outletId: resolvedOutletId,
       },
     );
 
@@ -100,7 +117,7 @@ export const notifyStaffLockout = internalAction({
           request_url: requestUrl,
         },
         idempotencyKey: `notifyLockout:${requestId}`,
-        outletId: defaultOutlet._id, // v2.0 Spec-4 Task 5: route to per-outlet managers
+        outletId: resolvedOutletId, // v2.0 Spec-4: route to the lockout outlet's managers
       });
     } catch (err) {
       // Telegram send failed (network / 5xx). The request row is already pending

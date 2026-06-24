@@ -231,6 +231,9 @@ export const _recordFailedAttempt_internal = internalMutation({
       // when the account first locks in the current cycle — not on every probe.
       await ctx.scheduler.runAfter(0, internal.approvals.actions.notifyStaffLockout, {
         staffId: args.staffId,
+        // v2.0 Spec-4: pass the failing device so the PIN-reset card routes to
+        // that device's outlet's managers chat (not the default outlet).
+        deviceId: args.deviceId,
       });
     }
     return {
@@ -695,6 +698,25 @@ export const _getDeviceOutletId_internal = internalQuery({
     { deviceId },
   ): Promise<import("../_generated/dataModel").Id<"outlets">> =>
     resolveDeviceOutletId(ctx, deviceId),
+});
+
+/**
+ * Non-throwing variant: resolve a device's bound outlet, or null if the device
+ * is unknown/unbound. For system-triggered, best-effort routing where a missing
+ * binding must NOT abort the caller (e.g. notifyStaffLockout, which routes the
+ * PIN-reset card to the lockout's outlet and falls back to the default outlet
+ * when the device has no binding). Distinct from `_getDeviceOutletId_internal`,
+ * which throws (used where an unbound device is a hard error).
+ */
+export const _getDeviceOutletIdOrNull_internal = internalQuery({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }): Promise<Id<"outlets"> | null> => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q) => q.eq("device_id", deviceId))
+      .first();
+    return (dev?.outlet_id as Id<"outlets"> | undefined) ?? null;
+  },
 });
 
 // ---------------------------------------------------------------------------

@@ -252,11 +252,17 @@ export const sendOwnersSummary = internalAction({
         });
       } catch (err) {
         if (!isTransientError(err)) {
+          // Non-transient failure for THIS outlet (won't succeed on retry) →
+          // audited skip for this outlet only; never abort the loop (the plan's
+          // "an unbound/disabled outlet → skip that outlet only" rule extends to
+          // a hard send failure — other outlets + the owners rollup still stand).
           await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
             reason: `send_failed:outlet:${o.code}`,
           });
-          throw err;
+          continue;
         }
+        // Transient → propagate so the resilient wrapper retries the whole run
+        // (per-outlet idempotency keys make already-sent outlets no-ops on retry).
         throw err;
       }
     }

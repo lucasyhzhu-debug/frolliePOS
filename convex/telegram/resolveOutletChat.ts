@@ -36,6 +36,12 @@ export async function resolveOutletChatId(
   if (scoped) return scoped;
 
   // 2. Bare-row fallback — ONLY safe when exactly one active outlet exists.
+  // TRANSITIONAL: this path matters only in the window after Step-1 deploys but
+  // before the backfill binds chats to outlets (a single bare `managers` row, one
+  // active outlet). The three sequential cross-module reads here have a benign
+  // race (a chat could be archived between the scoped miss and the bare lookup) —
+  // bounded to that window + a single-outlet deployment; once backfill runs, the
+  // scoped lookup (step 1) hits and this path is never taken.
   const active = await ctx.runQuery(
     internal.outlets.internal._listActiveOutlets_internal,
     {},
