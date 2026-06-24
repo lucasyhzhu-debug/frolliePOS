@@ -102,9 +102,9 @@ test("endOfDaySignOff from a LOCKED booth still closes — staff not stranded (#
 
   // A signoff_close event was recorded (booth → closed), tagged with the source
   // state for traceability.
-  const events = await t.run((ctx: any) => ctx.db.query("pos_shift_events").collect());
+  const events = (await t.run((ctx: any) => ctx.db.query("pos_shift_events").collect())) as any[];
   expect(events.some((e: any) => e.type === "signoff_close")).toBe(true);
-  const audit = await t.run((ctx: any) => ctx.db.query("audit_log").collect());
+  const audit = (await t.run((ctx: any) => ctx.db.query("audit_log").collect())) as any[];
   const signoff = audit.find((r: any) => r.action === "shift.signoff");
   expect(JSON.parse(signoff!.metadata as string)).toMatchObject({ closed_from: "locked" });
   await drainScheduled(t);
