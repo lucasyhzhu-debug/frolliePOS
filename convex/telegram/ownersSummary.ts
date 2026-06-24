@@ -38,6 +38,7 @@ import {
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
 import type { ManualBcaTally } from "../lib/telegramHtml";
+import { resolveOutletChatId } from "./resolveOutletChat";
 
 // ─── sendOwnersSummary ────────────────────────────────────────────────────────
 
@@ -215,7 +216,6 @@ export const sendOwnersSummary = internalAction({
       // Resolve per-outlet managers chat — skip on unbound, don't abort the loop.
       let mgrChatId: string;
       try {
-        const { resolveOutletChatId } = await import("./resolveOutletChat");
         mgrChatId = await resolveOutletChatId(ctx, "managers", o._id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

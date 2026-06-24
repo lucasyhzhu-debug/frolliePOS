@@ -199,7 +199,10 @@ export const recordRecount = mutation({
           recorded_at_iso,
           lines: noticeLines,
         },
-        idempotencyKey: `recount:${recorded_at_iso}`,
+        // Per-outlet key (rule #27): a bare timestamp key would dedupe across
+        // outlets via the action-cache — two same-ms recounts at different outlets
+        // would silently drop the second alert. outlet_id makes the key per-outlet.
+        idempotencyKey: `recount:${outlet_id}:${recorded_at_iso}`,
         outletId: outlet_id,
       });
       // ADR-042: low-stock check per touched SKU. Recount can cross threshold
