@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
 import { instrumentFromInvoice } from "../payments/internal";
-import { resolveOutletChatId } from "./resolveOutletChat";
+import { resolveOutletChatId, isRoleUnboundError } from "./resolveOutletChat";
 
 function instrumentLabel(
   confirmedVia: "webhook" | "polling" | "manual" | "manual_bca" | null,
@@ -65,8 +65,7 @@ export const sendTxnTicker = internalAction({
     try {
       chatId = await resolveOutletChatId(ctx, "managers", txn.outlet_id);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) {
+      if (isRoleUnboundError(err)) {
         return { skipped: "role_unbound" };
       }
       throw err;

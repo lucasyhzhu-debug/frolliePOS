@@ -11,7 +11,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
-import { resolveOutletChatId } from "./resolveOutletChat";
+import { resolveOutletChatId, isRoleUnboundError } from "./resolveOutletChat";
 
 /**
  * Resolve the Telegram chat for `role` via the per-outlet chat registry and
@@ -44,8 +44,7 @@ export const dispatchRoleAlert = internalAction({
     try {
       chatId = await resolveOutletChatId(ctx, args.role, args.outletId);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) {
+      if (isRoleUnboundError(err)) {
         await ctx.runMutation(internal.telegram.internal._auditTelegramSkip_internal, {
           reason: "role_unbound",
           role: args.role,

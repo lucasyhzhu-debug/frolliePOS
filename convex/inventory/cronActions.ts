@@ -36,7 +36,7 @@ import {
   resilientRetryDelayMs,
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
-import { resolveOutletChatId } from "../telegram/resolveOutletChat";
+import { resolveOutletChatId, isRoleUnboundError } from "../telegram/resolveOutletChat";
 
 // ─── sendStockRecon ──────────────────────────────────────────────────────────
 
@@ -108,8 +108,7 @@ export const sendStockRecon = internalAction({
       try {
         resolvedChatId = await resolveOutletChatId(ctx, "inventory", outlet._id);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("No Telegram chat assigned to role")) {
+        if (isRoleUnboundError(err)) {
           await ctx.runMutation(
             internal.inventory.internal._auditStockReconSkip_internal,
             {

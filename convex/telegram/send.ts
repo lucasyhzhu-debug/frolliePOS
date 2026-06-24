@@ -219,15 +219,17 @@ export const sendTemplate = action({
     // NOT in ROLE_SCOPE (the legacy "founders" alias, pre-backfill) is `undefined`
     // here → `!== "outlet"` → bare role path (business-wide) — the intended
     // fallthrough; such a caller never passes outletId.
+    const isOutletScoped =
+      ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] === "outlet";
+    // Guard hoisted out of the ternary: an outlet-scoped role with no resolved
+    // chat MUST carry an outletId (chatIdOverride callers already have a chatId).
+    if (isOutletScoped && !args.chatIdOverride && !args.outletId) {
+      throw new Error(`OUTLET_REQUIRED_FOR_ROLE:${args.role}`);
+    }
     const chatId = args.chatIdOverride
       ? args.chatIdOverride
-      : ROLE_SCOPE[args.role as keyof typeof ROLE_SCOPE] === "outlet"
-        ? await (async () => {
-            if (!args.outletId) {
-              throw new Error(`OUTLET_REQUIRED_FOR_ROLE:${args.role}`);
-            }
-            return resolveOutletChatId(ctx, args.role, args.outletId);
-          })()
+      : isOutletScoped
+        ? await resolveOutletChatId(ctx, args.role, args.outletId!)
         : await ctx.runQuery(
             internal.telegram.chatRegistry.internal.getChatIdByRole,
             { role: args.role },

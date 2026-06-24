@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal, api } from "../_generated/api";
+import { isRoleUnboundError } from "../telegram/resolveOutletChat";
 
 export const sendErrorAlert = internalAction({
   args: { reportId: v.id("pos_error_reports") },
@@ -24,8 +25,7 @@ export const sendErrorAlert = internalAction({
         { role: "ops" },
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) return { skipped: "role_unbound" };
+      if (isRoleUnboundError(err)) return { skipped: "role_unbound" };
       throw err;
     }
 

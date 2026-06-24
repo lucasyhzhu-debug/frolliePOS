@@ -10,6 +10,22 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
 /**
+ * The prefix of the error thrown when a role/outlet has no bound chat — by both
+ * `getChatIdByRole` (chatRegistry/internal.ts) and `resolveOutletChatId` below.
+ * Telegram-send callsites narrow-catch on this to treat "unbound" as an audited
+ * skip (vs a transient platform error, which must propagate). A custom error
+ * CLASS can't be used: Convex serializes errors across the action/query boundary,
+ * losing `instanceof` — so a shared string prefix + predicate is the contract.
+ */
+export const ROLE_UNBOUND_ERROR_PREFIX = "No Telegram chat assigned to role";
+
+/** True if `err` is the "role/outlet has no bound chat" error (see prefix above). */
+export function isRoleUnboundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes(ROLE_UNBOUND_ERROR_PREFIX);
+}
+
+/**
  * Resolve the per-outlet chat ID for an OUTLET-SCOPED role.
  *
  * Algorithm (ADR-035 / Spec-4 decision 4):
@@ -55,7 +71,7 @@ export async function resolveOutletChatId(
   }
 
   throw new Error(
-    `No Telegram chat assigned to role '${role}' for outlet '${outletId}'`,
+    `${ROLE_UNBOUND_ERROR_PREFIX} '${role}' for outlet '${outletId}'`,
   );
 }
 

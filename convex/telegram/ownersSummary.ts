@@ -38,7 +38,7 @@ import {
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
 import type { ManualBcaTally } from "../lib/telegramHtml";
-import { resolveOutletChatId } from "./resolveOutletChat";
+import { resolveOutletChatId, isRoleUnboundError } from "./resolveOutletChat";
 
 // ─── sendOwnersSummary ────────────────────────────────────────────────────────
 
@@ -98,8 +98,7 @@ export const sendOwnersSummary = internalAction({
         { role: "owners" },
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("No Telegram chat assigned to role")) {
+      if (isRoleUnboundError(err)) {
         await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
           reason: "role_unbound",
         });
@@ -124,17 +123,21 @@ export const sendOwnersSummary = internalAction({
       txnCount: number;
       flaggedCount: number;
     };
-    const perOutlet: PerOutletEntry[] = [];
+    // One combined record per outlet (outlet doc + its rollup entry + its manualBca)
+    // keyed by position to the outlet — replaces the prior parallel perOutlet[] /
+    // perOutletManualBca[] arrays, removing the index-coupling between Step 4 and
+    // Step 6 (a future short-circuit in this loop can't desync the two).
+    const outletData: Array<{
+      outlet: (typeof outlets)[number];
+      entry: PerOutletEntry;
+      manualBca: ManualBcaTally;
+    }> = [];
     let bizTotalSalesIdr = 0;
     let bizTxnCount = 0;
     let bizFlaggedCount = 0;
 
     // Business-wide manualBca tally (summed across all outlets).
     const bizManualBca: ManualBcaTally = { count: 0, totalIdr: 0, items: [] };
-
-    // Per-outlet manualBca for the managers_daily_summary loop below.
-    // Indexed in parallel with perOutlet[].
-    const perOutletManualBca: ManualBcaTally[] = [];
 
     for (const o of outlets) {
       const [summary, manualBca] = await Promise.all([
@@ -149,13 +152,16 @@ export const sendOwnersSummary = internalAction({
         ),
       ]);
 
-      perOutlet.push({
-        outletLabel: o.name,
-        totalSalesIdr: summary.totalSalesIdr,
-        txnCount: summary.txnCount,
-        flaggedCount: summary.flaggedCount,
+      outletData.push({
+        outlet: o,
+        entry: {
+          outletLabel: o.name,
+          totalSalesIdr: summary.totalSalesIdr,
+          txnCount: summary.txnCount,
+          flaggedCount: summary.flaggedCount,
+        },
+        manualBca,
       });
-      perOutletManualBca.push(manualBca);
 
       bizTotalSalesIdr += summary.totalSalesIdr;
       bizTxnCount += summary.txnCount;
@@ -181,7 +187,8 @@ export const sendOwnersSummary = internalAction({
           txnCount: bizTxnCount,
           flaggedCount: bizFlaggedCount,
           manualBca: bizManualBca.count > 0 ? bizManualBca : undefined,
-          perOutlet: perOutlet.length > 1 ? perOutlet : undefined,
+          perOutlet:
+            outletData.length > 1 ? outletData.map((d) => d.entry) : undefined,
         },
         idempotencyKey: `owners:${dateLabel}`,
         chatIdOverride: ownersChatId,
@@ -198,9 +205,7 @@ export const sendOwnersSummary = internalAction({
 
     // Step 6: per-outlet managers_daily_summary.
     // Each outlet is independent — an unbound/disabled outlet never aborts the loop.
-    for (let i = 0; i < outlets.length; i++) {
-      const o = outlets[i];
-
+    for (const { outlet: o, entry, manualBca: outletManualBca } of outletData) {
       // Per-outlet toggle check.
       const outletSettings = await ctx.runQuery(
         internal.settings.internal._getSettings_internal,
@@ -218,11 +223,7 @@ export const sendOwnersSummary = internalAction({
       try {
         mgrChatId = await resolveOutletChatId(ctx, "managers", o._id);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes("No Telegram chat assigned to role") ||
-          msg.startsWith("OUTLET_REQUIRED_FOR_ROLE")
-        ) {
+        if (isRoleUnboundError(err)) {
           await ctx.runMutation(internal.telegram.internal._auditFoundersSkip_internal, {
             reason: `managers_unbound:outlet:${o.code}`,
           });
@@ -230,9 +231,6 @@ export const sendOwnersSummary = internalAction({
         }
         throw err; // transient — propagate (resilient wrapper retries)
       }
-
-      const entry = perOutlet[i];
-      const outletManualBca = perOutletManualBca[i];
 
       try {
         await ctx.runAction(api.telegram.send.sendTemplate, {
