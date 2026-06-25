@@ -145,6 +145,10 @@ describe("Login route", () => {
 
   it("pre-stages to PIN if last-staff is in active list", async () => {
     localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+    // I-B(a): pre-stage is gated until loginContext resolves. A closed booth
+    // (resolved ctx, no holder) is the unblocked case — Lucas pre-stages straight to PIN.
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     mockStaff([LUCAS, SARI]);
     renderLogin();
     // Should skip "Who's working?" and show Lucas's name as the heading.

@@ -111,10 +111,13 @@ describe("RootLayout — two-level SOP gate", () => {
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
   });
 
-  it("renders children normally when outletOpen is true", () => {
+  it("redirects to /shift/begin when outletOpen is true but no holder (forces claiming the shift)", () => {
+    // I-B(b): an open, holderless booth must steer an active session into the
+    // incoming-count flow rather than letting it transact without a pos_shifts holder.
     mockUseLoginContext.mockReturnValue({ outletOpen: true, holderStaffId: null, holderName: null });
     renderAt("/");
-    expect(screen.getByTestId("home-page")).toBeInTheDocument();
+    expect(screen.getByTestId("shift-begin-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-page")).toBeNull();
   });
 
   it("renders children normally when outletOpen is true and there is a holder", () => {
