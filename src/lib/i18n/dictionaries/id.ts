@@ -973,4 +973,18 @@ export const id: Record<keyof typeof en, string> = {
   "recount.savedToast": "{count} SKU diperbarui",
   // cockpitOutletSwitcher (v1.3.0 Task 8)
   "cockpitOutletSwitcher.allOutlets": "Semua outlet",
+  // cockpitOutlets (v1.3.0 Task 10)
+  "cockpitOutlets.title": "Outlet",
+  "cockpitOutlets.newOutlet": "Outlet baru",
+  "cockpitOutlets.empty": "Belum ada outlet",
+  "cockpitOutlets.active": "Aktif",
+  "cockpitOutlets.inactive": "Tidak aktif",
+  // cockpitDashboard (v1.3.0 Task 9)
+  "cockpitDashboard.todayLabel": "Hari ini",
+  "cockpitDashboard.gross": "Omzet",
+  "cockpitDashboard.txnCount": "Transaksi",
+  "cockpitDashboard.refundTotal": "Refund",
+  "cockpitDashboard.outletsSectionTitle": "Outlet",
+  "cockpitDashboard.noOutlets": "Belum ada outlet",
+  "cockpitDashboard.noOutletsCta": "Buat outlet",
 };

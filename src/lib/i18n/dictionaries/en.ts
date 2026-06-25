@@ -975,4 +975,18 @@ export const en = {
   "recount.savedToast": "{count} SKUs updated",
   // cockpitOutletSwitcher (v1.3.0 Task 8)
   "cockpitOutletSwitcher.allOutlets": "All outlets",
+  // cockpitOutlets (v1.3.0 Task 10)
+  "cockpitOutlets.title": "Outlets",
+  "cockpitOutlets.newOutlet": "New outlet",
+  "cockpitOutlets.empty": "No outlets yet",
+  "cockpitOutlets.active": "Active",
+  "cockpitOutlets.inactive": "Inactive",
+  // cockpitDashboard (v1.3.0 Task 9)
+  "cockpitDashboard.todayLabel": "Today",
+  "cockpitDashboard.gross": "Gross",
+  "cockpitDashboard.txnCount": "Transactions",
+  "cockpitDashboard.refundTotal": "Refunds",
+  "cockpitDashboard.outletsSectionTitle": "Outlets",
+  "cockpitDashboard.noOutlets": "No outlets yet",
+  "cockpitDashboard.noOutletsCta": "Create outlet",
 } as const;
