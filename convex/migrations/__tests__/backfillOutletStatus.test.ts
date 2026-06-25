@@ -47,7 +47,11 @@ async function seedOutletWithLock(t: ReturnType<typeof convexTest>) {
       type: "start_of_day",
       staff_id: staffId,
       shift_started_at: shiftStartedAt,
-      created_at: shiftStartedAt,
+      // created_at must sit inside today's WIB window so the backfill's
+      // anchor-find (gte dayStartMs) sees it — otherwise a run in the early
+      // WIB morning would push `now - 4h` into yesterday and drop the holder.
+      // shift_started_at stays 4h ago for a realistic shift duration.
+      created_at: now - 120_000,
       outlet_id: outletId,
     });
     await ctx.db.insert("pos_shift_events", {
