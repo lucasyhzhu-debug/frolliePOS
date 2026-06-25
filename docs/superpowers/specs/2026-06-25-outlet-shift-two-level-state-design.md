@@ -50,12 +50,14 @@ The start-of-day SOP redirect keys off **Level 1 (`outlet.is_open`) only** — n
 
 When a staffer taps their name on the login screen:
 
-1. `outlet.is_open == false` → **start-of-day SOP** (managers may skip → opens outlet, no checklist).
-2. `is_open == true`, **holder == me** → resume the same shift → POS. Never blocked.
+1. `outlet.is_open == false` → **start-of-day SOP** (`openBooth`; managers may skip → `managerSkipOpen`, no checklist).
+2. `is_open == true`, **holder == me** → resume the same shift → POS. No mutation (the shift row is untouched; a fresh login session just attaches to the existing holder shift). Never blocked.
 3. `is_open == true`, **holder ≠ me** → **BLOCKED**: *"{Holder} hasn't closed their shift yet. They need to log in and hand over first."* Login does not proceed. Offers a **Manager override** action.
-4. `is_open == true`, **no holder** (prior shift released via handover) → start a **new** shift; if the previous shift ended via handover, the first step is a **stock-count confirm** (the incoming count). → POS.
+4. `is_open == true`, **no holder** (prior shift released via handover/override) → **`startShift`**: create a new shift (`started_via: "handover"`, `prev_shift_id` = the last ended shift); if the previous shift ended via handover, the first step is a **stock-count confirm** recorded as `open_count` (the incoming count). → POS.
 
-The holder check is a public read (staff list is already public; current holder is exposed by a public query) so the block is shown *before* PIN entry. The holder can always log in, so they are never stuck.
+The holder check is a public read (staff list is already public; current holder is exposed by the `loginContext` query) so the block is shown *before* PIN entry. The holder can always log in, so they are never stuck. `loginContext` is pre-login and session-less; it resolves the outlet from the device (`_getDeviceOutletId_internal`) and must **degrade gracefully on an unbound device** (return `{outletOpen:false, holderStaffId:null}` rather than throwing `DEVICE_HAS_NO_OUTLET`, so an unactivated device still renders the login screen instead of erroring).
+
+> **Why `startShift` is distinct from `openBooth`:** `openBooth` is the Level-1 open (closed → open) and rejects an already-open outlet (`BOOTH_ALREADY_OPEN`); `handover` requires the caller to be the current holder. The *open-outlet, no-holder* takeover (case 4) is neither — it is a Level-2-only shift start on an outlet that is already open. It needs its own mutation. Symmetry: `openBooth`/`managerSkipOpen` start the **first** shift of the day (and flip Level 1); `startShift` starts every **subsequent** shift after a handover/override (Level 1 untouched).
 
 ## 5. Manager override (escape hatch)
 
@@ -130,7 +132,7 @@ pos_shifts: defineTable({
 | Holder logs back in | unchanged | unchanged (resume) | new session → POS |
 | Different staffer, holder active | — | **BLOCKED** | refused |
 | Handover (holder, outgoing) | unchanged | end, `ended_via="handover"`, `close_count`, `summary` | end session |
-| Next staffer, no holder | unchanged | create, `started_via="handover"`, `open_count` confirm, `prev_shift_id` | new session → POS |
+| Next staffer, no holder (**`startShift`**) | unchanged | create, `started_via="handover"`, `open_count` confirm, `prev_shift_id` | new session → POS |
 | End-of-day (holder) | `is_open=false`, `closed_by/at` | end, `ended_via="end_of_day"`, `summary` | end session |
 | Manager override (blocked) | unchanged | force-end prior, `ended_via="manager_override"`, `summary`, `outgoing_uncounted=true` | then normal new shift |
 
@@ -153,8 +155,10 @@ pos_shifts: defineTable({
 
 1. Add `outlets.is_open` (+ metadata) as **optional**, defaulting closed.
 2. Add `pos_shifts` table.
-3. Backfill, per outlet: derive current status from the latest `pos_shift_events` via `deriveBoothState` — `open`/`locked`/`handover_pending` → `is_open=true`; `closed` → `false`. For any outlet that backfills open with an active staffer, create one `pos_shifts` holder row (`started_at` = the shift anchor, `ended_at=null`).
+3. Backfill, per outlet: derive current status from the latest `pos_shift_events` row using **derivation logic inlined into the migration** (latest type ∈ `lock`/`resume`/`handover_in`/`handover_out`/`manager_takeover`/`start_of_day` from the current WIB day → `is_open=true`; `signoff_close`/none/prior-WIB-day → `false`). For any outlet that backfills open with an active staffer, create one `pos_shifts` holder row (`started_at` = the shift anchor, `ended_at=null`). **The migration MUST NOT import `deriveBoothState`** — that function is deleted in this same phase, so by the time the backfill is *run* on prod (post-deploy) it would no longer exist. Inline the small mapping so the backfill is self-contained.
 4. Flip `is_open` to **required** once backfilled (mirrors the v2.0 additive→enforce pattern; see `staged-migration-additive-enforce-lessons`).
+
+**Deploy atomicity (load-bearing).** This phase **renames public functions** (`lockShift→lock`, `completeStartOfDay→openBooth`, `endOfDaySignOff→endOfDay`, `handoverOut→handover`, removes `recordResume`/`completeHandoverIn`/`boothState`). Per CLAUDE.md, a public-function rename is **deploy-skew-fatal** — old FE + new BE (or vice-versa) throws. It MUST ship in the single atomic Vercel production build (`npx convex deploy` + FE together), never hand-deployed one side. The PR #143 stopgap (old names, currently on prod) is replaced wholesale by this build.
 
 **This also self-heals prod live:** today's stuck `locked` booth backfills to `is_open=true` + holder=Sisca, so it becomes immediately operable under the new model (independent of the PR #143 stopgap already deployed).
 
