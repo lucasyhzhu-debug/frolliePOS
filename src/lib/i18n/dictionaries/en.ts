@@ -973,4 +973,6 @@ export const en = {
   "recount.title": "Recount stock",
   "recount.submitLabel": "Save count",
   "recount.savedToast": "{count} SKUs updated",
+  // cockpitOutletSwitcher (v1.3.0 Task 8)
+  "cockpitOutletSwitcher.allOutlets": "All outlets",
 } as const;

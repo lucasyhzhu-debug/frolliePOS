@@ -20,6 +20,13 @@ export const REMEMBER_DEVICE_TOKEN_KEY = "frollie-remember-device-token";
 export const SHOWN_PIN_RESET_DENIALS_KEY = "frollie-shown-pin-reset-denials";
 
 /**
+ * Cockpit outlet switcher — persists the owner's last-selected outlet scope
+ * ("all" | an outlet Id string) across page reloads. Read on mount by
+ * OutletProvider; written on every `setCurrentOutlet` call.
+ */
+export const COCKPIT_CURRENT_OUTLET_KEY = "frollie-cockpit-current-outlet";
+
+/**
  * Dev-only fixed device-id VALUE (not a localStorage key). Under the Vite dev
  * server, `useDeviceId` returns this instead of a random per-install UUID so the
  * id matches the `registered_devices` row pre-seeded by `seed:reset`, letting

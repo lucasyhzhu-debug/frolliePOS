@@ -971,4 +971,6 @@ export const id: Record<keyof typeof en, string> = {
   "recount.title": "Hitung ulang stok",
   "recount.submitLabel": "Simpan hitungan",
   "recount.savedToast": "{count} SKU diperbarui",
+  // cockpitOutletSwitcher (v1.3.0 Task 8)
+  "cockpitOutletSwitcher.allOutlets": "Semua outlet",
 };
