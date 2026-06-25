@@ -1,11 +1,9 @@
 import { convexTest } from "convex-test";
 import { test, expect } from "vitest";
 import schema from "../../schema";
-import { internal } from "../../_generated/api";
 
 test("logAudit persists source 'cockpit'", async () => {
   const t = convexTest(schema);
-  // a thin internal test-shim that calls logAudit; or assert via a mutation that uses it.
   await t.run(async (ctx) => {
     const { logAudit } = await import("../internal");
     const staffId = await ctx.db.insert("staff", {
@@ -17,5 +15,7 @@ test("logAudit persists source 'cockpit'", async () => {
     });
     const row = await ctx.db.query("audit_log").first();
     expect(row?.source).toBe("cockpit");
+    expect(row?.action).toBe("outlet.created");
+    expect(JSON.parse(row!.metadata!)).toEqual({ mode: "blank" });
   });
 });
