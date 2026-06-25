@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { useSession } from "@/hooks/useSession";
-import { useIdempotency } from "@/hooks/useIdempotency";
+import { useIdempotency, clearIntent } from "@/hooks/useIdempotency";
 import { useOutletContext } from "@/contexts/OutletContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,6 +116,10 @@ function reducer(s: WizardState, a: WizardAction): WizardState {
         ...s,
         mode: a.mode,
         source_outlet_id: a.mode === "blank" ? undefined : s.source_outlet_id,
+        // Clear clone-prefilled branding fields so a blank outlet never silently
+        // inherits the previously-picked source's receipt settings (fix #2).
+        receipt_business_name: a.mode === "blank" ? "" : s.receipt_business_name,
+        receipt_address: a.mode === "blank" ? "" : s.receipt_address,
       };
     case "SET_SOURCE":
       return {
@@ -257,6 +261,7 @@ export default function CockpitOutletNew() {
         provision_managers_chat: state.provision_managers_chat,
       });
       setCurrentOutlet(result.outlet_id as Id<"outlets">);
+      await clearIntent("cockpit:create-outlet");
       navigate("/cockpit/outlets");
     } catch (err) {
       toast.error(errorMessage(err));
@@ -837,6 +842,18 @@ function StepReview({
       )}
 
       <ReviewRow label={t("cockpitOutletNew.reviewTimezone")}>{state.timezone}</ReviewRow>
+
+      <ReviewRow label={t("cockpitOutletNew.reviewReceiptBusinessName")}>
+        {state.receipt_business_name || t("cockpitOutletNew.reviewNone")}
+      </ReviewRow>
+
+      {state.manual_bca_enabled && (
+        <ReviewRow label={t("cockpitOutletNew.reviewManualBca")}>
+          {[state.manual_bca_bank_name, state.manual_bca_account_name, state.manual_bca_account_number]
+            .filter(Boolean)
+            .join(" · ") || t("cockpitOutletNew.reviewNone")}
+        </ReviewRow>
+      )}
 
       <ReviewRow label={t("cockpitOutletNew.reviewStaff")}>
         {selectedStaff.length > 0

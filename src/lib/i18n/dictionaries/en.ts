@@ -1042,4 +1042,6 @@ export const en = {
   "cockpitOutletNew.back": "Back",
   "cockpitOutletNew.create": "Create outlet",
   "cockpitOutletNew.creating": "Creating…",
+  "cockpitOutletNew.reviewReceiptBusinessName": "Receipt name",
+  "cockpitOutletNew.reviewManualBca": "Manual BCA",
 } as const;

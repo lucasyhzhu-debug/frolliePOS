@@ -191,6 +191,27 @@ describe("CockpitOutletNew wizard", () => {
     expect(screen.getByLabelText(/receipt business name/i)).toHaveValue("Pakuwon");
   });
 
+  it("switching from clone (with source selected) back to blank clears prefilled receipt fields", async () => {
+    renderWizard();
+
+    // Step 0: select clone mode + pick source (prefills receipt fields via SET_SOURCE).
+    const cloneBtn = await waitFor(() => screen.getByTestId("mode-clone"));
+    fireEvent.click(cloneBtn);
+    const sourceBtn = await waitFor(() => screen.getByTestId("source-PKW"));
+    fireEvent.click(sourceBtn);
+
+    // Switch back to blank — reducer SET_MODE should zero receipt fields.
+    fireEvent.click(screen.getByTestId("mode-blank"));
+
+    // Navigate to step 4 to verify the inputs are empty.
+    await navigateToStep(4);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/receipt business name/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText(/receipt business name/i)).toHaveValue("");
+    expect(screen.getByLabelText(/receipt address/i)).toHaveValue("");
+  });
+
   // ── Code uniqueness ───────────────────────────────────────────────────────────
 
   it("step 1: blocks Next when code matches an existing outlet code", async () => {
@@ -274,6 +295,18 @@ describe("CockpitOutletNew wizard", () => {
     await waitFor(() =>
       expect(screen.getByTestId("outlets-page")).toBeInTheDocument(),
     );
+  });
+
+  it("on success: clearIntent is called with the wizard intent key before navigate", async () => {
+    const { clearIntent } = await import("@/hooks/useIdempotency");
+    renderWizard();
+    await navigateToStep(7);
+
+    await waitFor(() => screen.getByTestId("btn-create"));
+    fireEvent.click(screen.getByTestId("btn-create"));
+
+    await waitFor(() => expect(mockSetCurrentOutlet).toHaveBeenCalledTimes(1));
+    expect(clearIntent).toHaveBeenCalledWith("cockpit:create-outlet");
   });
 
   it("on createOutlet failure: shows error toast and stays on review step", async () => {

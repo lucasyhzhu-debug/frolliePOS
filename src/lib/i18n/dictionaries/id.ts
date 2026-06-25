@@ -1040,4 +1040,6 @@ export const id: Record<keyof typeof en, string> = {
   "cockpitOutletNew.back": "Kembali",
   "cockpitOutletNew.create": "Buat outlet",
   "cockpitOutletNew.creating": "Membuat…",
+  "cockpitOutletNew.reviewReceiptBusinessName": "Nama struk",
+  "cockpitOutletNew.reviewManualBca": "BCA manual",
 };
