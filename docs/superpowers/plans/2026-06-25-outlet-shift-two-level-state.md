@@ -24,6 +24,54 @@
 
 ---
 
+## Task List
+
+| ID | Title | Files touched | Wave | Depends-on |
+|----|-------|---------------|------|------------|
+| T1 | Schema: outlet status fields + `pos_shifts` | `convex/outlets/schema.ts`, `convex/shifts/schema.ts` | 1 | — |
+| T2 | Level-1 outlet status internals | `convex/outlets/status.ts` | 2 | T1 |
+| T3 | Level-2 shift internals + `shiftLib` | `convex/shifts/shiftLib.ts`, `shiftsInternal.ts` | 2 | T1 |
+| T4 | `openBooth` (SOP) + `managerSkipOpen` | `convex/shifts/shifts.ts`, `actions.ts`, `shiftsInternal.ts` | 3 | T2, T3 |
+| T5 | `handover` | `convex/shifts/shifts.ts`, `actions.ts` | 3 | T3, T4 |
+| T5B | `startShift` (open outlet, no holder — incoming) | `convex/shifts/shifts.ts`, `shiftsInternal.ts` | 3 | T3, T4 |
+| T6 | `endOfDay` | `convex/shifts/shifts.ts` | 3 | T2, T3, T4 |
+| T7 | `lock` = plain logout | `convex/shifts/shifts.ts` | 3 | T4 |
+| T8 | `managerOverride` (force-end stranded shift) | `convex/shifts/actions.ts`, `shiftsInternal.ts` | 3 | T3, T4 |
+| T9 | `loginContext` query (the gate) | `convex/shifts/shifts.ts` | 3 | T2, T3, T4 |
+| T10 | Migration: backfill `is_open` + holder | `convex/migrations/internal.ts` | 4 | T1, T2, T3 |
+| T11 | FE: login gate (resume/block/new/override) | `src/hooks/useLoginContext.ts`, `src/routes/login.tsx` | 5 | T9, T4, T5B, T8 |
+| T12 | FE: RootLayout + shift/lock routes; delete `useBoothState`+`shiftSkip` | `src/components/layout/RootLayout.tsx`, `src/routes/shift/*`, `src/routes/lock.tsx` | 5 | T4–T9, T11 |
+| T13 | Retire `deriveBoothState` machinery; ADR-053; docs | `convex/shifts/*`, `docs/*`, `CLAUDE.md` | 6 | all |
+
+*(In-prose task headings below match these IDs. T5B is the spec-staffreview-added `startShift` task.)*
+
+## Execution Strategy — multi-agent, wave-gated
+
+Assumed executor: `superpowers:subagent-driven-development` (fresh subagent per task, two-stage review between tasks). **Parallelize within a wave; hard barrier between waves.** Never spawn all tasks at once.
+
+**Wave dispatch map:**
+- **Wave 1 (solo): T1.** Schema is the foundation; every other task imports the new validators/indexes. Gate: `npm run typecheck` + the schema test green → **run `npx convex codegen`** so `_generated/api.d.ts` exists for downstream tasks.
+- **Wave 2 (parallel ×2): T2, T3.** Disjoint files (`outlets/status.ts` vs `shifts/shiftLib.ts`+`shiftsInternal.ts`). Gate: both test suites green → codegen on the merged tree.
+- **Wave 3 (mostly SERIAL — see shared-file rule): T4 → T5, T5B, T6, T7, T9 → T8.** These create the public surface. Gate after each: typecheck + that task's test + codegen.
+- **Wave 4 (solo): T10.** Migration; depends on T1–T3 internals. Gate: migration test green.
+- **Wave 5 (SERIAL: T11 → T12).** T11 introduces `useLoginContext`; T12 deletes `useBoothState`/`shiftSkip` and rewires routes — T12 must follow T11. Gate: `npx vitest run src/` green.
+- **Wave 6 (solo): T13.** Deletes the retired surface + docs/ADR. Gate: **FULL** `npm run typecheck && npx vitest run` green.
+
+**Shared-file / generated-file serialization (hard rule):**
+- `convex/shifts/shifts.ts` is written by **T4, T5, T5B, T6, T7, T9** — these MUST run **sequentially** (one writer at a time), each appending its export. Do NOT parallelize them in the same worktree. (If isolating in per-task worktrees, merge in T4→T5→T5B→T6→T7→T9 order and re-run codegen once on the merged tree.)
+- `convex/shifts/shiftsInternal.ts` written by **T3, T4, T5B, T8**; `convex/shifts/actions.ts` by **T4, T8** — serialize these pairs.
+- `convex/_generated/api.d.ts` (codegen artifact) regenerates whenever a new function is added — **run `npx convex codegen` once at each wave gate on the merged tree**, never concurrently mid-wave (the Convex api-inference cycle: annotate return types of internal-calling handlers — `v058` lesson).
+- `src/lib/i18n*` touched by T11 (+ possibly T12) — keep i18n key additions in T11; T12 only consumes.
+
+**Critical path (sets min wall-clock):** T1 → T3 → T4 → T9 → T11 → T12 → T13. Wave 3's shifts.ts serialization is the long pole; the other Wave-3 tasks can't overlap it.
+
+**Can't be done headless (flag "pending", do not claim passed):**
+- The **prod backfill run** (Task T10's `npx convex run migrations/internal:backfillOutletStatus --prod` + `assertOutletStatusBackfilled --prod`) — runs post-deploy by a human against prod.
+- **Live booth UAT** (open→sell→lock→relogin-resume→handover→incoming-count→end-of-day) on the real device, and the **bilingual EN/ID smoke** — owner-owned manual passes.
+- The **enforce step** (flip `outlets.is_open` required) ships only after the prod backfill is verified green.
+
+**Close-out (MAIN session, never a background agent):** after Wave 6 is green, run `/triple-review` (address every Critical + Improvement) then `/simplify xhigh`; re-run the full gate; only then is the phase done.
+
 ## File Structure
 
 **Backend (new):**
@@ -742,6 +790,124 @@ git commit -m "feat(shifts): handover ends the shift, outlet stays open, summary
 
 ---
 
+## Task 5B: Public `startShift` (open outlet, no holder — incoming)
+
+**Files:**
+- Modify: `convex/shifts/shifts.ts`
+- Modify: `convex/shifts/shiftsInternal.ts` (add `_lastEndedShift_internal`)
+- Test: `convex/shifts/__tests__/startShift.test.ts`
+
+**Interfaces:**
+- Consumes: `_getActiveShift_internal`, `_getOutletStatus_internal`, `_startShift_internal`.
+- Produces:
+  - `_lastEndedShift_internal({ outletId }): Promise<Doc<"pos_shifts"> | null>` — most recent ended shift (by `started_at` desc, first with `ended_at != null`), for `prev_shift_id` linkage.
+  - `startShift({ idempotencyKey, sessionId, steps, openCount? }): Promise<{ ok: true; shiftId: Id<"pos_shifts"> }>` — begins a shift on an **already-open, holderless** outlet (the post-handover incoming case). Rejects if the outlet is closed (`BOOTH_NOT_OPEN`) or a holder already exists (`SHIFT_IN_PROGRESS`).
+
+- [ ] **Step 1: Add `_lastEndedShift_internal`** to `convex/shifts/shiftsInternal.ts`
+
+```ts
+export const _lastEndedShift_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, { outletId }): Promise<Doc<"pos_shifts"> | null> => {
+    const rows = await ctx.db
+      .query("pos_shifts")
+      .withIndex("by_outlet_started", (q) => q.eq("outlet_id", outletId))
+      .order("desc")
+      .take(5);
+    return rows.find((r) => r.ended_at !== null) ?? null;
+  },
+});
+```
+
+- [ ] **Step 2: Write the failing test**
+
+`convex/shifts/__tests__/startShift.test.ts` (reuse the `seedOpen` pattern; after a handover by Sisca, a different staffer Budi starts):
+```ts
+test("startShift begins a new shift after handover; prev_shift_id links", async () => {
+  const t = convexTest(schema);
+  const { outletId, sessionId } = await seedOpen(t); // holder = Sisca
+  await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
+
+  // Budi logs in (different staff) on the now-holderless open outlet.
+  const budiSession = await t.run(async (ctx: any) => {
+    const dev = await ctx.db.query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
+    const budi = await ctx.db.insert("staff", { name: "Budi", code: "S-2", role: "staff", pin_hash: "x", active: true, must_change_pin: false, created_at: 0 });
+    return ctx.db.insert("staff_sessions", { staff_id: budi, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
+  });
+
+  const res = await t.mutation(api.shifts.shifts.startShift, {
+    idempotencyKey: "s1", sessionId: budiSession, steps: [], openCount: 8,
+  });
+  expect(res.ok).toBe(true);
+  const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(holder?.started_via).toBe("handover");
+  expect(holder?.open_count).toBe(8);
+  expect(holder?.prev_shift_id).not.toBeNull();
+  await drainScheduled(t);
+});
+
+test("startShift on a closed outlet → BOOTH_NOT_OPEN; with a holder → SHIFT_IN_PROGRESS", async () => {
+  const t = convexTest(schema);
+  const { sessionId } = await seedOpen(t); // open, holder = Sisca
+  await expect(
+    t.mutation(api.shifts.shifts.startShift, { idempotencyKey: "s1", sessionId, steps: [] }),
+  ).rejects.toThrow(/SHIFT_IN_PROGRESS/);
+});
+```
+
+- [ ] **Step 3: Run test → FAIL** (`startShift` missing).
+
+- [ ] **Step 4: Implement `startShift`** in `convex/shifts/shifts.ts`
+
+```ts
+export const startShift = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    openCount: v.optional(v.number()),
+  },
+  handler: withIdempotency<OpenBoothArgs, OpenBoothResult>(
+    "shifts.startShift",
+    async (ctx, args): Promise<OpenBoothResult> => {
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
+
+      const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
+      if (!status.is_open) throw new Error("BOOTH_NOT_OPEN");
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+      if (holder) throw new Error("SHIFT_IN_PROGRESS");
+
+      const prev = await ctx.runQuery(internal.shifts.shiftsInternal._lastEndedShift_internal, { outletId });
+      const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
+        internal.shifts.shiftsInternal._startShift_internal,
+        {
+          outletId, deviceId, staffId, startedVia: "handover",
+          openCount: args.openCount ?? null, steps: args.steps,
+          prevShiftId: prev?._id ?? null,
+        },
+      );
+      await logAudit(ctx, {
+        actor_id: staffId, action: "shift.start", entity_type: "pos_shifts",
+        entity_id: shiftId, source: "booth_inline",
+        metadata: { started_via: "handover", prev_shift_id: prev?._id ?? null },
+      });
+      return { ok: true as const, shiftId };
+    },
+    { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
+  ),
+});
+```
+
+- [ ] **Step 5: Run test → PASS. Commit.**
+
+```bash
+git add convex/shifts/shifts.ts convex/shifts/shiftsInternal.ts convex/shifts/__tests__/startShift.test.ts
+git commit -m "feat(shifts): startShift begins the incoming shift on an open, holderless outlet"
+```
+
+---
+
 ## Task 6: Public `endOfDay`
 
 **Files:**
@@ -1008,14 +1174,28 @@ git commit -m "feat(shifts): loginContext query drives the new login gate"
 - Test: `convex/migrations/__tests__/backfillOutletStatus.test.ts`
 
 **Interfaces:**
-- Consumes: existing `deriveBoothState` (still present until Task 13) to derive the current per-outlet state from `pos_shift_events`.
+- Consumes: `_shiftStartAnchor_internal` (existing). **Does NOT import `deriveBoothState`** — that function is deleted in Task 13, same deploy; the backfill is run post-deploy when it would no longer exist (spec §9 / staffreview C2). Inline the small mapping.
 - Produces:
-  - `backfillOutletStatus(): internalAction` — for each active outlet: find the latest `pos_shift_events` row (any device) → `deriveBoothState` → set `outlets.is_open` (`open`/`locked`/`handover_pending` → true; `closed` → false). If open with a current staffer, insert one `pos_shifts` holder row (`started_at` = `_shiftStartAnchor_internal`, `ended_at=null`, `started_via:"sop"`). Idempotent (skip if `is_open` already set / a holder already exists).
+  - `backfillOutletStatus(): internalAction` — for each active outlet: find the latest `pos_shift_events` row (any device) and map its `type` to status **inline** (see Step 2). Set `outlets.is_open`. If open with a current staffer, insert one `pos_shifts` holder row (`started_at` = `_shiftStartAnchor_internal`, `ended_at=null`, `started_via:"sop"`). Idempotent (skip if `is_open` already set / a holder already exists).
   - `assertOutletStatusBackfilled(): internalQuery` — throws if any active outlet has `is_open === undefined`.
 
 - [ ] **Step 1: Write the failing test** — seed an outlet whose latest `pos_shift_events` is a same-day `lock`; run `backfillOutletStatus`; assert `outlets.is_open === true` and exactly one active `pos_shifts` holder row for the locking staff. Seed a second outlet whose latest is `signoff_close`; assert `is_open === false` and no holder. Run → FAIL.
 
-- [ ] **Step 2: Implement** the action + assert query in `convex/migrations/internal.ts`, following the paginated/idempotent style of `backfillOutletId` (read `migration_state` to skip if done; collect active outlets; per-outlet derive + patch; insert holder rows). Keep it V8/Node-consistent with the existing migration actions.
+- [ ] **Step 2: Implement** the action + assert query in `convex/migrations/internal.ts`, following the idempotent style of `backfillOutletId`. The status mapping is **inlined** (self-contained — no `deriveBoothState` import):
+
+```ts
+// Inlined booth-status derivation (mirrors the retired deriveBoothState, kept
+// LOCAL so the backfill survives Task 13 deleting deriveBoothState). `nowMs` and
+// the WIB day-start come from convex/lib/time (V8-safe).
+function deriveIsOpen(latest: { type: string; created_at: number } | null, wibDayStartMs: number): boolean {
+  if (!latest) return false;
+  if (latest.type === "signoff_close") return false;
+  if (latest.created_at < wibDayStartMs) return false; // prior-WIB-day = closed
+  // lock / resume / handover_in / handover_out / start_of_day / manager_takeover → open
+  return true;
+}
+```
+Collect active outlets (`by_active`); per outlet read the latest `pos_shift_events` via `by_outlet_device_created` across the outlet's devices (or `by_staff_started` fallback), apply `deriveIsOpen`, patch `is_open` (+ `opened_at/by` from the anchor when open), and insert the holder `pos_shifts` row when open with a staffer. Skip if `is_open` already set.
 
 - [ ] **Step 3: Run → PASS.**
 
@@ -1074,10 +1254,11 @@ const blocked =
 
 // target after successful login():
 let target = "/";
-if (ctx?.outletOpen === false) target = "/shift/start";       // closed → SOP
-// open + holder == me → resume (target "/")
-// open + no holder → start new shift; if last shift handover, the start route shows the incoming count
+if (ctx?.outletOpen === false) target = "/shift/start";              // closed → SOP (openBooth)
+else if (ctx?.holderStaffId === null) target = "/shift/begin";       // open, no holder → startShift (incoming count)
+// open + holder == me → resume (target "/"); the holder shift row is untouched
 ```
+`/shift/begin` is the incoming-shift count screen (Task 12) — a one-step count wizard that calls `startShift`. It is session-FULL (the incoming staffer is already authenticated), unlike the retired session-less `/shift/handover`.
 Drop the old `recordResume` call entirely. Add a `managerOverride` entry: a "Manager override" button on the block state → manager picker + PIN sheet (reuse the `PinSheet` pattern from `lock.tsx`) → `managerOverride({ idempotencyKey, deviceId, managerStaffId, managerPin })` → on success the block clears (holder released) and the staffer proceeds.
 
 - [ ] **Step 4: Run → PASS.** Add i18n keys `login.shiftHeldBy`, `login.managerOverride`, etc. to `src/lib/i18n` (EN + ID) per ADR-049.
@@ -1110,6 +1291,8 @@ git commit -m "feat(fe): login gate keys off outlet status + shift holder (block
 - [ ] **Step 2: `src/routes/shift/start.tsx`** — `onComplete` calls `openBooth({ idempotencyKey, sessionId, steps, openCount })` then `navigate("/")`. Replace `markManagerSkippedSOD` + client skip with a "Skip (manager)" action → `managerSkipOpen({ idempotencyKey, sessionId, managerPin })` via a PIN sheet → `navigate("/")`. Remove the `import { markManagerSkippedSOD }`. Update its test.
 
 - [ ] **Step 3: `src/routes/shift/end.tsx`** — `onHandoverComplete` → `handover({...})` then `navigate("/login")` (NOT `/shift/handover`). `onCloseComplete` → `endOfDay({...})`. Remove the `/shift/handover` navigation. Update its test.
+
+- [ ] **Step 3B: Create `src/routes/shift/begin.tsx`** (incoming-shift count → `startShift`) and register it in `src/router.tsx`. Session-FULL: a one-step count wizard (reuse `ShiftWizard` with a single `count` step) → `startShift({ idempotencyKey, sessionId, steps, openCount })` → `navigate("/")`. This is the renamed, session-FULL replacement for the deleted session-less `/shift/handover` incoming screen. RootLayout's SOP gate does NOT force this route (it's reached only via the login target in Task 11); guard it so a stray visit with a holder already set redirects to `/`.
 
 - [ ] **Step 4: `src/routes/lock.tsx`** — `handleLock` calls `lock({...})` (the new mutation) then `clearSession()` + `/login`. Replace `managerTakeover` usage with `managerOverride` (now force-ends the prior shift). Update its test.
 
@@ -1144,7 +1327,7 @@ Run: `npm run typecheck && npx vitest run` → Expected: green (no references to
 
 - [ ] **Step 4: Write `docs/ADR/053-two-level-booth-state.md`** — the two levels, stored-not-derived, single-holder + handover-only transfer, manager override, retired ADR-050 machinery, migration. Status: Accepted, supersedes ADR-050.
 
-- [ ] **Step 5: Update docs** — `docs/SCHEMA.md` (outlet status fields, `pos_shifts`, new audit verbs `outlet.opened`/`outlet.closed`/`shift.handover`/`shift.lock`/`shift.manager_override`; mark `pos_shift_events` read-only/legacy), `docs/API_REFERENCE.md` (new shift functions; remove retired), `docs/CHANGELOG.md`. In `CLAUDE.md`: rewrite business rule #23 to the two-level model, update the `shifts/` and `outlets/` module rows, note ADR-050 superseded by ADR-053.
+- [ ] **Step 5: Update docs** — `docs/SCHEMA.md` (outlet status fields, `pos_shifts`, new audit verbs `outlet.opened`/`outlet.closed`/`shift.start`/`shift.handover`/`shift.lock`/`shift.manager_override`; mark `pos_shift_events` read-only/legacy), `docs/API_REFERENCE.md` (new shift functions; remove retired), `docs/CHANGELOG.md`. In `CLAUDE.md`: rewrite business rule #23 to the two-level model, update the `shifts/` and `outlets/` module rows, note ADR-050 superseded by ADR-053.
 
 - [ ] **Step 6: Commit**
 
@@ -1162,9 +1345,9 @@ git commit -m "refactor(shifts): retire deriveBoothState machinery; ADR-053 + do
 - §4 login gate → Task 9 (query) + Task 11 (FE). ✓
 - §5 manager override → Task 8 + Task 11/12 (FE entry). ✓
 - §6 schema → Task 1. ✓
-- §7 transitions → openBooth/managerSkipOpen (4), handover (5), endOfDay (6), lock (7), override (8). ✓
+- §7 transitions → openBooth/managerSkipOpen (T4), handover (T5), **startShift (T5B — open/no-holder incoming)**, endOfDay (T6), lock (T7), override (T8). ✓ (Every transition row now has a mutation — staffreview C1.)
 - §8 retired → Task 13. ✓
-- §9 migration → Task 10. ✓
+- §9 migration → Task 10 (derivation **inlined**, no `deriveBoothState` import — staffreview C2). ✓
 - §10 ADR-053 → Task 13. ✓
 - §11 testing → per-task TDD + Task 13 full gate. ✓
 - §8 "PR #143 folded in" → Task 13 deletes the guarded mutations outright. ✓
