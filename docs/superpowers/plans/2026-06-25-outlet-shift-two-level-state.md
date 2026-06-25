@@ -632,8 +632,10 @@ Run: `npx vitest run convex/shifts/__tests__/openBooth.test.ts` → both PASS.
 
 - [ ] **Step 5: Add `managerSkipOpen` action** in `convex/shifts/actions.ts`
 
-Append (Node action — argon2 PIN verify; mirrors the existing `managerTakeover` structure):
+Append (Node action — argon2 PIN verify; **mirror the existing `managerTakeover` exactly**). VERIFIED names (plan staffreview): session resolve = `internal.auth.internal._resolveSession_internal` (in `auth/internal.ts`, NOT `auth/sessions`); PIN verify = `verifyPinOrThrow` imported from `../auth/verifyPin` and called **inline in the Node action** (it is a plain async fn, NOT an action — do not `ctx.runAction` it). `managerTakeover` is the working template (`actions.ts`): it `runQuery`s the manager doc, checks `role === "manager"`, then `await verifyPinOrThrow(ctx, { staffId: managerStaffId, pin: args.managerPin, ... })`.
 ```ts
+import { verifyPinOrThrow } from "../auth/verifyPin"; // already imported for managerTakeover
+
 export const managerSkipOpen = action({
   args: {
     idempotencyKey: v.string(),
@@ -642,8 +644,11 @@ export const managerSkipOpen = action({
   },
   handler: async (ctx, args): Promise<{ ok: true; shiftId: Id<"pos_shifts"> }> => {
     const { staffId, deviceId, outlet_id: outletId } =
-      await ctx.runQuery(internal.auth.sessions._resolveSession_internal, { sessionId: args.sessionId });
-    await ctx.runAction(internal.auth.verifyPin.verifyManagerPinOrThrow, { staffId, pin: args.managerPin });
+      await ctx.runQuery(internal.auth.internal._resolveSession_internal, { sessionId: args.sessionId });
+    // Manager-role + argon2 PIN check, identical to managerTakeover (role guard + verifyPinOrThrow inline).
+    const mgr = await ctx.runQuery(internal.auth.internal._resolveStaff_internal, { staffId });
+    if (mgr.role !== "manager") throw new Error("NOT_MANAGER");
+    await verifyPinOrThrow(ctx, { staffId, pin: args.managerPin });
     return await ctx.runMutation(internal.shifts.shiftsInternal._managerSkipOpenCommit_internal, {
       idempotencyKey: args.idempotencyKey, outletId, deviceId, staffId,
     });
@@ -652,7 +657,7 @@ export const managerSkipOpen = action({
 ```
 Add the committing internal mutation in `convex/shifts/shiftsInternal.ts` (wrapped `withIdempotency`, sets outlet open via `manager_skip` + starts a `manager_skip` shift, audit `outlet.opened` with `via: "manager_skip"`). Mirror `openBooth`'s body but `startedVia: "manager_skip"`, `steps: []`, `openCount: null`.
 
-> NOTE: confirm `internal.auth.sessions._resolveSession_internal` and `internal.auth.verifyPin.verifyManagerPinOrThrow` exact names against `convex/auth/` before wiring; if `verifyManagerPinOrThrow` is not exposed as an internal action, reuse the same path `managerTakeover` uses in `actions.ts` today.
+> NOTE: confirm the exact role-resolve query name `managerTakeover` uses (the snippet above assumes `_resolveStaff_internal`; the working call in `actions.ts` is the authority — copy it verbatim). The PIN path (`verifyPinOrThrow` inline) and session-resolve path (`internal.auth.internal._resolveSession_internal`) are VERIFIED.
 
 - [ ] **Step 6: Test `managerSkipOpen`** — add a test seeding a manager + `BOOTSTRAP`/known pin_hash, assert outlet open + holder `started_via === "manager_skip"`. Run → PASS.
 
@@ -1354,9 +1359,10 @@ git commit -m "refactor(shifts): retire deriveBoothState machinery; ADR-053 + do
 
 **Type consistency:** `_getActiveShift_internal` returns `Doc<"pos_shifts"> | null` (Tasks 3,5,6,8,9). `started_via`/`ended_via` literal unions identical across schema (1), internals (3), and writers (4–8). `loginContext` shape `{outletOpen,holderStaffId,holderName}` identical in Task 9 + `useLoginContext` (11). `_sendSignoffSummary.eventId` widened in Task 5 and used by Tasks 5/6/8.
 
-**Open confirmations for the executor (verify against live code, don't assume):**
-1. Exact internal names: `internal.auth.internal._getDeviceOutletId_internal`, `_listStaffNames_internal`, `_endShiftSession_internal`, and the manager-PIN verify entry used by `managerTakeover` today (Tasks 4,8,9).
-2. `_sendSignoffSummary` arg validator for `eventId` (widen to accept `Id<"pos_shifts">` or `v.string()`) — Task 5.
-3. `src/router.tsx` `/shift/handover` route removal — Task 12.
+**Confirmations resolved during the plan staffreview (verified against live code):**
+1. ✅ `internal.auth.internal._getDeviceOutletId_internal` (`auth/internal.ts:694`), `_listStaffNames_internal` (`:530`), `_endShiftSession_internal` (`:598`), `_resolveSession_internal` (`:347`) — all in `auth/internal.ts` (module path `internal.auth.internal.*`, NOT `auth.sessions`). PIN verify = `verifyPinOrThrow` / `verifyManagerPinOrThrow` exported as **plain async fns** from `auth/verifyPin.ts` (call inline; do NOT `ctx.runAction`). Task 4 corrected accordingly.
+2. ✅ `_sendSignoffSummary.eventId` is `v.id("pos_shift_events")` (`actions.ts:109`) — confirmed; widen to `v.union(v.id("pos_shift_events"), v.id("pos_shifts"))` (Task 5).
+3. ✅ `/shift/handover` route at `src/router.tsx:122` + lazy import `:52` — confirmed present; Task 12 removes it and adds `/shift/begin`.
+**Still for the executor:** the exact role-resolve query name used inside `managerTakeover` (copy verbatim from `actions.ts` — Task 4/8).
 
 **Placeholder scan:** backend tasks carry complete code; FE tasks (11,12) and migration (10) carry exact files + the load-bearing logic with step-precise instructions following named existing patterns (`backfillOutletId`, `managerTakeover`, `PinSheet`). No "TBD"/"add error handling"/"similar to Task N".
