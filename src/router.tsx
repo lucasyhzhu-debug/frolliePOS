@@ -74,6 +74,7 @@ const MgrAudit = lazy(() => import("@/routes/mgr/audit"));
 const CockpitLogin = lazy(() => import("@/routes/cockpit/login"));
 const CockpitHome = lazy(() => import("@/routes/cockpit/index"));
 const CockpitOutlets = lazy(() => import("@/routes/cockpit/outlets"));
+const CockpitOutletNew = lazy(() => import("@/routes/cockpit/outlets/new"));
 
 const Wait = lazy(() => import("@/routes/wait"));
 const Approve = lazy(() => import("@/routes/approve"));
@@ -109,6 +110,7 @@ const routes: RouteObject[] = [
       { path: "cockpit/login", element: <CockpitLogin /> },
       { path: "cockpit", element: <CockpitHome /> },
       { path: "cockpit/outlets", element: <CockpitOutlets /> },
+      { path: "cockpit/outlets/new", element: <CockpitOutletNew /> },
       { index: true, element: <Home /> },
       { path: "sale", element: <Sale /> },
       { path: "sale/drafts", element: <SaleDrafts /> },
