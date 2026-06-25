@@ -6,7 +6,6 @@ import { withIdempotency } from "../idempotency/internal";
 import { requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { stepValidator } from "./schema";
-import { resolveStaffName } from "./lib";
 
 type HandoverArgs = {
   idempotencyKey: string;
@@ -39,6 +38,11 @@ export const openBooth = mutation({
       // Level-1 guard: start-of-day is only valid from a CLOSED outlet.
       const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
       if (status.is_open) throw new Error("BOOTH_ALREADY_OPEN");
+
+      // Defensive: a CLOSED outlet must never carry an active holder. If it does,
+      // the two-level state is inconsistent — fail loudly rather than mint a 2nd holder.
+      const existingHolder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+      if (existingHolder) throw new Error("UNEXPECTED_ACTIVE_HOLDER");
 
       await ctx.runMutation(internal.outlets.status._setOutletOpen_internal, {
         outletId, staffId, via: "sop",
@@ -241,12 +245,18 @@ export const loginContext = query({
     if (!outletId) {
       return { outletOpen: false, holderStaffId: null, holderName: null };
     }
-    const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
-    const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+    // Independent given outletId — resolve concurrently.
+    const [status, holder] = await Promise.all([
+      ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId }),
+      ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId }),
+    ]);
     let holderName: string | null = null;
     if (holder) {
-      const names = await ctx.runQuery(internal.auth.internal._listStaffNames_internal, {});
-      holderName = resolveStaffName(names, holder.staff_id, "") || null;
+      // Point lookup of the holder (no full staff-name scan).
+      const staff = await ctx.runQuery(internal.auth.internal._getStaffNameCode_internal, {
+        staffId: holder.staff_id,
+      });
+      holderName = staff?.name ?? null;
     }
     return { outletOpen: status.is_open, holderStaffId: holder?.staff_id ?? null, holderName };
   },

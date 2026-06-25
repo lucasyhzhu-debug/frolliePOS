@@ -15,9 +15,9 @@ import { resolveStaffName } from "./lib";
 
 // ─── _sendSignoffSummary ──────────────────────────────────────────────────────
 //
-// Deferred internal action scheduled from `endOfDaySignOff` and `handoverOut`
-// (both self-signoff paths). Builds the full Telegram payload (including
-// manual-BCA items) and sends it via `sendTemplate` to the founders role.
+// Deferred internal action scheduled from `handover`, `endOfDay`, and
+// `_managerOverrideCommit_internal`. Builds the full Telegram payload (including
+// manual-BCA items) and sends it via `sendTemplate` to the managers role.
 //
 // Runs after the mutation commits, so the session end + shift event are already
 // persisted. Failure here does not roll back the signoff — it only affects

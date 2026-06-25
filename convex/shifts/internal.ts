@@ -1,92 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
-import { stepValidator } from "./schema";
-import { wibDayWindow } from "../lib/time";
 
-const shiftEventFields = {
-  device_id: v.string(),
-  type: v.union(
-    v.literal("start_of_day"),
-    v.literal("lock"),
-    v.literal("resume"),
-    v.literal("signoff_close"),
-    v.literal("handover_out"),
-    v.literal("handover_in"),
-    v.literal("manager_takeover"),
-  ),
-  staff_id: v.id("staff"),
-  shift_started_at: v.number(),
-  shift_ended_at: v.union(v.number(), v.null()),
-  steps: v.array(stepValidator),
-  count_changed: v.union(v.number(), v.null()),
-  takeover: v.union(v.boolean(), v.null()),
-  outgoing_uncounted: v.union(v.boolean(), v.null()),
-  stale_autoclose: v.union(v.boolean(), v.null()),
-  linked_event_id: v.union(v.id("pos_shift_events"), v.null()),
-  summary: v.union(
-    v.object({
-      durationMs: v.number(),
-      totalSalesIdr: v.number(),
-      txnCount: v.number(),
-      manualBcaCount: v.number(),
-      manualBcaTotalIdr: v.number(),
-    }),
-    v.null(),
-  ),
-};
-
-// _latestShiftEvent_internal deleted (ADR-053): only shifts.public callers consumed it; that
-// file is now deleted. pos_shift_events is kept read-only for legacy audit history.
-
-export const _recordShiftEvent_internal = internalMutation({
-  args: { ...shiftEventFields, outletId: v.id("outlets") },
-  handler: async (ctx, args) => {
-    const { outletId, ...fields } = args;
-    return ctx.db.insert("pos_shift_events", {
-      ...fields,
-      created_at: Date.now(),
-      outlet_id: outletId,  // v2.0 Task 12 (ENFORCE): always stamped
-    });
-  },
-});
-
-export const _shiftStartAnchor_internal = internalQuery({
-  args: { deviceId: v.string(), outletId: v.id("outlets") },
-  handler: async (
-    ctx,
-    { deviceId, outletId },
-  ): Promise<{ shift_started_at: number; staff_id: Id<"staff"> } | null> => {
-    // C4: bound the scan to TODAY's WIB window instead of an arbitrary .take(50)
-    // ceiling (a busy day could push the anchor past 50 rows → silent miss →
-    // ?? now → 0-duration/0-sales summary). Stale prior-day shifts are now
-    // auto-closed by completeStartOfDay, so the current shift's anchor always
-    // lives within today's WIB day; a day's event count is small enough to
-    // collect in full. Walk back to the most recent shift-START event.
-    const { dayStartMs } = wibDayWindow(Date.now());
-    // v2.0 Task 9: always use outlet-scoped index (window-tolerant: outletId may be undefined).
-    const today = await ctx.db
-      .query("pos_shift_events")
-      .withIndex("by_outlet_device_created", (q) =>
-        q.eq("outlet_id", outletId).eq("device_id", deviceId).gte("created_at", dayStartMs),
-      )
-      .order("desc")
-      .collect();
-    const anchor = today.find(
-      (e) =>
-        e.type === "start_of_day" ||
-        e.type === "handover_in" ||
-        e.type === "manager_takeover",
-    );
-    // null is acceptable: with stale shifts auto-closed, a genuinely anchorless
-    // booth is the only remaining null case (unreachable in normal flow). The
-    // caller's `?? now` then applies only to that edge.
-    return anchor
-      ? { shift_started_at: anchor.shift_started_at, staff_id: anchor.staff_id }
-      : null;
-  },
-});
+// _latestShiftEvent_internal, _recordShiftEvent_internal, _shiftStartAnchor_internal,
+// and shiftEventFields deleted (ADR-053): the legacy pos_shift_events writer/reader path
+// has zero runtime callers now that booth state is two stored levels. pos_shift_events is
+// kept read-only for legacy audit history.
 
 /**
  * Aggregate sales + manual-BCA stats for the end-of-day sign-off summary.

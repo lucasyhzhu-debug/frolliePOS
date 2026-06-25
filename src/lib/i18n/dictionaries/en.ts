@@ -657,7 +657,6 @@ export const en = {
   "login.shiftHeldBy": "{name} is still on shift. Ask a manager to override, or wait for handover.",
   "login.managerOverride": "Manager override",
   "login.overridePickManager": "Pick a manager",
-  "login.overrideSuccess": "Override complete",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",

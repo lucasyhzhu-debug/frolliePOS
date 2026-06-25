@@ -653,8 +653,9 @@ export const _backfillOneOutletStatus_internal = internalMutation({
     // 5. Derive open/closed status (inlined — no deriveBoothState import).
     const isOpen = deriveIsOpen(latestEvent, dayStartMs);
 
-    // 6. If open, find the shift-start anchor on the winning device (mirrors
-    //    _shiftStartAnchor_internal: walks today's WIB events for the anchor type).
+    // 6. If open, find the shift-start anchor on the winning device by walking
+    //    today's WIB events for the anchor type (inlined; the former
+    //    _shiftStartAnchor_internal helper has been deleted — ADR-053).
     let anchor: { shift_started_at: number; staff_id: Id<"staff"> } | null = null;
     const winningDeviceId: string | undefined = latestEvent?.device_id;
     if (isOpen && winningDeviceId) {

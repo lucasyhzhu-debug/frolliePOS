@@ -1003,7 +1003,7 @@ outlet.opened           # openBooth / managerSkipOpen → outlets.is_open = true
 outlet.closed           # endOfDay → outlets.is_open = false (Level 1)
 shift.start             # startShift → new pos_shifts row (Level 2)
 shift.handover          # handover out-half ends the row; in-half creates a new one
-shift.lock              # lockShift — session ends, pos_shifts row unchanged
+shift.lock              # lock — session ends, pos_shifts row unchanged
 shift.manager_override  # managerOverride force-ends a stranded pos_shifts row
 ```
 
@@ -1025,7 +1025,7 @@ State was derived by reading the latest event for a given `device_id`. `deriveBo
 | `count_changed` | `number \| null` | Number of stock counts that differed from expected (for `start_of_day`/`signoff_close`; null for other types) |
 | `takeover` | `boolean \| null` | Set `true` **only** on a `manager_takeover` event (a manager unlocked a LOCKED booth and displaced the prior staff); null for every other event type, including normal handovers |
 | `outgoing_uncounted` | `boolean \| null` | True when the outgoing staff did not complete their count SOP; null for non-handover types |
-| `stale_autoclose` | `boolean \| null` | Persisted `true` on the `signoff_close` event that `completeStartOfDay` auto-writes when it finds a non-closed shift left over from a **prior WIB day** (forgot-to-close). That auto-close still fires the displaced shift's Founders summary (spec §2). Null on all normally-recorded events. |
+| `stale_autoclose` | `boolean \| null` | Historical: was persisted `true` on the `signoff_close` event that the now-deleted `completeStartOfDay` auto-wrote when it found a non-closed shift left over from a **prior WIB day** (forgot-to-close). That auto-close still fired the displaced shift's Founders summary (spec §2). Null on all normally-recorded events. Read-only after ADR-053. |
 | `linked_event_id` | `Id<"pos_shift_events"> \| null` | Pairs `handover_out` ↔ `handover_in` events; null for unpaired event types |
 | `summary` | `{ durationMs: number, totalSalesIdr: number, txnCount: number, manualBcaCount: number, manualBcaTotalIdr: number } \| null` | Shift summary snapshot written on `signoff_close` / `handover_out`; null for open-type events |
 | `created_at` | `number` | Server UTC ms ([ADR-031](./ADR/031-convex-server-time-wins.md)) |

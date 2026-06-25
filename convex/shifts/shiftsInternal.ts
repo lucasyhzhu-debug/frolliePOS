@@ -85,7 +85,7 @@ export const _endShift_internal = internalMutation({
 //
 // Note: internal mutations wrapped with withIdempotency do NOT take an authCheck
 // (rule #20 applies to public mutations; the action's withActionCache authCheck
-// already gated entry). Mirror _commitManagerTakeover_internal which omits it.
+// already gated entry). Mirror _managerOverrideCommit_internal which omits it.
 
 export const _managerSkipOpenCommit_internal = internalMutation({
   args: {

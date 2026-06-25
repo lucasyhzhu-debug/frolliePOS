@@ -81,6 +81,5 @@ export const shiftsTables = {
     created_at: v.number(),
   })
     .index("by_outlet_active", ["outlet_id", "ended_at"])
-    .index("by_staff_started", ["staff_id", "started_at"])
     .index("by_outlet_started", ["outlet_id", "started_at"]),
 };

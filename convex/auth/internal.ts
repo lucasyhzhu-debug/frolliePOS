@@ -589,7 +589,7 @@ export const _listActiveManagers_internal = internalQuery({
  * `endReason` is constrained to the two literals the shift flow uses:
  *   - "force_logout" — end-of-day sign-off + handover-out (the staff is done /
  *     handed over; PLAN-mandated value).
- *   - "manual_lock"  — lockShift (staff steps away; PLAN-mandated value).
+ *   - "manual_lock"  — lock (staff steps away; PLAN-mandated value).
  *
  * No withIdempotency wrapper — the calling mutation owns the idempotency key;
  * this is a single deterministic patch.

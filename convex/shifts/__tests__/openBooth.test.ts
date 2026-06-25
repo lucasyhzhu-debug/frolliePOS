@@ -110,6 +110,36 @@ test("openBooth on an already-open outlet → BOOTH_ALREADY_OPEN", async () => {
   ).rejects.toThrow(/BOOTH_ALREADY_OPEN/);
 });
 
+test("openBooth on a CLOSED outlet that still has an active holder → UNEXPECTED_ACTIVE_HOLDER", async () => {
+  const t = convexTest(schema);
+  const { outletId, staffId, sessionId } = await seedClosed(t);
+
+  // Inconsistent two-level state: outlet is_open=false but an unended pos_shifts
+  // holder row exists. openBooth must fail loudly rather than mint a 2nd holder.
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("pos_shifts", {
+      outlet_id: outletId,
+      device_id: "d1",
+      staff_id: staffId,
+      started_at: Date.now(),
+      started_via: "sop",
+      ended_at: null,
+      ended_via: null,
+      open_count: null,
+      close_count: null,
+      outgoing_uncounted: null,
+      steps: [],
+      summary: null,
+      prev_shift_id: null,
+      created_at: Date.now(),
+    });
+  });
+
+  await expect(
+    t.mutation(api.shifts.shifts.openBooth, { idempotencyKey: "k1", sessionId, steps: [] }),
+  ).rejects.toThrow(/UNEXPECTED_ACTIVE_HOLDER/);
+});
+
 // ---------------------------------------------------------------------------
 // managerSkipOpen test
 // ---------------------------------------------------------------------------
