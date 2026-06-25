@@ -44,7 +44,15 @@ const { mockUseQuery, mockUseSession } = vi.hoisted(() => ({
     status: "active" as const,
     sessionId: "kn7ses000000000000000000000" as Id<"staff_sessions">,
     kind: "cockpit" as const,
-    staff: { _id: "kn7own" as Id<"staff">, name: "Lucas", role: "owner" as const },
+    staff: {
+      _id: "kn7own" as Id<"staff">,
+      name: "Lucas",
+      role: "owner" as const,
+      must_change_pin: false,
+      locale: "en" as const,
+      outlet_id: undefined,
+      outlet_label: undefined,
+    },
   })),
 }));
 
@@ -98,7 +106,15 @@ beforeEach(() => {
     status: "active" as const,
     sessionId: "kn7ses000000000000000000000" as Id<"staff_sessions">,
     kind: "cockpit" as const,
-    staff: { _id: "kn7own" as Id<"staff">, name: "Lucas", role: "owner" as const },
+    staff: {
+      _id: "kn7own" as Id<"staff">,
+      name: "Lucas",
+      role: "owner" as const,
+      must_change_pin: false,
+      locale: "en" as const,
+      outlet_id: undefined,
+      outlet_label: undefined,
+    },
   });
 });
 
@@ -160,5 +176,15 @@ describe("OutletProvider", () => {
     renderProvider();
     // useQuery was called with "skip" → returns undefined → outlets-count is 0.
     expect(screen.getByTestId("outlets-count").textContent).toBe("0");
+  });
+
+  it("falls back to 'all' when the persisted outlet id is no longer in the list", async () => {
+    const staleId = "kn7out999999999" as Id<"outlets">;
+    localStorage.setItem(COCKPIT_CURRENT_OUTLET_KEY, staleId);
+    renderProvider();
+    // Initial render shows the persisted stale id; the effect fires and resets it.
+    await waitFor(() =>
+      expect(screen.getByTestId("current").textContent).toBe("all"),
+    );
   });
 });

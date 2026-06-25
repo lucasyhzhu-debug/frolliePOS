@@ -9,7 +9,7 @@
  * Wire-in: wrap the cockpit <Outlet /> in <OutletProvider> inside CockpitShell
  * (RootLayout.tsx). Consumers call useOutletContext().
  */
-import { createContext, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -70,17 +70,33 @@ export function OutletProvider({ children }: { children: React.ReactNode }) {
     }
   });
 
-  const setCurrentOutlet = (id: Id<"outlets"> | "all") => {
+  const setCurrentOutlet = useCallback((id: Id<"outlets"> | "all") => {
     setCurrentOutletId(id);
     try {
       localStorage.setItem(COCKPIT_CURRENT_OUTLET_KEY, id);
     } catch {
       // Ignore storage errors (private browsing, quota exceeded).
     }
-  };
+  }, []);
+
+  // Stale-outlet-id safety: if the persisted id no longer exists in the live
+  // list (e.g. outlet removed), fall back to "all" once outlets has loaded.
+  useEffect(() => {
+    if (outlets === undefined) return; // still loading
+    if (currentOutletId === "all") return;
+    const exists = outlets.some((o) => o._id === currentOutletId);
+    if (!exists) {
+      setCurrentOutlet("all");
+    }
+  }, [outlets, currentOutletId, setCurrentOutlet]);
+
+  const value = useMemo(
+    () => ({ outlets, currentOutletId, setCurrentOutlet }),
+    [outlets, currentOutletId, setCurrentOutlet],
+  );
 
   return (
-    <OutletCtx.Provider value={{ outlets, currentOutletId, setCurrentOutlet }}>
+    <OutletCtx.Provider value={value}>
       {children}
     </OutletCtx.Provider>
   );

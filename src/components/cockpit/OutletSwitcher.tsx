@@ -9,7 +9,7 @@
  * Uses semantic tokens only (ADR-047) so the .theme-owner amber re-tints it
  * automatically alongside the rest of the cockpit plane.
  */
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -49,7 +49,10 @@ export function OutletSwitcher() {
           onSelect={() => setCurrentOutlet("all")}
           data-selected={currentOutletId === "all" ? "true" : undefined}
         >
-          {allOutletsLabel}
+          <span className="flex-1">{allOutletsLabel}</span>
+          {currentOutletId === "all" && (
+            <Check className="ml-2 h-3.5 w-3.5 shrink-0 text-foreground" />
+          )}
         </DropdownMenuItem>
         {outlets?.map((outlet) => (
           <DropdownMenuItem
@@ -61,6 +64,9 @@ export function OutletSwitcher() {
             <span className="ml-3 shrink-0 text-xs text-muted-foreground">
               {outlet.code}
             </span>
+            {currentOutletId === outlet._id && (
+              <Check className="ml-2 h-3.5 w-3.5 shrink-0 text-foreground" />
+            )}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
