@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { withIdempotency } from "../idempotency/internal";
 import { logAudit } from "../audit/internal";
 import { requireManagerSession, resolveDeviceOutletId } from "./sessions";
+import { grantOutletAccessRow } from "./grantAccess";
 
 /**
  * Resolve a staff member's display fields (name, code) by id.
@@ -774,32 +775,24 @@ export const _grantOutletAccess_internal = internalMutation({
     deviceId: v.string(),
   },
   handler: async (ctx, args): Promise<{ accessId: Id<"staff_outlet_access">; created: boolean }> => {
-    // Idempotent: check if a row already exists before inserting.
-    const existing = await ctx.db
-      .query("staff_outlet_access")
-      .withIndex("by_staff_outlet", (q) =>
-        q.eq("staff_id", args.staffId).eq("outlet_id", args.outletId),
-      )
-      .first();
-    if (existing) {
-      return { accessId: existing._id, created: false };
+    const { accessId, created } = await grantOutletAccessRow(ctx, {
+      staffId: args.staffId,
+      outletId: args.outletId,
+      grantedBy: args.grantedBy,
+      now: Date.now(),
+    });
+    if (created) {
+      await logAudit(ctx, {
+        actor_id: args.grantedBy,
+        action: "staff.grantOutletAccess",
+        entity_type: "staff",
+        entity_id: args.staffId,
+        source: "booth_inline",
+        device_id: args.deviceId,
+        metadata: { outlet_id: args.outletId },
+      });
     }
-    const accessId = await ctx.db.insert("staff_outlet_access", {
-      staff_id: args.staffId,
-      outlet_id: args.outletId,
-      granted_at: Date.now(),
-      granted_by: args.grantedBy,
-    });
-    await logAudit(ctx, {
-      actor_id: args.grantedBy,
-      action: "staff.grantOutletAccess",
-      entity_type: "staff",
-      entity_id: args.staffId,
-      source: "booth_inline",
-      device_id: args.deviceId,
-      metadata: { outlet_id: args.outletId },
-    });
-    return { accessId, created: true };
+    return { accessId, created };
   },
 });
 
