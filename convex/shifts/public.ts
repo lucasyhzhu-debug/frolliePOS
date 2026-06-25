@@ -440,8 +440,22 @@ export const handoverOut = mutation({
       const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
-      // C-2 write-side guard: handover-out is only valid from an OPEN booth.
-      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN", outletId);
+      // Booth-state guard. Handover-out is valid from OPEN (normal) or LOCKED. A
+      // returning staffer whose booth is stuck "locked" (re-logged in but resume
+      // never fired — #138 race) must be able to hand the booth to the next shift
+      // rather than being stranded with no forward path. The shift anchor
+      // (`shift_started_at`) survives lock, so the summary window stays correct;
+      // `handover_from` is stamped on the audit row for traceability. CLOSED /
+      // handover_pending still throw. (#138/#139)
+      const latestForState = await ctx.runQuery(
+        internal.shifts.internal._latestShiftEvent_internal,
+        { deviceId, outletId },
+      );
+      const { dayStartMs } = wibDayWindow(now);
+      const handoverFrom = deriveBoothState(latestForState, dayStartMs).state;
+      if (handoverFrom !== "open" && handoverFrom !== "locked") {
+        throw new Error("BOOTH_NOT_OPEN");
+      }
 
       // Resolve shift start anchor to compute duration + sales window.
       const anchor = await ctx.runQuery(
@@ -495,7 +509,7 @@ export const handoverOut = mutation({
         entity_type: "pos_shift_events",
         entity_id: eventId,
         source: "booth_inline",
-        metadata: { durationMs: summary.durationMs },
+        metadata: { durationMs: summary.durationMs, handover_from: handoverFrom },
       });
 
       // Schedule deferred Telegram signoff summary → founders (v1.2 #6).
@@ -557,8 +571,28 @@ export const lockShift = mutation({
       const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
       const now = Date.now();
 
-      // C-2 write-side guard: lock is only valid from an OPEN booth.
-      await assertBoothState(ctx, deviceId, "open", "BOOTH_NOT_OPEN", outletId);
+      // Booth-state guard. Lock is valid from OPEN (normal). An already-LOCKED
+      // booth is an idempotent no-op: a returning staffer who re-logged in but
+      // whose booth never resumed to "open" (the same client-side resume race as
+      // #138 — recordResume best-effort, RootLayout doesn't force-resume `locked`)
+      // would otherwise tap Lock and hit BOOTH_NOT_OPEN, stranding them. Mirror
+      // the idempotent close in endOfDaySignOff: end the caller's session so Lock
+      // still logs them out, write NO duplicate lock event, return ok. CLOSED /
+      // handover_pending still throw (no meaningful lock from those). (#138/#139)
+      const latestForState = await ctx.runQuery(
+        internal.shifts.internal._latestShiftEvent_internal,
+        { deviceId, outletId },
+      );
+      const { dayStartMs } = wibDayWindow(now);
+      const currentState = deriveBoothState(latestForState, dayStartMs).state;
+      if (currentState === "locked") {
+        await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+          sessionId: args.sessionId,
+          endReason: "manual_lock",
+        });
+        return { ok: true as const };
+      }
+      if (currentState !== "open") throw new Error("BOOTH_NOT_OPEN");
 
       // Preserve the original shift start so accumulated hours survive the lock.
       const anchor = await ctx.runQuery(
