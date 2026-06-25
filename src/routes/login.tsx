@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
-import { useQuery, useAction, useMutation } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { storeSession } from "@/hooks/useSession";
-import { useBoothState } from "@/hooks/useBoothState";
+import { useLoginContext } from "@/hooks/useLoginContext";
 import { getLastStaff } from "@/hooks/useLastStaff";
 import { StaffListItem } from "@/components/auth/StaffListItem";
 import { PinEntry } from "@/components/auth/PinEntry";
+import { PinSheet } from "@/components/pos/PinSheet";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n";
@@ -19,7 +20,8 @@ import { useSession } from "@/hooks/useSession";
 
 type Stage =
   | { kind: "list" }
-  | { kind: "pin"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" } };
+  | { kind: "pin"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" } }
+  | { kind: "blocked"; staff: { _id: Id<"staff">; name: string; role: "staff" | "manager" } };
 
 // Async result-state for the PIN submit, lifted out of toasts into an inline
 // FieldMessage (ADR-048): idle → pending → success | error.
@@ -32,7 +34,7 @@ type Phase =
 export default function LoginRoute() {
   const navigate = useNavigate();
   const deviceId = useDeviceId();
-  const boothState = useBoothState();
+  const ctx = useLoginContext();
   const session = useSession();
   const t = useT();
   // v2.0 Task 10: roster scoped to the device's bound outlet. Falls back while
@@ -47,27 +49,33 @@ export default function LoginRoute() {
   const outletLabel =
     session.status === "active" ? session.staff.outlet_label : undefined;
   const login = useAction(api.auth.actions.loginWithPin);
-  const recordResume = useMutation(api.shifts.public.recordResume);
+  const managerOverride = useAction(api.shifts.actions.managerOverride);
+
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
 
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
-  // Redirect immediately if booth is handover_pending — incoming staff should
-  // complete the handover checklist, not go through the plain login flow.
-  useEffect(() => {
-    if (boothState?.state === "handover_pending") {
-      navigate("/shift/handover", { replace: true });
-    }
-  }, [boothState, navigate]);
+  // Manager override state (reuses PinSheet pattern from lock.tsx)
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [pickedManager, setPickedManager] = useState<{
+    _id: Id<"staff">;
+    name: string;
+  } | null>(null);
+  const [overrideError, setOverrideError] = useState<string | undefined>();
+  const [overridePending, setOverridePending] = useState(false);
+
+  // Managers derived from the device-scoped staff list.
+  const managers = staff?.filter((s) => s.role === "manager") ?? [];
 
   // Pre-stage to PIN entry for the last-known staffer (UX optimisation — no
   // auth bypass; PIN is still required). Runs once when the active-staff list
   // first resolves.
   //
-  // Tightened (v1.2 #6): only auto-pre-stage when:
-  //   a) booth is "locked" AND lastStaff matches booth.staffId (same-person resume), OR
-  //   b) booth state is unknown/loading (undefined) or "open" — normal login.
+  // Guard: when the outlet is open with a holder, only auto-pre-stage if the
+  // holder is the same person as lastStaff (they're resuming their own shift).
+  // This prevents auto-selecting a different staffer who would just hit the
+  // block screen anyway.
   //
   // Silently falls back to the list if the stored id is absent from the active
   // list (deactivated, removed, or never set).
@@ -80,15 +88,18 @@ export default function LoginRoute() {
     const match = staff.find((s) => s._id === lastId);
     if (!match) return;
 
-    // When booth is locked, only auto-pre-stage if the locked staffId matches.
-    // This prevents auto-selecting the wrong person when a different staff
-    // walks up (they must pick themselves from the list).
-    if (boothState?.state === "locked" && boothState.staffId !== lastId) return;
+    // When outlet is open with a different holder, don't pre-stage — that
+    // person is blocked and would need manager override.
+    if (
+      ctx?.outletOpen === true &&
+      ctx.holderStaffId !== null &&
+      ctx.holderStaffId !== lastId
+    ) return;
 
     // Only flip the ref after a successful pre-stage.
     hasPreStaged.current = true;
     setStage({ kind: "pin", staff: match });
-  }, [staff, boothState]);
+  }, [staff, ctx]);
 
   // Clear any stale inline message when the stage changes (e.g. switching staff
   // or returning to the list).
@@ -101,10 +112,14 @@ export default function LoginRoute() {
   // every wrong-PIN attempt re-uses the same key and the server's
   // `_recordFailedAttempt_internal` dedupes them, freezing fail_count at 1 and
   // silently preventing lockout.
-  const intentKey = stage.kind === "pin"
-    ? `login:${stage.staff._id}:${deviceId ?? "pending"}:${pinReset}`
+  const staffId = stage.kind === "pin" || stage.kind === "blocked" ? stage.staff._id : null;
+  const intentKey = staffId
+    ? `login:${staffId}:${deviceId ?? "pending"}:${pinReset}`
     : "login:none";
   const idempotencyKey = useIdempotency(intentKey);
+
+  // Separate idempotency key for manager override (must not share root with login key).
+  const overrideKey = useIdempotency(`shift:override:${deviceId ?? "none"}`);
 
   // Reactive notification when the manager declines a pending PIN-reset for
   // this staff.
@@ -145,29 +160,19 @@ export default function LoginRoute() {
       });
       storeSession(sessionId, stage.staff._id);
 
-      // Resolve the navigation target on the booth state (v1.2 #6), then flash
-      // the green "Welcome" before navigating.
-      //   closed              → start of day checklist
-      //   locked + same staff → record resume, then home
-      //   open or undefined   → home (normal login)
-      // (handover_pending is handled by the redirect effect above.)
+      // Resolve the navigation target from loginContext (two-level stored state):
+      //   outlet closed       → start of day checklist (/shift/start)
+      //   outlet open, no holder → incoming count wizard (/shift/begin)
+      //   outlet open, holder === me → resume at home (/)
+      // (The blocked case — holder !== me — never reaches here; name tap is
+      //  intercepted before opening PIN entry.)
       let target = "/";
-      if (boothState?.state === "closed") {
+      if (ctx?.outletOpen === false) {
         target = "/shift/start";
-      } else if (boothState?.state === "locked" && stage.staff._id === boothState.staffId) {
-        // Only the staff who locked the booth resumes — a different staff logging
-        // in during "locked" skips recordResume and goes straight to home.
-        // Resume is best-effort bookkeeping: the staffer is already authenticated
-        // (session stored), so a booth-state race (e.g. another device changed
-        // state → BOOTH_NOT_LOCKED) must NOT bounce them back to the auth-error
-        // channel. Swallow it and proceed home; shift hours self-heal on the next
-        // event. (ADR-050)
-        try {
-          await recordResume({ idempotencyKey: `${idempotencyKey}:resume`, sessionId });
-        } catch {
-          // best-effort — fall through to home
-        }
+      } else if (ctx?.holderStaffId === null) {
+        target = "/shift/begin";
       }
+      // else: outlet open + holderStaffId === me → resume at "/" (holder shift untouched)
 
       // Navigate synchronously. A deferred (setTimeout) navigate is unsafe here:
       // storeSession() flips useSession to "loading" (stored id set, getSession
@@ -198,6 +203,59 @@ export default function LoginRoute() {
     }
   };
 
+  const handleStaffTap = (s: { _id: Id<"staff">; name: string; role: "staff" | "manager" }) => {
+    // Block if the outlet is open with a different holder — the incoming staffer
+    // must wait for handover or have a manager force-end the stranded shift.
+    if (
+      ctx?.outletOpen === true &&
+      ctx.holderStaffId !== null &&
+      ctx.holderStaffId !== s._id
+    ) {
+      setStage({ kind: "blocked", staff: s });
+      return;
+    }
+    setStage({ kind: "pin", staff: s });
+  };
+
+  const handleOverrideOpen = () => {
+    setPickedManager(null);
+    setOverrideError(undefined);
+    setOverrideOpen(true);
+  };
+
+  const handleOverridePin = async (pin: string) => {
+    if (!deviceId || !overrideKey || !pickedManager) {
+      setOverrideError(t("login.deviceNotReady"));
+      return;
+    }
+    setOverridePending(true);
+    setOverrideError(undefined);
+    try {
+      await managerOverride({
+        idempotencyKey: overrideKey,
+        deviceId,
+        managerStaffId: pickedManager._id,
+        managerPin: pin,
+      });
+      setOverrideOpen(false);
+      setPickedManager(null);
+      // ctx will reactively update (holderStaffId → null) once the mutation
+      // commits; the blocked staffer will see the block UI clear.
+      // Move back to the list so they can tap their own name to log in.
+      setStage({ kind: "list" });
+    } catch (err) {
+      const msg = errorMessage(err);
+      setOverrideError(
+        msg.includes("INVALID_PIN") ? t("login.errorWrongPin") :
+        msg.includes("NOT_MANAGER") ? t("lock.errorNotManager") :
+        msg.includes("LOCKED_OUT") ? t("lock.errorLockedOut") :
+        msg,
+      );
+    } finally {
+      setOverridePending(false);
+    }
+  };
+
   // Show a minimal loading state while the device id is being resolved from IDB.
   if (deviceId === null) {
     return (
@@ -216,6 +274,12 @@ export default function LoginRoute() {
         ? { phase: "success" as const, message: t("login.welcome"), persist: false }
         : { phase: "idle" as const, message: undefined, persist: false };
 
+  // Heading text derived from stage
+  const heading =
+    stage.kind === "list"
+      ? t("login.whoIsWorking")
+      : stage.staff.name;
+
   return (
     <main className="flex flex-1 flex-col p-6">
       {/* Brand mark */}
@@ -228,7 +292,7 @@ export default function LoginRoute() {
 
       <header className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-foreground">
-          {stage.kind === "list" ? t("login.whoIsWorking") : stage.staff.name}
+          {heading}
         </h1>
         <div className="flex items-center gap-2">
           {outletLabel && (
@@ -252,10 +316,31 @@ export default function LoginRoute() {
             staff.map((s) => (
               <StaffListItem
                 key={s._id} name={s.name} role={s.role}
-                onClick={() => setStage({ kind: "pin", staff: s })}
+                onClick={() => handleStaffTap(s)}
               />
             ))
           )}
+        </div>
+      ) : stage.kind === "blocked" ? (
+        // Shift held by someone else — block entry, offer manager override.
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            {t("login.shiftHeldBy", { name: ctx?.holderName ?? "" })}
+          </p>
+          <button
+            type="button"
+            onClick={handleOverrideOpen}
+            className="rounded-lg bg-card border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+          >
+            {t("login.managerOverride")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setStage({ kind: "list" })}
+            className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+          >
+            {t("login.back")}
+          </button>
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
@@ -274,6 +359,44 @@ export default function LoginRoute() {
           </button>
         </div>
       )}
+
+      {/* Manager-picker + PIN sheet for override */}
+      <PinSheet
+        open={overrideOpen}
+        title={t("login.managerOverride")}
+        label={
+          pickedManager
+            ? t("lock.pinForManager", { name: pickedManager.name })
+            : t("login.overridePickManager")
+        }
+        pending={overridePending}
+        error={overrideError}
+        onSubmit={pickedManager ? handleOverridePin : () => undefined}
+        onCancel={() => {
+          setOverrideOpen(false);
+          setPickedManager(null);
+          setOverrideError(undefined);
+        }}
+        extraField={
+          !pickedManager ? (
+            <div className="flex flex-col gap-1 mb-2">
+              {managers.map((m) => (
+                <button
+                  key={m._id}
+                  type="button"
+                  className="rounded border border-border bg-card px-3 py-2 text-sm text-left hover:bg-accent"
+                  onClick={() => setPickedManager(m)}
+                >
+                  {m.name}
+                </button>
+              ))}
+              {managers.length === 0 && (
+                <p className="text-sm text-muted-foreground">{t("lock.noManagers")}</p>
+              )}
+            </div>
+          ) : null
+        }
+      />
     </main>
   );
 }
