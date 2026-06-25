@@ -108,3 +108,41 @@ export const handover = mutation({
     { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
   ),
 });
+
+export const startShift = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    openCount: v.optional(v.number()),
+  },
+  handler: withIdempotency<OpenBoothArgs, OpenBoothResult>(
+    "shifts.startShift",
+    async (ctx, args): Promise<OpenBoothResult> => {
+      const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
+
+      const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
+      if (!status.is_open) throw new Error("BOOTH_NOT_OPEN");
+
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+      if (holder) throw new Error("SHIFT_IN_PROGRESS");
+
+      const prev = await ctx.runQuery(internal.shifts.shiftsInternal._lastEndedShift_internal, { outletId });
+      const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
+        internal.shifts.shiftsInternal._startShift_internal,
+        {
+          outletId, deviceId, staffId, startedVia: "handover",
+          openCount: args.openCount ?? null, steps: args.steps,
+          prevShiftId: prev?._id ?? null,
+        },
+      );
+      await logAudit(ctx, {
+        actor_id: staffId, action: "shift.start", entity_type: "pos_shifts",
+        entity_id: shiftId, source: "booth_inline",
+        metadata: { started_via: "handover", prev_shift_id: prev?._id ?? null },
+      });
+      return { ok: true as const, shiftId };
+    },
+    { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
+  ),
+});

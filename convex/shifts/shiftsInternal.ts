@@ -120,3 +120,15 @@ export const _managerSkipOpenCommit_internal = internalMutation({
     },
   ),
 });
+
+export const _lastEndedShift_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, { outletId }): Promise<Doc<"pos_shifts"> | null> => {
+    const rows = await ctx.db
+      .query("pos_shifts")
+      .withIndex("by_outlet_started", (q) => q.eq("outlet_id", outletId))
+      .order("desc")
+      .take(5);
+    return rows.find((r) => r.ended_at !== null) ?? null;
+  },
+});
