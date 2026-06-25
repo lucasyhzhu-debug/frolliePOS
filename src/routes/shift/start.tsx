@@ -129,7 +129,7 @@ export default function ShiftStart() {
   // gate lifts naturally on the next loginContext query tick.
   async function onSkipPin(pin: string) {
     if (!skipKey || !sessionId) {
-      setSkipPinError(t("shiftStart.skipPinLabel")); // guard — shouldn't happen
+      setSkipPinError(t("lock.errorNotReady")); // guard — shouldn't happen
       return;
     }
     setSkipPinPending(true);
