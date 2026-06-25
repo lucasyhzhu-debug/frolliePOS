@@ -10,7 +10,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Backend — `convex/cockpit/`:**
 - `outlets.ts`: `createOutlet` (public action — idempotency + `withActionCache` + cockpit `authCheck`-before-lookup) wraps `_createOutletAtomic_internal` (internalMutation) — atomically creates the outlet row, clones catalog + settings (or seeds blank), grants `staff_outlet_access`, and emits a single `outlet.created` audit row (`source: "cockpit"`). Errors: `OUTLET_CODE_TAKEN`, `SOURCE_OUTLET_REQUIRED` (clone path). `listOutlets` (query — all active outlets, projected). `listAssignableStaff` (query — active staff minus `pin_hash`).
-- `dashboard.ts`: `consolidatedSummary` (query → `{ gross, txnCount, refundTotal }` summed across all active outlets for today WIB); `perOutletSummary` (query → `{ outletId, code, name, gross, txnCount }[]`). Both fan out via `computeDaySummary` (transactions module) over active outlets.
+- `dashboard.ts`: `perOutletSummary` (query → `{ outletId, code, name, gross, txnCount, refundTotal }[]`; fans out via `computeDaySummary` per active outlet; the consolidated headline is derived client-side by summing all rows — no separate `consolidatedSummary` query).
 
 **Supporting helpers (plain V8-safe; in owning modules so `cockpit/` stays fence-clean):**
 - `convex/outlets/lib.ts`: `getOutletByCode`, `insertOutletRow`.

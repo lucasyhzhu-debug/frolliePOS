@@ -28,13 +28,13 @@ import { gridContainerVariants, gridItemVariants } from "@/lib/motion";
 
 // ── local types ────────────────────────────────────────────────────────────────
 
-type ConsolidatedData = { gross: number; txnCount: number; refundTotal: number };
 type OutletRow = {
   outletId: Id<"outlets">;
   code: string;
   name: string;
   gross: number;
   txnCount: number;
+  refundTotal: number;
 };
 
 // ── page component ─────────────────────────────────────────────────────────────
@@ -55,15 +55,20 @@ export default function CockpitHomeRoute() {
 
   // ── queries ──────────────────────────────────────────────────────────────────
 
-  const consolidated = useQuery(
-    api.cockpit.dashboard.consolidatedSummary,
-    sessionId ? { sessionId } : "skip",
-  );
-
   const perOutlet = useQuery(
     api.cockpit.dashboard.perOutletSummary,
     sessionId ? { sessionId } : "skip",
   );
+
+  // Derive consolidated headline client-side by reducing over perOutlet rows.
+  const consolidatedData =
+    perOutlet === undefined
+      ? undefined
+      : {
+          gross: perOutlet.reduce((a, r) => a + r.gross, 0),
+          txnCount: perOutlet.reduce((a, r) => a + r.txnCount, 0),
+          refundTotal: perOutlet.reduce((a, r) => a + r.refundTotal, 0),
+        };
 
   // Filter per-outlet based on the outlet switcher selection.
   // Consolidated headline is unaffected — always business-wide.
@@ -130,10 +135,10 @@ export default function CockpitHomeRoute() {
       {error && <p className="text-xs text-destructive">{error}</p>}
 
       {/* ── consolidated headline — focal point ─────────────────────────────── */}
-      {consolidated === undefined ? (
+      {consolidatedData === undefined ? (
         <ConsolidatedSkeleton />
       ) : (
-        <ConsolidatedCard data={consolidated} />
+        <ConsolidatedCard data={consolidatedData} />
       )}
 
       {/* ── per-outlet section ───────────────────────────────────────────────── */}
@@ -173,7 +178,7 @@ export default function CockpitHomeRoute() {
 
 // ── consolidated headline card ─────────────────────────────────────────────────
 
-function ConsolidatedCard({ data }: { data: ConsolidatedData }) {
+function ConsolidatedCard({ data }: { data: { gross: number; txnCount: number; refundTotal: number } }) {
   const t = useT();
   return (
     <Card className="border-primary/20 p-5" data-testid="consolidated-card">

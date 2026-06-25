@@ -8,8 +8,8 @@
  *   4. On success: setCurrentOutlet(newId) called + navigate to /cockpit/outlets.
  *
  * Mock strategy mirrors src/routes/cockpit/__tests__/index.test.tsx:
- *   - convex/react: useAction → mockCreateOutlet; useQuery tracks call parity to
- *     alternate between listOutlets (even calls) and listAssignableStaff (odd calls).
+ *   - convex/react: useAction → mockCreateOutlet; useQuery returns staff for
+ *     listAssignableStaff (the only remaining useQuery call in the wizard).
  *   - useSession, useIdempotency, useOutletContext, sonner, framer-motion all stubbed.
  */
 
@@ -90,18 +90,11 @@ const MOCK_STAFF = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/**
- * Configure useQuery to alternate between outlets (even calls) and staff (odd).
- * This mirrors the hook call order in the wizard: listOutlets then listAssignableStaff.
- */
-function setupDefaultQueries(
-  outlets = MOCK_OUTLETS,
-  staff = MOCK_STAFF,
-) {
+/** Configure useQuery to return staff for listAssignableStaff (the only remaining useQuery call in the wizard). */
+function setupDefaultQueries(staff = MOCK_STAFF) {
   mockUseQuery.mockImplementation((_fn: unknown, args: unknown) => {
     if (args === "skip") return undefined;
-    const idx = mockUseQuery.mock.calls.length - 1;
-    return idx % 2 === 0 ? outlets : staff;
+    return staff;
   });
 }
 

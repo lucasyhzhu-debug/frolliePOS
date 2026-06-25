@@ -9,7 +9,7 @@
  * (ADR-047). Inline field errors via <FieldMessage> (ADR-048). Brand strings as
  * {"…"} (ADR-049). Framer Motion guarded with useReducedMotion.
  */
-import { useReducer, useState, useMemo } from "react";
+import { useReducer, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAction, useQuery } from "convex/react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -27,6 +27,7 @@ import { FieldMessage } from "@/components/ui/field-message";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { errorMessage } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
+import { stepSlideVariants } from "@/lib/motion";
 import type { TranslationKey } from "@/lib/i18n";
 
 // ── Local types ────────────────────────────────────────────────────────────────
@@ -93,19 +94,8 @@ type WizardAction =
   | { type: "BACK" }
   | { type: "SET_MODE"; mode: "blank" | "clone" }
   | { type: "SET_SOURCE"; id: Id<"outlets"> | undefined; sourceName?: string; sourceAddress?: string }
-  | { type: "SET_NAME"; value: string }
-  | { type: "SET_CODE"; value: string }
-  | { type: "SET_ADDRESS"; value: string }
-  | { type: "SET_TIMEZONE"; value: string }
-  | { type: "SET_RECEIPT_BUSINESS_NAME"; value: string }
-  | { type: "SET_RECEIPT_ADDRESS"; value: string }
-  | { type: "SET_RECEIPT_CONTACT"; value: string }
-  | { type: "TOGGLE_BCA_ENABLED" }
-  | { type: "SET_BCA_BANK_NAME"; value: string }
-  | { type: "SET_BCA_ACCOUNT_NAME"; value: string }
-  | { type: "SET_BCA_ACCOUNT_NUMBER"; value: string }
-  | { type: "TOGGLE_STAFF_ID"; id: Id<"staff"> }
-  | { type: "SET_PROVISION_TELEGRAM"; value: boolean };
+  | { type: "SET_FIELD"; field: "name" | "code" | "address" | "timezone" | "receipt_business_name" | "receipt_address" | "receipt_contact" | "manual_bca_enabled" | "manual_bca_bank_name" | "manual_bca_account_name" | "manual_bca_account_number" | "provision_managers_chat"; value: string | boolean }
+  | { type: "TOGGLE_STAFF_ID"; id: Id<"staff"> };
 
 function reducer(s: WizardState, a: WizardAction): WizardState {
   switch (a.type) {
@@ -129,24 +119,14 @@ function reducer(s: WizardState, a: WizardAction): WizardState {
         receipt_business_name: a.sourceName ?? s.receipt_business_name,
         receipt_address: a.sourceAddress ?? s.receipt_address,
       };
-    case "SET_NAME": return { ...s, name: a.value };
-    case "SET_CODE": return { ...s, code: a.value.toUpperCase() };
-    case "SET_ADDRESS": return { ...s, address: a.value };
-    case "SET_TIMEZONE": return { ...s, timezone: a.value };
-    case "SET_RECEIPT_BUSINESS_NAME": return { ...s, receipt_business_name: a.value };
-    case "SET_RECEIPT_ADDRESS": return { ...s, receipt_address: a.value };
-    case "SET_RECEIPT_CONTACT": return { ...s, receipt_contact: a.value };
-    case "TOGGLE_BCA_ENABLED": return { ...s, manual_bca_enabled: !s.manual_bca_enabled };
-    case "SET_BCA_BANK_NAME": return { ...s, manual_bca_bank_name: a.value };
-    case "SET_BCA_ACCOUNT_NAME": return { ...s, manual_bca_account_name: a.value };
-    case "SET_BCA_ACCOUNT_NUMBER": return { ...s, manual_bca_account_number: a.value };
+    case "SET_FIELD":
+      return { ...s, [a.field]: a.field === "code" ? String(a.value).toUpperCase() : a.value };
     case "TOGGLE_STAFF_ID": {
       const ids = s.staff_ids.includes(a.id)
         ? s.staff_ids.filter((id) => id !== a.id)
         : [...s.staff_ids, a.id];
       return { ...s, staff_ids: ids };
     }
-    case "SET_PROVISION_TELEGRAM": return { ...s, provision_managers_chat: a.value };
     default: return s;
   }
 }
@@ -166,33 +146,18 @@ const STEP_LABEL_KEYS: readonly TranslationKey[] = [
 
 const TOTAL_STEPS = STEP_LABEL_KEYS.length; // 8
 
-// ── Animation ──────────────────────────────────────────────────────────────────
-
-function mkVariants(dir: 1 | -1, reduce: boolean) {
-  return {
-    enter: { opacity: reduce ? 1 : 0, x: reduce ? 0 : dir * 20 },
-    center: { opacity: 1, x: 0 },
-    exit: { opacity: reduce ? 1 : 0, x: reduce ? 0 : dir * -20 },
-  };
-}
-
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CockpitOutletNew() {
   const t = useT();
   const navigate = useNavigate();
   const session = useSession();
-  const { setCurrentOutlet } = useOutletContext();
+  const { outlets, setCurrentOutlet } = useOutletContext();
   const createOutlet = useAction(api.cockpit.outlets.createOutlet);
   const idemKey = useIdempotency("cockpit:create-outlet");
   const reduce = useReducedMotion() ?? false;
 
   const sessionId = session.status === "active" ? session.sessionId : undefined;
-
-  const outlets = useQuery(
-    api.cockpit.outlets.listOutlets,
-    sessionId ? { sessionId } : "skip",
-  );
 
   const staffList = useQuery(
     api.cockpit.outlets.listAssignableStaff,
@@ -204,24 +169,18 @@ export default function CockpitOutletNew() {
   const [submitting, setSubmitting] = useState(false);
 
   // Existing outlet codes — derive uniqueness check for step 1.
-  const existingCodes = useMemo(
-    () => (outlets ?? []).map((o) => o.code.toUpperCase()),
-    [outlets],
-  );
+  const existingCodes = (outlets ?? []).map((o) => o.code.toUpperCase());
   const isDupCode =
     state.code.trim() !== "" &&
     existingCodes.includes(state.code.trim().toUpperCase());
 
   // Per-step Next gate.
-  const canNext = useMemo(() => {
-    if (state.step === 0) {
-      return state.mode === "blank" || state.source_outlet_id !== undefined;
-    }
-    if (state.step === 1) {
-      return state.name.trim() !== "" && state.code.trim() !== "" && !isDupCode;
-    }
-    return true;
-  }, [state.step, state.mode, state.source_outlet_id, state.name, state.code, isDupCode]);
+  const canNext =
+    state.step === 0
+      ? state.mode === "blank" || state.source_outlet_id !== undefined
+      : state.step === 1
+        ? state.name.trim() !== "" && state.code.trim() !== "" && !isDupCode
+        : true;
 
   function goNext() {
     if (!canNext) return;
@@ -298,7 +257,7 @@ export default function CockpitOutletNew() {
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={state.step}
-              variants={mkVariants(dir, reduce)}
+              variants={stepSlideVariants(dir, reduce)}
               initial="enter"
               animate="center"
               exit="exit"
@@ -487,7 +446,7 @@ function StepNameCode({
         <Input
           id="outlet-name"
           value={state.name}
-          onChange={(e) => dispatch({ type: "SET_NAME", value: e.target.value })}
+          onChange={(e) => dispatch({ type: "SET_FIELD", field: "name", value: e.target.value })}
           placeholder={t("cockpitOutletNew.namePlaceholder")}
           autoComplete="off"
         />
@@ -498,7 +457,7 @@ function StepNameCode({
         <Input
           id="outlet-code"
           value={state.code}
-          onChange={(e) => dispatch({ type: "SET_CODE", value: e.target.value })}
+          onChange={(e) => dispatch({ type: "SET_FIELD", field: "code", value: e.target.value })}
           placeholder={t("cockpitOutletNew.codePlaceholder")}
           autoComplete="off"
           className="font-mono uppercase"
@@ -529,7 +488,7 @@ function StepAddress({
       <Input
         id="outlet-address"
         value={state.address}
-        onChange={(e) => dispatch({ type: "SET_ADDRESS", value: e.target.value })}
+        onChange={(e) => dispatch({ type: "SET_FIELD", field: "address", value: e.target.value })}
         placeholder={t("cockpitOutletNew.addressPlaceholder")}
         autoComplete="street-address"
       />
@@ -555,7 +514,7 @@ function StepTimezone({
       <Input
         id="outlet-timezone"
         value={state.timezone}
-        onChange={(e) => dispatch({ type: "SET_TIMEZONE", value: e.target.value })}
+        onChange={(e) => dispatch({ type: "SET_FIELD", field: "timezone", value: e.target.value })}
         placeholder="Asia/Jakarta"
         autoComplete="off"
       />
@@ -585,7 +544,7 @@ function StepSettings({
           id="receipt-business-name"
           value={state.receipt_business_name}
           onChange={(e) =>
-            dispatch({ type: "SET_RECEIPT_BUSINESS_NAME", value: e.target.value })
+            dispatch({ type: "SET_FIELD", field: "receipt_business_name", value: e.target.value })
           }
           placeholder={state.name || t("cockpitOutletNew.namePlaceholder")}
           autoComplete="organization"
@@ -600,7 +559,7 @@ function StepSettings({
           id="receipt-address"
           value={state.receipt_address}
           onChange={(e) =>
-            dispatch({ type: "SET_RECEIPT_ADDRESS", value: e.target.value })
+            dispatch({ type: "SET_FIELD", field: "receipt_address", value: e.target.value })
           }
           placeholder={state.address || t("cockpitOutletNew.addressPlaceholder")}
           autoComplete="street-address"
@@ -615,7 +574,7 @@ function StepSettings({
           id="receipt-contact"
           value={state.receipt_contact}
           onChange={(e) =>
-            dispatch({ type: "SET_RECEIPT_CONTACT", value: e.target.value })
+            dispatch({ type: "SET_FIELD", field: "receipt_contact", value: e.target.value })
           }
           placeholder="e.g. 08123456789"
           autoComplete="tel"
@@ -631,7 +590,7 @@ function StepSettings({
           <Switch
             id="bca-enabled"
             checked={state.manual_bca_enabled}
-            onCheckedChange={() => dispatch({ type: "TOGGLE_BCA_ENABLED" })}
+            onCheckedChange={() => dispatch({ type: "SET_FIELD", field: "manual_bca_enabled", value: !state.manual_bca_enabled })}
           />
         </div>
 
@@ -645,7 +604,7 @@ function StepSettings({
                 id="bca-bank-name"
                 value={state.manual_bca_bank_name}
                 onChange={(e) =>
-                  dispatch({ type: "SET_BCA_BANK_NAME", value: e.target.value })
+                  dispatch({ type: "SET_FIELD", field: "manual_bca_bank_name", value: e.target.value })
                 }
                 placeholder="BCA"
                 autoComplete="off"
@@ -659,7 +618,7 @@ function StepSettings({
                 id="bca-account-name"
                 value={state.manual_bca_account_name}
                 onChange={(e) =>
-                  dispatch({ type: "SET_BCA_ACCOUNT_NAME", value: e.target.value })
+                  dispatch({ type: "SET_FIELD", field: "manual_bca_account_name", value: e.target.value })
                 }
                 placeholder="PT Frollie Indonesia"
                 autoComplete="name"
@@ -673,7 +632,7 @@ function StepSettings({
                 id="bca-account-number"
                 value={state.manual_bca_account_number}
                 onChange={(e) =>
-                  dispatch({ type: "SET_BCA_ACCOUNT_NUMBER", value: e.target.value })
+                  dispatch({ type: "SET_FIELD", field: "manual_bca_account_number", value: e.target.value })
                 }
                 placeholder="1234567890"
                 autoComplete="off"
@@ -783,7 +742,7 @@ function StepTelegram({
         <Switch
           id="telegram-provision"
           checked={state.provision_managers_chat}
-          onCheckedChange={(v) => dispatch({ type: "SET_PROVISION_TELEGRAM", value: v })}
+          onCheckedChange={(v) => dispatch({ type: "SET_FIELD", field: "provision_managers_chat", value: v })}
         />
       </div>
 

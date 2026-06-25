@@ -21,49 +21,6 @@ import { computeDaySummary } from "../transactions/lib";
 import { wibDayWindow } from "../lib/time";
 
 /**
- * Consolidated sales summary across all active outlets for the given WIB day
- * (defaults to today). Owner-cockpit gated.
- *
- * Returns aggregated totals: gross revenue, transaction count, and total
- * refunds — suitable for an at-a-glance owner dashboard card.
- */
-export const consolidatedSummary = query({
-  args: {
-    sessionId: v.id("staff_sessions"),
-    dayMs: v.optional(v.number()),
-  },
-  handler: async (
-    ctx,
-    { sessionId, dayMs },
-  ): Promise<{ gross: number; txnCount: number; refundTotal: number }> => {
-    await requireCockpitSession(ctx, sessionId);
-    const { dayStartMs, dayEndMs } = wibDayWindow(dayMs ?? Date.now());
-    const outlets = await ctx.runQuery(
-      internal.outlets.internal._listActiveOutlets_internal,
-      {},
-    );
-    const outletSummaries = await Promise.all(
-      outlets.map(async (o) => {
-        const txns = await ctx.runQuery(
-          internal.transactions.internal._fetchDayWindow_internal,
-          { dayStartMs, dayEndMs, outletId: o._id },
-        );
-        return computeDaySummary(txns);
-      }),
-    );
-    let gross = 0,
-      txnCount = 0,
-      refundTotal = 0;
-    for (const s of outletSummaries) {
-      gross += s.gross;
-      txnCount += s.count;
-      refundTotal += s.refundsTotal;
-    }
-    return { gross, txnCount, refundTotal };
-  },
-});
-
-/**
  * Per-outlet sales summary for the given WIB day (defaults to today).
  * Owner-cockpit gated.
  *
@@ -85,6 +42,7 @@ export const perOutletSummary = query({
       name: string;
       gross: number;
       txnCount: number;
+      refundTotal: number;
     }[]
   > => {
     await requireCockpitSession(ctx, sessionId);
@@ -106,6 +64,7 @@ export const perOutletSummary = query({
           name: o.name,
           gross: s.gross,
           txnCount: s.count,
+          refundTotal: s.refundsTotal,
         };
       }),
     );

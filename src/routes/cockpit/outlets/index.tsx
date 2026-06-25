@@ -10,35 +10,16 @@
  */
 
 import { Link } from "react-router";
-import { useQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
-import { useSession } from "@/hooks/useSession";
 import { useT } from "@/lib/i18n";
+import { useOutletContext } from "@/contexts/OutletContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpokeLayout } from "@/components/layout/SpokeLayout";
 
 export default function CockpitOutlets() {
-  const session = useSession();
   const t = useT();
-
-  const sessionId = session.status === "active" ? session.sessionId : undefined;
-
-  const outlets = useQuery(
-    api.cockpit.outlets.listOutlets,
-    sessionId ? { sessionId } : "skip",
-  );
-
-  if (session.status === "loading") {
-    return (
-      <SpokeLayout title={t("cockpitOutlets.title")} backTo="/cockpit">
-        <div className="flex flex-1 items-center justify-center p-8">
-          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-        </div>
-      </SpokeLayout>
-    );
-  }
+  const { outlets } = useOutletContext();
 
   return (
     <SpokeLayout title={t("cockpitOutlets.title")} backTo="/cockpit">

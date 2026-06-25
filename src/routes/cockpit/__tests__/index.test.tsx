@@ -58,13 +58,13 @@ vi.mock("@/hooks/useSession", () => ({
 
 // ── fixtures ───────────────────────────────────────────────────────────────────
 
-const CONSOLIDATED = { gross: 500000, txnCount: 7, refundTotal: 10000 };
 const PW_OUTLET = {
   outletId: "kn7out000000000000000000000" as never,
   code: "PW",
   name: "Pakuwon Mall",
   gross: 500000,
   txnCount: 7,
+  refundTotal: 10000,
 };
 const SB_OUTLET = {
   outletId: "kn7out111111111111111111111" as never,
@@ -72,16 +72,14 @@ const SB_OUTLET = {
   name: "Surabaya",
   gross: 120000,
   txnCount: 2,
+  refundTotal: 0,
 };
 
-/** Configure useQuery to return consolidated (1st call) + perOutlet (2nd call) */
+/** Configure useQuery to return perOutlet (the only query in the component). */
 function setLoadedQueries(perOutlet = [PW_OUTLET]) {
   mockUseQuery.mockImplementation((_fn: unknown, args: unknown) => {
     if (args === "skip") return undefined;
-    // Hooks are called in fixed order: consolidatedSummary (odd positions),
-    // perOutletSummary (even positions). mock.calls.length includes the current
-    // call at implementation time, so (length-1)%2 correctly alternates.
-    return (mockUseQuery.mock.calls.length - 1) % 2 === 0 ? CONSOLIDATED : perOutlet;
+    return perOutlet;
   });
 }
 

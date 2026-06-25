@@ -35,13 +35,13 @@ vi.mock("@/hooks/useSession", () => ({
   clearSession: vi.fn(),
 }));
 
-vi.mock("convex/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("convex/react")>();
-  return {
-    ...actual,
-    useQuery: vi.fn(() => mockOutlets),
-  };
-});
+vi.mock("@/contexts/OutletContext", () => ({
+  useOutletContext: () => ({
+    outlets: mockOutlets as any,
+    currentOutletId: "all",
+    setCurrentOutlet: vi.fn(),
+  }),
+}));
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

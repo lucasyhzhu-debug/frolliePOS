@@ -36,8 +36,11 @@ export async function seedSettingsRow(
   { targetOutletId, now, ownerStaffId, values }:
   { targetOutletId: Id<"outlets">; now: number; ownerStaffId: Id<"staff">; values: SettingsOverrides },
 ): Promise<void> {
+  const cleanValues = Object.fromEntries(
+    Object.entries(values).filter(([, v]) => v !== undefined),
+  );
   await ctx.db.insert("pos_settings", {
-    founders_summary_enabled: values.founders_summary_enabled ?? true,
-    ...values, outlet_id: targetOutletId, updated_at: now, updated_by: ownerStaffId,
+    founders_summary_enabled: true,
+    ...cleanValues, outlet_id: targetOutletId, updated_at: now, updated_by: ownerStaffId,
   } as any);
 }

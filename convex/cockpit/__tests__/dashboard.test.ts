@@ -7,8 +7,8 @@
  * per outlet inside today's WIB day window.
  *
  * Assertions:
- *  - consolidatedSummary: txnCount === 2, gross is the sum of both txns.
- *  - perOutletSummary: 2 rows, each with the correct per-outlet split.
+ *  - perOutletSummary: 2 rows, each with the correct per-outlet split (including refundTotal).
+ *    The consolidated headline is derived client-side by summing all rows.
  */
 import { convexTest } from "convex-test";
 import { test, expect } from "vitest";
@@ -135,29 +135,6 @@ async function seedPaidTxn(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test("consolidatedSummary aggregates txnCount + gross across 2 outlets", async () => {
-  const t = convexTest(schema);
-  const { dayStartMs } = wibDayWindow(Date.now());
-
-  const { session } = await t.run(async (ctx) => {
-    const o1 = await seedOutlet(ctx, "O1", "Outlet One");
-    const o2 = await seedOutlet(ctx, "O2", "Outlet Two");
-    const s1 = await seedStaff(ctx, "ST1");
-    const s2 = await seedStaff(ctx, "ST2");
-    await seedPaidTxn(ctx, { outletId: o1, staffId: s1, total: 80_000, dayStartMs });
-    await seedPaidTxn(ctx, { outletId: o2, staffId: s2, total: 120_000, dayStartMs });
-    return seedCockpitSession(ctx);
-  });
-
-  const result = await t.query(api.cockpit.dashboard.consolidatedSummary, {
-    sessionId: session,
-  });
-
-  expect(result.txnCount).toBe(2);
-  expect(result.gross).toBe(200_000); // 80k + 120k
-  expect(result.refundTotal).toBe(0);
-});
-
 test("perOutletSummary returns 2 rows with correct per-outlet split", async () => {
   const t = convexTest(schema);
   const { dayStartMs } = wibDayWindow(Date.now());
@@ -188,41 +165,6 @@ test("perOutletSummary returns 2 rows with correct per-outlet split", async () =
   expect(p2).toBeDefined();
   expect(p2!.txnCount).toBe(1);
   expect(p2!.gross).toBe(70_000);
-});
-
-test("consolidatedSummary rejects a booth session with NOT_COCKPIT_SESSION", async () => {
-  const t = convexTest(schema);
-  const boothSession = await t.run(async (ctx) => {
-    const outlet = await seedOutlet(ctx, "BT", "Booth");
-    const staff = await seedStaff(ctx, "BST");
-    return ctx.db.insert("staff_sessions", {
-      staff_id: staff,
-      device_id: "d",
-      kind: "booth",
-      outlet_id: outlet,
-      started_at: Date.now(),
-      last_active_at: Date.now(),
-      ended_at: null,
-      end_reason: null,
-    } as any);
-  });
-  await expect(
-    t.query(api.cockpit.dashboard.consolidatedSummary, { sessionId: boothSession }),
-  ).rejects.toThrow("NOT_COCKPIT_SESSION");
-});
-
-test("consolidatedSummary returns zeros when no paid txns exist", async () => {
-  const t = convexTest(schema);
-  const { session } = await t.run(async (ctx) => {
-    await seedOutlet(ctx, "EMP", "Empty Outlet");
-    return seedCockpitSession(ctx);
-  });
-
-  const result = await t.query(api.cockpit.dashboard.consolidatedSummary, {
-    sessionId: session,
-  });
-
-  expect(result.txnCount).toBe(0);
-  expect(result.gross).toBe(0);
-  expect(result.refundTotal).toBe(0);
+  expect(p1!.refundTotal).toBe(0);
+  expect(p2!.refundTotal).toBe(0);
 });

@@ -409,8 +409,7 @@ All functions are outlet-**UNSCOPED** and gated by `requireCockpitSession` (cock
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `cockpit.dashboard.consolidatedSummary` | `{ sessionId, dayMs? }` | `{ gross: number, txnCount: number, refundTotal: number }` | Cockpit-session gated. Fan-outs `_fetchDayWindow_internal` across all active outlets in parallel (`Promise.all`), then sums `computeDaySummary` totals. `dayMs` defaults to today (WIB). Money is integer rupiah (ADR-015). |
-| q | `cockpit.dashboard.perOutletSummary` | `{ sessionId, dayMs? }` | `{ outletId: Id<"outlets">, code: string, name: string, gross: number, txnCount: number }[]` | Cockpit-session gated. Parallel fan-out (`Promise.all`) of `_fetchDayWindow_internal` per outlet, one result row per outlet. `dayMs` defaults to today (WIB). Powers the per-outlet breakdown cards on the cockpit dashboard. |
+| q | `cockpit.dashboard.perOutletSummary` | `{ sessionId, dayMs? }` | `{ outletId: Id<"outlets">, code: string, name: string, gross: number, txnCount: number, refundTotal: number }[]` | Cockpit-session gated. Parallel fan-out (`Promise.all`) of `_fetchDayWindow_internal` per outlet, one result row per outlet. `refundTotal` is included per row; the consolidated headline is derived client-side by summing all rows. `dayMs` defaults to today (WIB). Powers the per-outlet breakdown cards on the cockpit dashboard. |
 
 ## `seed.ts` (dev only)
 

@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useSession } from "@/hooks/useSession";
 import { useDeviceId } from "@/hooks/useDeviceId";
@@ -240,6 +240,7 @@ export function RootLayout() {
 function CockpitShell() {
   const session = useSession();
   const touchCockpit = useMutation(api.auth.public.touchCockpitSession);
+  const lastPingedAtRef = useRef<number>(0);
 
   // Derive a stable sessionId so the effect dep is a primitive (null | string),
   // not the whole session object — avoids spurious re-runs on unrelated renders.
@@ -252,6 +253,7 @@ function CockpitShell() {
     if (!sessionId) return;
 
     const ping = async () => {
+      if (Date.now() - lastPingedAtRef.current < 60_000) return;
       try {
         // Fresh UUID on EVERY call — withIdempotency caches by key; reusing the
         // same key would short-circuit to the cached null response and never
@@ -260,6 +262,7 @@ function CockpitShell() {
           idempotencyKey: crypto.randomUUID(),
           sessionId,
         });
+        lastPingedAtRef.current = Date.now();
       } catch {
         // Session ended or transient network error. Swallow: the RootLayout gate
         // already redirects to /cockpit/login when getSession returns null.
