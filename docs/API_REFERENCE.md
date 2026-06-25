@@ -392,6 +392,26 @@ Routed via `pathPrefix: "/r/"` in `convex/http.ts`; handler is `handleReceiptRou
 | `refund.ts` | `executeRefund({ invoiceId, amount, reason })` | Xendit refund API call |
 | `webhook.ts` | (HTTP action above) | Webhook routing |
 
+## `cockpit/` *(v1.3.0 — owner read/clone surface)*
+
+All functions are outlet-**UNSCOPED** and gated by `requireCockpitSession` (cockpit sessions have `kind: "cockpit"`, no `outlet_id` — ADR-052). Cross-outlet reads route through owning-module internals per ADR-034; `cockpit/` itself owns no tables.
+
+### `cockpit/outlets.*`
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `cockpit.outlets.listOutlets` | `{ sessionId }` | `{ _id, name, code, active, created_at }[]` | Cockpit-session gated. All active outlets, projected (no sensitive fields). |
+| q | `cockpit.outlets.listAssignableStaff` | `{ sessionId }` | `{ _id, name, code, role }[]` | Cockpit-session gated. Active staff only; `pin_hash` stripped server-side. Used by the new-outlet wizard to pre-seed `staff_outlet_access`. |
+| a | `cockpit.outlets.createOutlet` | `{ idempotencyKey, sessionId, name, code, cloneFromOutletId? }` | `{ outletId: Id<"outlets"> }` | Cockpit-session gated. `withActionCache` (auth-before-lookup, ADR-046) + inner `_createOutletAtomic_internal`. `cloneFromOutletId` → clone path (copies `pos_products`, `pos_inventory_skus`, `pos_product_components`, `pos_settings`; photo `storage_id` reused without copy). Absent → blank path (seeds an empty `pos_settings` row). Both paths grant `staff_outlet_access` for the requesting owner. Errors: `OUTLET_CODE_TAKEN`, `SOURCE_OUTLET_REQUIRED` (clone path only). Audits `outlet.created` (`source: "cockpit"`). |
+| i | `cockpit.outlets._createOutletAtomic_internal` *(internalMutation)* | `{ idempotencyKey, name, code, cloneFromOutletId?, createdBy }` | `{ outletId }` | Single writer. Wrapped by `withIdempotency`. Creates the `outlets` row via `insertOutletRow`, then clones (via `cloneCatalogRows` + `cloneSettingsRow`) or seeds blank (`seedSettingsRow`), then calls `grantOutletAccessRow`. All within one Convex transaction. |
+
+### `cockpit/dashboard.*`
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| q | `cockpit.dashboard.consolidatedSummary` | `{ sessionId }` | `{ gross: number, txnCount: number, refundTotal: number }` | Cockpit-session gated. Sums `computeDaySummary` across all active outlets for today (WIB day window). Money is integer rupiah (ADR-015). |
+| q | `cockpit.dashboard.perOutletSummary` | `{ sessionId }` | `{ outletId: Id<"outlets">, code: string, name: string, gross: number, txnCount: number }[]` | Cockpit-session gated. One row per active outlet, ordered by `code`. Powers the per-outlet breakdown cards on the cockpit dashboard. |
+
 ## `seed.ts` (dev only)
 
 | Type | Name | Notes |

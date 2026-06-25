@@ -4,6 +4,30 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
+## 2026-06-26 — v1.3.0 Owner cockpit (Spec 3)
+
+**Scope:** Owner-facing management plane on top of the auth + data planes shipped in Specs 1–2. A new `convex/cockpit/` module is the sanctioned **outlet-UNSCOPED**, `requireCockpitSession`-gated read/clone surface; all cross-outlet reads route through owning-module internals per ADR-034.
+
+**Backend — `convex/cockpit/`:**
+- `outlets.ts`: `createOutlet` (public action — idempotency + `withActionCache` + cockpit `authCheck`-before-lookup) wraps `_createOutletAtomic_internal` (internalMutation) — atomically creates the outlet row, clones catalog + settings (or seeds blank), grants `staff_outlet_access`, and emits a single `outlet.created` audit row (`source: "cockpit"`). Errors: `OUTLET_CODE_TAKEN`, `SOURCE_OUTLET_REQUIRED` (clone path). `listOutlets` (query — all active outlets, projected). `listAssignableStaff` (query — active staff minus `pin_hash`).
+- `dashboard.ts`: `consolidatedSummary` (query → `{ gross, txnCount, refundTotal }` summed across all active outlets for today WIB); `perOutletSummary` (query → `{ outletId, code, name, gross, txnCount }[]`). Both fan out via `computeDaySummary` (transactions module) over active outlets.
+
+**Supporting helpers (plain V8-safe; in owning modules so `cockpit/` stays fence-clean):**
+- `convex/outlets/lib.ts`: `getOutletByCode`, `insertOutletRow`.
+- `convex/catalog/lib.ts`: `cloneCatalogRows` (FK-remap, active-only, photo reuse).
+- `convex/settings/lib.ts`: `cloneSettingsRow` / `seedSettingsRow`.
+- `convex/auth/grantAccess.ts`: `grantOutletAccessRow` (also now backing `_grantOutletAccess_internal`).
+- `convex/staff/internal.ts`: `_listAssignableStaff_internal`.
+
+**Audit:** `outlet.created` verb + `cockpit` source (both already present in SCHEMA.md from Task 1; confirmed present).
+
+**Frontend:**
+- `src/contexts/OutletContext.tsx` — outlet context, default `"all"`, localStorage-persisted with stale-id fallback.
+- `src/components/cockpit/OutletSwitcher.tsx` — header dropdown for outlet context.
+- `RootLayout` `CockpitShell` now wraps cockpit routes in `OutletProvider`, renders the switcher, and runs a `touchCockpitSession` keepalive (fresh idempotency key per ping).
+- New surfaces: cockpit dashboard landing (`src/routes/cockpit/index.tsx` — consolidated + per-outlet summary cards, replaces placeholder), outlet list (`src/routes/cockpit/outlets/index.tsx`), new-outlet wizard (`src/routes/cockpit/outlets/new/index.tsx` — blank-vs-clone → name/code → review).
+- New routes: `/cockpit/outlets`, `/cockpit/outlets/new`.
+
 ## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
 
 **Scope:** Two-tier `(role, outlet_id)` Telegram chat registry so each outlet's `managers`/`inventory` chats receive only that outlet's approvals/alerts, while `owners`/`ops` stay business-wide ([ADR-035](./ADR/035-telegram-as-internal-comms.md) per-outlet amendment).

@@ -17,25 +17,16 @@ The CHANGELOG entry at ship time sets the version; the roadmap entry names the t
 
 ---
 
-## In flight — v1.3.0 multi-outlet tenancy + owner cockpit
+## v1.3.0 multi-outlet tenancy + owner cockpit — **SHIPPED** (see [CHANGELOG 2026-06-22 … 2026-06-26](./CHANGELOG.md))
 
-Data plane + auth plane already shipped (CHANGELOG 2026-06-22 … 2026-06-24). **Remaining = the owner cockpit itself.** Spec: [owner cockpit](./superpowers/specs/2026-06-21-owner-cockpit-design.md).
-
-**Backend**
-- **Cockpit queries** — owner-scoped cross-outlet readers + `createOutlet` / clone action (single-writer, idempotent, audited). *Unblocks all cockpit frontend.* (`convex-expert`)
-
-**Frontend** — all depend on cockpit queries; use `/frontend-design`.
-- **Cockpit shell** — real `/cockpit/*` route tree + owner-session gate + outlet switcher (today only a placeholder home exists).
-- **Outlet wizard** — guided new-outlet / clone wizard (blank-vs-clone → name → address → bank/receipt → staff access → Telegram → review). Depends on cockpit-shell + cockpit-queries.
-- **Cockpit dashboards** — consolidated + per-outlet financials landing; txn browser / product / promotions management.
-
-**Cross-cutting**
-- Land ADR-051 / ADR-052 + the 4 multi-outlet specs into the ADR README index + CHANGELOG.
+All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outlet routing) have shipped. The spec reference is [owner cockpit design](./superpowers/specs/2026-06-21-owner-cockpit-design.md).
 
 ---
 
 ## Backlog (unscheduled)
 
+- **Owner cockpit polish** — timezone IANA validation in the new-outlet wizard; outlet-list/skeleton motion-safe pulse (deferred cockpit Minors).
+- **ADR index housekeeping** — land ADR-051 / ADR-052 + the 4 multi-outlet specs into the ADR README index (not yet listed there).
 - **FPro-driven stock-in/out** — stock-in/out driven by Frollie Pro recipes/inventory once the cross-deployment integration pattern lands (ADR to be drafted). FPro caller currently stubbed. Negative-stock (ADR-018) reconciliation manager view rides along.
 - **Post-launch hardening** — full-route empty/error pass (`mgr/*`, settlements, account, approve); real-device e2e on the booth Android; settlement auto-poll live-verification once Xendit KYB clears ([#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66)); spare-device protocol (single-device SPOF); PWA A2HS install-prompt polish.
 
