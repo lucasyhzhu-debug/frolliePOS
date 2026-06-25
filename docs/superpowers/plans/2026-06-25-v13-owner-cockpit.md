@@ -466,8 +466,9 @@ test("clone creates outlet with created_by, copies catalog, skips stock", async 
     expect(o?.created_by).not.toBeNull();              // owner stamped
     const prods = await ctx.db.query("pos_products").withIndex("by_outlet_active_sort", (q) => q.eq("outlet_id", outlet_id)).collect();
     expect(prods.length).toBe(1);                       // catalog copied
-    const stock = await ctx.db.query("pos_stock_levels").withIndex("by_outlet", (q) => q.eq("outlet_id", outlet_id) as any).collect().catch(() => []);
-    expect((stock as any[]).length).toBe(0);            // stock NOT copied
+    // pos_stock_levels index is by_outlet_sku (["outlet_id","inventory_sku_id"]) — partial-range on outlet_id only.
+    const stock = await ctx.db.query("pos_stock_levels").withIndex("by_outlet_sku", (q) => q.eq("outlet_id", outlet_id)).collect();
+    expect(stock.length).toBe(0);                       // stock NOT copied
   });
 });
 
@@ -753,8 +754,8 @@ export const consolidatedSummary = query({
     let gross = 0, txnCount = 0, refundTotal = 0;
     for (const o of outlets) {
       const day = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, { dayStartMs, dayEndMs, outletId: o._id });
-      const s = computeDaySummary(day);  // match returned field names
-      gross += s.gross; txnCount += s.txnCount; refundTotal += s.refundTotal;
+      const s = computeDaySummary(day);  // DaySummary fields: gross, refundsTotal, net, count (verified)
+      gross += s.gross; txnCount += s.count; refundTotal += s.refundsTotal;
     }
     return { gross, txnCount, refundTotal };
   },
@@ -770,7 +771,7 @@ export const perOutletSummary = query({
     for (const o of outlets) {
       const day = await ctx.runQuery(internal.transactions.internal._fetchDayWindow_internal, { dayStartMs, dayEndMs, outletId: o._id });
       const s = computeDaySummary(day);
-      out.push({ outletId: o._id, code: o.code, name: o.name, gross: s.gross, txnCount: s.txnCount });
+      out.push({ outletId: o._id, code: o.code, name: o.name, gross: s.gross, txnCount: s.count });
     }
     return out;
   },
@@ -889,7 +890,7 @@ Steps (in-component `useReducer`): 0 Mode (blank|clone, source_outlet_id) · 1 N
 2. **`_assertCockpitSession_internal` returns `{ staffId }`** (`convex/auth/ownerInternal.ts:148`) — used for `created_by`/`actor_id` in T6.
 3. **`computeDaySummary` return field names** (`convex/transactions/lib.ts`) + the **WIB day-window helper** name/shape (`convex/lib/time.ts`) — T7 must use the real names (don't invent `gross/txnCount/refundTotal`).
 4. **`staff` has a `by_active` index** for `_listAssignableStaff_internal` (T6) — else use the existing active-staff reader pattern.
-5. **`pos_stock_levels` outlet query shape** for the T5 skip-assertion — adapt to whatever index exists.
+5. **`pos_stock_levels` outlet index is `by_outlet_sku`** (`["outlet_id","inventory_sku_id"]`) — verified; the T5 skip-assertion uses it with a partial range on `outlet_id`. Match the real `pos_stock_levels` field set when seeding the test.
 6. **Cockpit gate is in `RootLayout` (`CockpitShell`, RootLayout.tsx:227) using `useSession`** — T8/T9 extend it; do NOT build `CockpitLayout`/`useOwnerSession`/`COCKPIT_SESSION_KEY` (booth+cockpit share `SESSION_KEY`).
 7. **`logAudit` stringifies `metadata` internally** (takes `Record<string, unknown>`) — pass an object, not `JSON.stringify(...)` (T5).
 
