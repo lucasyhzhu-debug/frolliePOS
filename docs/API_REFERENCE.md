@@ -306,8 +306,6 @@ Booth shift state is **two stored levels** ([ADR-053](./ADR/053-two-level-booth-
 | Helper | Notes |
 |---|---|
 | `_buildSignoffSummary_internal` | Aggregates sales + manual-BCA for the window `[shiftStartMs, endMs]` using `transactions/internal`. Returns `{ durationMs, totalSalesIdr, txnCount, manualBcaCount, manualBcaTotalIdr }`. |
-| `_shiftStartAnchor_internal` | Recovers the most recent shift-START event from the legacy `pos_shift_events` table (used for historical/migration reads only). Returns `{ shift_started_at, staff_id }` or `null`. |
-| `_recordShiftEvent_internal` | Legacy writer for `pos_shift_events` (migration backfill path only). |
 | `_getActiveShift_internal` | Returns the active `pos_shifts` row for an outlet (`ended_at == null`). Used by signoff/handover/override. |
 | `_startShift_internal` | Inserts a new `pos_shifts` row + audits `shift.start`. Single writer for Level 2. |
 | `_endShift_internal` | Patches `ended_at` + `end_reason` + `summary` on a `pos_shifts` row. |
@@ -318,13 +316,12 @@ Booth shift state is **two stored levels** ([ADR-053](./ADR/053-two-level-booth-
 
 | Helper | Notes |
 |---|---|
-| `_sendSignoffSummary` | Deferred internal action. Resolves staff name + BCA items, sends `staff_shift_signoff` template to per-outlet managers Telegram. Scheduled by `endOfDay` and `handover` out-half. |
+| `_sendSignoffSummary` | Deferred internal action. Resolves staff name + BCA items, sends `staff_shift_signoff` template to per-outlet managers Telegram. Scheduled by `endOfDay`, `handover`, and `_managerOverrideCommit_internal`. |
 
 ### Pure helpers (`convex/shifts/lib.ts`)
 
 | Function | Signature | Notes |
 |---|---|---|
-| `computeShiftHoursMs` | `(shiftStartedAt: number, endedAt: number) → number` | `max(0, endedAt - shiftStartedAt)`. |
 | `resolveStaffName` | `(names, staffId, fallback?) → string` | Looks up display name in a `_listStaffNames_internal` result set. |
 
 ## `settings.ts` *(v0.4 + v0.5.3b)*
