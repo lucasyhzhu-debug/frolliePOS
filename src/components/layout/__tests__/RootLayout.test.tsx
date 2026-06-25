@@ -5,7 +5,7 @@ import { MemoryRouter, Routes, Route } from "react-router";
 // ---------------------------------------------------------------------------
 // Hoist mock factories — must reference these before module init.
 // ---------------------------------------------------------------------------
-const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState } = vi.hoisted(() => ({
+const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseLoginContext } = vi.hoisted(() => ({
   mockUseSession: vi.fn(),
   mockUseDeviceId: vi.fn(() => "dev-001"),
   // useQuery is called for multiple queries: isDeviceRegistered + isDeviceOutlet.
@@ -17,7 +17,7 @@ const { mockUseSession, mockUseDeviceId, mockUseQuery, mockUseBoothState } = vi.
     if (q.includes("isDeviceOutlet")) return true;
     return true; // isDeviceRegistered default
   }),
-  mockUseBoothState: vi.fn(() => undefined), // undefined = loading by default
+  mockUseLoginContext: vi.fn(() => undefined), // undefined = loading by default
 }));
 
 vi.mock("@/hooks/useSession", () => ({
@@ -33,8 +33,8 @@ vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   return { ...actual, useQuery: mockUseQuery };
 });
-vi.mock("@/hooks/useBoothState", () => ({
-  useBoothState: mockUseBoothState,
+vi.mock("@/hooks/useLoginContext", () => ({
+  useLoginContext: mockUseLoginContext,
 }));
 vi.mock("@/components/pos/PrinterProvider", () => ({
   PrinterProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -81,7 +81,7 @@ function renderAt(path: string) {
         <Route element={<RootLayout />}>
           <Route path="/" element={<div data-testid="home-page">Home</div>} />
           <Route path="/shift/start" element={<div data-testid="shift-start-page">ShiftStart</div>} />
-          <Route path="/shift/handover" element={<div data-testid="shift-handover-page">ShiftHandover</div>} />
+          <Route path="/shift/begin" element={<div data-testid="shift-begin-page">ShiftBegin</div>} />
           <Route path="/account" element={<div data-testid="account-page">Account</div>} />
           <Route path="/login" element={<div data-testid="login-page">Login</div>} />
         </Route>
@@ -95,42 +95,42 @@ function renderAt(path: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("RootLayout — booth-state gate", () => {
+describe("RootLayout — two-level SOP gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseDeviceId.mockReturnValue("dev-001");
     // Default: deviceRegistered=true, isDeviceOutlet=true.
     mockUseQuery.mockReturnValue(true);
     mockUseSession.mockReturnValue(ACTIVE_SESSION);
-    mockUseBoothState.mockReturnValue(undefined); // loading by default
+    mockUseLoginContext.mockReturnValue(undefined); // loading by default
   });
 
-  it("renders children normally when boothState is undefined (still loading)", () => {
-    mockUseBoothState.mockReturnValue(undefined);
+  it("renders children normally when loginContext is undefined (still loading)", () => {
+    mockUseLoginContext.mockReturnValue(undefined);
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
   });
 
-  it("renders children normally when boothState.state is 'open'", () => {
-    mockUseBoothState.mockReturnValue({ state: "open", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
+  it("renders children normally when outletOpen is true", () => {
+    mockUseLoginContext.mockReturnValue({ outletOpen: true, holderStaffId: null, holderName: null });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
   });
 
-  it("renders children normally when boothState.state is 'locked'", () => {
-    mockUseBoothState.mockReturnValue({ state: "locked", staffId: null, staffName: null, staleAutoclose: false });
+  it("renders children normally when outletOpen is true and there is a holder", () => {
+    mockUseLoginContext.mockReturnValue({ outletOpen: true, holderStaffId: "stf_test_001", holderName: "Budi" });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
   });
 
-  it("redirects to /shift/start when boothState.state is 'closed' and path is '/'", () => {
-    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+  it("redirects to /shift/start when outletOpen is false and path is '/'", () => {
+    mockUseLoginContext.mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     renderAt("/");
     expect(screen.getByTestId("shift-start-page")).toBeInTheDocument();
     expect(screen.queryByTestId("home-page")).toBeNull();
   });
 
-  it("does NOT force start-of-day on a VIEWER (non-outlet) device even when booth is 'closed'", () => {
+  it("does NOT force /shift/start on a VIEWER (non-outlet) device even when outletOpen is false", () => {
     // A manager opens the POS on their PC (a viewer device): isDeviceOutlet=false.
     // The SOP gate must skip so they land on the menu / transactions, not the SOP.
     // Both queries go through mockUseQuery; return false only for isDeviceOutlet.
@@ -141,88 +141,50 @@ describe("RootLayout — booth-state gate", () => {
       callCount++;
       return callCount === 1 ? true : false; // 1st call = registered, 2nd = not outlet
     });
-    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+    mockUseLoginContext.mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
     expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
 
-  it("does NOT force start-of-day while isDeviceOutlet is still loading (undefined ⇒ don't trap a viewer)", () => {
+  it("does NOT force /shift/start while isDeviceOutlet is still loading (undefined ⇒ don't trap a viewer)", () => {
     // isDeviceOutlet undefined → defaults to false in RootLayout (safe default).
     let callCount = 0;
     mockUseQuery.mockImplementation(() => {
       callCount++;
       return callCount === 1 ? true : undefined; // registered=true, outlet=undefined
     });
-    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+    mockUseLoginContext.mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     renderAt("/");
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
     expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
 
-  it("does NOT redirect when already on /shift/start and boothState.state is 'closed' (loop-safety)", () => {
-    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
+  it("does NOT redirect when already on /shift/start and outletOpen is false (loop-safety)", () => {
+    mockUseLoginContext.mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     renderAt("/shift/start");
     expect(screen.getByTestId("shift-start-page")).toBeInTheDocument();
   });
 
-  it("redirects to /shift/handover when boothState.state is 'handover_pending' and path is '/'", () => {
-    mockUseBoothState.mockReturnValue({ state: "handover_pending", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
-    renderAt("/");
-    expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("home-page")).toBeNull();
-  });
-
-  it("does NOT redirect when already on /shift/handover and boothState.state is 'handover_pending' (loop-safety)", () => {
-    mockUseBoothState.mockReturnValue({ state: "handover_pending", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
-    renderAt("/shift/handover");
-    expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument();
-  });
-
   it("does NOT apply booth-state redirect when there is no active session", () => {
     mockUseSession.mockReturnValue(NO_SESSION);
-    mockUseBoothState.mockReturnValue({ state: "closed", staffId: null, staffName: null, staleAutoclose: false });
-    // No active session → session gate redirects to /login before booth gate fires
+    mockUseLoginContext.mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
+    // No active session → session gate redirects to /login before SOP gate fires
     renderAt("/");
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByTestId("shift-start-page")).toBeNull();
   });
 
-  // ---------------------------------------------------------------------------
-  // Handover-in no-session exemption (prod deadlock fix 2026-06-20).
-  //
-  // handoverOut ENDS the outgoing session, so during handover_pending the device
-  // has NO active session. The incoming staff authenticates INSIDE /shift/handover
-  // (loginWithPin). If the session gate redirects /shift/handover → /login, and
-  // /login redirects handover_pending → /shift/handover, the two bounce forever
-  // (getActiveStaff re-fires on every remount). /shift/handover must therefore be
-  // reachable session-less WHEN the booth is genuinely handover_pending.
-  // ---------------------------------------------------------------------------
-
-  it("renders /shift/handover session-less when boothState is 'handover_pending' (incoming-staff login lives inside this screen)", () => {
+  it("no-session → /login redirect (no handover exemption needed anymore)", () => {
     mockUseSession.mockReturnValue(NO_SESSION);
-    mockUseBoothState.mockReturnValue({ state: "handover_pending", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
-    renderAt("/shift/handover");
-    expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("login-page")).toBeNull();
-  });
-
-  it("still redirects /shift/handover → /login session-less when booth is NOT handover_pending (stale/manual visit)", () => {
-    mockUseSession.mockReturnValue(NO_SESSION);
-    mockUseBoothState.mockReturnValue({ state: "open", staffId: "stf_test_001", staffName: "Budi", staleAutoclose: false });
-    renderAt("/shift/handover");
+    mockUseLoginContext.mockReturnValue({ outletOpen: true, holderStaffId: null, holderName: null });
+    renderAt("/");
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("shift-handover-page")).toBeNull();
   });
 
-  it("holds loading (no /login bounce) on session-less /shift/handover while boothState is undefined", () => {
-    // Cold PWA relaunch: boothState not yet resolved. We must NOT redirect to
-    // /login (which re-fires getActiveStaff and bounces) before we know whether
-    // the booth is genuinely handover_pending — render the fallback instead (I-1).
-    mockUseSession.mockReturnValue(NO_SESSION);
-    mockUseBoothState.mockReturnValue(undefined);
-    renderAt("/shift/handover");
-    expect(screen.queryByTestId("login-page")).toBeNull();
-    expect(screen.queryByTestId("shift-handover-page")).toBeNull();
+  it("renders /shift/begin normally for an active session (session-FULL incoming-count route)", () => {
+    mockUseLoginContext.mockReturnValue({ outletOpen: true, holderStaffId: null, holderName: null });
+    renderAt("/shift/begin");
+    expect(screen.getByTestId("shift-begin-page")).toBeInTheDocument();
   });
 });

@@ -19,11 +19,13 @@ import { useT } from "@/lib/i18n";
  *   "handover" → 2-step handover-out wizard (spec §3C)
  *
  * On close completion:
- *   → endOfDaySignOff → staff summary (hours + stock, NO financials)
+ *   → endOfDay → staff summary (hours + stock, NO financials)
  *   → "Selesai" → clearSession + navigate("/login")
  *
  * On handover completion:
- *   → handoverOut → navigate("/shift/handover")
+ *   → handover → clearSession + navigate("/login")
+ *   (The incoming staffer logs in fresh; they land on /shift/begin via the
+ *   login target when holderStaffId is null and outletOpen is true.)
  *
  * ADR-013: two distinct idempotency intents so close and handover never
  * share a dedupe key even if the user bounces between them.
@@ -146,8 +148,8 @@ export default function ShiftEnd() {
   const t = useT();
   const navigate = useNavigate();
   const session = useSession();
-  const endOfDaySignOff = useMutation(api.shifts.public.endOfDaySignOff);
-  const handoverOut = useMutation(api.shifts.public.handoverOut);
+  const endOfDay = useMutation(api.shifts.shifts.endOfDay);
+  const handover = useMutation(api.shifts.shifts.handover);
 
   const closeSteps = useCloseSteps();
   const handoverSteps = useHandoverSteps();
@@ -172,7 +174,7 @@ export default function ShiftEnd() {
       ? requestedMode
       : "choice",
   );
-  // Set after endOfDaySignOff resolves: durationMs returned by the mutation.
+  // Set after endOfDay resolves: durationMs returned by the mutation.
   const [signOffDurationMs, setSignOffDurationMs] = useState<number | null>(null);
   // countChanged captured from the count step (shown on summary screen).
   const [signOffCountChanged, setSignOffCountChanged] = useState<number | null>(null);
@@ -185,11 +187,11 @@ export default function ShiftEnd() {
   // -------------------------------------------------------------------------
   async function onCloseComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
     if (!closeKey || !sessionId) return;
-    const result = await endOfDaySignOff({
+    const result = await endOfDay({
       idempotencyKey: closeKey,
       sessionId,
       steps: confirmed,
-      ...(countChanged != null ? { countChanged } : {}),
+      ...(countChanged != null ? { closeCount: countChanged } : {}),
     });
     setSignOffCountChanged(countChanged);
     setSignOffDurationMs(result.durationMs);
@@ -200,17 +202,19 @@ export default function ShiftEnd() {
   // -------------------------------------------------------------------------
   async function onHandoverComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
     if (!handoverKey || !sessionId) return;
-    await handoverOut({
+    await handover({
       idempotencyKey: handoverKey,
       sessionId,
       steps: confirmed,
-      ...(countChanged != null ? { countChanged } : {}),
+      ...(countChanged != null ? { closeCount: countChanged } : {}),
     });
-    navigate("/shift/handover");
+    // End the outgoing session client-side; the incoming staffer logs in fresh.
+    clearSession();
+    navigate("/login", { replace: true });
   }
 
   // -------------------------------------------------------------------------
-  // Post-signoff: clear session + go to login (mirror lock.tsx, minus lockShift)
+  // Post-signoff: clear session + go to login (mirrors lock.tsx)
   // -------------------------------------------------------------------------
   function handleFinalSignOff() {
     clearSession();

@@ -118,7 +118,6 @@ function renderLogin() {
           <Route path="/" element={<div data-testid="home-page" />} />
           <Route path="/shift/start" element={<div data-testid="shift-start-page" />} />
           <Route path="/shift/begin" element={<div data-testid="shift-begin-page" />} />
-          <Route path="/shift/handover" element={<div data-testid="shift-handover-page" />} />
         </Routes>
       </MemoryRouter>
     </ConvexProvider>,

@@ -6,8 +6,7 @@ import { useStartupReconciliation } from "@/hooks/useStartupReconciliation";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
-import { useBoothState } from "@/hooks/useBoothState";
-import { hasManagerSkippedSOD } from "@/lib/shiftSkip";
+import { useLoginContext } from "@/hooks/useLoginContext";
 import { useT } from "@/lib/i18n";
 
 // SEC-03: session IDs already shown the forced-rotation prompt this app session.
@@ -25,10 +24,12 @@ const rotationPrompted = new Set<string>();
  *  2. Active session → redirect to /login if no active session.
  *  3. SEC-03 forced PIN rotation → one-time redirect to /account when
  *     must_change_pin (soft; does not re-trap).
+ *  4. SOP gate → redirect to /shift/start when the outlet is closed
+ *     (outletOpen === false from loginContext, outlet-device only).
  *
- * /login is always exempt from gate 2; /shift/handover is exempt from gate 2 while
- * booth state is "handover_pending" (the incoming staff authenticates session-less
- * inside that screen — see the handover deadlock note below).
+ * /login is always exempt from gates 2–4.
+ * /shift/begin is session-FULL (incoming staff already authenticated) —
+ *   no special exemption needed.
  * /activate, /approve/*, /r/* live OUTSIDE this layout (see router.tsx) so
  * neither gate applies to them — verified by src/router.test.tsx.
  */
@@ -36,7 +37,7 @@ export function RootLayout() {
   const location = useLocation();
   const deviceId = useDeviceId();
   const session = useSession();
-  const boothState = useBoothState();
+  const ctx = useLoginContext();
 
   // Strategic §6 device gate — uses the real isDeviceRegistered query.
   // Skip query while deviceId is still resolving (null = IDB not yet read).
@@ -79,23 +80,6 @@ export function RootLayout() {
   }, [isCockpit]);
 
   const isLogin = location.pathname === "/login";
-  const onHandoverRoute = location.pathname === "/shift/handover";
-  // Single source for the "handover_pending" check — consumed by both the
-  // no-session exemption below and the active-session SOP gate further down, so
-  // the two can't drift. `?.` so it's safely `false` while boothState loads.
-  const boothPending = boothState?.state === "handover_pending";
-
-  // /shift/handover must be reachable WITHOUT an active session: handoverOut ends
-  // the outgoing session, so during handover_pending the device has no session and
-  // the INCOMING staff authenticates inside that screen (loginWithPin). Exempt it
-  // from the no-session redirect (mirrors /login). Without this, the session gate
-  // sends /shift/handover → /login while login.tsx sends handover_pending → /shift/handover,
-  // deadlock-bouncing forever (getActiveStaff re-fires on every remount — prod
-  // incident 2026-06-20). Gated on the live booth state so a stale or manual visit
-  // with no pending handover still correctly redirects to /login.
-  // NOTE: only the `session.status === "none"` gate below consults this flag, so an
-  // active-session visitor on /shift/handover is unaffected (the SOP gate handles them).
-  const isHandoverIn = onHandoverRoute && boothPending;
 
   // ── Cockpit plane gate (v2.0 owner-auth, ADR-052) ──────────────────────────
   // Handled BEFORE the booth device-registration / session / SOP gates so the
@@ -119,18 +103,12 @@ export function RootLayout() {
     return <CockpitShell />;
   }
 
-  // Show loading while: deviceId hasn't resolved, device-registration query is
-  // in-flight, session is still validating, OR we're session-less on /shift/handover
-  // and booth state hasn't resolved yet. The last clause matters: `isHandoverIn` is
-  // `false` while boothState is undefined, so without holding here a cold PWA
-  // relaunch on /shift/handover would briefly bounce through /login (re-firing
-  // getActiveStaff) before settling. We must know whether it's genuinely
-  // handover_pending before choosing to exempt vs redirect (review I-1).
+  // Show loading while deviceId hasn't resolved, device-registration query is
+  // in-flight, or session is still validating.
   if (
     deviceId === null ||
     deviceRegistered === undefined ||
-    session.status === "loading" ||
-    (onHandoverRoute && session.status === "none" && boothState === undefined)
+    session.status === "loading"
   ) {
     return <RouteFallback />;
   }
@@ -149,7 +127,7 @@ export function RootLayout() {
     return <Navigate to="/activate" replace />;
   }
 
-  if (!isLogin && !isHandoverIn && session.status === "none") {
+  if (!isLogin && session.status === "none") {
     return <Navigate to="/login" replace />;
   }
 
@@ -166,7 +144,6 @@ export function RootLayout() {
     return <Navigate to="/account" replace />;
   }
 
-
   // v2.0 Task 10: SOP gate applies only to formally-assigned outlet devices.
   // `isOutletDevice` is backend-computed (migration-tolerant: unbound = true
   // until Task 12). Defaults to FALSE while loading so a viewer device is never
@@ -174,37 +151,23 @@ export function RootLayout() {
   // on the outlet device at start-of-day, which then redirects correctly).
   const deviceIsOutlet = isOutletDevice ?? false;
 
-  // Booth-state SOP gate: redirect to mandatory start-of-day / handover flows.
-  // Only fires when: (a) there IS an active session (session gate above already
-  // handled the no-session case), (b) boothState has resolved (not undefined —
-  // undefined = still loading, render children), (c) this device is the outlet,
-  // (d) current path is not already the target route (loop-safety).
-  // "locked" and "open" states: no forced shift redirect (normal app flow).
-  // "closed": mandatory /shift/start (start of day) — EXCEPT a manager who has
-  //   explicitly skipped it this session (escape hatch; see shiftSkip.ts). Normal
-  //   staff (role !== "manager") are always gated, so the first staff of the day
-  //   still walks the checklist.
-  // "handover_pending": mandatory /shift/handover (incoming handover).
-  // Routes outside these shift screens are NOT affected when state is open/locked.
-  // /login and /activate are outside this layout entirely (see router.tsx comment).
+  // Two-level SOP gate (ADR-050): redirect to /shift/start when the outlet is
+  // CLOSED (Level-1 flag). Only fires when: (a) there IS an active session,
+  // (b) loginContext has resolved (ctx !== undefined), (c) this device is the
+  // outlet, (d) outletOpen is false, and (e) current path is not already
+  // /shift/start (loop-safety). Manager-skip is now SERVER-driven: managerSkipOpen
+  // flips outletOpen true on the backend, so the gate lifts naturally on the next
+  // query tick — no client-side shiftSkip flag needed.
   if (
     session.status === "active" &&
-    boothState !== undefined &&
-    deviceIsOutlet
+    ctx !== undefined &&
+    deviceIsOutlet &&
+    !ctx.outletOpen &&
+    location.pathname !== "/shift/start"
   ) {
-    const managerSkipped =
-      session.staff.role === "manager" && hasManagerSkippedSOD(session.sessionId);
-    if (
-      boothState.state === "closed" &&
-      location.pathname !== "/shift/start" &&
-      !managerSkipped
-    ) {
-      return <Navigate to="/shift/start" replace />;
-    }
-    if (boothPending && !onHandoverRoute) {
-      return <Navigate to="/shift/handover" replace />;
-    }
+    return <Navigate to="/shift/start" replace />;
   }
+
   return (
     <div className="min-h-dvh flex flex-col bg-background">
       {/* PrinterProvider sits above the Outlet so one BLE connection survives
