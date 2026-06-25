@@ -38,6 +38,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { logAudit } from "../audit/internal";
+import { wibDayWindow } from "../lib/time";
 
 // ── Page size for all paginate calls ────────────────────────────────────────
 const PAGE_SIZE = 100;
@@ -566,6 +567,241 @@ export const assertZeroNullOutletIds = internalQuery({
       }
     }
     return true;
+  },
+});
+
+// ─── backfillOutletStatus ────────────────────────────────────────────────────
+
+/**
+ * Inlined booth-status derivation — LOCAL to this migration so it survives
+ * Task 13 deleting `deriveBoothState`. Mirrors the retired function exactly.
+ * `wibDayStartMs` from `wibDayWindow(Date.now()).dayStartMs`.
+ */
+function deriveIsOpen(
+  latest: { type: string; created_at: number } | null,
+  wibDayStartMs: number,
+): boolean {
+  if (!latest) return false;
+  if (latest.type === "signoff_close") return false;
+  if (latest.created_at < wibDayStartMs) return false; // prior-WIB-day event → closed
+  // lock / resume / handover_in / handover_out / start_of_day / manager_takeover → open
+  return true;
+}
+
+/**
+ * Per-outlet atomic worker: reads latest shift event, derives is_open, patches
+ * the outlet, and inserts a pos_shifts holder when the outlet is open with a
+ * current staffer. Idempotent: skips if `is_open` is already set; skips holder
+ * insert if an active holder already exists.
+ *
+ * Called by `backfillOutletStatus` (action) via ctx.runMutation.
+ * Must NOT import or call `deriveBoothState` (deleted in Task 13 same deploy).
+ */
+export const _backfillOneOutletStatus_internal = internalMutation({
+  args: { outletId: v.id("outlets") },
+  handler: async (
+    ctx,
+    { outletId },
+  ): Promise<{ skipped: boolean; opened: boolean; holderCreated: boolean }> => {
+    // 1. Read fresh outlet doc.
+    const outlet = await ctx.db.get(outletId);
+    if (!outlet) return { skipped: true, opened: false, holderCreated: false };
+
+    // 2. Idempotent skip — already backfilled.
+    if (outlet.is_open !== undefined) {
+      return { skipped: true, opened: false, holderCreated: false };
+    }
+
+    // 3. WIB day start for today.
+    const { dayStartMs } = wibDayWindow(Date.now());
+
+    // 4. Resolve latest pos_shift_events across all active devices bound to this outlet.
+    const devices = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_outlet_active", (q) =>
+        q.eq("outlet_id", outletId).eq("active", true),
+      )
+      .collect();
+
+    let latestEvent: {
+      type: string;
+      created_at: number;
+      staff_id: Id<"staff">;
+      device_id: string;
+      shift_started_at: number;
+    } | null = null;
+
+    for (const dev of devices) {
+      const event = await ctx.db
+        .query("pos_shift_events")
+        .withIndex("by_outlet_device_created", (q) =>
+          q.eq("outlet_id", outletId).eq("device_id", dev.device_id),
+        )
+        .order("desc")
+        .first();
+      if (event && (!latestEvent || event.created_at > latestEvent.created_at)) {
+        latestEvent = {
+          type: event.type,
+          created_at: event.created_at,
+          staff_id: event.staff_id,
+          device_id: event.device_id,
+          shift_started_at: event.shift_started_at,
+        };
+      }
+    }
+
+    // 5. Derive open/closed status (inlined — no deriveBoothState import).
+    const isOpen = deriveIsOpen(latestEvent, dayStartMs);
+
+    // 6. If open, find the shift-start anchor on the winning device (mirrors
+    //    _shiftStartAnchor_internal: walks today's WIB events for the anchor type).
+    let anchor: { shift_started_at: number; staff_id: Id<"staff"> } | null = null;
+    const winningDeviceId: string | undefined = latestEvent?.device_id;
+    if (isOpen && winningDeviceId) {
+      const todayEvents = await ctx.db
+        .query("pos_shift_events")
+        .withIndex("by_outlet_device_created", (q) =>
+          q
+            .eq("outlet_id", outletId)
+            .eq("device_id", winningDeviceId)
+            .gte("created_at", dayStartMs),
+        )
+        .order("desc")
+        .collect();
+      const anchorEvent = todayEvents.find(
+        (e) =>
+          e.type === "start_of_day" ||
+          e.type === "handover_in" ||
+          e.type === "manager_takeover",
+      );
+      if (anchorEvent) {
+        anchor = {
+          shift_started_at: anchorEvent.shift_started_at,
+          staff_id: anchorEvent.staff_id,
+        };
+      }
+    }
+
+    // 7. Patch the outlet row.
+    const now = Date.now();
+    if (isOpen && anchor) {
+      await ctx.db.patch(outletId, {
+        is_open: true,
+        opened_at: anchor.shift_started_at,
+        opened_by: anchor.staff_id,
+        opened_via: "sop",
+      });
+    } else {
+      await ctx.db.patch(outletId, {
+        is_open: isOpen,
+        // Leave opened_* / closed_* untouched (they're all optional).
+      });
+    }
+
+    // 8. Insert holder pos_shifts row if open + anchor + no existing active holder.
+    let holderCreated = false;
+    if (isOpen && anchor && winningDeviceId) {
+      const existing = await ctx.db
+        .query("pos_shifts")
+        .withIndex("by_outlet_active", (q) =>
+          q.eq("outlet_id", outletId).eq("ended_at", null),
+        )
+        .unique();
+      if (!existing) {
+        await ctx.db.insert("pos_shifts", {
+          outlet_id: outletId,
+          device_id: winningDeviceId,
+          staff_id: anchor.staff_id,
+          started_at: anchor.shift_started_at,
+          started_via: "sop",
+          ended_at: null,
+          ended_via: null,
+          open_count: null,
+          close_count: null,
+          outgoing_uncounted: null,
+          steps: [],
+          summary: null,
+          prev_shift_id: null,
+          created_at: now,
+        });
+        holderCreated = true;
+      }
+    }
+
+    return { skipped: false, opened: isOpen, holderCreated };
+  },
+});
+
+/**
+ * Main backfill action — for each active outlet, derives is_open from the latest
+ * pos_shift_events row (across all bound devices) and patches the outlet. If the
+ * outlet is open with a current staffer, also inserts a pos_shifts holder row.
+ * Idempotent: outlets whose `is_open` is already set are skipped.
+ *
+ * Does NOT import or call `deriveBoothState` (deleted in Task 13 same deploy).
+ * Uses inlined `deriveIsOpen` above.
+ *
+ * Run (dev):  npx convex run migrations/internal:backfillOutletStatus
+ * Run (prod): npx convex run migrations/internal:backfillOutletStatus --prod
+ */
+export const backfillOutletStatus = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{
+    ok: true;
+    outletsProcessed: number;
+    opened: number;
+    holdersCreated: number;
+  }> => {
+    const outlets = await ctx.runQuery(
+      internal.outlets.internal._listActiveOutlets_internal,
+      {},
+    );
+
+    let outletsProcessed = 0;
+    let opened = 0;
+    let holdersCreated = 0;
+
+    for (const outlet of outlets) {
+      const result = await ctx.runMutation(
+        internal.migrations.internal._backfillOneOutletStatus_internal,
+        { outletId: outlet._id },
+      );
+      outletsProcessed++;
+      if (!result.skipped) {
+        if (result.opened) opened++;
+        if (result.holderCreated) holdersCreated++;
+      }
+    }
+
+    return { ok: true, outletsProcessed, opened, holdersCreated };
+  },
+});
+
+/**
+ * Post-backfill assertion: throws if any active outlet still has `is_open`
+ * undefined. Run after `backfillOutletStatus` to verify the migration is
+ * complete before enabling the Task-13 enforce step.
+ *
+ * Run (dev):  npx convex run migrations/internal:assertOutletStatusBackfilled
+ * Run (prod): npx convex run migrations/internal:assertOutletStatusBackfilled --prod
+ */
+export const assertOutletStatusBackfilled = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ ok: true }> => {
+    const outlets = await ctx.db
+      .query("outlets")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+
+    for (const outlet of outlets) {
+      if (outlet.is_open === undefined) {
+        throw new Error(
+          `OUTLET_STATUS_NOT_BACKFILLED: outlet ${outlet._id} (${outlet.code}) has is_open===undefined — run backfillOutletStatus first`,
+        );
+      }
+    }
+
+    return { ok: true };
   },
 });
 
