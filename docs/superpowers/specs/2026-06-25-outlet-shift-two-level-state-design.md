@@ -147,6 +147,8 @@ pos_shifts: defineTable({
 
 `pos_shift_events` is **kept read-only** for historical/audit reads; **no new writes** — all new shift writes go to `pos_shifts`.
 
+**PR #143 stopgap is folded in.** The interim `lockShift`/`handoverOut` "tolerate `locked`" relaxations (deployed to prod 2026-06-25) live on the `assertBoothState` guards that this rework deletes outright. #143 stays merged/deployed as the interim safety net; this phase removes those mutations and their guards entirely, so the stopgap is superseded rather than carried forward. No separate revert needed — the rewrite replaces the files.
+
 ## 9. Migration (additive, prod-safe)
 
 1. Add `outlets.is_open` (+ metadata) as **optional**, defaulting closed.
