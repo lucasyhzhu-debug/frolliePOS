@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to Frollie POS. Format follows Frollie Pro's conventions.
+All notable changes to Frollie POS. Format follows Frollie Pro's conventions. This is the **shipped record** (the source of truth for what exists); the forward queue of unbuilt specs/plans lives in [`ROADMAP.md`](./ROADMAP.md).
+
+**Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
 ## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
 

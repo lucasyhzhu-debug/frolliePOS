@@ -4,22 +4,18 @@ AI agent context for the Frollie POS repo. Read this first before touching code.
 
 > **This file is a pointer, not a mirror.** Depth lives in `docs/` — ADRs (`docs/ADR/`), schema (`docs/SCHEMA.md`), the Convex function inventory (`docs/API_REFERENCE.md`), Telegram ops (`docs/RUNBOOK-telegram.md`), and reusable patterns (`docs/PATTERNS/`). When a rule below cites an ADR, the ADR is the full rationale.
 
-## Progress tracker — read FIRST, update LAST
+## Documentation system — two living docs
 
-Living roadmap: [`docs/PROGRESS.md`](./docs/PROGRESS.md) (source of truth). Every task has a stable **Task ID** (`<phase>-<lane>-<slug>`) with metadata. Rendered view: [`docs/progress.html`](./docs/progress.html), generated from the markdown.
+Progress is tracked with two forward/back docs (the old `docs/PROGRESS.md` task board is **retired** as of 2026-06-25):
 
-**Mandatory workflow for every session and every dispatched agent:**
+- **[`docs/ROADMAP.md`](./docs/ROADMAP.md)** — the **forward** queue: specs + plans, documented as we brainstorm them, before they're built. Read this to see what's next; the backlog, decisions awaiting CTO, and risks live here too.
+- **[`docs/CHANGELOG.md`](./docs/CHANGELOG.md)** — the **back** record: shipped implementation, with dates + versions. The single source of truth for what exists.
 
-1. **Before work**: `/progress --ready` → pick a task whose `agent:`/lane matches you; read its metadata block.
-2. **Starting**: `/progress-update <task-id> --status in-progress --owner <name>` (claims it).
-3. **Ticking subtasks**: `/progress-update <task-id> --subtask "<substring>"`.
-4. **On commit**: `/progress-update <task-id> --status done --commit <sha>`.
-5. **New task mid-phase**: `/progress-update <new-id> --new-task "<title>" --phase vX.Y --lane be|fe|xc --agent <name> [--deps ...]`.
-6. **After any update**: `npx ceo-report build --src docs/PROGRESS.md --out docs/progress.html` (regenerates HTML, ~50ms).
+**Workflow:** brainstorm a slice → record its spec/plan in ROADMAP → when it ships, add a dated+versioned CHANGELOG entry and remove it from ROADMAP. Don't reintroduce a task board (`/progress`, `/progress-update`, `ceo-report build` are no longer part of any workflow here).
 
-**Refusal conditions** (skill-enforced): `in-progress` needs `--owner`; `done` needs `--commit`; `--subtask` must match exactly one subtask.
-
-**Do NOT** hand-edit `docs/PROGRESS.md` status/subtask/owner/commit fields (go through `/progress-update`) or `docs/progress.html` (regenerated). Direct PROGRESS.md edits are only for new phase headers, typo fixes, lane restructuring. Backlog phases (v0.4–v1.0) get Task IDs when they enter planning — don't retrofit early.
+**Versioning** (set at ship time by the CHANGELOG entry, named ahead of time by the roadmap):
+- **Major feature → bump the minor:** `x.1 → x.2` (new user-facing capability / phase).
+- **Sub-feature or fix → bump the patch:** `x.x.1 → x.x.2` (a slice, hotfix, or hardening pass within a feature).
 
 ## What this is
 
@@ -118,9 +114,9 @@ Backend is organized by domain module per [ADR-034](./docs/ADR/034-deep-modules-
 | `lib/` | `utils.ts` (`cn()`), `format.ts`, `storage-keys.ts` (localStorage namespace; use `storeSession`), `errors.ts` (`errorMessage` — canonical unknown-error→string, unwraps `ConvexError.data`; use at every backend-error call site), `pinResetDenials.ts` (v1.2 — remount-safe localStorage dedup so the PIN-reset-denial toast fires once per request, #11), `escpos.ts` (v0.5.4 — pure ESC/POS `encodeReceipt` + `SAMPLE_RECEIPT`, ADR-043) |
 | `pwa/` | Service worker bootstrap |
 
-**`docs/`:** `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `CHANGELOG.md`, `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`, `postmortems/` (post-incident retrospectives — distinct from `docs/reviews/` pre-merge artifacts).
+**`docs/`:** `ROADMAP.md` (forward queue), `CHANGELOG.md` (shipped record), `SCHEMA.md`, `API_REFERENCE.md`, `ADR/` (37 ADRs + `000-strategic-foundations.md`), `DECISIONS.md` (legacy product/flow), `WORKFLOW.md`, `RUNBOOK-telegram.md`, `PATTERNS/`, `postmortems/` (post-incident retrospectives — distinct from `docs/reviews/` pre-merge artifacts).
 
-**Other:** `frollie-pos design files/` (wireframes, gitignored — IA source for v0.5), `packages/ceo-progress-report/` (frozen snapshot; build path is now the published npm package via `buildlog.config.mjs`).
+**Other:** `frollie-pos design files/` (wireframes, gitignored — IA source for v0.5). _(`packages/ceo-progress-report/` is retired alongside the PROGRESS.md board — no longer part of the doc workflow.)_
 
 ## Commands
 
