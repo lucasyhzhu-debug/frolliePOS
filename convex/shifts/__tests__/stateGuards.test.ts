@@ -110,6 +110,85 @@ test("endOfDaySignOff from a LOCKED booth still closes — staff not stranded (#
   await drainScheduled(t);
 });
 
+test("lockShift from a LOCKED booth → idempotent no-op, session ended, no dup event (#138/#139)", async () => {
+  const t = convexTest(schema);
+  const { staffId, sessionId } = await seedSession(t);
+  // Open, then lock (lock ends the first session).
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1", sessionId, steps: [], countChanged: undefined,
+  });
+  await t.mutation(api.shifts.public.lockShift, { idempotencyKey: "k2", sessionId });
+
+  const lockEventsBefore = ((await t.run((ctx: any) =>
+    ctx.db.query("pos_shift_events").collect())) as any[]).filter((e: any) => e.type === "lock").length;
+
+  // Staff returns and re-logs in (fresh session), but the booth is still "locked"
+  // (same-staff resume never fired — the prod race). Tapping Lock again must NOT
+  // throw BOOTH_NOT_OPEN; it cleanly logs them out instead.
+  const session2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1"))
+      .first();
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staffId, device_id: "d1", started_at: Date.now(),
+      ended_at: null, end_reason: null, outlet_id: dev.outlet_id,
+    } as any);
+  });
+
+  const res = await t.mutation(api.shifts.public.lockShift, {
+    idempotencyKey: "k3", sessionId: session2,
+  });
+  expect(res.ok).toBe(true);
+
+  // No duplicate lock event; booth still locked.
+  const lockEventsAfter = ((await t.run((ctx: any) =>
+    ctx.db.query("pos_shift_events").collect())) as any[]).filter((e: any) => e.type === "lock").length;
+  expect(lockEventsAfter).toBe(lockEventsBefore);
+  expect(
+    (await t.query(api.shifts.public.boothState, { deviceId: "d1" })).state,
+  ).toBe("locked");
+  // Caller's session is ended with manual_lock (Lock still logs them out).
+  const s2 = (await t.run((ctx: any) => ctx.db.get(session2))) as any;
+  expect(s2?.ended_at).not.toBeNull();
+  expect(s2?.end_reason).toBe("manual_lock");
+});
+
+test("handoverOut from a LOCKED booth still hands over — staff not stranded (#138/#139)", async () => {
+  const t = convexTest(schema);
+  const { staffId, sessionId } = await seedSession(t);
+  await t.mutation(api.shifts.public.completeStartOfDay, {
+    idempotencyKey: "k1", sessionId, steps: [], countChanged: undefined,
+  });
+  await t.mutation(api.shifts.public.lockShift, { idempotencyKey: "k2", sessionId });
+
+  // Returning staffer, fresh session, booth still "locked" → hand over to next shift.
+  const session2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db
+      .query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1"))
+      .first();
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staffId, device_id: "d1", started_at: Date.now(),
+      ended_at: null, end_reason: null, outlet_id: dev.outlet_id,
+    } as any);
+  });
+
+  const res = await t.mutation(api.shifts.public.handoverOut, {
+    idempotencyKey: "k3", sessionId: session2, steps: [], countChanged: undefined,
+  });
+  expect(res.ok).toBe(true);
+
+  // Booth → handover_pending; audit row tags the source state.
+  expect(
+    (await t.query(api.shifts.public.boothState, { deviceId: "d1" })).state,
+  ).toBe("handover_pending");
+  const audit = (await t.run((ctx: any) => ctx.db.query("audit_log").collect())) as any[];
+  const ho = audit.find((r: any) => r.action === "shift.handover_out");
+  expect(JSON.parse(ho!.metadata as string)).toMatchObject({ handover_from: "locked" });
+  await drainScheduled(t);
+});
+
 test("completeStartOfDay on an already-OPEN same-day booth → BOOTH_NOT_CLOSED", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedSession(t);
