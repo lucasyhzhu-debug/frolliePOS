@@ -45,4 +45,42 @@ export const shiftsTables = {
     .index("by_device_created", ["device_id", "created_at"])
     .index("by_staff_started", ["staff_id", "shift_started_at"])
     .index("by_outlet_device_created", ["outlet_id", "device_id", "created_at"]),
+
+  pos_shifts: defineTable({
+    outlet_id: v.id("outlets"),
+    device_id: v.string(),
+    staff_id: v.id("staff"),
+    started_at: v.number(),
+    started_via: v.union(
+      v.literal("sop"),
+      v.literal("manager_skip"),
+      v.literal("handover"),
+    ),
+    ended_at: v.union(v.number(), v.null()),
+    ended_via: v.union(
+      v.literal("handover"),
+      v.literal("end_of_day"),
+      v.literal("manager_override"),
+      v.null(),
+    ),
+    open_count: v.union(v.number(), v.null()),
+    close_count: v.union(v.number(), v.null()),
+    outgoing_uncounted: v.union(v.boolean(), v.null()),
+    steps: v.array(stepValidator),
+    summary: v.union(
+      v.object({
+        durationMs: v.number(),
+        totalSalesIdr: v.number(),
+        txnCount: v.number(),
+        manualBcaCount: v.number(),
+        manualBcaTotalIdr: v.number(),
+      }),
+      v.null(),
+    ),
+    prev_shift_id: v.union(v.id("pos_shifts"), v.null()),
+    created_at: v.number(),
+  })
+    .index("by_outlet_active", ["outlet_id", "ended_at"])
+    .index("by_staff_started", ["staff_id", "started_at"])
+    .index("by_outlet_started", ["outlet_id", "started_at"]),
 };
