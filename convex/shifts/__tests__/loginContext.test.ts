@@ -35,3 +35,28 @@ test("loginContext reports outletOpen + current holder", async () => {
   expect(ctx1.holderStaffId).toBeNull(); // released → next staffer may start
   await drainScheduled(t);
 });
+
+// ---------------------------------------------------------------------------
+// I-A: unbound device (registered but no outlet_id) → safe defaults, no throw
+// ---------------------------------------------------------------------------
+test("loginContext: unbound device returns outletOpen:false without throwing", async () => {
+  const t = convexTest(schema);
+
+  // Register a device with no outlet binding (outlet_id absent)
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("registered_devices", {
+      device_id: "unbound-d1",
+      label: "Unbound Device",
+      activated_at: Date.now(),
+      active: true,
+      // outlet_id intentionally omitted — simulates a freshly-activated device
+    });
+  });
+
+  // Should return safe defaults instead of throwing DEVICE_HAS_NO_OUTLET
+  const ctx0 = await t.query(api.shifts.shifts.loginContext, { deviceId: "unbound-d1" });
+  expect(ctx0.outletOpen).toBe(false);
+  expect(ctx0.holderStaffId).toBeNull();
+  expect(ctx0.holderName).toBeNull();
+});
+

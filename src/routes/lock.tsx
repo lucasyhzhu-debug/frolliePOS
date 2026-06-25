@@ -11,6 +11,7 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useT } from "@/lib/i18n";
+import { errorMessage } from "@/lib/errors";
 
 export default function Lock() {
   const navigate = useNavigate();
@@ -38,7 +39,10 @@ export default function Lock() {
   //   overrideKey  → keyed on deviceId (stable across clearSession; override
   //                  happens with no active session so sessionId is unreliable)
   const lockKey = useIdempotency(`shift:lock:${session.sessionId ?? "none"}`);
-  const overrideKey = useIdempotency(`shift:override:${deviceId ?? "none"}`);
+  const [overrideReset, setOverrideReset] = useState(0);
+  // C1: distinct prefix for lock-screen override + reset counter so each attempt
+  // (success or failure) gets a fresh idempotency key (mirrors pinReset rotation).
+  const overrideKey = useIdempotency(`shift:override:lock:${deviceId ?? "none"}:${overrideReset}`);
 
   // Manager-override state
   const [overrideOpen, setOverrideOpen] = useState(false);
@@ -88,7 +92,9 @@ export default function Lock() {
       // staffer) now logs in normally via /login.
       navigate("/login", { replace: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Pengalihan gagal";
+      // I-C: use errorMessage() so ConvexError.data is unwrapped correctly
+      // (mirrors login.tsx's override error handling pattern).
+      const msg = errorMessage(err);
       setOverrideError(
         msg.includes("INVALID_PIN") ? t("lock.errorInvalidPin") :
         msg.includes("NOT_MANAGER") ? t("lock.errorNotManager") :
@@ -97,6 +103,9 @@ export default function Lock() {
       );
     } finally {
       setOverridePending(false);
+      // C1: rotate key after every attempt so the next call never replays a
+      // stale idempotency result (success + failure both rotate).
+      setOverrideReset((n) => n + 1);
     }
   };
 

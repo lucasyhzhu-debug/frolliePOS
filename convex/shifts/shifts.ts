@@ -235,7 +235,12 @@ export const loginContext = query({
     holderStaffId: Id<"staff"> | null;
     holderName: string | null;
   }> => {
-    const outletId = await ctx.runQuery(internal.auth.internal._getDeviceOutletId_internal, { deviceId });
+    // I-A: use the non-throwing variant so an unbound (newly-registered) device
+    // returns safe defaults instead of crashing /login with DEVICE_HAS_NO_OUTLET.
+    const outletId = await ctx.runQuery(internal.auth.internal._getDeviceOutletIdOrNull_internal, { deviceId });
+    if (!outletId) {
+      return { outletOpen: false, holderStaffId: null, holderName: null };
+    }
     const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
     const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
     let holderName: string | null = null;

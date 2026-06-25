@@ -52,3 +52,35 @@ test("startShift on a closed outlet → BOOTH_NOT_OPEN; with a holder → SHIFT_
     t.mutation(api.shifts.shifts.startShift, { idempotencyKey: "s1", sessionId, steps: [] }),
   ).rejects.toThrow(/SHIFT_IN_PROGRESS/);
 });
+
+// ---------------------------------------------------------------------------
+// I-D: CLOSED outlet (is_open false) + valid session → BOOTH_NOT_OPEN
+// The existing test above only asserts SHIFT_IN_PROGRESS (open + holder).
+// This test covers the complementary CLOSED case.
+// ---------------------------------------------------------------------------
+test("startShift: closed outlet rejects with BOOTH_NOT_OPEN (I-D)", async () => {
+  const t = convexTest(schema);
+
+  // Seed a CLOSED outlet + a valid session (no openBooth call)
+  const sessionId = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      code: "CLS", name: "closed", timezone: "Asia/Jakarta", active: true,
+      created_at: Date.now(), created_by: null, is_open: false,
+    });
+    await ctx.db.insert("registered_devices", {
+      device_id: "d-cls", label: "T", activated_at: Date.now(), active: true, outlet_id: outletId,
+    });
+    const staffId = await ctx.db.insert("staff", {
+      name: "Budi", code: "S-ID", role: "staff", pin_hash: "x", active: true, must_change_pin: false, created_at: 0,
+    });
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staffId, device_id: "d-cls",
+      started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: outletId,
+    });
+  });
+
+  await expect(
+    t.mutation(api.shifts.shifts.startShift, { idempotencyKey: "id-closed", sessionId, steps: [] }),
+  ).rejects.toThrow(/BOOTH_NOT_OPEN/);
+});
+

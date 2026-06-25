@@ -83,6 +83,9 @@ export default function LoginRoute() {
   useEffect(() => {
     if (hasPreStaged.current) return;
     if (staff === undefined) return;
+    // I-B: don't pre-stage before loginContext resolves; without ctx the block
+    // check below is a no-op and a blocked staffer could be silently pre-staged.
+    if (ctx === undefined) return;
     const lastId = getLastStaff();
     if (!lastId) return;
     const match = staff.find((s) => s._id === lastId);
@@ -119,7 +122,10 @@ export default function LoginRoute() {
   const idempotencyKey = useIdempotency(intentKey);
 
   // Separate idempotency key for manager override (must not share root with login key).
-  const overrideKey = useIdempotency(`shift:override:${deviceId ?? "none"}`);
+  const [overrideReset, setOverrideReset] = useState(0);
+  // C1: distinct prefix for login-screen override + reset counter so each attempt
+  // (success or failure) gets a fresh idempotency key (mirrors pinReset rotation).
+  const overrideKey = useIdempotency(`shift:override:login:${deviceId ?? "none"}:${overrideReset}`);
 
   // Reactive notification when the manager declines a pending PIN-reset for
   // this staff.
@@ -153,6 +159,20 @@ export default function LoginRoute() {
       return;
     }
     if (!idempotencyKey) return; // IDB not yet resolved — guard ADR-013
+    // I-B: re-check block predicate here — loginContext is reactive and may have
+    // updated between when the user tapped their name and when they finished
+    // entering their PIN (e.g. another staff logged in and claimed the holder
+    // slot while the PIN digits were being typed).
+    if (
+      ctx !== undefined &&
+      ctx.outletOpen === true &&
+      ctx.holderStaffId !== null &&
+      ctx.holderStaffId !== stage.staff._id
+    ) {
+      setPhase({ kind: "error", message: t("login.shiftHeldBy", { name: ctx.holderName ?? "" }), sticky: true });
+      setPinReset((n) => n + 1);
+      return;
+    }
     setPhase({ kind: "pending" });
     try {
       const { sessionId } = await login({
@@ -253,6 +273,9 @@ export default function LoginRoute() {
       );
     } finally {
       setOverridePending(false);
+      // C1: rotate the key after every attempt (success + failure) so the next
+      // call never replays a stale idempotency result.
+      setOverrideReset((n) => n + 1);
     }
   };
 

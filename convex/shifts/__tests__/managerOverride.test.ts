@@ -217,3 +217,78 @@ test("managerOverride: wrong PIN is rejected with INVALID_PIN", async () => {
     }),
   ).rejects.toThrow(/INVALID_PIN/);
 });
+
+// ---------------------------------------------------------------------------
+// C1: idempotency-key replay / distinct-key behaviour
+// ---------------------------------------------------------------------------
+test("managerOverride: replay of key k1 does NOT end a second stranded holder; k2 does", async () => {
+  const t = convexTest(schema);
+
+  const outletId = await seedOutletWithDevice(t, "d-idem");
+  const holderA = await seedStaff(t, "HolderA", "1111", "staff");
+  const managerM = await seedStaff(t, "Mgr", "9999", "manager");
+
+  // Open the outlet
+  await t.run(async (ctx: any) => {
+    await ctx.db.patch(outletId, { is_open: true } as any);
+  });
+
+  // Insert stranded shift for HolderA
+  await t.run(async (ctx: any) =>
+    ctx.db.insert("pos_shifts", {
+      outlet_id: outletId, device_id: "d-idem", staff_id: holderA,
+      started_at: Date.now() - 120_000, started_via: "sop",
+      ended_at: null, ended_via: null, open_count: null, close_count: null,
+      outgoing_uncounted: null, steps: [], summary: null, prev_shift_id: null,
+      created_at: Date.now() - 120_000,
+    } as any),
+  );
+
+  // k1: force-end HolderA
+  await t.action(api.shifts.actions.managerOverride, {
+    idempotencyKey: "k1",
+    deviceId: "d-idem",
+    managerStaffId: managerM,
+    managerPin: "9999",
+  });
+
+  // Verify HolderA's shift is ended
+  const afterA = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(afterA).toBeNull();
+
+  // Seed HolderB as a new stranded shift
+  const holderB = await seedStaff(t, "HolderB", "2222", "staff");
+  await t.run(async (ctx: any) =>
+    ctx.db.insert("pos_shifts", {
+      outlet_id: outletId, device_id: "d-idem", staff_id: holderB,
+      started_at: Date.now() - 60_000, started_via: "sop",
+      ended_at: null, ended_via: null, open_count: null, close_count: null,
+      outgoing_uncounted: null, steps: [], summary: null, prev_shift_id: null,
+      created_at: Date.now() - 60_000,
+    } as any),
+  );
+
+  // Replay k1 → must NOT end HolderB (cached no-op from HolderA's override)
+  await t.action(api.shifts.actions.managerOverride, {
+    idempotencyKey: "k1",
+    deviceId: "d-idem",
+    managerStaffId: managerM,
+    managerPin: "9999",
+  });
+  const afterReplay = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(afterReplay).not.toBeNull(); // HolderB still active — k1 was a cache hit
+  expect(afterReplay?.staff_id).toBe(holderB);
+
+  // Fresh key k2 → force-ends HolderB
+  await t.action(api.shifts.actions.managerOverride, {
+    idempotencyKey: "k2",
+    deviceId: "d-idem",
+    managerStaffId: managerM,
+    managerPin: "9999",
+  });
+  const afterK2 = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(afterK2).toBeNull(); // HolderB now force-ended
+
+  await drainScheduled(t);
+});
+

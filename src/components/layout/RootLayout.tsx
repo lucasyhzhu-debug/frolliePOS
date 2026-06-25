@@ -168,6 +168,20 @@ export function RootLayout() {
     return <Navigate to="/shift/start" replace />;
   }
 
+  // I-B: Level-2 gate — outlet open but no active shift holder means incoming
+  // staff must complete the count wizard before operating the booth. Guard on
+  // /shift/begin itself to prevent a redirect loop.
+  if (
+    session.status === "active" &&
+    ctx !== undefined &&
+    deviceIsOutlet &&
+    ctx.outletOpen === true &&
+    ctx.holderStaffId === null &&
+    location.pathname !== "/shift/begin"
+  ) {
+    return <Navigate to="/shift/begin" replace />;
+  }
+
   return (
     <div className="min-h-dvh flex flex-col bg-background">
       {/* PrinterProvider sits above the Outlet so one BLE connection survives
