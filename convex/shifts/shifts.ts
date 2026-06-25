@@ -7,6 +7,14 @@ import { requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { stepValidator } from "./schema";
 
+type HandoverArgs = {
+  idempotencyKey: string;
+  sessionId: Id<"staff_sessions">;
+  steps: Array<{ key: string; label: string; type: "instruction" | "count"; confirmed_at: number }>;
+  closeCount?: number;
+};
+type HandoverResult = { ok: true; durationMs: number };
+
 type OpenBoothArgs = {
   idempotencyKey: string;
   sessionId: Id<"staff_sessions">;
@@ -47,6 +55,55 @@ export const openBooth = mutation({
         metadata: { via: "sop", shift_id: shiftId, open_count: args.openCount ?? null },
       });
       return { ok: true as const, shiftId };
+    },
+    { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
+  ),
+});
+
+export const handover = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    closeCount: v.optional(v.number()),
+  },
+  handler: withIdempotency<HandoverArgs, HandoverResult>(
+    "shifts.handover",
+    async (ctx, args): Promise<HandoverResult> => {
+      const { staffId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
+      const now = Date.now();
+
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+      if (!holder) throw new Error("NO_ACTIVE_SHIFT");
+      if (holder.staff_id !== staffId) throw new Error("NOT_SHIFT_HOLDER");
+
+      const summary = await ctx.runQuery(internal.shifts.internal._buildSignoffSummary_internal, {
+        shiftStartMs: holder.started_at, endMs: now, outletId,
+      });
+      await ctx.runMutation(internal.shifts.shiftsInternal._endShift_internal, {
+        shiftId: holder._id, endedVia: "handover", closeCount: args.closeCount ?? null,
+        steps: args.steps, outgoingUncounted: null,
+        summary: {
+          durationMs: summary.durationMs, totalSalesIdr: summary.totalSalesIdr,
+          txnCount: summary.txnCount, manualBcaCount: summary.manualBcaCount,
+          manualBcaTotalIdr: summary.manualBcaTotalIdr,
+        },
+      });
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId, endReason: "force_logout",
+      });
+      await logAudit(ctx, {
+        actor_id: staffId, action: "shift.handover", entity_type: "pos_shifts",
+        entity_id: holder._id, source: "booth_inline",
+        metadata: { durationMs: summary.durationMs },
+      });
+      await ctx.scheduler.runAfter(0, internal.shifts.actions._sendSignoffSummary, {
+        eventId: holder._id, staffId, shiftStartMs: holder.started_at, shiftEndMs: now,
+        totalSalesIdr: summary.totalSalesIdr, txnCount: summary.txnCount,
+        manualBcaCount: summary.manualBcaCount, manualBcaTotalIdr: summary.manualBcaTotalIdr,
+        idempotencyKeySuffix: holder._id, outletId,
+      });
+      return { ok: true as const, durationMs: summary.durationMs };
     },
     { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
   ),

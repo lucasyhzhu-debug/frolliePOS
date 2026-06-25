@@ -106,7 +106,7 @@ export const managerTakeover = action({
 
 export const _sendSignoffSummary = internalAction({
   args: {
-    eventId: v.id("pos_shift_events"),
+    eventId: v.union(v.id("pos_shift_events"), v.id("pos_shifts")),
     staffId: v.id("staff"),
     shiftStartMs: v.number(),
     shiftEndMs: v.number(),
