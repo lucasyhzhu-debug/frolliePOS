@@ -4,6 +4,19 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
+## 2026-06-26 — v2.0 Two-level booth state (ADR-053, Task 13 cleanup)
+
+**Scope:** Deletion sweep for the old ADR-050 `deriveBoothState` machinery. The two-level stored state (`outlets.is_open` + `pos_shifts`) built in Tasks 1–12 is now the sole booth-state mechanism. ([ADR-053](./ADR/053-two-level-booth-state.md))
+
+- **`convex/shifts/public.ts` deleted** — all old lifecycle mutations (`completeStartOfDay`, `endOfDaySignOff`, `handoverOut`, `lockShift`, `recordResume`, `completeHandoverIn`, `boothState` query) removed.
+- **`deriveBoothState`, `BoothState`, `LatestEvent`, `OPEN_TYPES` deleted** from `convex/shifts/lib.ts`.
+- **`_latestShiftEvent_internal`, `_commitManagerTakeover_internal` deleted** from `convex/shifts/internal.ts`.
+- **`managerTakeover` action, `_sendTakeoverSummary` deleted** from `convex/shifts/actions.ts`. Replaced by `managerOverride` (force-ends stranded `pos_shifts` row; no new session; original staffer re-authenticates normally).
+- **`_managerTakeoverSession_internal` deleted** from `convex/auth/internal.ts`.
+- Old test files deleted: `boothState.test.ts`, `handover.test.ts`, `lock.test.ts`, `signoff.test.ts`, `staleAutoclose.test.ts`, `startOfDay.test.ts`, `stateGuards.test.ts`, `takeover.test.ts`, `signoffTelegram.test.ts`.
+- **ADR-053** created (`docs/ADR/053-two-level-booth-state.md`). ADR-050 superseded.
+- `pos_shift_events` kept read-only for legacy audit history; `pos_shifts` + `outlets.is_open` are the live state.
+
 ## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
 
 **Scope:** Two-tier `(role, outlet_id)` Telegram chat registry so each outlet's `managers`/`inventory` chats receive only that outlet's approvals/alerts, while `owners`/`ops` stay business-wide ([ADR-035](./ADR/035-telegram-as-internal-comms.md) per-outlet amendment).

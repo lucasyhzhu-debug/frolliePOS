@@ -25,7 +25,7 @@ This doc is the developer-facing reference for the POS Convex schema. Field nami
 | `refunds/` *(v0.5.1 PR B)* | `pos_refunds` |
 | `ops/` *(v1.0.1)* | `pos_error_reports` (append-only launch-ops telemetry — NOT `audit_log`) |
 | `api/v1/` *(v1)* | `api_tokens`, `api_rate_buckets`, `api_request_log` |
-| `shifts/` *(v1.2 #6)* | `pos_shift_events` |
+| `shifts/` *(v1.2 #6 / ADR-053)* | `pos_shifts` (active holder — Level 2); `pos_shift_events` (legacy read-only) |
 
 > **Doc note (v0.3):** several table sections below were written ahead of time against the broader **v0.5 design** and are marked *(new in v0.5)* / *(rewritten in v0.5)*. The v0.3 milestone shipped a leaner subset of those tables. Where the section header carries a **"v0.3 shipped"** field table, that table is ground truth for what currently exists in code (`convex/<module>/schema.ts`); the surrounding v0.5 prose describes the planned expansion, not today's schema. The shipped-vs-planned divergences are also called out in `CHANGELOG.md` under the v0.3 entry.
 
@@ -45,8 +45,10 @@ Cross-module direct `ctx.db` access is a CI lint block (see `tools/eslint-rules/
 
 (Existing per-table sections continue below — unchanged.)
 
-### `outlets` *(v2.0 — owned by `outlets/`)*
+### `outlets` *(v2.0 — owned by `outlets/`; ADR-053 adds open-flag fields)*
 Physical outlet (store/booth) registry. One row per outlet within this business's deployment silo ([ADR-051](./ADR/051-multi-outlet-tenancy-silo.md)). The hierarchy is: deployment = business; outlet row = physical location.
+
+`is_open` is Level 1 of the two-level booth state ([ADR-053](./ADR/053-two-level-booth-state.md)): the SOP gate that controls whether the booth is open for the day.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -56,6 +58,11 @@ Physical outlet (store/booth) registry. One row per outlet within this business'
 | `active` | `boolean` | Soft delete |
 | `created_at` | `number` | ms epoch |
 | `created_by` | `Id<"staff"> \| null` | Manager who created the outlet; `null` for seed-created default outlet |
+| `is_open` | `boolean?` | *(ADR-053 Level 1)* `true` when the booth is open for the day. Set by `openBooth` / `managerSkipOpen`; cleared by `endOfDay`. Absent = closed (default). |
+| `opened_at` | `number?` | UTC ms when `is_open` last became `true`. |
+| `opened_by` | `Id<"staff">?` | Staff who called `openBooth` / `managerSkipOpen`. |
+| `closed_at` | `number?` | UTC ms when `is_open` last became `false`. |
+| `closed_by` | `Id<"staff">?` | Staff who called `endOfDay`. |
 
 Indexes: `by_active` on `active`, `by_code` on `code` (unique).
 
@@ -973,9 +980,38 @@ Append-only access log — one row per API request (success AND failure, includi
 
 Indexes: `by_token_at` on `[token_id, at]`, `by_at` on `at`.
 
-### `pos_shift_events` *(v1.2 #6 — owned by `shifts/`)*
+### `pos_shifts` *(ADR-053 Level 2 — owned by `shifts/`)*
 
-Single source of truth for booth shift state. One row per shift lifecycle event. State is derived by reading the latest event for a given `device_id`; there is no separate "current state" row.
+Active shift holder table. A row with `ended_at == null` means a staff member currently holds the shift for an outlet. `startShift` inserts a row; `endOfDay` and the handover out-half set `ended_at`. There is at most one active row per outlet (`by_outlet_active` unique index).
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_shifts">` | |
+| `outlet_id` | `Id<"outlets">` | Outlet this shift belongs to |
+| `device_id` | `string` | Device the shift was started on |
+| `staff_id` | `Id<"staff">` | Staff member currently holding the shift |
+| `started_at` | `number` | UTC ms when this shift segment began |
+| `ended_at` | `number \| null` | UTC ms when ended; `null` while active |
+| `end_reason` | `"signoff" \| "handover" \| "manager_override" \| null` | How the shift ended; `null` while active |
+| `summary` | `{ durationMs, totalSalesIdr, txnCount, manualBcaCount, manualBcaTotalIdr } \| null` | Written on signoff/handover; `null` while active |
+
+Indexes: `by_outlet_active` on `[outlet_id, ended_at]` (unique active holder per outlet); `by_outlet_staff` on `[outlet_id, staff_id, started_at]`.
+
+Audit verbs (source `booth_inline` unless noted):
+```
+outlet.opened           # openBooth / managerSkipOpen → outlets.is_open = true (Level 1)
+outlet.closed           # endOfDay → outlets.is_open = false (Level 1)
+shift.start             # startShift → new pos_shifts row (Level 2)
+shift.handover          # handover out-half ends the row; in-half creates a new one
+shift.lock              # lockShift — session ends, pos_shifts row unchanged
+shift.manager_override  # managerOverride force-ends a stranded pos_shifts row
+```
+
+### `pos_shift_events` *(v1.2 #6 — legacy read-only after ADR-053, owned by `shifts/`)*
+
+**Legacy — no new writes after ADR-053.** Previously the single source of truth for booth state (derived via `deriveBoothState`). Kept read-only for historical audit records. The two-level stored state (`outlets.is_open` + `pos_shifts`) supersedes it.
+
+State was derived by reading the latest event for a given `device_id`. `deriveBoothState` is deleted.
 
 | Field | Type | Notes |
 |---|---|---|

@@ -26,8 +26,7 @@ Convex function inventory for Frollie POS, updated as functions ship. The backen
 | Helper | Notes |
 |---|---|
 | `verifyManagerPinOrThrow(ctx, { sessionId, managerPin, idempotencyKey })` | *(v0.5.3b)* Single manager-PIN funnel at `convex/auth/verifyPin.ts`. Resolves the session, requires manager role, argon2-verifies the supplied PIN under that manager's identity, and threads ADR-002 lockout counting onto the manager (not the session staff). Used by every PIN-gated v0.5.3b admin write (`createStaff`, `setStaffRole`, `deactivateStaff`, `createProduct`, `updateProductPricing`). Sibling `verifyPinOrThrow` is the manager-by-staff_code variant used by `commitRefundInline` / `approveManualPayment` where the manager identity is independent of the session. |
-| `_managerTakeoverSession_internal` *(internalMutation)* | Force-ends all active `staff_sessions` on a device (`force_logout`) and creates a fresh manager session. Called by `shifts.internal._commitManagerTakeover_internal` so shifts never touches the auth-owned `staff_sessions` table (ADR-034). |
-| `_endShiftSession_internal` *(internalMutation, v1.2 #6)* | Ends a single `staff_sessions` row (`{ ended_at: Date.now(), end_reason }`); `endReason ∈ {"manual_lock", "force_logout"}`. The ADR-034 session-end channel for the shift lifecycle mutations (`endOfDaySignOff`/`handoverOut` → `force_logout`; `lockShift` → `manual_lock`) — replaces a direct `ctx.db.patch` on the auth-owned table. No idempotency wrapper (the calling public mutation owns the key). |
+| `_endShiftSession_internal` *(internalMutation, v1.2 #6)* | Ends a single `staff_sessions` row (`{ ended_at: Date.now(), end_reason }`); `endReason ∈ {"manual_lock", "force_logout"}`. The ADR-034 session-end channel for the shift lifecycle mutations (`endOfDay`/`handover` → `force_logout`; `lock` → `manual_lock`) — replaces a direct `ctx.db.patch` on the auth-owned table. No idempotency wrapper (the calling mutation owns the key). |
 
 ## `staff.ts`
 
@@ -280,44 +279,54 @@ Per-day payout aggregate. No Xendit "settlement object"/webhook — dual-source 
 | a | `settlements.cronActions.syncSettlements` | `{}` | `{ ok, days } \| { skipped: "no_settlements" }` | V8-safe inner action. Calls `GET /transactions` (LOOKBACK_DAYS=7), `parseListTransactions` + `aggregateSettledByDate`, upserts one row per WIB settlement day. On-demand callable. |
 | a | `settlements.cronActions.syncSettlementsResilient` | `{ attempt? }` | `{ ok, days } \| { skipped } \| { ok, retried, nextAttempt }` | **Cron entry-point** (`settlement-sync`, 20:30 UTC / 03:30 WIB). Wraps `syncSettlements` with shared `cronRetry` policy (linear back-off, `RESILIENT_MAX_ATTEMPTS`). |
 
-## `shifts/` *(v1.2 #6 — booth shift lifecycle)*
+## `shifts/` *(v1.2 #6 / ADR-053 — two-level booth state)*
 
-Booth shift state machine. Booth state is **derived** from the latest `pos_shift_events` row by the pure `deriveBoothState` function — never stored directly. See [ADR-050](./ADR/050-shift-lifecycle-state-machine.md).
+Booth shift state is **two stored levels** ([ADR-053](./ADR/053-two-level-booth-state.md), supersedes ADR-050). Level 1: `outlets.is_open` (SOP gate). Level 2: `pos_shifts` active holder row. `pos_shift_events` is legacy read-only.
 
-### Public
-
-| Type | Name | Args | Returns | Notes |
-|---|---|---|---|---|
-| q | `shifts.public.boothState` | `{ deviceId: string }` | `{ state: "closed" \| "open" \| "locked" \| "handover_pending"; staffId: Id<"staff"> \| null; staffName: string \| null; staleAutoclose: boolean }` | Reactive. Calls `_latestShiftEvent_internal`, derives state via `deriveBoothState(latest, wibDayStartMs)`, enriches with staff name via `_listStaffNames_internal`. `staleAutoclose: true` when the latest non-closed event is from a prior WIB day (forgot-to-close path). Powers the login-gate fork in the FE. |
-| m | `shifts.public.completeStartOfDay` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; eventId }` | **State guard: requires CLOSED** (`BOOTH_NOT_CLOSED` otherwise). Records `start_of_day` event (CLOSED → OPEN). `shift_started_at = Date.now()` (ADR-031). **Stale auto-close (spec §2):** if the latest event is non-closed but from a prior WIB day (`deriveBoothState` → state `closed`, `staleAutoclose: true`), it first records a `stale_autoclose: true` `signoff_close` for the displaced staff (with that shift's summary), audits `shift.signoff` (`metadata.stale_autoclose: true`), and schedules `_sendSignoffSummary` → Founders for the displaced staff — THEN opens today's shift. Audits `shift.start_of_day`. ADR-013 wrapped. |
-| m | `shifts.public.endOfDaySignOff` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; durationMs }` | **State guard: requires OPEN** (`BOOTH_NOT_OPEN`). Records `signoff_close` event (OPEN → CLOSED). Resolves shift-start anchor via `_shiftStartAnchor_internal`, builds summary via `_buildSignoffSummary_internal`, ends session via `auth.internal._endShiftSession_internal` (`endReason: "force_logout"`, ADR-034), audits `shift.signoff`. Schedules `_sendSignoffSummary` → Founders Telegram (`endedBy: "self"`). |
-| m | `shifts.public.handoverOut` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; durationMs }` | **State guard: requires OPEN** (`BOOTH_NOT_OPEN`). Records `handover_out` event (OPEN → HANDOVER_PENDING). Same summary + Founders pipeline as `endOfDaySignOff`; ends session via `auth.internal._endShiftSession_internal` (`force_logout`, ADR-034). Audits `shift.handover_out`. The incoming staff calls `completeHandoverIn` after logging in. |
-| m | `shifts.public.completeHandoverIn` | `{ idempotencyKey, sessionId, steps, countChanged? }` | `{ ok: true; eventId }` | **State guard: requires HANDOVER_PENDING** (`NO_HANDOVER_PENDING`, derived from the latest event via `deriveBoothState`). Records `handover_in` event (HANDOVER_PENDING → OPEN). `shift_started_at = now`. Links to the pending `handover_out` via `linked_event_id`. Audits `shift.handover_in`. |
-| m | `shifts.public.lockShift` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | **State guard: requires OPEN** (`BOOTH_NOT_OPEN`). Records `lock` event (OPEN → LOCKED). Preserves `shift_started_at` from the anchor so accumulated hours survive the lock. Ends session via `auth.internal._endShiftSession_internal` (`endReason: "manual_lock"`, ADR-003/ADR-034). Audits `shift.lock`. |
-| m | `shifts.public.recordResume` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | **State guard: requires LOCKED** (`BOOTH_NOT_LOCKED`). Records `resume` event (LOCKED → OPEN). `_shiftStartAnchor_internal` recovers the original start, preserving accumulated hours. Requires a fresh session from `loginWithPin`. Audits `shift.resume`. |
-
-### Actions (Node runtime)
+### Public (`convex/shifts/shifts.ts`)
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| a | `shifts.actions.managerTakeover` | `{ idempotencyKey, deviceId, managerStaffId, managerPin }` | `{ sessionId: Id<"staff_sessions">; eventId: Id<"pos_shift_events"> }` | **Manager-PIN gated** (argon2id, Node runtime). Escape hatch when the locked booth's staff is unavailable. `authCheck` (ADR-046) does a cheap role/active check before the action-level cache; argon2 PIN verify runs inside `fn`. Atomically (via `_commitManagerTakeover_internal`): force-ends active sessions (`end_reason: "force_logout"`), creates a manager session, records `manager_takeover` event (`takeover: true`, `outgoing_uncounted: true`). Schedules deferred `_sendTakeoverSummary` → Founders Telegram (`endedBy: "manager"`, `outgoingUncounted: true`). Errors: `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. Audits `shift.manager_takeover`. |
+| m | `shifts.shifts.openBooth` | `{ idempotencyKey, sessionId, steps, openCount? }` | `{ ok: true; shiftId }` | **Requires outlet closed** (`OUTLET_ALREADY_OPEN`). Sets `outlets.is_open = true` (Level 1) AND inserts a `pos_shifts` row (Level 2) atomically. The SOD SOP checklist is submitted here. Audits `outlet.opened` + `shift.start`. |
+| m | `shifts.shifts.startShift` | `{ idempotencyKey, sessionId }` | `{ ok: true; shiftId }` | Creates a new `pos_shifts` row when the outlet is already open (subsequent staff after a handover or lock). Level 2 only. Audits `shift.start`. |
+| m | `shifts.shifts.endOfDay` | `{ idempotencyKey, sessionId, steps, closeCount? }` | `{ ok: true; durationMs }` | **Requires outlet open + active shift holder** (`OUTLET_NOT_OPEN`, `NO_ACTIVE_SHIFT`). Ends the `pos_shifts` row, sets `outlets.is_open = false`. Builds summary via `_buildSignoffSummary_internal`. Audits `outlet.closed` + `shift.end`. Schedules `_sendSignoffSummary` → managers Telegram. |
+| m | `shifts.shifts.handover` | `{ idempotencyKey, outSessionId, inSessionId, steps, closeCount?, openCount? }` | `{ ok: true; shiftId }` | Person-to-person transfer: ends the outgoing `pos_shifts` row (schedules `_sendSignoffSummary`), inserts a new row for the incoming staff. No intermediate `handover_pending` state. Audits `shift.handover`. |
+| m | `shifts.shifts.lock` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | Ends the session (`manual_lock`). The `pos_shifts` row is **unchanged** — the holder row stays active. The locked staff re-authenticates and calls `startShift` / `recordResume` to get a new session. Audits `shift.lock`. |
+| m | `shifts.shifts.recordResume` | `{ idempotencyKey, sessionId }` | `{ ok: true }` | Session-based resume by the same staff after a lock. Audits `shift.resume`. |
+| q | `shifts.shifts.loginContext` | `{ deviceId: string }` | `{ isOpen: boolean; activeShift: { staffId, staffName, startedAt } \| null }` | Reactive query for the login gate. Returns Level 1 + Level 2 state so the FE can derive: closed/open-no-holder/open-with-holder/locked. |
 
-### Internal (helpers — `convex/shifts/internal.ts`)
+### Actions (Node runtime — `convex/shifts/actions.ts`)
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| a | `shifts.actions.managerOverride` | `{ idempotencyKey, deviceId, managerStaffId, managerPin }` | `{ ok: true }` | **Manager-PIN gated** (argon2id, ADR-046). Force-ends the stranded `pos_shifts` row without creating a new session. The original staffer (or manager) re-authenticates via standard login. Errors: `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. Audits `shift.manager_override`. |
+| a | `shifts.actions.managerSkipOpen` | `{ idempotencyKey, sessionId, managerPin }` | `{ ok: true; shiftId }` | **Manager-session + PIN** (ADR-046). Opens the booth without the full SOP checklist. Equivalent to `openBooth` but PIN-gated. Audits `outlet.opened` + `shift.start`. |
+
+### Internal (helpers — `convex/shifts/internal.ts` + `convex/shifts/shiftsInternal.ts`)
 
 | Helper | Notes |
 |---|---|
-| `_latestShiftEvent_internal` | Returns the most recent `pos_shift_events` row for a `deviceId` by `by_device_created` index. Used by `boothState` and `completeHandoverIn`. |
-| `_shiftStartAnchor_internal` | Recovers the most recent shift-START event (`start_of_day` / `handover_in` / `manager_takeover`), skipping `lock` events, so hours accumulated before a lock are not reset on resume. Scans **today's WIB-day window** (`by_device_created` `gte` `wibDayWindow(now).dayStartMs`, full collect — no `.take()` ceiling that could silently miss the anchor on a busy day, review C4). Stale prior-day shifts are auto-closed by `completeStartOfDay`, so the current shift's anchor is always within today. Returns `{ shift_started_at, staff_id }` or `null` (null only for a genuinely anchorless booth — unreachable in normal flow). |
 | `_buildSignoffSummary_internal` | Aggregates sales + manual-BCA for the window `[shiftStartMs, endMs]` using `transactions/internal`. Returns `{ durationMs, totalSalesIdr, txnCount, manualBcaCount, manualBcaTotalIdr }`. |
-| `_recordShiftEvent_internal` | Single writer for `pos_shift_events`. All lifecycle mutations delegate here. |
-| `_commitManagerTakeover_internal` | Atomic commit: force-end sessions + create manager session (via `auth/internal._managerTakeoverSession_internal`) + record `manager_takeover` event + audit. `withIdempotency`-wrapped on a `:commit`-derived key for crash-retry safety. |
+| `_shiftStartAnchor_internal` | Recovers the most recent shift-START event from the legacy `pos_shift_events` table (used for historical/migration reads only). Returns `{ shift_started_at, staff_id }` or `null`. |
+| `_recordShiftEvent_internal` | Legacy writer for `pos_shift_events` (migration backfill path only). |
+| `_getActiveShift_internal` | Returns the active `pos_shifts` row for an outlet (`ended_at == null`). Used by signoff/handover/override. |
+| `_startShift_internal` | Inserts a new `pos_shifts` row + audits `shift.start`. Single writer for Level 2. |
+| `_endShift_internal` | Patches `ended_at` + `end_reason` + `summary` on a `pos_shifts` row. |
+| `_managerOverrideCommit_internal` | Atomic commit for `managerOverride`: fetch active shift by outlet → set `ended_at` + `end_reason: "manager_override"` → audit. No new session created. |
+| `_managerSkipOpenCommit_internal` | Atomic commit for `managerSkipOpen`: set `outlets.is_open = true` + insert `pos_shifts` row + audit. |
+
+### Actions (Node runtime — internal helpers)
+
+| Helper | Notes |
+|---|---|
+| `_sendSignoffSummary` | Deferred internal action. Resolves staff name + BCA items, sends `staff_shift_signoff` template to per-outlet managers Telegram. Scheduled by `endOfDay` and `handover` out-half. |
 
 ### Pure helpers (`convex/shifts/lib.ts`)
 
 | Function | Signature | Notes |
 |---|---|---|
-| `deriveBoothState` | `(latest: LatestEvent, wibDayStartMs: number) → { state: BoothState; staffId; staleAutoclose }` | Pure; no DB reads. Stale-autoclose: prior-day non-closed event → `closed` + `staleAutoclose: true`. |
 | `computeShiftHoursMs` | `(shiftStartedAt: number, endedAt: number) → number` | `max(0, endedAt - shiftStartedAt)`. |
+| `resolveStaffName` | `(names, staffId, fallback?) → string` | Looks up display name in a `_listStaffNames_internal` result set. |
 
 ## `settings.ts` *(v0.4 + v0.5.3b)*
 
