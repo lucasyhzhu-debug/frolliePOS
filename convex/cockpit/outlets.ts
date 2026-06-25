@@ -5,8 +5,12 @@
  * ALL outlets-table access routes through convex/outlets/lib.ts helpers
  * (no raw ctx.db on "outlets" here — ADR-034 / no-cross-module-db-access fence).
  */
-import { internalMutation } from "../_generated/server";
+import { action, internalMutation, query } from "../_generated/server";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
+import { requireCockpitSession } from "../auth/sessions";
+import { withActionCache } from "../idempotency/action";
 import { getOutletByCode, insertOutletRow } from "../outlets/lib";
 import { cloneCatalogRows } from "../catalog/lib";
 import { cloneSettingsRow, seedSettingsRow } from "../settings/lib";
@@ -131,4 +135,102 @@ export const _createOutletAtomic_internal = internalMutation({
 
     return { outlet_id };
   },
+});
+
+// ── Public cockpit API ────────────────────────────────────────────────────────
+
+/**
+ * List all active outlets. Owner-cockpit gated.
+ * Routes through internal._listActiveOutlets_internal — cockpit is NOT
+ * allowlisted for raw outlets ctx.db access (ADR-034 fence compliance).
+ */
+export const listOutlets = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, { sessionId }): Promise<{ _id: Id<"outlets">; code: string; name: string; address?: string; timezone: string; active: boolean; created_at: number }[]> => {
+    await requireCockpitSession(ctx, sessionId);
+    const rows = await ctx.runQuery(
+      internal.outlets.internal._listActiveOutlets_internal,
+      {},
+    );
+    return rows.map((o) => ({
+      _id: o._id,
+      code: o.code,
+      name: o.name,
+      address: o.address,
+      timezone: o.timezone,
+      active: o.active,
+      created_at: o.created_at,
+    }));
+  },
+});
+
+/**
+ * List all active staff eligible for outlet assignment. Owner-cockpit gated.
+ * Routes through _listAssignableStaff_internal — NO pin_hash in the response.
+ */
+export const listAssignableStaff = query({
+  args: { sessionId: v.id("staff_sessions") },
+  handler: async (ctx, { sessionId }): Promise<{ _id: Id<"staff">; name: string; code: string; role: "staff" | "manager" | "owner" }[]> => {
+    await requireCockpitSession(ctx, sessionId);
+    return ctx.runQuery(internal.staff.internal._listAssignableStaff_internal, {});
+  },
+});
+
+/**
+ * Create a new outlet (blank or clone). Owner-cockpit gated, idempotent via
+ * withActionCache. authCheck runs BEFORE the cache lookup (ADR-046).
+ *
+ * Returns { outlet_id } on success; subsequent calls with the same
+ * idempotencyKey short-circuit to the cached result.
+ */
+export const createOutlet = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    mode: v.union(v.literal("blank"), v.literal("clone")),
+    source_outlet_id: v.optional(v.id("outlets")),
+    name: v.string(),
+    code: v.string(),
+    address: v.optional(v.string()),
+    geo: v.optional(v.object({ lat: v.number(), lng: v.number() })),
+    timezone: v.string(),
+    settings: settingsArg,
+    staff_ids: v.array(v.id("staff")),
+    provision_managers_chat: v.boolean(),
+  },
+  handler: async (ctx, args): Promise<{ outlet_id: string }> =>
+    withActionCache<{ outlet_id: string }>(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "cockpit.createOutlet" },
+      // ADR-046: authCheck runs BEFORE cache lookup so a spent key cannot be
+      // replayed by a caller whose cockpit session has since expired.
+      async () => {
+        await ctx.runQuery(
+          internal.auth.ownerInternal._assertCockpitSession_internal,
+          { sessionId: args.sessionId },
+        );
+      },
+      async () => {
+        const { staffId } = await ctx.runQuery(
+          internal.auth.ownerInternal._assertCockpitSession_internal,
+          { sessionId: args.sessionId },
+        );
+        return ctx.runMutation(
+          internal.cockpit.outlets._createOutletAtomic_internal,
+          {
+            ownerStaffId: staffId,
+            mode: args.mode,
+            source_outlet_id: args.source_outlet_id,
+            name: args.name,
+            code: args.code,
+            address: args.address,
+            geo: args.geo,
+            timezone: args.timezone,
+            settings: args.settings,
+            staff_ids: args.staff_ids,
+            provision_managers_chat: args.provision_managers_chat,
+          },
+        );
+      },
+    ),
 });

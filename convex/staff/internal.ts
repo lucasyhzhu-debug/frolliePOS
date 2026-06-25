@@ -576,6 +576,23 @@ export const _assignDeviceOutlet_internal = internalMutation({
   },
 });
 
+/**
+ * List all active staff for owner cockpit outlet-assignment.
+ * Returns { _id, name, code, role } — NO pin_hash.
+ * Called from cockpit/outlets.ts via ctx.runQuery (cross-module fence: staff
+ * module IS allowlisted for staff table reads; cockpit is NOT — ADR-034).
+ */
+export const _listAssignableStaff_internal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("staff")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return rows.map((s) => ({ _id: s._id, name: s.name, code: s.code, role: s.role }));
+  },
+});
+
 export const _createStaffCommit_internal = internalMutation({
   args: {
     idempotencyKey: v.string(),

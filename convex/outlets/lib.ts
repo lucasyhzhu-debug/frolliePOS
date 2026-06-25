@@ -35,7 +35,7 @@ export async function insertOutletRow(
     timezone: string;
     active: boolean;
     created_at: number;
-    created_by: Id<"staff"> | null;
+    created_by: Id<"staff">; // cockpit callers always pass a real owner id; seed rows insert directly via ctx.db
   },
 ): Promise<Id<"outlets">> {
   return ctx.db.insert("outlets", fields);

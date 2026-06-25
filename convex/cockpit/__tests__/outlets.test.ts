@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
 import { test, expect } from "vitest";
 import schema from "../../schema";
-import { internal } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 
 async function seedSource(ctx: any) {
   const owner = await ctx.db.insert("staff", {
@@ -165,4 +165,235 @@ test("duplicate code throws OUTLET_CODE_TAKEN, no partial outlet", async () => {
       });
     }),
   ).rejects.toThrow("OUTLET_CODE_TAKEN");
+});
+
+// ── Task-5 review fix: clone with no source_outlet_id throws ─────────────────
+
+test("clone mode without source_outlet_id throws SOURCE_OUTLET_REQUIRED", async () => {
+  const t = convexTest(schema);
+  await expect(
+    t.run(async (ctx) => {
+      const owner = await ctx.db.insert("staff", {
+        name: "O",
+        code: "O1",
+        role: "owner",
+        pin_hash: "x",
+        active: true,
+        created_at: 1,
+      } as any);
+      return ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, {
+        ownerStaffId: owner,
+        mode: "clone",
+        // source_outlet_id intentionally omitted
+        name: "Clone Fail",
+        code: "CLF",
+        timezone: "Asia/Jakarta",
+        settings: {},
+        staff_ids: [],
+        provision_managers_chat: false,
+      });
+    }),
+  ).rejects.toThrow("SOURCE_OUTLET_REQUIRED");
+});
+
+// ── Task-6: listOutlets + listAssignableStaff + createOutlet (public API) ─────
+
+/** Seed an owner staff + active cockpit session (last_active_at = now). */
+async function seedCockpitSession(ctx: any) {
+  const owner = await ctx.db.insert("staff", {
+    name: "Owner",
+    code: "O2",
+    role: "owner",
+    pin_hash: "x",
+    active: true,
+    created_at: 1,
+  });
+  const session = await ctx.db.insert("staff_sessions", {
+    staff_id: owner,
+    device_id: "cockpit-device",
+    kind: "cockpit",
+    started_at: Date.now(),
+    last_active_at: Date.now(),
+    ended_at: null,
+    end_reason: null,
+  });
+  return { owner, session };
+}
+
+test("listOutlets rejects a booth session with NOT_COCKPIT_SESSION", async () => {
+  const t = convexTest(schema);
+  const boothSession = await t.run(async (ctx) => {
+    const outlet = await ctx.db.insert("outlets", {
+      code: "BT",
+      name: "Booth",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: 1,
+      created_by: null,
+    } as any);
+    const staff = await ctx.db.insert("staff", {
+      name: "S",
+      code: "S1",
+      role: "staff",
+      pin_hash: "x",
+      active: true,
+      created_at: 1,
+    } as any);
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staff,
+      device_id: "d",
+      kind: "booth",
+      outlet_id: outlet,
+      started_at: Date.now(),
+      last_active_at: Date.now(),
+      ended_at: null,
+      end_reason: null,
+    });
+  });
+  await expect(
+    t.query(api.cockpit.outlets.listOutlets, { sessionId: boothSession }),
+  ).rejects.toThrow("NOT_COCKPIT_SESSION");
+});
+
+test("listOutlets returns all active outlets for a cockpit session", async () => {
+  const t = convexTest(schema);
+  const { session } = await t.run(async (ctx) => {
+    await ctx.db.insert("outlets", {
+      code: "A1",
+      name: "Outlet A",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: 1,
+      created_by: null,
+    } as any);
+    await ctx.db.insert("outlets", {
+      code: "B1",
+      name: "Outlet B",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: 2,
+      created_by: null,
+    } as any);
+    return seedCockpitSession(ctx);
+  });
+  const outlets = await t.query(api.cockpit.outlets.listOutlets, { sessionId: session });
+  expect(outlets.length).toBe(2);
+  expect(outlets.map((o: any) => o.code).sort()).toEqual(["A1", "B1"]);
+  // No raw created_by leak — field not in the projection
+  expect((outlets[0] as any).created_by).toBeUndefined();
+});
+
+test("listAssignableStaff rejects booth session", async () => {
+  const t = convexTest(schema);
+  const boothSession = await t.run(async (ctx) => {
+    const outlet = await ctx.db.insert("outlets", {
+      code: "BT2",
+      name: "Booth2",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: 1,
+      created_by: null,
+    } as any);
+    const staff = await ctx.db.insert("staff", {
+      name: "S2",
+      code: "S2",
+      role: "staff",
+      pin_hash: "x",
+      active: true,
+      created_at: 1,
+    } as any);
+    return ctx.db.insert("staff_sessions", {
+      staff_id: staff,
+      device_id: "d2",
+      kind: "booth",
+      outlet_id: outlet,
+      started_at: Date.now(),
+      last_active_at: Date.now(),
+      ended_at: null,
+      end_reason: null,
+    });
+  });
+  await expect(
+    t.query(api.cockpit.outlets.listAssignableStaff, { sessionId: boothSession }),
+  ).rejects.toThrow("NOT_COCKPIT_SESSION");
+});
+
+test("listAssignableStaff returns active staff without pin_hash", async () => {
+  const t = convexTest(schema);
+  const { session } = await t.run(async (ctx) => {
+    await ctx.db.insert("staff", {
+      name: "Alice",
+      code: "A1",
+      role: "staff",
+      pin_hash: "secret",
+      active: true,
+      created_at: 1,
+    } as any);
+    await ctx.db.insert("staff", {
+      name: "Bob",
+      code: "B1",
+      role: "manager",
+      pin_hash: "secret2",
+      active: false, // inactive — must be excluded
+      created_at: 2,
+    } as any);
+    return seedCockpitSession(ctx);
+  });
+  const staff = await t.query(api.cockpit.outlets.listAssignableStaff, { sessionId: session });
+  // Only active staff (Alice + the owner from seedCockpitSession)
+  expect(staff.length).toBe(2);
+  expect(staff.some((s: any) => s.name === "Alice")).toBe(true);
+  // No pin_hash leaks
+  expect((staff[0] as any).pin_hash).toBeUndefined();
+});
+
+test("createOutlet idempotency: same key returns same outlet_id and creates only one outlet", async () => {
+  const t = convexTest(schema);
+  const { session } = await t.run(async (ctx) => seedCockpitSession(ctx));
+
+  const args = {
+    idempotencyKey: "idem-test-1",
+    sessionId: session,
+    mode: "blank" as const,
+    name: "Idem Outlet",
+    code: "IDEM",
+    timezone: "Asia/Jakarta",
+    settings: {},
+    staff_ids: [],
+    provision_managers_chat: false,
+  };
+
+  const first = await t.action(api.cockpit.outlets.createOutlet, args);
+  const second = await t.action(api.cockpit.outlets.createOutlet, args);
+
+  expect(first.outlet_id).toBe(second.outlet_id);
+
+  // Only one outlet with code "IDEM" exists
+  const outlets = await t.run(async (ctx) =>
+    ctx.db.query("outlets").withIndex("by_code", (q) => q.eq("code", "IDEM")).collect(),
+  );
+  expect(outlets.length).toBe(1);
+});
+
+test("createOutlet writes audit row with source 'cockpit'", async () => {
+  const t = convexTest(schema);
+  const { session } = await t.run(async (ctx) => seedCockpitSession(ctx));
+
+  await t.action(api.cockpit.outlets.createOutlet, {
+    idempotencyKey: "audit-test-1",
+    sessionId: session,
+    mode: "blank" as const,
+    name: "Audited Outlet",
+    code: "AUD1",
+    timezone: "Asia/Jakarta",
+    settings: {},
+    staff_ids: [],
+    provision_managers_chat: false,
+  });
+
+  const auditRow = await t.run(async (ctx) =>
+    ctx.db.query("audit_log").order("desc").first(),
+  );
+  expect(auditRow?.action).toBe("outlet.created");
+  expect(auditRow?.source).toBe("cockpit");
 });
