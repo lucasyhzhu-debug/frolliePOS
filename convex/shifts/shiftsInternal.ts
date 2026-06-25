@@ -132,3 +132,65 @@ export const _lastEndedShift_internal = internalQuery({
     return rows.find((r) => r.ended_at !== null) ?? null;
   },
 });
+
+// ─── _managerOverrideCommit_internal ─────────────────────────────────────────
+//
+// Atomic commit for managerOverride: reads the active shift holder; if none,
+// no-ops (idempotent); else builds a signoff summary, ends the shift with
+// ended_via="manager_override" + outgoing_uncounted=true, emits audit, and
+// schedules the Telegram signoff summary.
+//
+// Mirrors _managerSkipOpenCommit_internal's withIdempotency wrap.
+// Internal mutations wrapped with withIdempotency do NOT take an authCheck
+// (the action's withActionCache authCheck already gated entry).
+
+export const _managerOverrideCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    deviceId: v.string(),
+    managerStaffId: v.id("staff"),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; deviceId: string; managerStaffId: Id<"staff"> },
+    { ok: true }
+  >(
+    "shifts.managerOverride",
+    async (ctx, args): Promise<{ ok: true }> => {
+      const now = Date.now();
+      // Resolve outlet from the device binding (auth owns registered_devices).
+      const outletId = await ctx.runQuery(internal.auth.internal._getDeviceOutletId_internal, {
+        deviceId: args.deviceId,
+      });
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, {
+        outletId,
+      });
+      // No stranded holder → idempotent no-op (the blocked staffer can just log in).
+      if (!holder) return { ok: true as const };
+
+      const summary = await ctx.runQuery(internal.shifts.internal._buildSignoffSummary_internal, {
+        shiftStartMs: holder.started_at, endMs: now, outletId,
+      });
+      await ctx.runMutation(internal.shifts.shiftsInternal._endShift_internal, {
+        shiftId: holder._id, endedVia: "manager_override", closeCount: null,
+        steps: [], outgoingUncounted: true,
+        summary: {
+          durationMs: summary.durationMs, totalSalesIdr: summary.totalSalesIdr,
+          txnCount: summary.txnCount, manualBcaCount: summary.manualBcaCount,
+          manualBcaTotalIdr: summary.manualBcaTotalIdr,
+        },
+      });
+      await logAudit(ctx, {
+        actor_id: args.managerStaffId, action: "shift.manager_override",
+        entity_type: "pos_shifts", entity_id: holder._id, source: "booth_inline",
+        metadata: { durationMs: summary.durationMs, displaced_staff_id: holder.staff_id },
+      });
+      await ctx.scheduler.runAfter(0, internal.shifts.actions._sendSignoffSummary, {
+        eventId: holder._id, staffId: holder.staff_id, shiftStartMs: holder.started_at, shiftEndMs: now,
+        totalSalesIdr: summary.totalSalesIdr, txnCount: summary.txnCount,
+        manualBcaCount: summary.manualBcaCount, manualBcaTotalIdr: summary.manualBcaTotalIdr,
+        idempotencyKeySuffix: holder._id, outletId,
+      });
+      return { ok: true as const };
+    },
+  ),
+});

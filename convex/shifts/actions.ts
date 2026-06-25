@@ -224,6 +224,55 @@ export const _sendTakeoverSummary = internalAction({
   },
 });
 
+// ─── managerOverride ──────────────────────────────────────────────────────────
+//
+// Force-ends a stranded shift without starting a new one. The blocked staffer
+// can then log in normally. Requires an off-session manager PIN (same pattern
+// as managerTakeover — no live session because nobody may be logged in).
+//
+// ADR-046: authCheck (pre-cache) is the cheap role/active check. Argon2 verify
+// stays inside fn so a legit cache-hit replay skips it.
+
+export const managerOverride = action({
+  args: {
+    idempotencyKey: v.string(),
+    deviceId: v.string(),
+    managerStaffId: v.id("staff"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "shifts.managerOverride" },
+      // authCheck (pre-cache, ADR-046): cheap role/active assert, NO PIN.
+      async () => {
+        const mgr = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
+          staffId: args.managerStaffId,
+        });
+        if (!mgr || !mgr.active || mgr.role !== "manager") throw new Error("NOT_MANAGER");
+      },
+      // body: argon2 PIN verify (skipped on replay), then commit.
+      async () => {
+        const mgr = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
+          staffId: args.managerStaffId,
+        });
+        if (!mgr || !mgr.active || mgr.role !== "manager") throw new Error("NOT_MANAGER");
+        await verifyPinOrThrow(ctx, {
+          staffId: args.managerStaffId,
+          deviceId: args.deviceId,
+          pinHash: mgr.pin_hash,
+          pin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        return ctx.runMutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+          idempotencyKey: `${args.idempotencyKey}:commit`,
+          deviceId: args.deviceId,
+          managerStaffId: args.managerStaffId,
+        });
+      },
+    ),
+});
+
 // ─── managerSkipOpen ──────────────────────────────────────────────────────────
 //
 // Manager opens the booth without going through the full SOP checklist.
