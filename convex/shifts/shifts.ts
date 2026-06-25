@@ -1,11 +1,12 @@
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { withIdempotency } from "../idempotency/internal";
 import { requireSession } from "../auth/sessions";
 import { logAudit } from "../audit/internal";
 import { stepValidator } from "./schema";
+import { resolveStaffName } from "./lib";
 
 type HandoverArgs = {
   idempotencyKey: string;
@@ -225,4 +226,23 @@ export const lock = mutation({
     },
     { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
   ),
+});
+
+export const loginContext = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }): Promise<{
+    outletOpen: boolean;
+    holderStaffId: Id<"staff"> | null;
+    holderName: string | null;
+  }> => {
+    const outletId = await ctx.runQuery(internal.auth.internal._getDeviceOutletId_internal, { deviceId });
+    const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
+    const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+    let holderName: string | null = null;
+    if (holder) {
+      const names = await ctx.runQuery(internal.auth.internal._listStaffNames_internal, {});
+      holderName = resolveStaffName(names, holder.staff_id, "") || null;
+    }
+    return { outletOpen: status.is_open, holderStaffId: holder?.staff_id ?? null, holderName };
+  },
 });
