@@ -207,3 +207,22 @@ export const endOfDay = mutation({
     { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
   ),
 });
+
+export const lock = mutation({
+  args: { idempotencyKey: v.string(), sessionId: v.id("staff_sessions") },
+  handler: withIdempotency<{ idempotencyKey: string; sessionId: Id<"staff_sessions"> }, { ok: true }>(
+    "shifts.lock",
+    async (ctx, args): Promise<{ ok: true }> => {
+      const { staffId } = await requireSession(ctx, args.sessionId);
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId, endReason: "manual_lock",
+      });
+      await logAudit(ctx, {
+        actor_id: staffId, action: "shift.lock", entity_type: "staff_sessions",
+        entity_id: args.sessionId, source: "booth_inline", metadata: {},
+      });
+      return { ok: true as const };
+    },
+    { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
+  ),
+});
