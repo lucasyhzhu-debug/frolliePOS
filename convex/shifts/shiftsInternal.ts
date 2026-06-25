@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import { internalQuery, internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { stepValidator } from "./schema";
+import { withIdempotency } from "../idempotency/internal";
+import { logAudit } from "../audit/internal";
+import { internal } from "../_generated/api";
 
 const summaryValidator = v.object({
   durationMs: v.number(),
@@ -72,4 +75,48 @@ export const _endShift_internal = internalMutation({
     });
     return null;
   },
+});
+
+// ─── _managerSkipOpenCommit_internal ─────────────────────────────────────────
+//
+// Atomic commit for managerSkipOpen: sets outlet open (via:"manager_skip"),
+// starts a manager_skip shift, emits audit. Wrapped with withIdempotency so a
+// crash between action commit and action-level cache write is handled safely.
+//
+// Note: internal mutations wrapped with withIdempotency do NOT take an authCheck
+// (rule #20 applies to public mutations; the action's withActionCache authCheck
+// already gated entry). Mirror _commitManagerTakeover_internal which omits it.
+
+export const _managerSkipOpenCommit_internal = internalMutation({
+  args: {
+    idempotencyKey: v.string(),
+    outletId: v.id("outlets"),
+    deviceId: v.string(),
+    staffId: v.id("staff"),
+  },
+  handler: withIdempotency<
+    { idempotencyKey: string; outletId: Id<"outlets">; deviceId: string; staffId: Id<"staff"> },
+    { ok: true; shiftId: Id<"pos_shifts"> }
+  >(
+    "shifts.managerSkipOpen",
+    async (ctx, args): Promise<{ ok: true; shiftId: Id<"pos_shifts"> }> => {
+      const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, {
+        outletId: args.outletId,
+      });
+      if (status.is_open) throw new Error("BOOTH_ALREADY_OPEN");
+      await ctx.runMutation(internal.outlets.status._setOutletOpen_internal, {
+        outletId: args.outletId, staffId: args.staffId, via: "manager_skip",
+      });
+      const shiftId = await ctx.runMutation(internal.shifts.shiftsInternal._startShift_internal, {
+        outletId: args.outletId, deviceId: args.deviceId, staffId: args.staffId,
+        startedVia: "manager_skip", openCount: null, steps: [], prevShiftId: null,
+      });
+      await logAudit(ctx, {
+        actor_id: args.staffId, action: "outlet.opened", entity_type: "outlets",
+        entity_id: args.outletId, source: "booth_inline",
+        metadata: { via: "manager_skip", shift_id: shiftId },
+      });
+      return { ok: true as const, shiftId };
+    },
+  ),
 });

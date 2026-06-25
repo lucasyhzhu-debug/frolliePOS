@@ -4,7 +4,7 @@ import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { internal, api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { verifyPinOrThrow } from "../auth/verifyPin";
+import { verifyPinOrThrow, verifyManagerPinOrThrow, assertManagerSessionInAction } from "../auth/verifyPin";
 import { withActionCache } from "../idempotency/action";
 import { wibDayWindow } from "../lib/time";
 import { resolveStaffName } from "./lib";
@@ -222,4 +222,48 @@ export const _sendTakeoverSummary = internalAction({
       outletId: args.outletId, // v2.0 Spec-4 Task 5: route to per-outlet managers
     });
   },
+});
+
+// ─── managerSkipOpen ──────────────────────────────────────────────────────────
+//
+// Manager opens the booth without going through the full SOP checklist.
+// Requires an active manager session + PIN verification (argon2id).
+//
+// ADR-046: authCheck (pre-cache) asserts an active manager session WITHOUT
+// verifying PIN. The expensive argon2 verify stays inside fn so a legit
+// cache-hit replay skips it.
+
+export const managerSkipOpen = action({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    managerPin: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; shiftId: Id<"pos_shifts"> }> =>
+    withActionCache(
+      ctx,
+      { key: args.idempotencyKey, mutationName: "shifts.managerSkipOpen" },
+      // authCheck (pre-cache, ADR-046): active-manager session assert, NO PIN.
+      async () => {
+        await assertManagerSessionInAction(ctx, args.sessionId);
+      },
+      // body: verify the manager's PIN, resolve outlet from session, commit.
+      async () => {
+        await verifyManagerPinOrThrow(ctx, {
+          sessionId: args.sessionId,
+          managerPin: args.managerPin,
+          idempotencyKey: args.idempotencyKey,
+        });
+        const sess = await ctx.runQuery(internal.auth.internal._resolveSession_internal, {
+          sessionId: args.sessionId,
+        });
+        if (!sess) throw new Error("SESSION_INVALID");
+        return ctx.runMutation(internal.shifts.shiftsInternal._managerSkipOpenCommit_internal, {
+          idempotencyKey: `${args.idempotencyKey}:commit`,
+          outletId: sess.outlet_id,
+          deviceId: sess.deviceId,
+          staffId: sess.staffId,
+        });
+      },
+    ),
 });
