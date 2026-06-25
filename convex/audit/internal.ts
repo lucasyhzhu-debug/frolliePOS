@@ -9,6 +9,7 @@ const sourceValidator = v.union(
   v.literal("telegram_approval"),
   v.literal("system"),
   v.literal("reaper"),
+  v.literal("cockpit"),   // v1.3.0 owner cockpit — owner-initiated writes (no device, no booth)
 );
 
 /**
@@ -32,7 +33,7 @@ export async function logAudit(
     after_state?: unknown;
     device_id?: string;
     mgr_approver_id?: Id<"staff">;
-    source: "booth_inline" | "wa_approval" | "telegram_approval" | "system" | "reaper";
+    source: "booth_inline" | "wa_approval" | "telegram_approval" | "system" | "reaper" | "cockpit";
     reason?: string;
     metadata?: Record<string, unknown>;
   },

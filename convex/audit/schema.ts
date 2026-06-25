@@ -17,6 +17,7 @@ export const auditTables = {
       v.literal("telegram_approval"),
       v.literal("system"),
       v.literal("reaper"),
+      v.literal("cockpit"),   // v1.3.0 owner cockpit — owner-initiated writes (no device, no booth)
     ),
     reason: v.optional(v.string()),
     metadata: v.optional(v.string()),
