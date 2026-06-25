@@ -69,6 +69,7 @@ test("clone creates outlet with created_by, copies catalog, skips stock", async 
   const { outlet_id } = await t.run(async (ctx) => {
     const { owner, src } = await seedSource(ctx);
     return ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, {
+      idempotencyKey: "clone-test-1",
       ownerStaffId: owner,
       mode: "clone",
       source_outlet_id: src,
@@ -109,6 +110,7 @@ test("blank mode creates outlet + settings, no catalog", async () => {
       created_at: 1,
     } as any);
     return ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, {
+      idempotencyKey: "blank-test-1",
       ownerStaffId: owner,
       mode: "blank",
       name: "Blank",
@@ -154,6 +156,7 @@ test("duplicate code throws OUTLET_CODE_TAKEN, no partial outlet", async () => {
         created_by: null,
       } as any);
       return ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, {
+        idempotencyKey: "dup-test-1",
         ownerStaffId: owner,
         mode: "blank",
         name: "X",
@@ -182,6 +185,7 @@ test("clone mode without source_outlet_id throws SOURCE_OUTLET_REQUIRED", async 
         created_at: 1,
       } as any);
       return ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, {
+        idempotencyKey: "clone-fail-test-1",
         ownerStaffId: owner,
         mode: "clone",
         // source_outlet_id intentionally omitted
@@ -396,4 +400,40 @@ test("createOutlet writes audit row with source 'cockpit'", async () => {
   );
   expect(auditRow?.action).toBe("outlet.created");
   expect(auditRow?.source).toBe("cockpit");
+});
+
+// ── I2: inner mutation idempotency ────────────────────────────────────────────
+
+test("_createOutletAtomic_internal: same idempotencyKey returns same outlet_id and creates only one outlet", async () => {
+  const t = convexTest(schema);
+  const { owner } = await t.run(async (ctx) => seedSource(ctx));
+
+  const commonArgs = {
+    idempotencyKey: "inner-idem-commit-1",
+    ownerStaffId: owner,
+    mode: "blank" as const,
+    name: "Inner Idem Outlet",
+    code: "IIDEM",
+    timezone: "Asia/Jakarta",
+    settings: {},
+    staff_ids: [] as any[],
+    provision_managers_chat: false,
+  };
+
+  // First call — inserts the outlet row.
+  const first = await t.run(async (ctx) =>
+    ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, commonArgs),
+  );
+  // Second call — same key, must short-circuit via withIdempotency cache.
+  const second = await t.run(async (ctx) =>
+    ctx.runMutation(internal.cockpit.outlets._createOutletAtomic_internal, commonArgs),
+  );
+
+  expect(first.outlet_id).toBe(second.outlet_id);
+
+  // Exactly one outlet with this code must exist — no double-insert.
+  const outlets = await t.run(async (ctx) =>
+    ctx.db.query("outlets").withIndex("by_code", (q: any) => q.eq("code", "IIDEM")).collect(),
+  );
+  expect(outlets.length).toBe(1);
 });

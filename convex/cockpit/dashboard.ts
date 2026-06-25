@@ -42,15 +42,19 @@ export const consolidatedSummary = query({
       internal.outlets.internal._listActiveOutlets_internal,
       {},
     );
+    const outletSummaries = await Promise.all(
+      outlets.map(async (o) => {
+        const txns = await ctx.runQuery(
+          internal.transactions.internal._fetchDayWindow_internal,
+          { dayStartMs, dayEndMs, outletId: o._id },
+        );
+        return computeDaySummary(txns);
+      }),
+    );
     let gross = 0,
       txnCount = 0,
       refundTotal = 0;
-    for (const o of outlets) {
-      const txns = await ctx.runQuery(
-        internal.transactions.internal._fetchDayWindow_internal,
-        { dayStartMs, dayEndMs, outletId: o._id },
-      );
-      const s = computeDaySummary(txns);
+    for (const s of outletSummaries) {
       gross += s.gross;
       txnCount += s.count;
       refundTotal += s.refundsTotal;
@@ -89,27 +93,21 @@ export const perOutletSummary = query({
       internal.outlets.internal._listActiveOutlets_internal,
       {},
     );
-    const out: {
-      outletId: Id<"outlets">;
-      code: string;
-      name: string;
-      gross: number;
-      txnCount: number;
-    }[] = [];
-    for (const o of outlets) {
-      const txns = await ctx.runQuery(
-        internal.transactions.internal._fetchDayWindow_internal,
-        { dayStartMs, dayEndMs, outletId: o._id },
-      );
-      const s = computeDaySummary(txns);
-      out.push({
-        outletId: o._id,
-        code: o.code,
-        name: o.name,
-        gross: s.gross,
-        txnCount: s.count,
-      });
-    }
-    return out;
+    return Promise.all(
+      outlets.map(async (o) => {
+        const txns = await ctx.runQuery(
+          internal.transactions.internal._fetchDayWindow_internal,
+          { dayStartMs, dayEndMs, outletId: o._id },
+        );
+        const s = computeDaySummary(txns);
+        return {
+          outletId: o._id,
+          code: o.code,
+          name: o.name,
+          gross: s.gross,
+          txnCount: s.count,
+        };
+      }),
+    );
   },
 });

@@ -11,6 +11,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { requireCockpitSession } from "../auth/sessions";
 import { withActionCache } from "../idempotency/action";
+import { withIdempotency } from "../idempotency/internal";
 import { getOutletByCode, insertOutletRow } from "../outlets/lib";
 import { cloneCatalogRows } from "../catalog/lib";
 import { cloneSettingsRow, seedSettingsRow } from "../settings/lib";
@@ -37,9 +38,16 @@ const settingsArg = v.object({
  * rolls back ALL writes inside the transaction — Convex mutation semantics.
  *
  * Returns { outlet_id } on success.
+ *
+ * I2: wrapped with `withIdempotency` so an action retry after a crash between
+ * commit and action-level cache write is absorbed by the inner idempotency
+ * check (mirrors catalog._createProductCommit_internal). The action passes
+ * `${idempotencyKey}:commit` — a key distinct from the action-level cache key
+ * — so the two caches never share a row.
  */
 export const _createOutletAtomic_internal = internalMutation({
   args: {
+    idempotencyKey: v.string(),
     ownerStaffId: v.id("staff"),
     mode: v.union(v.literal("blank"), v.literal("clone")),
     source_outlet_id: v.optional(v.id("outlets")),
@@ -52,7 +60,37 @@ export const _createOutletAtomic_internal = internalMutation({
     staff_ids: v.array(v.id("staff")),
     provision_managers_chat: v.boolean(),
   },
-  handler: async (ctx, args) => {
+  handler: withIdempotency<
+    {
+      idempotencyKey: string;
+      ownerStaffId: Id<"staff">;
+      mode: "blank" | "clone";
+      source_outlet_id?: Id<"outlets">;
+      name: string;
+      code: string;
+      address?: string;
+      geo?: { lat: number; lng: number };
+      timezone: string;
+      settings: {
+        receipt_business_name?: string;
+        receipt_address?: string;
+        receipt_contact?: string;
+        receipt_instagram_handle?: string;
+        receipt_footer_text?: string;
+        manual_bca_enabled?: boolean;
+        manual_bca_bank_name?: string;
+        manual_bca_account_name?: string;
+        manual_bca_account_number?: string;
+        founders_summary_enabled?: boolean;
+        txn_ticker_enabled?: boolean;
+      };
+      staff_ids: Id<"staff">[];
+      provision_managers_chat: boolean;
+    },
+    { outlet_id: Id<"outlets"> }
+  >(
+    "cockpit._createOutletAtomic_internal",
+    async (ctx, args): Promise<{ outlet_id: Id<"outlets"> }> => {
     const now = Date.now();
 
     // 1. Duplicate-code guard — runs BEFORE any write so a clean error is thrown
@@ -134,7 +172,8 @@ export const _createOutletAtomic_internal = internalMutation({
     });
 
     return { outlet_id };
-  },
+    },
+  ),
 });
 
 // ── Public cockpit API ────────────────────────────────────────────────────────
@@ -218,6 +257,7 @@ export const createOutlet = action({
         return ctx.runMutation(
           internal.cockpit.outlets._createOutletAtomic_internal,
           {
+            idempotencyKey: `${args.idempotencyKey}:commit`,
             ownerStaffId: staffId,
             mode: args.mode,
             source_outlet_id: args.source_outlet_id,

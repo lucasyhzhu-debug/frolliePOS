@@ -19,8 +19,14 @@ export async function cloneSettingsRow(
   const base = src
     ? (() => { const { _id, _creationTime, outlet_id, updated_at, updated_by, ...rest } = src; return rest; })()
     : { founders_summary_enabled: true };
+  // Strip explicit `undefined` values from overrides so they don't clobber
+  // the cloned source values (Object.assign and spread treat key:undefined as
+  // a write that shadows the base value, which is wrong for optional fields).
+  const cleanOverrides = Object.fromEntries(
+    Object.entries(overrides).filter(([, v]) => v !== undefined),
+  );
   await ctx.db.insert("pos_settings", {
-    ...base, ...overrides,
+    ...base, ...cleanOverrides,
     outlet_id: targetOutletId, updated_at: now, updated_by: ownerStaffId,
   } as any);
 }

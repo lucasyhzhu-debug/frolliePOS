@@ -25,7 +25,7 @@ All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outle
 
 ## Backlog (unscheduled)
 
-- **Owner cockpit polish** — timezone IANA validation in the new-outlet wizard; outlet-list/skeleton motion-safe pulse (deferred cockpit Minors).
+- **Owner cockpit polish** — timezone IANA validation in the new-outlet wizard; outlet-list/skeleton motion-safe pulse; `listOutlets` returns active-only (add `_listAllOutlets_internal` so the outlet-list inactive badge + wizard dup-code pre-warn cover deactivated outlets once a deactivation flow exists); clone-wizard step-4 prefill of bank/receipt from source `pos_settings` (BE clone is already authoritative — this is review-fidelity only); wire or drop the `provision_managers_chat` toggle (deferred cockpit Minors).
 - **ADR index housekeeping** — land ADR-051 / ADR-052 + the 4 multi-outlet specs into the ADR README index (not yet listed there).
 - **FPro-driven stock-in/out** — stock-in/out driven by Frollie Pro recipes/inventory once the cross-deployment integration pattern lands (ADR to be drafted). FPro caller currently stubbed. Negative-stock (ADR-018) reconciliation manager view rides along.
 - **Post-launch hardening** — full-route empty/error pass (`mgr/*`, settlements, account, approve); real-device e2e on the booth Android; settlement auto-poll live-verification once Xendit KYB clears ([#66](https://github.com/lucasyhzhu-debug/frolliePOS/issues/66)); spare-device protocol (single-device SPOF); PWA A2HS install-prompt polish.
