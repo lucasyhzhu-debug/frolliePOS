@@ -146,3 +146,64 @@ export const startShift = mutation({
     { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
   ),
 });
+
+export const endOfDay = mutation({
+  args: {
+    idempotencyKey: v.string(),
+    sessionId: v.id("staff_sessions"),
+    steps: v.array(stepValidator),
+    closeCount: v.optional(v.number()),
+  },
+  handler: withIdempotency<HandoverArgs, HandoverResult>(
+    "shifts.endOfDay",
+    async (ctx, args): Promise<HandoverResult> => {
+      const { staffId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
+      const now = Date.now();
+
+      const status = await ctx.runQuery(internal.outlets.status._getOutletStatus_internal, { outletId });
+      if (!status.is_open) {
+        // Idempotent close — end the session, no duplicate close.
+        await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+          sessionId: args.sessionId, endReason: "force_logout",
+        });
+        return { ok: true as const, durationMs: 0 };
+      }
+
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+      const shiftStartMs = holder?.started_at ?? now;
+      const summary = await ctx.runQuery(internal.shifts.internal._buildSignoffSummary_internal, {
+        shiftStartMs, endMs: now, outletId,
+      });
+      if (holder) {
+        await ctx.runMutation(internal.shifts.shiftsInternal._endShift_internal, {
+          shiftId: holder._id, endedVia: "end_of_day", closeCount: args.closeCount ?? null,
+          steps: args.steps, outgoingUncounted: null,
+          summary: {
+            durationMs: summary.durationMs, totalSalesIdr: summary.totalSalesIdr,
+            txnCount: summary.txnCount, manualBcaCount: summary.manualBcaCount,
+            manualBcaTotalIdr: summary.manualBcaTotalIdr,
+          },
+        });
+      }
+      await ctx.runMutation(internal.outlets.status._setOutletClosed_internal, { outletId, staffId });
+      await ctx.runMutation(internal.auth.internal._endShiftSession_internal, {
+        sessionId: args.sessionId, endReason: "force_logout",
+      });
+      await logAudit(ctx, {
+        actor_id: staffId, action: "outlet.closed", entity_type: "outlets",
+        entity_id: outletId, source: "booth_inline",
+        metadata: { durationMs: summary.durationMs, shift_id: holder?._id ?? null },
+      });
+      if (holder) {
+        await ctx.scheduler.runAfter(0, internal.shifts.actions._sendSignoffSummary, {
+          eventId: holder._id, staffId, shiftStartMs, shiftEndMs: now,
+          totalSalesIdr: summary.totalSalesIdr, txnCount: summary.txnCount,
+          manualBcaCount: summary.manualBcaCount, manualBcaTotalIdr: summary.manualBcaTotalIdr,
+          idempotencyKeySuffix: holder._id, outletId,
+        });
+      }
+      return { ok: true as const, durationMs: summary.durationMs };
+    },
+    { authCheck: async (ctx, args) => { await requireSession(ctx, args.sessionId); } },
+  ),
+});
