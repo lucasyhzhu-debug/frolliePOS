@@ -85,7 +85,7 @@ export async function requireManagerSession(
  * this device to an outlet) instead of falling back to the default outlet — the
  * migration window has closed. auth owns `registered_devices`, so this
  * device→outlet mapping lives here. Shared by _loginCommit_internal,
- * managerTakeover, and _getDeviceOutletId_internal — flipping the throw here
+ * managerOverride, and _getDeviceOutletId_internal — flipping the throw here
  * flips all three.
  */
 export async function resolveDeviceOutletId(

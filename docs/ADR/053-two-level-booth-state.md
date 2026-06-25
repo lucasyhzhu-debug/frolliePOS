@@ -25,7 +25,7 @@ Replace the derived single-level state with **two explicitly stored levels**:
 - A row with `ended_at == null` means a staff member currently holds the shift.
 - `startShift` creates the row; `endOfDay` (or `handover` out-half) sets `ended_at`.
 - **Handover** is a person-to-person transfer: the outgoing holder's shift ends (`ended_at` set), the incoming holder's shift starts (new row inserted) — no intermediate `handover_pending` booth state.
-- **Lock** is a plain session logout (`lockShift`): the holder row stays unchanged; the same staff re-authenticates and calls `recordResume` to get a new session. No "locked" booth state exists.
+- **Lock** is a plain session logout (`lock`): the holder row and `outlets.is_open` stay unchanged; the same staff re-authenticates via standard login to resume (no separate resume mutation — the holder was never released). No "locked" booth state exists.
 - **`managerOverride`** is the escape hatch when the original holder is unavailable: force-ends the stranded `pos_shifts` row and writes an audit entry. No Telegram approval required (manager is present at the booth and authenticates with PIN).
 
 ### Retired machinery (ADR-050)
