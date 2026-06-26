@@ -984,6 +984,7 @@ export const en = {
   // cockpitDashboard (v1.3.0 Task 9)
   "cockpitDashboard.todayLabel": "Today",
   "cockpitDashboard.gross": "Gross",
+  "cockpitDashboard.net": "Net takings",
   "cockpitDashboard.txnCount": "Transactions",
   "cockpitDashboard.refundTotal": "Refunds",
   "cockpitDashboard.outletsSectionTitle": "Outlets",
@@ -1026,7 +1027,7 @@ export const en = {
   "cockpitOutletNew.staffHint": "Select staff who can access this outlet.",
   "cockpitOutletNew.noStaff": "No staff available.",
   "cockpitOutletNew.telegramToggleLabel": "Provision managers chat",
-  "cockpitOutletNew.telegramHint": "After creating, add the Frollie bot to a Telegram group for this outlet and run /register.",
+  "cockpitOutletNew.telegramHint": "We'll set up the Telegram alerts for this outlet's managers. You can finish connecting the chat after the outlet is created.",
   "cockpitOutletNew.reviewMode": "Mode",
   "cockpitOutletNew.reviewSource": "Clone source",
   "cockpitOutletNew.reviewName": "Name",
@@ -1044,4 +1045,6 @@ export const en = {
   "cockpitOutletNew.creating": "Creating…",
   "cockpitOutletNew.reviewReceiptBusinessName": "Receipt name",
   "cockpitOutletNew.reviewManualBca": "Manual BCA",
+  "cockpitOutletNew.timezoneInvalid": "That isn't a known timezone. Use one like Asia/Jakarta.",
+  "cockpitOutletNew.reviewNoStaffWarning": "No staff can open this outlet yet — add staff access here or later from settings.",
 } as const;

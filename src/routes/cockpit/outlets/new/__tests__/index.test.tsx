@@ -165,7 +165,7 @@ describe("CockpitOutletNew wizard", () => {
     expect(screen.getByLabelText(/receipt business name/i)).toHaveValue("");
   });
 
-  it("clone mode: step 4 receipt_business_name pre-filled with source outlet name", async () => {
+  it("clone mode: step 4 receipt_business_name does NOT inherit the source outlet name (UAT fix #2)", async () => {
     renderWizard();
 
     // Step 0: select clone mode then select the source outlet.
@@ -174,26 +174,29 @@ describe("CockpitOutletNew wizard", () => {
     const sourceBtn = await waitFor(() => screen.getByTestId("source-PKW"));
     fireEvent.click(sourceBtn);
 
-    // Now navigate from step 0 to step 4 (click Next 4 times, filling step 1).
+    // Navigate to step 4, entering the NEW outlet name "Test Outlet" at step 1.
     await navigateToStep(4);
 
-    await waitFor(() =>
-      expect(screen.getByLabelText(/receipt business name/i)).toBeInTheDocument(),
+    const receiptInput = await waitFor(() =>
+      screen.getByLabelText(/receipt business name/i),
     );
-    // Prefill from source outlet name "Pakuwon".
-    expect(screen.getByLabelText(/receipt business name/i)).toHaveValue("Pakuwon");
+    // No source-identity leak: the field stays empty (it would otherwise print the
+    // source outlet's name on this outlet's customer receipts), and the new outlet
+    // name is the placeholder/default applied at create time.
+    expect(receiptInput).toHaveValue("");
+    expect(receiptInput).toHaveAttribute("placeholder", "Test Outlet");
   });
 
-  it("switching from clone (with source selected) back to blank clears prefilled receipt fields", async () => {
+  it("receipt fields stay empty across a clone→blank mode switch (no source-identity leak)", async () => {
     renderWizard();
 
-    // Step 0: select clone mode + pick source (prefills receipt fields via SET_SOURCE).
+    // Step 0: select clone mode + pick source.
     const cloneBtn = await waitFor(() => screen.getByTestId("mode-clone"));
     fireEvent.click(cloneBtn);
     const sourceBtn = await waitFor(() => screen.getByTestId("source-PKW"));
     fireEvent.click(sourceBtn);
 
-    // Switch back to blank — reducer SET_MODE should zero receipt fields.
+    // Switch back to blank.
     fireEvent.click(screen.getByTestId("mode-blank"));
 
     // Navigate to step 4 to verify the inputs are empty.
@@ -271,6 +274,8 @@ describe("CockpitOutletNew wizard", () => {
         code: "MYO",
         timezone: "Asia/Jakarta",
         provision_managers_chat: false,
+        // Receipt identity defaults to the new outlet name (UAT fix #2).
+        settings: expect.objectContaining({ receipt_business_name: "My Outlet" }),
       }),
     );
   });

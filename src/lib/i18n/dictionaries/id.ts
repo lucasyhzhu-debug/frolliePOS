@@ -982,6 +982,7 @@ export const id: Record<keyof typeof en, string> = {
   // cockpitDashboard (v1.3.0 Task 9)
   "cockpitDashboard.todayLabel": "Hari ini",
   "cockpitDashboard.gross": "Omzet",
+  "cockpitDashboard.net": "Penerimaan bersih",
   "cockpitDashboard.txnCount": "Transaksi",
   "cockpitDashboard.refundTotal": "Refund",
   "cockpitDashboard.outletsSectionTitle": "Outlet",
@@ -1024,7 +1025,7 @@ export const id: Record<keyof typeof en, string> = {
   "cockpitOutletNew.staffHint": "Pilih staf yang dapat mengakses outlet ini.",
   "cockpitOutletNew.noStaff": "Tidak ada staf tersedia.",
   "cockpitOutletNew.telegramToggleLabel": "Siapkan obrolan manajer",
-  "cockpitOutletNew.telegramHint": "Setelah dibuat, tambahkan bot Frollie ke grup Telegram untuk outlet ini dan jalankan /register.",
+  "cockpitOutletNew.telegramHint": "Kami akan menyiapkan notifikasi Telegram untuk manajer outlet ini. Anda bisa menyelesaikan koneksi chat setelah outlet dibuat.",
   "cockpitOutletNew.reviewMode": "Mode",
   "cockpitOutletNew.reviewSource": "Sumber kloning",
   "cockpitOutletNew.reviewName": "Nama",
@@ -1042,4 +1043,6 @@ export const id: Record<keyof typeof en, string> = {
   "cockpitOutletNew.creating": "Membuat…",
   "cockpitOutletNew.reviewReceiptBusinessName": "Nama struk",
   "cockpitOutletNew.reviewManualBca": "BCA manual",
+  "cockpitOutletNew.timezoneInvalid": "Itu bukan zona waktu yang dikenal. Gunakan seperti Asia/Jakarta.",
+  "cockpitOutletNew.reviewNoStaffWarning": "Belum ada staf yang bisa membuka outlet ini — tambahkan akses staf di sini atau nanti dari pengaturan.",
 };

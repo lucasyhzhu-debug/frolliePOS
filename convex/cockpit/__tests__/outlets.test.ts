@@ -344,9 +344,11 @@ test("listAssignableStaff returns active staff without pin_hash", async () => {
     return seedCockpitSession(ctx);
   });
   const staff = await t.query(api.cockpit.outlets.listAssignableStaff, { sessionId: session });
-  // Only active staff (Alice + the owner from seedCockpitSession)
-  expect(staff.length).toBe(2);
+  // Only active NON-OWNER staff (Alice). The owner from seedCockpitSession is
+  // excluded — owners aren't assignable booth operators (NIT #1 / B7 hygiene).
+  expect(staff.length).toBe(1);
   expect(staff.some((s: any) => s.name === "Alice")).toBe(true);
+  expect(staff.some((s: any) => s.role === "owner")).toBe(false);
   // No pin_hash leaks
   expect((staff[0] as any).pin_hash).toBeUndefined();
 });

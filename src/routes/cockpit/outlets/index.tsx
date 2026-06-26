@@ -15,14 +15,14 @@ import { useOutletContext } from "@/contexts/OutletContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { CockpitSubLayout } from "@/components/layout/CockpitSubLayout";
 
 export default function CockpitOutlets() {
   const t = useT();
   const { outlets } = useOutletContext();
 
   return (
-    <SpokeLayout title={t("cockpitOutlets.title")} backTo="/cockpit">
+    <CockpitSubLayout title={t("cockpitOutlets.title")} backTo="/cockpit">
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="flex items-center justify-end">
           <Button size="sm" asChild>
@@ -69,6 +69,6 @@ export default function CockpitOutlets() {
           </div>
         )}
       </div>
-    </SpokeLayout>
+    </CockpitSubLayout>
   );
 }

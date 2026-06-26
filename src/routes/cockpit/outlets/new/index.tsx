@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { FieldMessage } from "@/components/ui/field-message";
-import { SpokeLayout } from "@/components/layout/SpokeLayout";
+import { CockpitSubLayout } from "@/components/layout/CockpitSubLayout";
 import { errorMessage } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { stepSlideVariants } from "@/lib/motion";
@@ -48,6 +48,22 @@ type StaffRow = {
   code: string;
   role: "staff" | "manager" | "owner";
 };
+
+// ── Timezone validation ────────────────────────────────────────────────────────
+// A typo'd timezone silently corrupts the WIB day-window money math + the 22:00
+// owners/managers cron (UAT A1). Validate against the real IANA database: the
+// Intl engine throws RangeError on an unknown zone, which is the most portable
+// check (no reliance on Intl.supportedValuesOf, absent in some runtimes).
+function isValidTimezone(tz: string): boolean {
+  const v = tz.trim();
+  if (v === "") return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: v });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ── Wizard state + reducer ─────────────────────────────────────────────────────
 
@@ -93,7 +109,7 @@ type WizardAction =
   | { type: "NEXT" }
   | { type: "BACK" }
   | { type: "SET_MODE"; mode: "blank" | "clone" }
-  | { type: "SET_SOURCE"; id: Id<"outlets"> | undefined; sourceName?: string; sourceAddress?: string }
+  | { type: "SET_SOURCE"; id: Id<"outlets"> | undefined }
   | { type: "SET_FIELD"; field: "name" | "code" | "address" | "timezone" | "receipt_business_name" | "receipt_address" | "receipt_contact" | "manual_bca_enabled" | "manual_bca_bank_name" | "manual_bca_account_name" | "manual_bca_account_number" | "provision_managers_chat"; value: string | boolean }
   | { type: "TOGGLE_STAFF_ID"; id: Id<"staff"> };
 
@@ -106,19 +122,13 @@ function reducer(s: WizardState, a: WizardAction): WizardState {
         ...s,
         mode: a.mode,
         source_outlet_id: a.mode === "blank" ? undefined : s.source_outlet_id,
-        // Clear clone-prefilled branding fields so a blank outlet never silently
-        // inherits the previously-picked source's receipt settings (fix #2).
-        receipt_business_name: a.mode === "blank" ? "" : s.receipt_business_name,
-        receipt_address: a.mode === "blank" ? "" : s.receipt_address,
       };
     case "SET_SOURCE":
-      return {
-        ...s,
-        source_outlet_id: a.id,
-        // Best-effort UI prefill — BE clone is authoritative (task brief).
-        receipt_business_name: a.sourceName ?? s.receipt_business_name,
-        receipt_address: a.sourceAddress ?? s.receipt_address,
-      };
+      // No source-identity prefill: a cloned outlet must NOT inherit the source's
+      // receipt business name (it would print the wrong outlet's name on customer
+      // receipts — UAT fix #2). The new outlet's own name is the receipt default,
+      // applied in handleCreate; the StepSettings field stays editable.
+      return { ...s, source_outlet_id: a.id };
     case "SET_FIELD":
       return { ...s, [a.field]: a.field === "code" ? String(a.value).toUpperCase() : a.value };
     case "TOGGLE_STAFF_ID": {
@@ -174,13 +184,18 @@ export default function CockpitOutletNew() {
     state.code.trim() !== "" &&
     existingCodes.includes(state.code.trim().toUpperCase());
 
+  // Timezone validity — gates step 3 Next so a typo can't reach the day-window math.
+  const tzValid = isValidTimezone(state.timezone);
+
   // Per-step Next gate.
   const canNext =
     state.step === 0
       ? state.mode === "blank" || state.source_outlet_id !== undefined
       : state.step === 1
         ? state.name.trim() !== "" && state.code.trim() !== "" && !isDupCode
-        : true;
+        : state.step === 3
+          ? tzValid
+          : true;
 
   function goNext() {
     if (!canNext) return;
@@ -208,8 +223,12 @@ export default function CockpitOutletNew() {
         address: trim(state.address),
         timezone: state.timezone,
         settings: {
-          receipt_business_name: trim(state.receipt_business_name),
-          receipt_address: trim(state.receipt_address),
+          // Default the receipt identity to the NEW outlet (UAT fix #2): in clone
+          // mode this becomes an explicit override so the cloned settings row never
+          // carries the source's business name onto this outlet's receipts. The
+          // owner can still edit it on the Bank & receipt step.
+          receipt_business_name: trim(state.receipt_business_name) ?? state.name.trim(),
+          receipt_address: trim(state.receipt_address) ?? trim(state.address),
           receipt_contact: trim(state.receipt_contact),
           manual_bca_enabled: state.manual_bca_enabled || undefined,
           manual_bca_bank_name: trim(state.manual_bca_bank_name),
@@ -232,8 +251,8 @@ export default function CockpitOutletNew() {
   const isLastStep = state.step === TOTAL_STEPS - 1;
 
   return (
-    <SpokeLayout title={t("cockpitOutletNew.title")} backTo="/cockpit/outlets">
-      <div className="flex flex-1 flex-col overflow-hidden">
+    <CockpitSubLayout title={t("cockpitOutletNew.title")} backTo="/cockpit/outlets">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col overflow-hidden">
         {/* Progress bar */}
         <div className="h-0.5 bg-border" role="progressbar" aria-valuenow={state.step} aria-valuemax={TOTAL_STEPS - 1}>
           <div
@@ -274,7 +293,7 @@ export default function CockpitOutletNew() {
                 <StepAddress state={state} dispatch={dispatch} t={t} />
               )}
               {state.step === 3 && (
-                <StepTimezone state={state} dispatch={dispatch} t={t} />
+                <StepTimezone state={state} dispatch={dispatch} tzValid={tzValid} t={t} />
               )}
               {state.step === 4 && (
                 <StepSettings state={state} dispatch={dispatch} t={t} />
@@ -324,7 +343,7 @@ export default function CockpitOutletNew() {
           )}
         </div>
       </div>
-    </SpokeLayout>
+    </CockpitSubLayout>
   );
 }
 
@@ -398,23 +417,37 @@ function StepMode({
                 <button
                   key={String(o._id)}
                   type="button"
-                  onClick={() =>
-                    dispatch({
-                      type: "SET_SOURCE",
-                      id: o._id,
-                      sourceName: o.name,
-                      sourceAddress: o.address,
-                    })
-                  }
-                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  onClick={() => dispatch({ type: "SET_SOURCE", id: o._id })}
+                  className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                     state.source_outlet_id === o._id
                       ? "border-primary bg-primary/10"
                       : "border-border hover:border-primary/40"
                   }`}
                   data-testid={`source-${o.code}`}
+                  aria-pressed={state.source_outlet_id === o._id}
                 >
-                  <span className="font-medium text-foreground">{o.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{o.code}</span>
+                  <span
+                    className={`flex size-4 shrink-0 items-center justify-center rounded-sm border ${
+                      state.source_outlet_id === o._id
+                        ? "border-primary bg-primary"
+                        : "border-muted-foreground"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {state.source_outlet_id === o._id && (
+                      <svg className="size-3 text-primary-foreground" viewBox="0 0 12 12" fill="none">
+                        <path
+                          d="M2 6l3 3 5-5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1 font-medium text-foreground">{o.name}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{o.code}</span>
                 </button>
               ))}
             </div>
@@ -502,12 +535,16 @@ function StepAddress({
 function StepTimezone({
   state,
   dispatch,
+  tzValid,
   t,
 }: {
   state: WizardState;
   dispatch: React.Dispatch<WizardAction>;
+  tzValid: boolean;
   t: TFn;
 }) {
+  // Only surface the error once the field is non-empty (empty is its own gate).
+  const showError = state.timezone.trim() !== "" && !tzValid;
   return (
     <div className="space-y-1.5">
       <Label htmlFor="outlet-timezone">{t("cockpitOutletNew.timezoneLabel")}</Label>
@@ -517,8 +554,12 @@ function StepTimezone({
         onChange={(e) => dispatch({ type: "SET_FIELD", field: "timezone", value: e.target.value })}
         placeholder="Asia/Jakarta"
         autoComplete="off"
+        aria-invalid={showError}
       />
       <p className="text-xs text-muted-foreground">{t("cockpitOutletNew.timezoneHint")}</p>
+      {showError && (
+        <FieldMessage tone="error">{t("cockpitOutletNew.timezoneInvalid")}</FieldMessage>
+      )}
     </div>
   );
 }
@@ -819,6 +860,12 @@ function StepReview({
           ? selectedStaff.map((s) => s.name).join(", ")
           : t("cockpitOutletNew.reviewNone")}
       </ReviewRow>
+
+      {/* No-staff guard (UAT fix #3): an outlet with no staff_outlet_access grant
+          cannot be opened at the booth — surface it before create (non-blocking). */}
+      {selectedStaff.length === 0 && (
+        <FieldMessage tone="error">{t("cockpitOutletNew.reviewNoStaffWarning")}</FieldMessage>
+      )}
 
       <ReviewRow label={t("cockpitOutletNew.reviewTelegram")}>
         {state.provision_managers_chat

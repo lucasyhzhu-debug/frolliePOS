@@ -191,6 +191,12 @@ function ConsolidatedCard({ data }: { data: { gross: number; txnCount: number; r
       >
         {rp(data.gross)}
       </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {t("cockpitDashboard.net")}:{" "}
+        <span className="font-semibold tabular-nums text-foreground" data-testid="consolidated-net">
+          {rp(data.gross - data.refundTotal)}
+        </span>
+      </p>
       <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4">
         <div>
           <p className="text-xs text-muted-foreground">

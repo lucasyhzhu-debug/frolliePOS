@@ -589,7 +589,12 @@ export const _listAssignableStaff_internal = internalQuery({
       .query("staff")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
-    return rows.map((s) => ({ _id: s._id, name: s.name, code: s.code, role: s.role }));
+    // Owners are not booth operators — `staff_outlet_access` is the booth-floor
+    // grant, so exclude role "owner" from the assignable roster (UAT NIT #1 /
+    // B7 plane hygiene): an owner should never appear as a selectable booth staffer.
+    return rows
+      .filter((s) => s.role !== "owner")
+      .map((s) => ({ _id: s._id, name: s.name, code: s.code, role: s.role }));
   },
 });
 

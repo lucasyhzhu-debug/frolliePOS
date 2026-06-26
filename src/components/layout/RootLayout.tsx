@@ -8,9 +8,10 @@ import { api } from "../../../convex/_generated/api";
 import { PrinterProvider } from "@/components/pos/PrinterProvider";
 import { useBoothState } from "@/hooks/useBoothState";
 import { hasManagerSkippedSOD } from "@/lib/shiftSkip";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { OutletProvider } from "@/contexts/OutletContext";
 import { OutletSwitcher } from "@/components/cockpit/OutletSwitcher";
+import { Button } from "@/components/ui/button";
 
 // SEC-03: session IDs already shown the forced-rotation prompt this app session.
 // Soft enforcement — we surface the "Change your PIN" step ONCE after login, then
@@ -287,11 +288,14 @@ function CockpitShell() {
     <OutletProvider>
       <div className="min-h-dvh flex flex-col bg-background">
         {showHeader && (
-          <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+          <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
             <span className="text-sm font-semibold tracking-tight text-primary">
-              {"frollie"}
+              {"Frollie"}
             </span>
-            <OutletSwitcher />
+            <div className="flex items-center gap-2">
+              <OutletSwitcher />
+              <CockpitLocaleToggle />
+            </div>
           </header>
         )}
         <Suspense fallback={<RouteFallback />}>
@@ -299,6 +303,35 @@ function CockpitShell() {
         </Suspense>
       </div>
     </OutletProvider>
+  );
+}
+
+/**
+ * Compact EN/ID toggle for the cockpit header (UAT fix #6 — the owner plane had
+ * no language toggle, unlike the booth). Deliberately client-only: the booth's
+ * full LocaleToggle persists via `setOwnLocale`, a manager-session mutation that
+ * a cockpit session is rejected from (NOT_BOOTH_SESSION). Flipping the in-memory
+ * locale via `setLocale` re-renders the cockpit in the chosen language; the
+ * dictionary is already fully translated. Resets to the seeded locale on reload.
+ */
+function CockpitLocaleToggle() {
+  const [locale, setLocale] = useLocale();
+  const t = useT();
+  const next = locale === "en" ? "id" : "en";
+  const currentName = locale === "en" ? t("locale.english") : t("locale.bahasa");
+  const nextName = next === "en" ? t("locale.english") : t("locale.bahasa");
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setLocale(next)}
+      role="switch"
+      aria-checked={locale === "id"}
+      aria-label={t("locale.toggleLabel", { current: currentName, next: nextName })}
+      className="h-8 px-2 text-xs font-medium uppercase text-muted-foreground"
+    >
+      {locale}
+    </Button>
   );
 }
 
