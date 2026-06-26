@@ -652,6 +652,7 @@ export const id: Record<keyof typeof en, string> = {
   "login.pinResetDenied": "Reset PIN ditolak oleh {denier}. Tunggu 60 detik lalu coba lagi.",
   "login.pinResetDeniedWithReason": "Reset PIN ditolak oleh {denier} — \"{reason}\". Tunggu 60 detik lalu coba lagi.",
   "login.outletChip": "{outlet}",
+  "login.shiftInProgressTitle": "Shift sedang berjalan",
   "login.shiftHeldBy": "{name} masih dalam shift. Minta manajer untuk mengambil alih, atau tunggu serah terima.",
   "login.managerOverride": "Override manajer",
   "login.overridePickManager": "Pilih manajer",

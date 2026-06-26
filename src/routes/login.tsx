@@ -297,11 +297,15 @@ export default function LoginRoute() {
         ? { phase: "success" as const, message: t("login.welcome"), persist: false }
         : { phase: "idle" as const, message: undefined, persist: false };
 
-  // Heading text derived from stage
+  // Heading text derived from stage. The blocked stage uses a neutral title —
+  // showing the tapped staffer's name there read as confusing next to a message
+  // about the *current holder* (UAT UX-NIT).
   const heading =
     stage.kind === "list"
       ? t("login.whoIsWorking")
-      : stage.staff.name;
+      : stage.kind === "blocked"
+        ? t("login.shiftInProgressTitle")
+        : stage.staff.name;
 
   return (
     <main className="flex flex-1 flex-col p-6">

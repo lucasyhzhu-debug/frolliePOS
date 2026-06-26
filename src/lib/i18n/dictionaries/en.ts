@@ -654,6 +654,7 @@ export const en = {
   "login.pinResetDenied": "PIN reset declined by {denier}. Wait for the 60-second lockout to expire and try again.",
   "login.pinResetDeniedWithReason": "PIN reset declined by {denier} — \"{reason}\". Wait for the 60-second lockout to expire and try again.",
   "login.outletChip": "{outlet}",
+  "login.shiftInProgressTitle": "Shift in progress",
   "login.shiftHeldBy": "{name} is still on shift. Ask a manager to override, or wait for handover.",
   "login.managerOverride": "Manager override",
   "login.overridePickManager": "Pick a manager",
