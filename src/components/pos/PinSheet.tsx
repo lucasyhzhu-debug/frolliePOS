@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -46,6 +47,19 @@ export function PinSheet({
     if (open) setPin("");
   }, [open]);
 
+  // Radix Dialog can leave `body { pointer-events: none }` stuck when it closes
+  // amid a burst of state updates (e.g. manager-override success → reactive
+  // stage change → re-stage), which deadens every control BEHIND the dialog —
+  // including the login PIN keypad (UAT BLOCKER: override → re-login dead keypad).
+  // Defensively restore pointer-events one tick after close.
+  useEffect(() => {
+    if (open) return;
+    const id = window.setTimeout(() => {
+      document.body.style.pointerEvents = "";
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
   const handlePress = (key: string) => {
     if (pending) return;
     if (key === "C") {
@@ -76,7 +90,9 @@ export function PinSheet({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
-        <p className="text-sm text-muted-foreground text-center">{label}</p>
+        <DialogDescription className="text-sm text-muted-foreground text-center">
+          {label}
+        </DialogDescription>
 
         {/* 4-dot PIN display */}
         <div className="flex justify-center gap-3 py-1">
