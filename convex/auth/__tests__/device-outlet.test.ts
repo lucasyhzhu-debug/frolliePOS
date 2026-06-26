@@ -148,61 +148,9 @@ describe("_loginCommit_internal — outlet stamping (window-tolerant)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// _managerTakeoverSession_internal — outlet stamping
-// ---------------------------------------------------------------------------
-
-describe("_managerTakeoverSession_internal — outlet stamping", () => {
-  it("manager takeover session carries outlet_id from bound device", async () => {
-    const t = convexTest(schema);
-
-    const { outletId, mgr } = await t.run(async (ctx) => {
-      const outletId = await insertOutlet(ctx, "PKW-D");
-      const staffId = await insertStaff(ctx, "S-T010");
-      const mgr = await insertStaff(ctx, "S-T011", "manager");
-      // Pre-existing active session for the staff member being displaced
-      await ctx.db.insert("staff_sessions", {
-        staff_id: staffId,
-        device_id: "dev-takeover-1",
-        started_at: Date.now() - 1000,
-        ended_at: null,
-        end_reason: null,
-        outlet_id: outletId,
-      } as any);
-      // Device bound to outlet
-      await insertDevice(ctx, "dev-takeover-1", mgr, outletId);
-      return { outletId, mgr };
-    });
-
-    const result = await t.mutation(internal.auth.internal._managerTakeoverSession_internal, {
-      deviceId: "dev-takeover-1",
-      managerStaffId: mgr,
-    });
-
-    const session = await t.run((ctx) => ctx.db.get(result.sessionId));
-    expect((session as any)?.outlet_id).toBe(outletId);
-  });
-
-  it("manager takeover on device bound to outlet carries that outlet_id", async () => {
-    const t = convexTest(schema);
-
-    const { outletId, mgr } = await t.run(async (ctx) => {
-      const outletId = await insertOutlet(ctx, "PKW-E");
-      const mgr = await insertStaff(ctx, "S-T012", "manager");
-      // Device BOUND to outlet
-      await insertDevice(ctx, "dev-takeover-2", mgr, outletId);
-      return { outletId, mgr };
-    });
-
-    const result = await t.mutation(internal.auth.internal._managerTakeoverSession_internal, {
-      deviceId: "dev-takeover-2",
-      managerStaffId: mgr,
-    });
-
-    const session = await t.run((ctx) => ctx.db.get(result.sessionId));
-    expect((session as any)?.outlet_id).toBe(outletId);
-  });
-});
+// _managerTakeoverSession_internal tests removed (ADR-053): that function is
+// deleted. Session force-logout on stranded shifts is handled by managerOverride
+// (shiftsInternal.ts) without creating a new manager session.
 
 // ---------------------------------------------------------------------------
 // _reset_internal (seed) — outlet fixtures

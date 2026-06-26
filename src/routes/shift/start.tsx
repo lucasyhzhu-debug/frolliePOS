@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useMutation } from "convex/react";
+import { useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
 import { Button } from "@/components/ui/button";
-import { markManagerSkippedSOD } from "@/lib/shiftSkip";
+import { PinSheet } from "@/components/pos/PinSheet";
 import { useT } from "@/lib/i18n";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Start-of-day wizard — fires when a staff logs in to a CLOSED booth.
@@ -17,11 +19,15 @@ import { useT } from "@/lib/i18n";
  *   4. Tidy booth · clear banner · photo → WA group (instruction)
  *
  * onComplete:
- *   → completeStartOfDay({ idempotencyKey, sessionId, steps, countChanged })
+ *   → openBooth({ idempotencyKey, sessionId, steps, openCount })
+ *   → navigate("/", { replace: true })
+ *
+ * Manager skip (server-driven — no client shiftSkip flag):
+ *   → PinSheet → managerSkipOpen({ idempotencyKey, sessionId, managerPin })
  *   → navigate("/", { replace: true })
  *
  * ADR-013: useIdempotency provides the IDB-persisted key; guard on `!key` before
- * submitting. The mutation itself wraps withIdempotency on the backend.
+ * submitting. The mutation/action itself wraps withIdempotency on the backend.
  */
 
 function useSteps(): WizardStep[] {
@@ -84,12 +90,23 @@ export default function ShiftStart() {
   const navigate = useNavigate();
   const session = useSession();
   const steps = useSteps();
-  const completeStartOfDay = useMutation(api.shifts.public.completeStartOfDay);
+  const openBooth = useMutation(api.shifts.shifts.openBooth);
+  const managerSkipOpen = useAction(api.shifts.actions.managerSkipOpen);
 
   const sessionId = session.status === "active" ? session.sessionId : null;
-  const idempotencyKey = useIdempotency(
+
+  // Distinct idempotency intents: open and skip must not share a key.
+  const openKey = useIdempotency(
     sessionId ? `shift:start:${sessionId}` : "shift:start:none",
   );
+  const skipKey = useIdempotency(
+    sessionId ? `shift:start:skip:${sessionId}` : "shift:start:skip:none",
+  );
+
+  // Manager-skip PinSheet state
+  const [skipPinOpen, setSkipPinOpen] = useState(false);
+  const [skipPinError, setSkipPinError] = useState<string | undefined>();
+  const [skipPinPending, setSkipPinPending] = useState(false);
 
   if (session.status === "loading") return null;
   if (session.status !== "active") return null; // RootLayout redirects
@@ -97,33 +114,41 @@ export default function ShiftStart() {
   const isManager = session.staff.role === "manager";
 
   async function onComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
-    if (!idempotencyKey || !sessionId) return;
-    await completeStartOfDay({
-      idempotencyKey,
+    if (!openKey || !sessionId) return;
+    await openBooth({
+      idempotencyKey: openKey,
       sessionId,
       steps: confirmed,
-      ...(countChanged != null ? { countChanged } : {}),
+      ...(countChanged != null ? { openCount: countChanged } : {}),
     });
     navigate("/", { replace: true });
   }
 
-  // Manager-only escape hatch: skip the SOP checklist and go straight to the
-  // menu. We mark the bypass flag FIRST so the RootLayout gate lets the manager
-  // through even if the booth never flips to "open" (e.g. completeStartOfDay
-  // throws on a stale-shift edge — the very failure that causes the loop). Then
-  // best-effort open the booth with an empty checklist so, when the backend is
-  // healthy, the shift is properly tracked and end-of-day sign-off still works.
-  async function onManagerSkip() {
-    if (!sessionId) return;
-    markManagerSkippedSOD(sessionId);
-    try {
-      if (idempotencyKey) {
-        await completeStartOfDay({ idempotencyKey, sessionId, steps: [] });
-      }
-    } catch {
-      /* swallow — the bypass flag above is the guaranteed escape */
+  // Manager-only escape hatch: skip the SOP checklist via PIN verification.
+  // managerSkipOpen flips outletOpen=true on the backend so the RootLayout SOP
+  // gate lifts naturally on the next loginContext query tick.
+  async function onSkipPin(pin: string) {
+    if (!skipKey || !sessionId) {
+      setSkipPinError(t("lock.errorNotReady")); // guard — shouldn't happen
+      return;
     }
-    navigate("/", { replace: true });
+    setSkipPinPending(true);
+    setSkipPinError(undefined);
+    try {
+      await managerSkipOpen({ idempotencyKey: skipKey, sessionId, managerPin: pin });
+      setSkipPinOpen(false);
+      navigate("/", { replace: true });
+    } catch (err) {
+      const msg = errorMessage(err) || t("lock.errorNotReady");
+      setSkipPinError(
+        msg.includes("INVALID_PIN") ? t("lock.errorInvalidPin") :
+        msg.includes("NOT_MANAGER") ? t("lock.errorNotManager") :
+        msg.includes("LOCKED_OUT") ? t("lock.errorLockedOut") :
+        msg,
+      );
+    } finally {
+      setSkipPinPending(false);
+    }
   }
 
   return (
@@ -140,12 +165,28 @@ export default function ShiftStart() {
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            onClick={onManagerSkip}
+            onClick={() => {
+              setSkipPinError(undefined);
+              setSkipPinOpen(true);
+            }}
           >
             {t("shiftStart.skipManager")}
           </Button>
         </div>
       )}
+
+      <PinSheet
+        open={skipPinOpen}
+        title={t("shiftStart.skipPinTitle")}
+        label={t("shiftStart.skipPinLabel")}
+        pending={skipPinPending}
+        error={skipPinError}
+        onSubmit={onSkipPin}
+        onCancel={() => {
+          setSkipPinOpen(false);
+          setSkipPinError(undefined);
+        }}
+      />
     </div>
   );
 }

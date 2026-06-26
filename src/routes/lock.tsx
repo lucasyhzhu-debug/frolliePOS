@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { useSession, clearSession, storeSession } from "@/hooks/useSession";
+import { useSession, clearSession } from "@/hooks/useSession";
 import { useDeviceId } from "@/hooks/useDeviceId";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { PinSheet } from "@/components/pos/PinSheet";
@@ -11,31 +11,47 @@ import { SpokeLayout } from "@/components/layout/SpokeLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useT } from "@/lib/i18n";
+import { errorMessage } from "@/lib/errors";
 
 export default function Lock() {
   const navigate = useNavigate();
   const session = useSession();
   const t = useT();
   const deviceId = useDeviceId();
-  const lockShift = useMutation(api.shifts.public.lockShift);
-  const managerTakeover = useAction(api.shifts.actions.managerTakeover);
+  const lock = useMutation(api.shifts.shifts.lock);
+  // managerOverride: force-ends a stranded shift so the blocked staffer can log
+  // in normally. Returns { ok: true } (no new session — the manager or original
+  // staffer authenticates via the standard login after the override).
+  //
+  // DESIGN NOTE / UX concern: in the two-level model the primary manager-override
+  // escape hatch lives on the LOGIN screen (T11's loginContext path). The override
+  // button here is reached by the CURRENT session holder choosing to lock. After
+  // lock the holder's session is already ended, so this screen is only visible
+  // to an ACTIVE holder. The use-case is "manager wants to force-end a stuck
+  // shift before locking their own" — borderline redundant with the login-screen
+  // override. Flagged as DONE_WITH_CONCERNS for UX-UAT review; do NOT delete
+  // without UX sign-off.
+  const managerOverride = useAction(api.shifts.actions.managerOverride);
   // Two distinct idempotency key roots — they MUST NOT share a root because after
   // clearSession the session-based key collapses to `lock:none`, which would
-  // collide between lock and takeover paths.
-  //   lockKey  → keyed on sessionId (available for the active lock action)
-  //   takeoverKey → keyed on deviceId (stable across clearSession; takeover
-  //                 happens with no active session so sessionId is unreliable)
+  // collide between lock and override paths.
+  //   lockKey      → keyed on sessionId (available for the active lock action)
+  //   overrideKey  → keyed on deviceId (stable across clearSession; override
+  //                  happens with no active session so sessionId is unreliable)
   const lockKey = useIdempotency(`shift:lock:${session.sessionId ?? "none"}`);
-  const takeoverKey = useIdempotency(`shift:takeover:${deviceId ?? "none"}`);
+  const [overrideReset, setOverrideReset] = useState(0);
+  // C1: distinct prefix for lock-screen override + reset counter so each attempt
+  // (success or failure) gets a fresh idempotency key (mirrors pinReset rotation).
+  const overrideKey = useIdempotency(`shift:override:lock:${deviceId ?? "none"}:${overrideReset}`);
 
-  // Manager-takeover state
-  const [takeoverOpen, setTakeoverOpen] = useState(false);
+  // Manager-override state
+  const [overrideOpen, setOverrideOpen] = useState(false);
   const [pickedManager, setPickedManager] = useState<{
     _id: Id<"staff">;
     name: string;
   } | null>(null);
-  const [takeoverError, setTakeoverError] = useState<string | undefined>();
-  const [takeoverPending, setTakeoverPending] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | undefined>();
+  const [overridePending, setOverridePending] = useState(false);
 
   // Fetch active staff to filter for managers. Public query (no session needed)
   // so it works even when the session is about to be cleared.
@@ -46,44 +62,50 @@ export default function Lock() {
 
   const handleLock = async () => {
     if (!session.sessionId || !lockKey) return;
-    await lockShift({ sessionId: session.sessionId, idempotencyKey: lockKey });
+    await lock({ sessionId: session.sessionId, idempotencyKey: lockKey });
     clearSession();
     navigate("/login", { replace: true });
   };
 
-  const handleTakeoverOpen = () => {
+  const handleOverrideOpen = () => {
     setPickedManager(null);
-    setTakeoverError(undefined);
-    setTakeoverOpen(true);
+    setOverrideError(undefined);
+    setOverrideOpen(true);
   };
 
-  const handleTakeoverPin = async (pin: string) => {
-    if (!deviceId || !takeoverKey || !pickedManager) {
-      setTakeoverError(t("lock.errorNotReady"));
+  const handleOverridePin = async (pin: string) => {
+    if (!deviceId || !overrideKey || !pickedManager) {
+      setOverrideError(t("lock.errorNotReady"));
       return;
     }
-    setTakeoverPending(true);
-    setTakeoverError(undefined);
+    setOverridePending(true);
+    setOverrideError(undefined);
     try {
-      const { sessionId } = await managerTakeover({
-        idempotencyKey: takeoverKey,
+      await managerOverride({
+        idempotencyKey: overrideKey,
         deviceId,
         managerStaffId: pickedManager._id,
         managerPin: pin,
       });
-      storeSession(sessionId, pickedManager._id);
-      setTakeoverOpen(false);
-      navigate("/shift/handover", { replace: true });
+      setOverrideOpen(false);
+      // Override just force-ends the stranded shift; the manager (or original
+      // staffer) now logs in normally via /login.
+      navigate("/login", { replace: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Pengalihan gagal";
-      setTakeoverError(
+      // I-C: use errorMessage() so ConvexError.data is unwrapped correctly
+      // (mirrors login.tsx's override error handling pattern).
+      const msg = errorMessage(err);
+      setOverrideError(
         msg.includes("INVALID_PIN") ? t("lock.errorInvalidPin") :
         msg.includes("NOT_MANAGER") ? t("lock.errorNotManager") :
         msg.includes("LOCKED_OUT") ? t("lock.errorLockedOut") :
         msg,
       );
     } finally {
-      setTakeoverPending(false);
+      setOverridePending(false);
+      // C1: rotate key after every attempt so the next call never replays a
+      // stale idempotency result (success + failure both rotate).
+      setOverrideReset((n) => n + 1);
     }
   };
 
@@ -104,29 +126,29 @@ export default function Lock() {
             </Button>
           </div>
           <div className="mt-4">
-            <Button variant="ghost" size="sm" onClick={handleTakeoverOpen}>
+            <Button variant="ghost" size="sm" onClick={handleOverrideOpen}>
               {t("lock.managerTakeover")}
             </Button>
           </div>
         </Card>
       </div>
 
-      {/* Manager-picker + PIN sheet for takeover */}
+      {/* Manager-picker + PIN sheet for override */}
       <PinSheet
-        open={takeoverOpen}
+        open={overrideOpen}
         title={t("lock.managerTakeover")}
         label={
           pickedManager
             ? t("lock.pinForManager", { name: pickedManager.name })
             : t("lock.pickManagerFirst")
         }
-        pending={takeoverPending}
-        error={takeoverError}
-        onSubmit={pickedManager ? handleTakeoverPin : () => undefined}
+        pending={overridePending}
+        error={overrideError}
+        onSubmit={pickedManager ? handleOverridePin : () => undefined}
         onCancel={() => {
-          setTakeoverOpen(false);
+          setOverrideOpen(false);
           setPickedManager(null);
-          setTakeoverError(undefined);
+          setOverrideError(undefined);
         }}
         extraField={
           !pickedManager ? (

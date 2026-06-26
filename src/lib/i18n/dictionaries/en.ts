@@ -654,6 +654,10 @@ export const en = {
   "login.pinResetDenied": "PIN reset declined by {denier}. Wait for the 60-second lockout to expire and try again.",
   "login.pinResetDeniedWithReason": "PIN reset declined by {denier} — \"{reason}\". Wait for the 60-second lockout to expire and try again.",
   "login.outletChip": "{outlet}",
+  "login.shiftInProgressTitle": "Shift in progress",
+  "login.shiftHeldBy": "{name} is still on shift. Ask a manager to override, or wait for handover.",
+  "login.managerOverride": "Manager override",
+  "login.overridePickManager": "Pick a manager",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",
@@ -904,6 +908,8 @@ export const en = {
   "shiftStart.stepTidyBoothItem2": "Make sure the banner is visible from the escalator",
   "shiftStart.stepTidyBoothItem3": "Photo of front + inside booth → send to WA group",
   "shiftStart.skipManager": "Skip start-of-day (manager)",
+  "shiftStart.skipPinTitle": "Skip start-of-day",
+  "shiftStart.skipPinLabel": "Enter manager PIN",
   // shiftEnd
   "shiftEnd.choiceTitle": "End shift",
   "shiftEnd.choiceSubtitle": "Choose the type of shift close:",
@@ -955,6 +961,10 @@ export const en = {
   "shiftHandover.loginFailed": "Login failed",
   "shiftHandover.wrongPin": "Wrong PIN.",
   "shiftHandover.accountLocked": "Account locked. Contact a manager.",
+  // shiftBegin
+  "shiftBegin.title": "Begin shift",
+  "shiftBegin.stepCountLabel": "Count stock",
+  "shiftBegin.terminalLabel": "Start shift",
   // stock
   "stock.title": "Stock",
   "stock.noSkus": "No SKUs yet. A manager can add SKUs via the Manage Products page.",

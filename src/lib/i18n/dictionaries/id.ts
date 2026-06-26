@@ -652,6 +652,10 @@ export const id: Record<keyof typeof en, string> = {
   "login.pinResetDenied": "Reset PIN ditolak oleh {denier}. Tunggu 60 detik lalu coba lagi.",
   "login.pinResetDeniedWithReason": "Reset PIN ditolak oleh {denier} — \"{reason}\". Tunggu 60 detik lalu coba lagi.",
   "login.outletChip": "{outlet}",
+  "login.shiftInProgressTitle": "Shift sedang berjalan",
+  "login.shiftHeldBy": "{name} masih dalam shift. Minta manajer untuk mengambil alih, atau tunggu serah terima.",
+  "login.managerOverride": "Override manajer",
+  "login.overridePickManager": "Pilih manajer",
   // cockpitLogin — login cockpit pemilik (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Pemilik · Cockpit",
   "cockpitLogin.identifierTitle": "Masuk",
@@ -902,6 +906,8 @@ export const id: Record<keyof typeof en, string> = {
   "shiftStart.stepTidyBoothItem2": "Pastikan banner terlihat dari eskalator",
   "shiftStart.stepTidyBoothItem3": "Foto depan + dalam booth → kirim ke WA group",
   "shiftStart.skipManager": "Lewati mulai hari (manajer)",
+  "shiftStart.skipPinTitle": "Lewati mulai hari",
+  "shiftStart.skipPinLabel": "Masukkan PIN manajer",
   // shiftEnd
   "shiftEnd.choiceTitle": "Akhiri shift",
   "shiftEnd.choiceSubtitle": "Pilih jenis penutupan shift:",
@@ -953,6 +959,10 @@ export const id: Record<keyof typeof en, string> = {
   "shiftHandover.loginFailed": "Login gagal",
   "shiftHandover.wrongPin": "PIN salah.",
   "shiftHandover.accountLocked": "Akun terkunci. Hubungi manager.",
+  // shiftBegin
+  "shiftBegin.title": "Mulai shift",
+  "shiftBegin.stepCountLabel": "Hitung stok",
+  "shiftBegin.terminalLabel": "Mulai shift",
   // stock
   "stock.title": "Stok",
   "stock.noSkus": "Belum ada SKU. Manajer menambahkan SKU lewat halaman Kelola Produk.",

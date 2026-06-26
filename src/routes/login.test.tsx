@@ -5,10 +5,10 @@
  *   - convex/react: useQuery controlled via vi.fn(); useAction returns stub.
  *   - sonner: toast.error stub so we can assert "no toast" in fallback tests.
  *   - ConnDot: stubbed to avoid IDB/deviceId side-effects.
- *   - useBoothState: stubbed to control booth state in navigation tests.
+ *   - useLoginContext: stubbed to control outlet/holder state in navigation tests.
  *
  * The component renders two useQuery calls per tree:
- *   Call 0 = api.auth.public.getActiveStaff   (staff list)
+ *   Call 0 = api.auth.public.listStaffForDevice  (staff list, keyed by deviceId)
  *   Call 1 = api.approvals.public.getRecentPinResetForStaff  ("skip" while list view)
  *
  * Tests that exercise the pre-stage mount-effect set localStorage before render
@@ -24,9 +24,8 @@ import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 
 // ─── module mocks (hoisted by Vite) ──────────────────────────────────────────
 
-const { mockLoginAction, mockRecordResume } = vi.hoisted(() => ({
+const { mockLoginAction } = vi.hoisted(() => ({
   mockLoginAction: vi.fn().mockResolvedValue({ sessionId: "kn7ses000000000000000000000" }),
-  mockRecordResume: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("convex/react", async (importOriginal) => {
@@ -47,8 +46,8 @@ vi.mock("@/components/layout/ConnDot", () => ({
   ConnDot: () => null,
 }));
 
-vi.mock("@/hooks/useBoothState", () => ({
-  useBoothState: vi.fn(() => undefined),
+vi.mock("@/hooks/useLoginContext", () => ({
+  useLoginContext: vi.fn(() => undefined),
 }));
 
 vi.mock("@/hooks/useDeviceId", () => ({
@@ -82,17 +81,17 @@ const SARI: StaffRow = {
 };
 
 /**
- * Wire useQuery to return the staff list for getActiveStaff and undefined for
+ * Wire useQuery to return the staff list for listStaffForDevice and undefined for
  * getRecentPinResetForStaff. Discriminates by ARGS (robust across re-renders),
  * not call-order — a render-count shift would otherwise mis-slot the queries.
- *   getActiveStaff            → args {}            → staff rows
- *   getRecentPinResetForStaff → args { staffId }   → undefined (no denial)
+ *   listStaffForDevice         → args { deviceId }  → staff rows
+ *   getRecentPinResetForStaff  → args { staffId }   → undefined (no denial)
  */
 function mockStaff(rows: StaffRow[]) {
   (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
     if (args === "skip") return undefined;
     if (args && typeof args === "object" && "staffId" in (args as object)) return undefined;
-    return rows; // getActiveStaff (args {})
+    return rows; // listStaffForDevice (args { deviceId })
   });
 }
 
@@ -105,9 +104,8 @@ beforeEach(async () => {
   (useQueryMock as Mock).mockReset();
   localStorage.clear();
   vi.clearAllMocks();
-  // Default: useAction returns the login stub, useMutation returns recordResume stub
+  // Default: useAction returns the login stub (covers both loginWithPin + managerOverride slots)
   (convexReact.useAction as Mock).mockReturnValue(mockLoginAction);
-  (convexReact.useMutation as Mock).mockReturnValue(mockRecordResume);
 });
 
 function renderLogin() {
@@ -119,7 +117,7 @@ function renderLogin() {
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/" element={<div data-testid="home-page" />} />
           <Route path="/shift/start" element={<div data-testid="shift-start-page" />} />
-          <Route path="/shift/handover" element={<div data-testid="shift-handover-page" />} />
+          <Route path="/shift/begin" element={<div data-testid="shift-begin-page" />} />
         </Routes>
       </MemoryRouter>
     </ConvexProvider>,
@@ -147,6 +145,10 @@ describe("Login route", () => {
 
   it("pre-stages to PIN if last-staff is in active list", async () => {
     localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
+    // I-B(a): pre-stage is gated until loginContext resolves. A closed booth
+    // (resolved ctx, no holder) is the unblocked case — Lucas pre-stages straight to PIN.
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({ outletOpen: false, holderStaffId: null, holderName: null });
     mockStaff([LUCAS, SARI]);
     renderLogin();
     // Should skip "Who's working?" and show Lucas's name as the heading.
@@ -179,16 +181,15 @@ describe("Login route", () => {
   });
 });
 
-// ─── booth-state navigation fork tests ───────────────────────────────────────
+// ─── loginContext navigation fork tests ───────────────────────────────────────
 
-describe("Login route — booth state navigation fork", () => {
-  it("booth closed → after login navigates to /shift/start", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "closed",
-      staffId: null,
-      staffName: null,
-      staleAutoclose: false,
+describe("Login route — outlet state navigation fork", () => {
+  it("outlet closed → after login navigates to /shift/start", async () => {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: false,
+      holderStaffId: null,
+      holderName: null,
     });
     mockStaff([SARI]);
     // Pre-stage SARI so we're at PIN entry immediately
@@ -201,178 +202,113 @@ describe("Login route — booth state navigation fork", () => {
       expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
     );
 
-    // Submit PIN via buttons
-    const buttons = screen.getAllByRole("button");
-    const oneBtn = buttons.find((b) => b.textContent === "1");
-    if (oneBtn) {
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-    }
+    typePin("1111");
 
     await waitFor(() =>
       expect(screen.getByTestId("shift-start-page")).toBeInTheDocument(),
     );
   });
 
-  it("booth locked with matching staffId → pre-stages only that staff, calls recordResume after login, navigates /", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "locked",
-      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
-      staffName: "Lucas",
-      staleAutoclose: false,
+  it("outlet open, holder === me → after login navigates to /", async () => {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      holderName: "Lucas",
     });
     mockStaff([LUCAS, SARI]);
-    // Set last staff so the pre-stage effect has something to match against.
+    // LUCAS is the holder and the last staff — pre-stages normally.
     localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
 
     renderLogin();
 
-    // Pre-stage should fire for LUCAS only (booth.locked and staffId matches)
+    // Pre-stage fires because holderStaffId === LUCAS._id === lastId
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
     );
 
-    // Submit PIN
-    const buttons = screen.getAllByRole("button");
-    const oneBtn = buttons.find((b) => b.textContent === "1");
-    if (oneBtn) {
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-    }
+    typePin("1111");
 
-    await waitFor(() => expect(mockRecordResume).toHaveBeenCalledOnce());
     await waitFor(() =>
       expect(screen.getByTestId("home-page")).toBeInTheDocument(),
     );
   });
 
-  it("booth locked + same staff but recordResume throws → still navigates home, no error", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "locked",
-      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
-      staffName: "Lucas",
-      staleAutoclose: false,
+  it("outlet open, no holder → after login navigates to /shift/begin", async () => {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: null,
+      holderName: null,
     });
-    // Resume is best-effort: a booth-state race (BOOTH_NOT_LOCKED) must not bounce
-    // the already-authenticated staffer back to the auth-error channel.
-    mockRecordResume.mockRejectedValueOnce(new Error("BOOTH_NOT_LOCKED"));
-    mockStaff([LUCAS, SARI]);
-    localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
-
-    renderLogin();
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /lucas/i })).toBeInTheDocument(),
-    );
-    typePin("1234");
-
-    await waitFor(() =>
-      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
-    );
-    // No inline error rendered despite the resume throw.
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("booth handover_pending → immediately redirects to /shift/handover before login", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "handover_pending",
-      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
-      staffName: "Lucas",
-      staleAutoclose: false,
-    });
-    mockStaff([LUCAS, SARI]);
-
-    renderLogin();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument(),
-    );
-    // Login action must NOT have been called — redirect fires before any PIN entry.
-    expect(mockLoginAction).not.toHaveBeenCalled();
-  });
-
-  it("booth locked but DIFFERENT staff logs in → recordResume NOT called, navigates /", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    // Booth is locked for LUCAS (staffId=A), but SARI (staffId=B) logs in.
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "locked",
-      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
-      staffName: "Lucas",
-      staleAutoclose: false,
-    });
-    // Only SARI in the active list — LUCAS was deactivated or not pre-staged.
     mockStaff([SARI]);
     localStorage.setItem(LAST_STAFF_KEY, SARI._id);
 
     renderLogin();
 
-    // Pre-stage should NOT fire for SARI because locked.staffId !== SARI._id.
-    // The list view shows instead.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+    );
+
+    typePin("1111");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("shift-begin-page")).toBeInTheDocument(),
+    );
+  });
+
+  it("outlet open, holder is different staffer → block UI shown, login NOT called", async () => {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    // LUCAS holds the shift; SARI tries to log in.
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      holderName: "Lucas",
+    });
+    // Only SARI in the staff list.
+    mockStaff([SARI]);
+    localStorage.setItem(LAST_STAFF_KEY, SARI._id);
+
+    renderLogin();
+
+    // Pre-stage guard fires: outletOpen=true, holderStaffId=LUCAS._id !== SARI._id
+    // → falls back to list view.
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /who's working/i })).toBeInTheDocument(),
     );
 
-    // Manually pick SARI from the list.
+    // SARI taps her name → blocked.
     fireEvent.click(screen.getByText("Sari"));
 
+    // Block message referencing the holder appears.
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+      expect(screen.getByText(/lucas/i)).toBeInTheDocument(),
     );
-
-    // Submit PIN via numeric keypad
-    const buttons = screen.getAllByRole("button");
-    const oneBtn = buttons.find((b) => b.textContent === "1");
-    if (oneBtn) {
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-    }
-
-    await waitFor(() =>
-      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
-    );
-    // Guard must block recordResume — SARI is not the locked staff.
-    expect(mockRecordResume).not.toHaveBeenCalled();
+    // Manager override button is present.
+    expect(screen.getByRole("button", { name: /manager override/i })).toBeInTheDocument();
+    // Login action must NOT have been called.
+    expect(mockLoginAction).not.toHaveBeenCalled();
   });
 
-  it("booth open → after login navigates to / (normal)", async () => {
-    const { useBoothState } = await import("@/hooks/useBoothState");
-    vi.mocked(useBoothState).mockReturnValue({
-      state: "open",
-      staffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
-      staffName: "Lucas",
-      staleAutoclose: false,
+  it("outlet open, holder is different staffer → pre-stage skipped, list shown first", async () => {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      holderName: "Lucas",
     });
+    // Only SARI in the active list, stored as last staff.
     mockStaff([SARI]);
     localStorage.setItem(LAST_STAFF_KEY, SARI._id);
 
     renderLogin();
 
+    // Pre-stage guard fires — SARI is NOT the holder, so list is shown instead
+    // of jumping straight to PIN.
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /sari/i })).toBeInTheDocument(),
+      expect(screen.getByRole("heading", { name: /who's working/i })).toBeInTheDocument(),
     );
-
-    // Submit PIN
-    const buttons = screen.getAllByRole("button");
-    const oneBtn = buttons.find((b) => b.textContent === "1");
-    if (oneBtn) {
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-      fireEvent.click(oneBtn);
-    }
-
-    await waitFor(() =>
-      expect(screen.getByTestId("home-page")).toBeInTheDocument(),
-    );
-    expect(mockRecordResume).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: /sari/i })).toBeNull();
   });
 });
 
@@ -418,7 +354,9 @@ describe("Login PIN feedback", () => {
   });
 
   it("shows green Welcome (role=status) then navigates home on success", async () => {
-    // Default useAction (mockLoginAction) resolves a sessionId; booth undefined → home.
+    // Default useAction (mockLoginAction) resolves a sessionId; ctx undefined → /shift/begin
+    // (outletOpen===undefined → holderStaffId===null branch), but LUCAS has default ctx undefined
+    // so both branches are falsy → target stays "/".
     localStorage.setItem(LAST_STAFF_KEY, LUCAS._id);
     mockStaff([LUCAS, SARI]);
     renderLogin();
@@ -439,8 +377,8 @@ describe("Login PIN feedback", () => {
 
 describe("PIN reset denial toast (remount dedup)", () => {
   // Discriminate queries by ARGS (robust across re-renders), not call-order:
-  //   getActiveStaff            → args {}            → staff list
-  //   getRecentPinResetForStaff → args { staffId }   → denied object
+  //   listStaffForDevice         → args { deviceId }  → staff list
+  //   getRecentPinResetForStaff  → args { staffId }   → denied object
   function wireDenied() {
     (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
       if (args === "skip") return undefined;
@@ -453,7 +391,7 @@ describe("PIN reset denial toast (remount dedup)", () => {
           deny_reason: "not you",
         };
       }
-      return [LUCAS, SARI]; // getActiveStaff
+      return [LUCAS, SARI]; // listStaffForDevice
     });
   }
 

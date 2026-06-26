@@ -8,12 +8,11 @@ import { LAST_STAFF_KEY } from "@/lib/storage-keys";
 // ─── module mocks ─────────────────────────────────────────────────────────────
 
 // vi.hoisted so these refs are available inside the hoisted vi.mock factories.
-const { mockLogout, mockClearSession, mockLockShift, mockManagerTakeover, mockStoreSession } = vi.hoisted(() => ({
+const { mockLogout, mockClearSession, mockLockMutation, mockManagerOverride } = vi.hoisted(() => ({
   mockLogout: vi.fn().mockResolvedValue(undefined),
   mockClearSession: vi.fn(),
-  mockLockShift: vi.fn().mockResolvedValue({ ok: true }),
-  mockManagerTakeover: vi.fn().mockResolvedValue({ sessionId: "kn7ses_mgr_000000000000000" }),
-  mockStoreSession: vi.fn(),
+  mockLockMutation: vi.fn().mockResolvedValue({ ok: true }),
+  mockManagerOverride: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("convex/react", async (importOriginal) => {
@@ -22,14 +21,13 @@ vi.mock("convex/react", async (importOriginal) => {
     ...actual,
     useQuery: vi.fn(() => undefined),
     useMutation: vi.fn(() => mockLogout),
-    useAction: vi.fn(() => mockManagerTakeover),
+    useAction: vi.fn(() => mockManagerOverride),
   };
 });
 
 vi.mock("@/hooks/useSession", () => ({
   useSession: vi.fn(() => ({ status: "none", sessionId: null, staff: null })),
   clearSession: mockClearSession,
-  storeSession: mockStoreSession,
 }));
 
 vi.mock("@/hooks/useIdempotency", () => ({
@@ -38,11 +36,11 @@ vi.mock("@/hooks/useIdempotency", () => ({
 }));
 
 // Stable synchronous device id. The REAL useDeviceId starts null and resolves
-// via an async IDB effect; without this mock the manager-takeover test races
+// via an async IDB effect; without this mock the manager-override test races
 // that resolution — under full-suite worker contention `deviceId` is still null
-// when the PIN auto-submits, so handleTakeoverPin's `!deviceId` guard returns
-// early and managerTakeover is never called (flaky "spy called 0 times").
-// Mirrors handover/login/useBoothState tests.
+// when the PIN auto-submits, so handleOverridePin's `!deviceId` guard returns
+// early and managerOverride is never called (flaky "spy called 0 times").
+// Mirrors handover/login tests.
 vi.mock("@/hooks/useDeviceId", () => ({
   useDeviceId: () => "test-device-id",
 }));
@@ -77,7 +75,6 @@ function renderLock() {
           <Route path="/lock" element={<Lock />} />
           <Route path="/" element={<div data-testid="home-page" />} />
           <Route path="/login" element={<div data-testid="login-page" />} />
-          <Route path="/shift/handover" element={<div data-testid="shift-handover-page" />} />
         </Routes>
       </MemoryRouter>
     </ConvexProvider>,
@@ -105,7 +102,7 @@ describe("Lock route", () => {
     expect(screen.queryByRole("button", { name: /lock/i })).toBeNull();
   });
 
-  test("Lock button calls logout with sessionId + idempotencyKey, then navigates to /login", async () => {
+  test("Lock button calls lock mutation with sessionId + idempotencyKey, then navigates to /login", async () => {
     localStorage.setItem(LAST_STAFF_KEY, "kn7lucas000000000000000000000");
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
 
@@ -120,7 +117,7 @@ describe("Lock route", () => {
     });
   });
 
-  test("Lock button clears session after logout", async () => {
+  test("Lock button clears session after lock mutation", async () => {
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
 
     renderLock();
@@ -129,7 +126,7 @@ describe("Lock route", () => {
     await waitFor(() => expect(mockClearSession).toHaveBeenCalledOnce());
   });
 
-  test("Lock button navigates to /login after logout", async () => {
+  test("Lock button navigates to /login after lock mutation", async () => {
     vi.mocked(useSessionModule.useSession).mockReturnValue(ACTIVE_SESSION);
 
     renderLock();
@@ -166,7 +163,7 @@ describe("Lock route", () => {
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
 
-    // logout should NOT be called because idemKey is undefined
+    // lock mutation should NOT be called because idemKey is undefined
     expect(mockLogout).not.toHaveBeenCalled();
   });
 
@@ -179,9 +176,9 @@ describe("Lock route", () => {
   });
 });
 
-// ─── lockShift + manager-unlock tests ─────────────────────────────────────────
+// ─── lock mutation + manager-override tests ───────────────────────────────────
 
-describe("Lock route — lockShift + manager-unlock", () => {
+describe("Lock route — lock mutation + manager-override", () => {
   beforeEach(async () => {
     localStorage.clear();
     vi.clearAllMocks();
@@ -189,19 +186,19 @@ describe("Lock route — lockShift + manager-unlock", () => {
     // Restore a safe default for useMutation so tests that don't re-mock it
     // don't get `undefined` and throw on click.
     const convexReact = await import("convex/react");
-    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockMutation);
   });
 
-  test("Lock button calls lockShift (not bare logout) with sessionId + idempotencyKey", async () => {
-    // Wire useMutation to return lockShift for the lockShift call
+  test("Lock button calls lock mutation (not bare logout) with sessionId + idempotencyKey", async () => {
+    // Wire useMutation to return mockLockMutation for the lock call
     const convexReact = await import("convex/react");
-    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockMutation);
 
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
 
-    await waitFor(() => expect(mockLockShift).toHaveBeenCalledOnce());
-    expect(mockLockShift).toHaveBeenCalledWith({
+    await waitFor(() => expect(mockLockMutation).toHaveBeenCalledOnce());
+    expect(mockLockMutation).toHaveBeenCalledWith({
       sessionId: ACTIVE_SESSION.sessionId,
       idempotencyKey: "test-idem-key",
     });
@@ -209,9 +206,9 @@ describe("Lock route — lockShift + manager-unlock", () => {
     expect(mockLogout).not.toHaveBeenCalled();
   });
 
-  test("Lock button clears session and navigates to /login after lockShift", async () => {
+  test("Lock button clears session and navigates to /login after lock mutation", async () => {
     const convexReact = await import("convex/react");
-    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockMutation);
 
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /^lock$/i }));
@@ -231,7 +228,7 @@ describe("Lock route — lockShift + manager-unlock", () => {
     // Need a manager in the query result for the picker
     const convexReact = await import("convex/react");
     (convexReact.useQuery as Mock).mockReturnValue([{ _id: "kn7lucas000000000000000000000", name: "Lucas", role: "manager" }]);
-    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockMutation);
 
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /manager unlock/i }));
@@ -242,14 +239,14 @@ describe("Lock route — lockShift + manager-unlock", () => {
     );
   });
 
-  test("managerTakeover is called with correct args and navigates to /shift/handover", async () => {
+  test("managerOverride is called with correct args and navigates to /login (not /shift/handover)", async () => {
     const convexReact = await import("convex/react");
     // First useQuery call = getActiveStaff with managers
     (convexReact.useQuery as Mock).mockReturnValue([
       { _id: "kn7lucas000000000000000000000", name: "Lucas", role: "manager" },
     ]);
-    (convexReact.useMutation as Mock).mockReturnValue(mockLockShift);
-    (convexReact.useAction as Mock).mockReturnValue(mockManagerTakeover);
+    (convexReact.useMutation as Mock).mockReturnValue(mockLockMutation);
+    (convexReact.useAction as Mock).mockReturnValue(mockManagerOverride);
 
     renderLock();
     fireEvent.click(screen.getByRole("button", { name: /manager unlock/i }));
@@ -274,16 +271,17 @@ describe("Lock route — lockShift + manager-unlock", () => {
       fireEvent.click(oneBtn);
     }
 
-    await waitFor(() => expect(mockManagerTakeover).toHaveBeenCalledOnce());
-    const callArgs = mockManagerTakeover.mock.calls[0][0];
+    await waitFor(() => expect(mockManagerOverride).toHaveBeenCalledOnce());
+    const callArgs = mockManagerOverride.mock.calls[0][0];
     expect(callArgs).toMatchObject({
       managerStaffId: "kn7lucas000000000000000000000",
       managerPin: "1111",
     });
 
+    // Navigates to /login (NOT /shift/handover) — override just clears the stranded
+    // shift; the manager or original staffer logs in normally from /login.
     await waitFor(() =>
-      expect(screen.getByTestId("shift-handover-page")).toBeInTheDocument(),
+      expect(screen.getByTestId("login-page")).toBeInTheDocument(),
     );
-    expect(mockStoreSession).toHaveBeenCalled();
   });
 });
