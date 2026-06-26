@@ -6,8 +6,8 @@ import { MemoryRouter } from "react-router";
 // Mocks — defined before any imports of the module under test
 // ---------------------------------------------------------------------------
 
-const mockEndOfDaySignOff = vi.fn();
-const mockHandoverOut = vi.fn();
+const mockEndOfDay = vi.fn();
+const mockHandover = vi.fn();
 const mockNavigate = vi.fn();
 // clearSession is imported from useSession — we hoist the spy so the factory
 // can reference it without a TDZ error (vi.mock factories are hoisted to the
@@ -48,8 +48,8 @@ vi.mock("convex/react", async (importOriginal) => {
       } catch {
         name = "";
       }
-      if (name.includes("endOfDaySignOff")) return mockEndOfDaySignOff;
-      if (name.includes("handoverOut")) return mockHandoverOut;
+      if (name.includes("endOfDay")) return mockEndOfDay;
+      if (name.includes("handover")) return mockHandover;
       // auth.public.logout (used in close sign-off path)
       if (name.includes("logout")) return vi.fn().mockResolvedValue({});
       return vi.fn().mockResolvedValue({});
@@ -117,10 +117,10 @@ async function advanceStep(isCount: boolean, terminalName?: RegExp) {
 
 describe("ShiftEnd route (/shift/end)", () => {
   beforeEach(() => {
-    mockEndOfDaySignOff.mockReset();
-    mockEndOfDaySignOff.mockResolvedValue({ ok: true, durationMs: 7200000 }); // 2h
-    mockHandoverOut.mockReset();
-    mockHandoverOut.mockResolvedValue({ ok: true, durationMs: 3600000 }); // 1h
+    mockEndOfDay.mockReset();
+    mockEndOfDay.mockResolvedValue({ ok: true, durationMs: 7200000 }); // 2h
+    mockHandover.mockReset();
+    mockHandover.mockResolvedValue({ ok: true, durationMs: 3600000 }); // 1h
     mockNavigate.mockReset();
     mockClearSession.mockReset();
   });
@@ -150,7 +150,6 @@ describe("ShiftEnd route (/shift/end)", () => {
   describe("deep-link ?mode=", () => {
     it("?mode=handover enters the handover wizard directly (no choice screen)", () => {
       renderRoute("/shift/end?mode=handover");
-      // Wizard heading present; choice-screen subtitle absent.
       expect(screen.getByRole("heading", { name: /handover/i })).toBeInTheDocument();
       expect(screen.queryByText(/choose the type of shift close/i)).toBeNull();
     });
@@ -175,7 +174,6 @@ describe("ShiftEnd route (/shift/end)", () => {
     async function enterCloseMode() {
       renderRoute();
       fireEvent.click(screen.getByRole("button", { name: /close booth/i }));
-      // The wizard should now be rendered.
       await waitFor(() => {
         expect(screen.getByRole("heading", { name: /close booth/i })).toBeInTheDocument();
       });
@@ -183,22 +181,19 @@ describe("ShiftEnd route (/shift/end)", () => {
 
     it("enters close wizard on 'Close booth' click", async () => {
       await enterCloseMode();
-      // Back button present (wizard rendered)
       expect(screen.getByRole("button", { name: /^back$/i })).toBeInTheDocument();
     });
 
     it("shows 5 step labels in the rail", async () => {
       await enterCloseMode();
-      // Steps: reminder, count stock, check supplies, tidy devices, lock lockers
       expect(screen.getByText(/reminder/i)).toBeInTheDocument();
       expect(screen.getByText(/count stock/i)).toBeInTheDocument();
       expect(screen.getByText(/check supplies/i)).toBeInTheDocument();
       expect(screen.getByText(/tidy devices/i)).toBeInTheDocument();
-      // "Lock lockers" appears in the rail
       expect(screen.getAllByText(/lock lockers/i).length).toBeGreaterThanOrEqual(1);
     });
 
-    it("walks all 5 close steps, calls endOfDaySignOff, shows summary, then sign-off clears session + navigates /login", async () => {
+    it("walks all 5 close steps, calls endOfDay with closeCount, shows summary, then sign-off clears session + navigates /login", async () => {
       await enterCloseMode();
 
       // Step 1: instruction (Pengingat)
@@ -218,22 +213,22 @@ describe("ShiftEnd route (/shift/end)", () => {
       // Step 5: last instruction → terminal button "Sign off — done for today"
       await advanceStep(false, /sign off/i);
 
-      // endOfDaySignOff called once
+      // endOfDay called once
       await waitFor(() => {
-        expect(mockEndOfDaySignOff).toHaveBeenCalledTimes(1);
+        expect(mockEndOfDay).toHaveBeenCalledTimes(1);
       });
 
-      const call = mockEndOfDaySignOff.mock.calls[0][0] as {
+      const call = mockEndOfDay.mock.calls[0][0] as {
         idempotencyKey: string;
         sessionId: string;
         steps: Array<{ key: string; type: string }>;
-        countChanged?: number;
+        closeCount?: number;
       };
       expect(call.idempotencyKey).toBe("idem-key-test");
       expect(call.sessionId).toBe("session_abc");
       expect(call.steps).toHaveLength(5);
-      // countChanged from the count step (stub returns 5)
-      expect(call.countChanged).toBe(5);
+      // closeCount from the count step (stub returns 5)
+      expect(call.closeCount).toBe(5);
 
       // Summary screen appears with hours (exact 2h → "2j", fmtShiftDuration output)
       await waitFor(() => {
@@ -280,7 +275,7 @@ describe("ShiftEnd route (/shift/end)", () => {
       expect(screen.getByText(/check supplies/i)).toBeInTheDocument();
     });
 
-    it("walks 2 handover steps, calls handoverOut, navigates /shift/handover", async () => {
+    it("walks 2 handover steps, calls handover with closeCount, clears session, navigates /login", async () => {
       await enterHandoverMode();
 
       // Step 1: count (Count stock)
@@ -295,22 +290,24 @@ describe("ShiftEnd route (/shift/end)", () => {
       await advanceStep(false, /handover/i);
 
       await waitFor(() => {
-        expect(mockHandoverOut).toHaveBeenCalledTimes(1);
+        expect(mockHandover).toHaveBeenCalledTimes(1);
       });
 
-      const call = mockHandoverOut.mock.calls[0][0] as {
+      const call = mockHandover.mock.calls[0][0] as {
         idempotencyKey: string;
         sessionId: string;
         steps: Array<{ key: string; type: string }>;
-        countChanged?: number;
+        closeCount?: number;
       };
       expect(call.idempotencyKey).toBe("idem-key-test");
       expect(call.sessionId).toBe("session_abc");
       expect(call.steps).toHaveLength(2);
-      expect(call.countChanged).toBe(5);
+      expect(call.closeCount).toBe(5);
 
+      // clearSession is called; incoming staffer logs in fresh at /login
       await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith("/shift/handover");
+        expect(mockClearSession).toHaveBeenCalledTimes(1);
+        expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
       });
     });
   });

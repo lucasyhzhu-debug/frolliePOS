@@ -9,7 +9,7 @@ async function seedPaidTxnWithToken(
   opts: { status?: "paid" | "cancelled" } = {},
 ) {
   return await t.run(async (ctx: any) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "x",
       timezone: "Asia/Jakarta",

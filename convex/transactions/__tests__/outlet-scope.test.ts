@@ -18,7 +18,7 @@ async function seedOutlet(
   code: string,
 ): Promise<Id<"outlets">> {
   return await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code,
       name: code,
       timezone: "Asia/Jakarta",

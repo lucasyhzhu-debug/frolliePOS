@@ -9,7 +9,7 @@ describe("inventory/public.getStockLevels", () => {
     const now = Date.now();
 
     const { activeSkuId, inactiveSkuId } = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: now, created_by: null,
       } as never);

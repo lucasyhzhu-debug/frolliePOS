@@ -5,8 +5,8 @@ import schema from "../../schema";
 test("cloneCatalogRows copies + remaps FKs into target outlet, reuses photo id", async () => {
   const t = convexTest(schema);
   await t.run(async (ctx) => {
-    const src = await ctx.db.insert("outlets", { code: "SRC", name: "Src", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
-    const tgt = await ctx.db.insert("outlets", { code: "TGT", name: "Tgt", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
+    const src = await ctx.db.insert("outlets", { is_open: false, code: "SRC", name: "Src", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
+    const tgt = await ctx.db.insert("outlets", { is_open: false, code: "TGT", name: "Tgt", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
     // Use a real _storage ID — ctx.storage.store is the established pattern in this test env
     const photo = await ctx.storage.store(new Blob(["x"], { type: "image/webp" }));
     const sku = await ctx.db.insert("pos_inventory_skus", { sku: "dubai", name: "Dubai", unit: "piece", low_threshold: 5, active: true, created_at: 1, outlet_id: src, photo_storage_id: photo } as any);
@@ -30,8 +30,8 @@ test("cloneCatalogRows copies + remaps FKs into target outlet, reuses photo id",
 test("cloneCatalogRows copies only active rows — inactive products and skus are excluded", async () => {
   const t = convexTest(schema);
   await t.run(async (ctx) => {
-    const src = await ctx.db.insert("outlets", { code: "SRC2", name: "Src2", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
-    const tgt = await ctx.db.insert("outlets", { code: "TGT2", name: "Tgt2", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
+    const src = await ctx.db.insert("outlets", { is_open: false, code: "SRC2", name: "Src2", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
+    const tgt = await ctx.db.insert("outlets", { is_open: false, code: "TGT2", name: "Tgt2", timezone: "Asia/Jakarta", active: true, created_at: 1, created_by: null } as any);
 
     // Active sku + product
     const activeSku = await ctx.db.insert("pos_inventory_skus", { sku: "active_sku", name: "Active SKU", unit: "piece", low_threshold: 5, active: true, created_at: 1, outlet_id: src } as any);

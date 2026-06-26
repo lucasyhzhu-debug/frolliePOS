@@ -9,7 +9,7 @@ async function seedRequest(
   opts: { tokenExpiresAt: number },
 ): Promise<Id<"pos_approval_requests">> {
   return await t.run(async (ctx) => {
-    const outletId = await (ctx.db as any).insert("outlets", {
+    const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });

@@ -15,7 +15,7 @@ import { RECEIPT_DEFAULTS } from "../internal";
 
 async function makeOutlet(t: ReturnType<typeof convexTest>, code: string) {
   return t.run((ctx: any) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code,
       name: code,
       timezone: "Asia/Jakarta",

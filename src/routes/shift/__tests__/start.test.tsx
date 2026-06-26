@@ -6,7 +6,8 @@ import { MemoryRouter } from "react-router";
 // Mocks — defined before any imports of the module under test
 // ---------------------------------------------------------------------------
 
-const mockCompleteStartOfDay = vi.fn();
+const mockOpenBooth = vi.fn();
+const mockManagerSkipOpen = vi.fn();
 const mockNavigate = vi.fn();
 
 // Mutable role so a test can render the route as a manager (skip-SOD path).
@@ -33,7 +34,7 @@ vi.mock("react-router", async (importOriginal) => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-// convex/react — useMutation returns our spy.
+// convex/react — useMutation dispatches to openBooth; useAction to managerSkipOpen.
 vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
   const { getFunctionName } = await import("convex/server");
@@ -42,15 +43,20 @@ vi.mock("convex/react", async (importOriginal) => {
     useMutation: (fn: unknown) => {
       let name = "";
       try { name = getFunctionName(fn as Parameters<typeof getFunctionName>[0]); } catch { name = ""; }
-      if (name.includes("completeStartOfDay")) return mockCompleteStartOfDay;
-      return vi.fn().mockResolvedValue({ changed: 2 });
+      if (name.includes("openBooth")) return mockOpenBooth;
+      return vi.fn().mockResolvedValue({});
+    },
+    useAction: (fn: unknown) => {
+      let name = "";
+      try { name = getFunctionName(fn as Parameters<typeof getFunctionName>[0]); } catch { name = ""; }
+      if (name.includes("managerSkipOpen")) return mockManagerSkipOpen;
+      return vi.fn().mockResolvedValue({});
     },
     useQuery: () => [{ skuId: "sku1", name: "Dubai Cookie", on_hand: 10 }],
   };
 });
 
 // Stub CountStep: calls onSubmitted(3) when the user taps its submit button.
-// This avoids IDB + Convex deps inside CountStep under jsdom.
 vi.mock("@/components/pos/CountStep", () => ({
   default: ({ onSubmitted, submitLabel }: { onSubmitted: (n: number) => void; submitLabel?: string }) => (
     <div>
@@ -63,6 +69,31 @@ vi.mock("@/components/pos/CountStep", () => ({
       </button>
     </div>
   ),
+}));
+
+// Stub PinSheet: renders a simple form so skip tests don't need full keypad interaction.
+vi.mock("@/components/pos/PinSheet", () => ({
+  PinSheet: ({
+    open,
+    onSubmit,
+    onCancel,
+  }: {
+    open: boolean;
+    onSubmit: (pin: string) => void;
+    onCancel: () => void;
+  }) => {
+    if (!open) return null;
+    return (
+      <div data-testid="pin-sheet-stub">
+        <button data-testid="pin-sheet-submit" onClick={() => onSubmit("1234")}>
+          Submit PIN
+        </button>
+        <button data-testid="pin-sheet-cancel" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    );
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -111,11 +142,12 @@ async function advanceStep(isCount: boolean, isLast: boolean) {
 
 describe("ShiftStart route (/shift/start)", () => {
   beforeEach(() => {
-    mockCompleteStartOfDay.mockReset();
-    mockCompleteStartOfDay.mockResolvedValue({ ok: true, eventId: "evt_1" });
+    mockOpenBooth.mockReset();
+    mockOpenBooth.mockResolvedValue({ ok: true, shiftId: "shift_1" });
+    mockManagerSkipOpen.mockReset();
+    mockManagerSkipOpen.mockResolvedValue({ ok: true, shiftId: "shift_1" });
     mockNavigate.mockReset();
     mockRole = "staff";
-    sessionStorage.clear();
   });
 
   it("renders the wizard title", () => {
@@ -125,14 +157,9 @@ describe("ShiftStart route (/shift/start)", () => {
 
   it("renders the 4 step labels in the rail", () => {
     renderRoute();
-    // Step 1
     expect(screen.getByText(/count stock/i)).toBeInTheDocument();
-    // Step 2
     expect(screen.getByText(/power on devices/i)).toBeInTheDocument();
-    // Step 3
     expect(screen.getByText(/fill display/i)).toBeInTheDocument();
-    // Step 4 — label is "Start of day" (doubles as terminal button text per ShiftWizard)
-    // There will be at least one: the rail span.
     const railItems = screen.getAllByText(/start of day/i);
     expect(railItems.length).toBeGreaterThanOrEqual(1);
   });
@@ -145,13 +172,12 @@ describe("ShiftStart route (/shift/start)", () => {
   it("step 2 shows instruction body after advancing from step 1 (count step hidden)", async () => {
     renderRoute();
     await advanceStep(true, false);
-    // After advancing, AnimatePresence exits the count step and enters step 2.
     await waitFor(() => {
       expect(screen.queryByTestId("count-step-stub")).toBeNull();
     });
   });
 
-  it("walks all 4 steps, calls completeStartOfDay with 4 confirmed steps + countChanged, then navigates home", async () => {
+  it("walks all 4 steps, calls openBooth with 4 confirmed steps + openCount, then navigates home", async () => {
     renderRoute();
 
     // Step 1 — count step
@@ -161,18 +187,18 @@ describe("ShiftStart route (/shift/start)", () => {
     await advanceStep(false, false);
     // Step 3 — instruction
     await advanceStep(false, false);
-    // Step 4 — last instruction → terminal button "Mulai hari"
+    // Step 4 — last instruction → terminal button "Start of day"
     await advanceStep(false, true);
 
     await waitFor(() => {
-      expect(mockCompleteStartOfDay).toHaveBeenCalledTimes(1);
+      expect(mockOpenBooth).toHaveBeenCalledTimes(1);
     });
 
-    const call = mockCompleteStartOfDay.mock.calls[0][0] as {
+    const call = mockOpenBooth.mock.calls[0][0] as {
       idempotencyKey: string;
       sessionId: string;
       steps: Array<{ key: string; label: string; type: string; confirmed_at: number }>;
-      countChanged?: number;
+      openCount?: number;
     };
     expect(call.idempotencyKey).toBe("idem-key-test");
     expect(call.sessionId).toBe("session_abc");
@@ -181,8 +207,8 @@ describe("ShiftStart route (/shift/start)", () => {
     expect(call.steps[1].type).toBe("instruction");
     expect(call.steps[2].type).toBe("instruction");
     expect(call.steps[3].type).toBe("instruction");
-    // countChanged from CountStep stub's onSubmitted(3)
-    expect(call.countChanged).toBe(3);
+    // openCount from CountStep stub's onSubmitted(3)
+    expect(call.openCount).toBe(3);
 
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
@@ -197,41 +223,33 @@ describe("ShiftStart route (/shift/start)", () => {
     ).toBeNull();
   });
 
-  it("manager skip: marks the bypass flag, best-effort opens the booth, and navigates home", async () => {
+  it("manager skip: opens PinSheet when skip button is clicked", () => {
     mockRole = "manager";
     renderRoute();
-
-    const skipBtn = screen.getByRole("button", { name: /skip start-of-day/i });
-    fireEvent.click(skipBtn);
-
-    // Best-effort open with an EMPTY checklist (no steps walked).
-    await waitFor(() => {
-      expect(mockCompleteStartOfDay).toHaveBeenCalledTimes(1);
-    });
-    const call = mockCompleteStartOfDay.mock.calls[0][0] as { steps: unknown[] };
-    expect(call.steps).toHaveLength(0);
-
-    // Bypass flag persisted for the active session (so the gate won't re-trap).
-    const { hasManagerSkippedSOD } = await import("@/lib/shiftSkip");
-    expect(hasManagerSkippedSOD("session_abc")).toBe(true);
-
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
-    });
+    expect(screen.queryByTestId("pin-sheet-stub")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /skip start-of-day/i }));
+    expect(screen.getByTestId("pin-sheet-stub")).toBeInTheDocument();
   });
 
-  it("manager skip: still escapes (navigates) even when completeStartOfDay throws", async () => {
+  it("manager skip: calls managerSkipOpen with the entered PIN and navigates home", async () => {
     mockRole = "manager";
-    mockCompleteStartOfDay.mockRejectedValueOnce(new Error("BOOTH_NOT_CLOSED"));
     renderRoute();
 
     fireEvent.click(screen.getByRole("button", { name: /skip start-of-day/i }));
+    // Stub PinSheet auto-submits PIN "1234" when submit is clicked
+    fireEvent.click(screen.getByTestId("pin-sheet-submit"));
 
-    // Flag is set BEFORE the throwing mutation, so the manager is never trapped.
-    const { hasManagerSkippedSOD } = await import("@/lib/shiftSkip");
     await waitFor(() => {
-      expect(hasManagerSkippedSOD("session_abc")).toBe(true);
+      expect(mockManagerSkipOpen).toHaveBeenCalledTimes(1);
     });
+    const call = mockManagerSkipOpen.mock.calls[0][0] as {
+      idempotencyKey: string;
+      sessionId: string;
+      managerPin: string;
+    };
+    expect(call.sessionId).toBe("session_abc");
+    expect(call.managerPin).toBe("1234");
+
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });

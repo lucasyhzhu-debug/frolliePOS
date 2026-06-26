@@ -12,7 +12,7 @@ describe("cursor pagination", () => {
   it("walks all rows once across a same-millisecond page boundary", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const s = await ctx.db.insert("staff", { name: "L", code: "S-0001", role: "staff", active: true, pin_hash: "x", created_at: 0 });
       const mk = async (rn: string, paidAt: number) => {
         await ctx.db.insert("pos_transactions", { status: "paid", subtotal: 1, voucher_discount: 0, total: 1, flags: 0, staff_id: s, created_at: 0, paid_at: paidAt, receipt_number: rn, outlet_id: outletId } as any);

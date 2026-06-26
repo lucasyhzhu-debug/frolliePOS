@@ -31,7 +31,7 @@ export async function seedManagerSession(t: ReturnType<typeof convexTest>) {
   // require*Session throws SESSION_NO_OUTLET when absent. Seed an outlet and
   // stamp it so this manager session resolves an outlet for all consumers.
   const outletId = await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "Pakuwon Mall",
       timezone: "Asia/Jakarta",

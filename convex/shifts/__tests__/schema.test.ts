@@ -6,7 +6,7 @@ import type { Id } from "../../_generated/dataModel";
 test("pos_shift_events round-trips a start_of_day row", async () => {
   const t = convexTest(schema);
   const id = await t.run(async (ctx: any) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);

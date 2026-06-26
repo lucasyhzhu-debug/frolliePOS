@@ -54,7 +54,7 @@ async function seedOutlet(
   code: string,
   name: string,
 ): Promise<any> {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code,
     name,
     timezone: "Asia/Jakarta",

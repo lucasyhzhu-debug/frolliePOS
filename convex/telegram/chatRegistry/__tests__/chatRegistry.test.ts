@@ -12,7 +12,7 @@ async function seedOutlet(
   code: string = "PKW",
 ): Promise<Id<"outlets">> {
   return t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code,
       name: `Outlet ${code}`,
       timezone: "Asia/Jakarta",
@@ -100,7 +100,7 @@ async function seedSession(
 ): Promise<{ staffId: Id<"staff">; sessionId: Id<"staff_sessions"> }> {
   // v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required.
   const outletId = await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any),

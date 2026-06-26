@@ -7,7 +7,7 @@ describe("_resolveSessionRole_internal", () => {
   it("returns staffId + role for a live session", async () => {
     const t = convexTest(schema);
     const { sessionId, staffId } = await t.run(async (ctx) => {
-      const outletId = await (ctx.db as any).insert("outlets", {
+      const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: 0, created_by: null,
       });
       const sid = await ctx.db.insert("staff", {
@@ -26,7 +26,7 @@ describe("_resolveSessionRole_internal", () => {
   it("returns role 'staff' for a staff session", async () => {
     const t = convexTest(schema);
     const { sessionId, staffId } = await t.run(async (ctx) => {
-      const outletId = await (ctx.db as any).insert("outlets", {
+      const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: 0, created_by: null,
       });
       const sid = await ctx.db.insert("staff", {
@@ -44,7 +44,7 @@ describe("_resolveSessionRole_internal", () => {
   it("returns null when the session has ended", async () => {
     const t = convexTest(schema);
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await (ctx.db as any).insert("outlets", {
+      const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: 0, created_by: null,
       });
       const sid = await ctx.db.insert("staff", {
@@ -61,7 +61,7 @@ describe("_resolveSessionRole_internal", () => {
   it("returns null when the staff is inactive", async () => {
     const t = convexTest(schema);
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await (ctx.db as any).insert("outlets", {
+      const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: 0, created_by: null,
       });
       const sid = await ctx.db.insert("staff", {
@@ -79,7 +79,7 @@ describe("_resolveSessionRole_internal", () => {
     const t = convexTest(schema);
     // Insert + delete so we get a well-typed Id that no longer points to a row.
     const goneSessionId = await t.run(async (ctx) => {
-      const outletId = await (ctx.db as any).insert("outlets", {
+      const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: 0, created_by: null,
       });
       const sid = await ctx.db.insert("staff", {

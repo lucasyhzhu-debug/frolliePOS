@@ -11,6 +11,16 @@ export const outletsTables = {
     active: v.boolean(),
     created_at: v.number(),
     created_by: v.union(v.id("staff"), v.null()), // null for the backfilled default outlet (house null-convention, cf. staff_sessions.ended_at)
+    // v2.1 two-level booth state (ADR-053): Level-1 outlet status. ENFORCE step:
+    // is_open is now REQUIRED (prod backfilled + asserted 2026-06-26). The
+    // opened_*/closed_* fields stay optional — they're genuinely absent for a
+    // never-opened outlet or null depending on state.
+    is_open: v.boolean(),
+    opened_at: v.optional(v.union(v.number(), v.null())),
+    opened_by: v.optional(v.union(v.id("staff"), v.null())),
+    opened_via: v.optional(v.union(v.literal("sop"), v.literal("manager_skip"), v.null())),
+    closed_at: v.optional(v.union(v.number(), v.null())),
+    closed_by: v.optional(v.union(v.id("staff"), v.null())),
   })
     .index("by_code", ["code"])
     .index("by_active", ["active"]),

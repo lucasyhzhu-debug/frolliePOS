@@ -9,7 +9,7 @@ import type { Id } from "../../_generated/dataModel";
 test("telegramChats accepts outlet_id and by_role_outlet resolves", async () => {
   const t = convexTest(schema);
   await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null });
+    const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null });
     await ctx.db.insert("telegramChats", { chatId: "-100123", chatType: "supergroup", title: "Mgr PKW", role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(), outlet_id: outletId });
     const rows = await ctx.db.query("telegramChats").withIndex("by_role_outlet", (q) => q.eq("role", "managers").eq("outlet_id", outletId)).collect();
     expect(rows.length).toBe(1);
@@ -19,12 +19,12 @@ test("telegramChats accepts outlet_id and by_role_outlet resolves", async () => 
 test("getChatIdByRoleAndOutlet returns the per-outlet chat, null on miss", async () => {
   const t = convexTest(schema);
   const { a, chat } = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null });
+    const a = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null });
     const chat = await ctx.db.insert("telegramChats", { chatId: "-100A", chatType: "supergroup", title: "Mgr A", role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(), outlet_id: a });
     return { a, chat };
   });
   expect(await t.query(internal.telegram.chatRegistry.internal.getChatIdByRoleAndOutlet, { role: "managers", outletId: a })).toBe("-100A");
-  const b = await t.run((ctx) => ctx.db.insert("outlets", { code: "BLK", name: "y", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null }));
+  const b = await t.run((ctx) => ctx.db.insert("outlets", { is_open: false, code: "BLK", name: "y", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null }));
   expect(await t.query(internal.telegram.chatRegistry.internal.getChatIdByRoleAndOutlet, { role: "managers", outletId: b })).toBeNull();
 });
 
@@ -74,10 +74,10 @@ test("(a) requestRefundApproval threads outletId — routes refund notify to per
   const t = convexTest(schema);
 
   const { sessionIdB, txnIdB, lineIdB } = await t.run(async (ctx: any) => {
-    const outletA = await ctx.db.insert("outlets", {
+    const outletA = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null,
     });
-    const outletB = await ctx.db.insert("outlets", {
+    const outletB = await ctx.db.insert("outlets", { is_open: false,
       code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null,
     });
 
@@ -155,7 +155,7 @@ test("(b) _sendSignoffSummary routes to per-outlet managers, not founders", asyn
   const t = convexTest(schema);
 
   const { outletId, staffId, eventId } = await t.run(async (ctx: any) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "Frollie PKW", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null,
     });
     // Only a per-outlet managers chat is registered — no founders/owners chat.
@@ -246,11 +246,11 @@ test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", asyn
 
   try {
     const { outletB, skuId } = await t.run(async (ctx: any) => {
-      const outletA = await ctx.db.insert("outlets", {
+      const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      const outletB = await ctx.db.insert("outlets", {
+      const outletB = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
@@ -320,11 +320,11 @@ test("(d) recount at outlet B routes to outlet B's managers chat", async () => {
 
   try {
     const { outletB } = await t.run(async (ctx: any) => {
-      const outletA = await ctx.db.insert("outlets", {
+      const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      const outletB = await ctx.db.insert("outlets", {
+      const outletB = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
@@ -393,11 +393,11 @@ test("(e) drift cron sends per-outlet alerts — two outlets, two distinct chat_
 
   try {
     await t.run(async (ctx: any) => {
-      const outletA = await ctx.db.insert("outlets", {
+      const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      const outletB = await ctx.db.insert("outlets", {
+      const outletB = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
@@ -485,11 +485,11 @@ test("(f) txn_ticker at outlet B routes to outlet B's managers chat", async () =
 
   try {
     const txnId = await t.run(async (ctx: any) => {
-      const outletA = await ctx.db.insert("outlets", {
+      const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      const outletB = await ctx.db.insert("outlets", {
+      const outletB = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
@@ -588,7 +588,7 @@ test("(g) system_error with outlet_id renders outlet label in body, routes to op
         // NO outlet_id — ops is business-wide
       });
 
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Frollie — Block M",
         timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,

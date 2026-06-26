@@ -15,7 +15,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("mints a fresh token + audit row on a tokenless paid txn", async () => {
     const t = convexTest(schema);
     const { staffId, txnId } = await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -53,7 +53,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("rejects with TXN_NOT_PAID when called on a non-paid txn", async () => {
     const t = convexTest(schema);
     const { staffId, txnId } = await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -78,7 +78,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("rejects with TXN_NOT_FOUND for a non-existent transaction id", async () => {
     const t = convexTest(schema);
     const { staffId, fakeId } = await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -104,7 +104,7 @@ describe("_ensureReceiptTokenForPaidTxn_internal (lazy-mint behaviour)", () => {
   it("is idempotent — second call returns the same token", async () => {
     const t = convexTest(schema);
     const { staffId, txnId } = await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

@@ -24,6 +24,11 @@ export async function getOutletByCode(
 /**
  * Insert a new outlet row. `created_by` is REQUIRED — pass the ownerStaffId.
  * Returns the new outlet's Id.
+ *
+ * `is_open` is the ADR-053 Level-1 SOP flag, REQUIRED on the outlets schema since
+ * the 2026-06-26 enforce. A freshly-created outlet has never had a shift opened, so
+ * it always starts CLOSED — booth staff open it via `openBooth` at start-of-day
+ * (mirrors `seedDefaultOutlet`, which also stamps `is_open: false`).
  */
 export async function insertOutletRow(
   ctx: MutationCtx,
@@ -38,5 +43,5 @@ export async function insertOutletRow(
     created_by: Id<"staff">; // cockpit callers always pass a real owner id; seed rows insert directly via ctx.db
   },
 ): Promise<Id<"outlets">> {
-  return ctx.db.insert("outlets", fields);
+  return ctx.db.insert("outlets", { ...fields, is_open: false });
 }

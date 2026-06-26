@@ -15,7 +15,7 @@ import { Id } from "../../_generated/dataModel";
 
 async function seedPaidTxn(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+    const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
     const staffId = await ctx.db.insert("staff", {
       code: "S-S", name: "S", role: "staff", active: true,
       pin_hash: "x", created_at: Date.now(),

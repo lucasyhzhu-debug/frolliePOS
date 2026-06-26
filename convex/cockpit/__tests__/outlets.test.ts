@@ -12,7 +12,7 @@ async function seedSource(ctx: any) {
     active: true,
     created_at: 1,
   });
-  const src = await ctx.db.insert("outlets", {
+  const src = await ctx.db.insert("outlets", { is_open: false,
     code: "SRC",
     name: "Src",
     timezone: "Asia/Jakarta",
@@ -147,7 +147,7 @@ test("duplicate code throws OUTLET_CODE_TAKEN, no partial outlet", async () => {
         active: true,
         created_at: 1,
       } as any);
-      await ctx.db.insert("outlets", {
+      await ctx.db.insert("outlets", { is_open: false,
         code: "DUP",
         name: "Existing",
         timezone: "Asia/Jakarta",
@@ -227,7 +227,7 @@ async function seedCockpitSession(ctx: any) {
 test("listOutlets rejects a booth session with NOT_COCKPIT_SESSION", async () => {
   const t = convexTest(schema);
   const boothSession = await t.run(async (ctx) => {
-    const outlet = await ctx.db.insert("outlets", {
+    const outlet = await ctx.db.insert("outlets", { is_open: false,
       code: "BT",
       name: "Booth",
       timezone: "Asia/Jakarta",
@@ -262,7 +262,7 @@ test("listOutlets rejects a booth session with NOT_COCKPIT_SESSION", async () =>
 test("listOutlets returns all active outlets for a cockpit session", async () => {
   const t = convexTest(schema);
   const { session } = await t.run(async (ctx) => {
-    await ctx.db.insert("outlets", {
+    await ctx.db.insert("outlets", { is_open: false,
       code: "A1",
       name: "Outlet A",
       timezone: "Asia/Jakarta",
@@ -270,7 +270,7 @@ test("listOutlets returns all active outlets for a cockpit session", async () =>
       created_at: 1,
       created_by: null,
     } as any);
-    await ctx.db.insert("outlets", {
+    await ctx.db.insert("outlets", { is_open: false,
       code: "B1",
       name: "Outlet B",
       timezone: "Asia/Jakarta",
@@ -290,7 +290,7 @@ test("listOutlets returns all active outlets for a cockpit session", async () =>
 test("listAssignableStaff rejects booth session", async () => {
   const t = convexTest(schema);
   const boothSession = await t.run(async (ctx) => {
-    const outlet = await ctx.db.insert("outlets", {
+    const outlet = await ctx.db.insert("outlets", { is_open: false,
       code: "BT2",
       name: "Booth2",
       timezone: "Asia/Jakarta",

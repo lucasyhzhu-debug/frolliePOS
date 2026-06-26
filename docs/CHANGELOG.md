@@ -27,6 +27,25 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 - `RootLayout` `CockpitShell` now wraps cockpit routes in `OutletProvider`, renders the switcher, and runs a `touchCockpitSession` keepalive (fresh idempotency key per ping).
 - New surfaces: cockpit dashboard landing (`src/routes/cockpit/index.tsx` — consolidated + per-outlet summary cards, replaces placeholder), outlet list (`src/routes/cockpit/outlets/index.tsx`), new-outlet wizard (`src/routes/cockpit/outlets/new/index.tsx` — blank-vs-clone → name/code → review).
 - New routes: `/cockpit/outlets`, `/cockpit/outlets/new`.
+- **Persona-UAT (run `v13-owner-cockpit-2026-06-26`):** 0 BLOCKER / 0 BUG; the actionable UX-HIGH/UX-NIT cluster was fixed (clone receipt-identity defaults to the new outlet name; zero-staff Review warning; IANA timezone validation; `CockpitSubLayout` strips booth printer/connection chrome from cockpit sub-routes; compact client-only EN/ID cockpit toggle; owner excluded from `listAssignableStaff`; net-takings figure; clone-source checkmark; `disabled:saturate-50`; desktop max-width).
+
+## 2026-06-26 — v2.0 Two-level booth state (ADR-053) — PRs #147 + #148
+
+**Scope:** Replaces the derived/user-anchored booth-state machine (`deriveBoothState` over `pos_shift_events`, ADR-050) with **two stored levels**, eliminating the recurring `BOOTH_NOT_OPEN`-on-locked-booth incidents (#138/#139/#140/#143). Shipped to prod via the atomic Vercel build; prod backfilled + enforce-flipped the same day. ([ADR-053](./ADR/053-two-level-booth-state.md), supersedes ADR-050)
+
+**The two levels**
+- **Level 1** `outlets.is_open` — the SOP gate. Set by `openBooth`/`managerSkipOpen`, cleared by `endOfDay`.
+- **Level 2** a single `pos_shifts` holder row (`ended_at == null` = active holder). `handover` ends the outgoing holder (outlet stays open); `startShift` begins the incoming holder; **`lock` = plain session logout** (holder + outlet untouched — the same staff simply logs back in to resume); `managerOverride` force-ends a stranded holder.
+
+**New surface** (`convex/shifts/`): `shifts.ts` (`openBooth`/`startShift`/`handover`/`endOfDay`/`lock` mutations + `loginContext` query), `shiftsInternal.ts` (Level-2 internals), `shiftLib.ts` (pure), `actions.ts` (`managerSkipOpen`/`managerOverride`); `outlets/status.ts` (Level-1 internals). FE: `useLoginContext` + login gate (resume / block-with-override / new-shift) + RootLayout SOP gate + `/shift/begin` (session-FULL incoming-count, replaces the session-less `/shift/handover`).
+
+**Retired** (`deriveBoothState` machinery, ADR-050): old `convex/shifts/public.ts` (whole file — `completeStartOfDay`/`endOfDaySignOff`/`handoverOut`/`lockShift`/`recordResume`/`completeHandoverIn`/`boothState`), `deriveBoothState`/`BoothState`/`OPEN_TYPES` (lib), the `managerTakeover` chain (`_commitManagerTakeover_internal`/`_sendTakeoverSummary`/`_managerTakeoverSession_internal`), `_latestShiftEvent_internal`, and 9 lifecycle test files. `pos_shift_events` kept read-only for legacy audit history.
+
+**Migration** (`migrations/internal.ts`): `backfillOutletStatus` (one-shot, idempotent) derived `is_open` + the holder row from the legacy event history. Run on prod 2026-06-26 (1 outlet opened, 1 holder); `assertOutletStatusBackfilled` confirmed.
+
+**Enforce (#148):** `outlets.is_open` flipped **optional → required** after the prod backfill (`opened_*`/`closed_*` stay optional); `seedDefaultOutlet` + dev seed now stamp `is_open: false`. The backfill/assert are vestigial post-enforce (kept as the migration's audit record).
+
+**Hardening:** SDD execution (14 tasks) + `/triple-review` (fixed a `managerOverride` idempotency-key replay + a `loginContext` unbound-device crash + a single-holder login race) + `/simplify`. **Live persona-UAT** confirmed the headline fix (lock → re-login → resume, 0 `BOOTH_NOT_OPEN`) and caught a Radix-Dialog `pointer-events` stuck-keypad BLOCKER (fixed in `PinSheet`, helps all PIN-sheet surfaces).
 
 ## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
 

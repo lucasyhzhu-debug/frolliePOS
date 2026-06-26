@@ -21,7 +21,7 @@ async function seedDeviceOutletAccess(
     const outlets = await ctx.db.query("outlets").collect();
     const outletId =
       outlets[0]?._id ??
-      (await ctx.db.insert("outlets", {
+      (await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }));

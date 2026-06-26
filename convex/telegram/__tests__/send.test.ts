@@ -18,7 +18,7 @@ it("routes by role and returns message_id", async () => {
   const t = convexTest(schema);
   // managers is outlet-scoped — insert an outlet + outlet-bound chat row
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });
@@ -51,7 +51,7 @@ it("routes by role and returns message_id", async () => {
 it("rejects a malformed manual_payment payload", async () => {
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });
@@ -87,7 +87,7 @@ it("audits telegram.send_failed when telegram returns ok:false", async () => {
   );
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });

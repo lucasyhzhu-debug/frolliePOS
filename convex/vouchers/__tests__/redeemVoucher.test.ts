@@ -16,7 +16,7 @@ async function seedStaffId(ctx: any) {
 }
 
 async function seedOutletId(ctx: any) {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
     created_at: Date.now(), created_by: null,
   });

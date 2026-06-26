@@ -37,7 +37,7 @@ async function seed(t: ReturnType<typeof convexTest>): Promise<{
 }> {
   return await t.run(async (ctx) => {
     // v2.0 Task 12 (ENFORCE): sessions + txns require outlet_id.
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);
@@ -130,7 +130,7 @@ it("throws TXN_NOT_AWAITING when transaction is already paid", async () => {
   const { sessionId, staffId } = await seed(t);
 
   const paidTxnId = await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW2", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);
@@ -213,7 +213,7 @@ async function seedApprovable(t: ReturnType<typeof convexTest>): Promise<{
     // v2.0: _confirmPaid resolves the receipt outlet from txn.outlet_id ?? the
     // default active outlet; seed one so the manual-payment confirm path doesn't
     // throw NO_DEFAULT_OUTLET (Task 4).
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any);

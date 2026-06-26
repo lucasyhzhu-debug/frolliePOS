@@ -6,7 +6,7 @@ import { seedManagerSession } from "../../staff/__tests__/_helpers";
 
 async function seedOutlet(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any)

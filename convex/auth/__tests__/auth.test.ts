@@ -67,7 +67,7 @@ async function seedOutletDeviceAccess(
     const outlets = await ctx.db.query("outlets").collect();
     const outletId =
       outlets[0]?._id ??
-      (await ctx.db.insert("outlets", {
+      (await ctx.db.insert("outlets", { is_open: false,
         code: "PKW",
         name: "x",
         timezone: "Asia/Jakarta",
@@ -129,7 +129,7 @@ describe("getSession", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -151,7 +151,7 @@ describe("getSession", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -172,7 +172,7 @@ describe("getSession", () => {
     const t = convexTest(schema);
     const staffId = await seedStaff(t, "Citra", "1234");
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -277,7 +277,7 @@ describe("loginWithPin (action)", () => {
     const staffId = await seedStaff(t, "Hana", "1234");
     // Seed an outlet + access, but DO NOT bind the device.
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -301,7 +301,7 @@ describe("loginWithPin (action)", () => {
     const staffId = await seedStaff(t, "Indra", "1234");
     // Bind the device to an outlet, but grant NO access row.
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
