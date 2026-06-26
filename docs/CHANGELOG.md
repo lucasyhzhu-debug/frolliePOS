@@ -4,18 +4,23 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
-## 2026-06-26 — v2.0 Two-level booth state (ADR-053, Task 13 cleanup)
+## 2026-06-26 — v2.0 Two-level booth state (ADR-053) — PRs #147 + #148
 
-**Scope:** Deletion sweep for the old ADR-050 `deriveBoothState` machinery. The two-level stored state (`outlets.is_open` + `pos_shifts`) built in Tasks 1–12 is now the sole booth-state mechanism. ([ADR-053](./ADR/053-two-level-booth-state.md))
+**Scope:** Replaces the derived/user-anchored booth-state machine (`deriveBoothState` over `pos_shift_events`, ADR-050) with **two stored levels**, eliminating the recurring `BOOTH_NOT_OPEN`-on-locked-booth incidents (#138/#139/#140/#143). Shipped to prod via the atomic Vercel build; prod backfilled + enforce-flipped the same day. ([ADR-053](./ADR/053-two-level-booth-state.md), supersedes ADR-050)
 
-- **`convex/shifts/public.ts` deleted** — all old lifecycle mutations (`completeStartOfDay`, `endOfDaySignOff`, `handoverOut`, `lockShift`, `recordResume`, `completeHandoverIn`, `boothState` query) removed.
-- **`deriveBoothState`, `BoothState`, `LatestEvent`, `OPEN_TYPES` deleted** from `convex/shifts/lib.ts`.
-- **`_latestShiftEvent_internal`, `_commitManagerTakeover_internal` deleted** from `convex/shifts/internal.ts`.
-- **`managerTakeover` action, `_sendTakeoverSummary` deleted** from `convex/shifts/actions.ts`. Replaced by `managerOverride` (force-ends stranded `pos_shifts` row; no new session; original staffer re-authenticates normally).
-- **`_managerTakeoverSession_internal` deleted** from `convex/auth/internal.ts`.
-- Old test files deleted: `boothState.test.ts`, `handover.test.ts`, `lock.test.ts`, `signoff.test.ts`, `staleAutoclose.test.ts`, `startOfDay.test.ts`, `stateGuards.test.ts`, `takeover.test.ts`, `signoffTelegram.test.ts`.
-- **ADR-053** created (`docs/ADR/053-two-level-booth-state.md`). ADR-050 superseded.
-- `pos_shift_events` kept read-only for legacy audit history; `pos_shifts` + `outlets.is_open` are the live state.
+**The two levels**
+- **Level 1** `outlets.is_open` — the SOP gate. Set by `openBooth`/`managerSkipOpen`, cleared by `endOfDay`.
+- **Level 2** a single `pos_shifts` holder row (`ended_at == null` = active holder). `handover` ends the outgoing holder (outlet stays open); `startShift` begins the incoming holder; **`lock` = plain session logout** (holder + outlet untouched — the same staff simply logs back in to resume); `managerOverride` force-ends a stranded holder.
+
+**New surface** (`convex/shifts/`): `shifts.ts` (`openBooth`/`startShift`/`handover`/`endOfDay`/`lock` mutations + `loginContext` query), `shiftsInternal.ts` (Level-2 internals), `shiftLib.ts` (pure), `actions.ts` (`managerSkipOpen`/`managerOverride`); `outlets/status.ts` (Level-1 internals). FE: `useLoginContext` + login gate (resume / block-with-override / new-shift) + RootLayout SOP gate + `/shift/begin` (session-FULL incoming-count, replaces the session-less `/shift/handover`).
+
+**Retired** (`deriveBoothState` machinery, ADR-050): old `convex/shifts/public.ts` (whole file — `completeStartOfDay`/`endOfDaySignOff`/`handoverOut`/`lockShift`/`recordResume`/`completeHandoverIn`/`boothState`), `deriveBoothState`/`BoothState`/`OPEN_TYPES` (lib), the `managerTakeover` chain (`_commitManagerTakeover_internal`/`_sendTakeoverSummary`/`_managerTakeoverSession_internal`), `_latestShiftEvent_internal`, and 9 lifecycle test files. `pos_shift_events` kept read-only for legacy audit history.
+
+**Migration** (`migrations/internal.ts`): `backfillOutletStatus` (one-shot, idempotent) derived `is_open` + the holder row from the legacy event history. Run on prod 2026-06-26 (1 outlet opened, 1 holder); `assertOutletStatusBackfilled` confirmed.
+
+**Enforce (#148):** `outlets.is_open` flipped **optional → required** after the prod backfill (`opened_*`/`closed_*` stay optional); `seedDefaultOutlet` + dev seed now stamp `is_open: false`. The backfill/assert are vestigial post-enforce (kept as the migration's audit record).
+
+**Hardening:** SDD execution (14 tasks) + `/triple-review` (fixed a `managerOverride` idempotency-key replay + a `loginContext` unbound-device crash + a single-holder login race) + `/simplify`. **Live persona-UAT** confirmed the headline fix (lock → re-login → resume, 0 `BOOTH_NOT_OPEN`) and caught a Radix-Dialog `pointer-events` stuck-keypad BLOCKER (fixed in `PinSheet`, helps all PIN-sheet surfaces).
 
 ## 2026-06-24 — v2.0 Per-outlet Telegram routing (Spec 4)
 
