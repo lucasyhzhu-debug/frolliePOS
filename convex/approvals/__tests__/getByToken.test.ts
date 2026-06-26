@@ -31,7 +31,7 @@ async function seedStaffAndRequest(
       created_at: Date.now(),
     });
 
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);
@@ -60,7 +60,7 @@ describe("getByToken — manual_payment_override", () => {
   it("getByToken returns manual_payment display fields", async () => {
     const t = convexTest(schema);
     const { rawToken } = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

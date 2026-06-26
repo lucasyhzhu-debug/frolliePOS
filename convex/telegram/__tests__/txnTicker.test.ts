@@ -12,7 +12,7 @@ describe("sendTxnTicker", () => {
     const t = convexTest(schema);
     // Disable the toggle
     const txnId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       await ctx.db.insert("pos_settings", {
         founders_summary_enabled: true,
         txn_ticker_enabled: false,
@@ -44,7 +44,7 @@ describe("sendTxnTicker", () => {
     const t = convexTest(schema);
     // Enable ticker (default) but don't bind managers role
     const txnId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         name: "Bayu", code: "S-0001", pin_hash: "x", role: "staff", active: true, created_at: Date.now(),
       });

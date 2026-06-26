@@ -8,7 +8,7 @@ import { api } from "../../_generated/api";
 // v2.0 Task 12 (ENFORCE): staff_sessions.outlet_id is required.
 async function seed(t: ReturnType<typeof convexTest>) {
   const outletId = await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any),

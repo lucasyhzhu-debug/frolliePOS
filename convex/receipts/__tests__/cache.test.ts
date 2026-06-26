@@ -6,7 +6,7 @@ import type { Id } from "../../_generated/dataModel";
 
 async function makeOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
   return t.run((ctx: any) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "x",
       timezone: "Asia/Jakarta",

@@ -21,7 +21,7 @@ async function seedPaidTxn(
   },
 ) {
   return await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+    const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
     const staffId = await ctx.db.insert("staff", {
       code: "S-RC",
       name: "RC",
@@ -156,7 +156,7 @@ describe("_commitRefund_internal", () => {
     const t = convexTest(schema);
     // Build awaiting_payment txn manually — seedPaidTxn is paid-only.
     const { staffId, mgrId, txnId, lineId } = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-NP", name: "NP", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -267,7 +267,7 @@ describe("_commitRefund_internal", () => {
     // silently for the no-token case.
     const t = convexTest(schema);
     const { staffId, mgrId, txnId, lineIds } = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-LG", name: "LG", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),

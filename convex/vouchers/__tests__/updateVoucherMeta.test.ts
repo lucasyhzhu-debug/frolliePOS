@@ -71,7 +71,7 @@ describe("vouchers.updateVoucherMeta", () => {
   it("rejects non-manager session", async () => {
     const t = convexTest(schema);
     const outletId = await t.run((ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as never),

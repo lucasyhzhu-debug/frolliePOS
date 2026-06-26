@@ -5,7 +5,7 @@ import { internal } from "../../_generated/api";
 
 async function seedPending(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);

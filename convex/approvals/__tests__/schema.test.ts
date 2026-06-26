@@ -5,7 +5,7 @@ import schema from "../../schema";
 it("accepts a manual_payment_override request with entity + denied lifecycle fields", async () => {
   const t = convexTest(schema);
   await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);
@@ -36,7 +36,7 @@ it("accepts a manual_payment_override request with entity + denied lifecycle fie
 it("failed_pin_attempts optional field round-trips", async () => {
   const t = convexTest(schema);
   const id = await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);
@@ -59,7 +59,7 @@ it("failed_pin_attempts optional field round-trips", async () => {
 it("denied_by_manager_id accepts 'system' literal", async () => {
   const t = convexTest(schema);
   const id = await t.run(async (ctx) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any);

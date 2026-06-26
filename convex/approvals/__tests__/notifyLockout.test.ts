@@ -34,7 +34,7 @@ describe("approvals/actions.notifyStaffLockout", () => {
     }) as typeof fetch;
 
     await t.run((ctx) =>
-      (ctx.db as any).insert("outlets", {
+      (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }),
@@ -91,7 +91,7 @@ describe("approvals/actions.notifyStaffLockout", () => {
       }) as unknown as Response) as typeof fetch;
 
     await t.run((ctx) =>
-      (ctx.db as any).insert("outlets", {
+      (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }),
@@ -150,7 +150,7 @@ describe("approvals/actions.notifyStaffLockout", () => {
     }) as typeof fetch;
 
     await t.run((ctx) =>
-      (ctx.db as any).insert("outlets", {
+      (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }),
@@ -211,11 +211,11 @@ describe("approvals/actions.notifyStaffLockout", () => {
 
     // Two outlets: A is the default (PKW), B is where the lockout happens (BLK).
     const { outletB } = await t.run(async (ctx) => {
-      const outletA = await ctx.db.insert("outlets", {
+      const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Pakuwon", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      const outletB = await ctx.db.insert("outlets", {
+      const outletB = await ctx.db.insert("outlets", { is_open: false,
         code: "BLK", name: "Block M", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });

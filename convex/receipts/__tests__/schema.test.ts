@@ -6,7 +6,7 @@ describe("pos_receipt_html_cache schema", () => {
   it("inserts and reads back via by_token index", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -27,7 +27,7 @@ describe("pos_receipt_html_cache schema", () => {
   it("pos_transactions.receipt_token is optional (existing rows still validate)", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx: any) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

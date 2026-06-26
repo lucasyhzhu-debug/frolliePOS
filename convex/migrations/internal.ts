@@ -70,6 +70,7 @@ export const seedDefaultOutlet = internalMutation({
       active: true,
       created_at: Date.now(),
       created_by: null,
+      is_open: false, // ENFORCE (ADR-053): is_open is required — a fresh outlet starts closed.
     });
   },
 });
@@ -571,6 +572,10 @@ export const assertZeroNullOutletIds = internalQuery({
 });
 
 // ─── backfillOutletStatus ────────────────────────────────────────────────────
+// VESTIGIAL post-enforce (ADR-053): ran once on prod 2026-06-26 (1 outlet opened,
+// 1 holder created) before `outlets.is_open` was flipped to required. With is_open
+// now structurally always set, backfill always skips and assert never throws. Kept
+// as the migration's audit record; safe to prune in a future cleanup.
 
 /**
  * Inlined booth-status derivation — LOCAL to this migration so it survives

@@ -6,7 +6,7 @@ import { TOKEN_PIN_ATTEMPT_CAP } from "../lib";
 
 async function seedPendingManualPayment(t: any) {
   return await t.run(async (ctx: any) => {
-    const outletId = await ctx.db.insert("outlets", {
+    const outletId = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any);

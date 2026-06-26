@@ -96,7 +96,7 @@ describe("backfillOutletId — staff_sessions", () => {
     let outletId: string;
 
     await t.run(async (ctx) => {
-      const oid = await ctx.db.insert("outlets", {
+      const oid = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any);
@@ -155,7 +155,7 @@ describe("assertZeroNullOutletIds", () => {
     const t = convexTest(schema);
 
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any);

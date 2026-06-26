@@ -6,7 +6,7 @@ import { internal } from "../../_generated/api";
 /** Seed the default outlet so _seedLaunchCatalog_internal can find it via getDefaultOutletDoc. */
 async function seedDefaultOutlet(t: ReturnType<typeof import("convex-test").convexTest>) {
   return t.run((ctx: any) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     } as any),
@@ -116,7 +116,7 @@ describe("seed/_seedLaunchCatalog_internal", () => {
   it("throws catalog_already_populated when SKUs exist even with no products (partial-seed guard)", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       await ctx.db.insert("pos_inventory_skus", {
         sku: "dubai", code: "DUBAI", name: "Dubai cookie", unit: "piece",
         low_threshold: 4, active: true, created_at: Date.now(), outlet_id: outletId,

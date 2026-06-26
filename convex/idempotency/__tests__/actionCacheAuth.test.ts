@@ -59,7 +59,7 @@ describe("withActionCache auth-before-lookup (via createVoucher)", () => {
       role: "staff",
     });
     const staffSession = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW2", name: "y", timezone: "Asia/Jakarta", active: false, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW2", name: "y", timezone: "Asia/Jakarta", active: false, created_at: Date.now(), created_by: null } as any);
       return ctx.db.insert("staff_sessions", {
         staff_id: staffId,
         device_id: "staff-device",

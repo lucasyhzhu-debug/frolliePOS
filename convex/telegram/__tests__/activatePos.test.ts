@@ -104,7 +104,7 @@ describe("handleActivatePos", () => {
     const t = convexTest(schema);
     // Seed an outlet and a managers chat scoped to it (mimics the multi-outlet world).
     const outletId = await t.run((ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "pkw",
         name: "Pakuwon Mall",
         timezone: "Asia/Jakarta",

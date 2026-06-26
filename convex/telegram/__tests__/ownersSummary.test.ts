@@ -24,7 +24,7 @@ async function seedOutlet(
   opts: { code: string; name: string; summaryEnabled?: boolean },
 ): Promise<InsertedOutlet> {
   const outletId = await t.run((ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: opts.code,
       name: opts.name,
       timezone: "Asia/Jakarta",

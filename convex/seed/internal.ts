@@ -142,6 +142,7 @@ export const _reset_internal = internalMutation({
       active: true,
       created_at: now,
       created_by: null, // house null-convention for the backfilled default outlet
+      is_open: false, // ENFORCE (ADR-053): is_open is required — seeded outlet starts closed.
     });
     inserted++;
 

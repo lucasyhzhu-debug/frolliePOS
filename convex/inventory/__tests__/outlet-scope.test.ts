@@ -22,7 +22,7 @@ setupTelegramStub();
 async function seedOutlet(t: any, name: string) {
   const code = name.toUpperCase().replace(/\s+/g, "_").slice(0, 16);
   return t.run((ctx: any) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code,
       name,
       timezone: "Asia/Jakarta",

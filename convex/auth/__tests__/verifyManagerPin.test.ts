@@ -20,7 +20,7 @@ describe("auth.verifyManagerPinOrThrow (via createStaff happy + reject)", () => 
     // Task 12: SESSION_NO_OUTLET if absent), so the session must carry outlet_id.
     // No registered_devices row is required for the session gate.
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

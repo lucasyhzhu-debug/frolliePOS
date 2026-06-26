@@ -20,7 +20,7 @@ describe("_commitRefund_internal idempotency replay (C1)", () => {
     const t = convexTest(schema);
 
     const seed = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-IDM", name: "IDM", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),

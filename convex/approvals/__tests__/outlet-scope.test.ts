@@ -22,7 +22,7 @@ async function seedOutlets(
   t: ReturnType<typeof convexTest>,
 ): Promise<{ outletA: Id<"outlets">; outletB: Id<"outlets"> }> {
   return t.run(async (ctx) => {
-    const outletA = await ctx.db.insert("outlets", {
+    const outletA = await ctx.db.insert("outlets", { is_open: false,
       name: "Outlet A",
       code: "OA-001",
       timezone: "Asia/Jakarta",
@@ -30,7 +30,7 @@ async function seedOutlets(
       created_at: Date.now(),
       created_by: null,
     });
-    const outletB = await ctx.db.insert("outlets", {
+    const outletB = await ctx.db.insert("outlets", { is_open: false,
       name: "Outlet B",
       code: "OB-001",
       timezone: "Asia/Jakarta",
