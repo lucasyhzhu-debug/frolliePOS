@@ -12,7 +12,7 @@ setupTelegramStub();
 
 /** Insert the default outlet so required-table rows can be stamped. */
 async function seedOutletId(ctx: any) {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
     created_at: Date.now(), created_by: null,
   });

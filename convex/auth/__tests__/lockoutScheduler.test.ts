@@ -65,7 +65,7 @@ describe("auth lockout → scheduler trigger (Task 18)", () => {
     await seedManagersChat(t);
     // notifyStaffLockout calls _getDefaultOutlet_internal — seed an outlet so it resolves.
     await t.run((ctx) =>
-      (ctx.db as any).insert("outlets", {
+      (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }),

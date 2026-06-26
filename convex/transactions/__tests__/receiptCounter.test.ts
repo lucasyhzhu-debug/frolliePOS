@@ -11,7 +11,7 @@ describe("_allocateReceiptNumber_internal", () => {
     vi.setSystemTime(new Date(Date.UTC(2026, 5, 15, 12, 0, 0)));
     const t = convexTest(schema);
     const outletId = await t.run((ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any),
@@ -27,7 +27,7 @@ describe("_allocateReceiptNumber_internal", () => {
     vi.setSystemTime(new Date(Date.UTC(2026, 5, 15, 12, 0, 0)));
     const t = convexTest(schema);
     const outletId = await t.run((ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any),
@@ -46,7 +46,7 @@ describe("_allocateReceiptNumber_internal", () => {
   it("formats the caller-supplied year independently (year is now a param; WIB-boundary itself is covered in lib/time wibYear)", async () => {
     const t = convexTest(schema);
     const outletId = await t.run((ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any),
@@ -68,11 +68,11 @@ describe("_allocateReceiptNumber_internal", () => {
   it("two outlets mint independent NNNN sequences with code prefix", async () => {
     const t = convexTest(schema);
     const { a, b } = await t.run(async (ctx) => ({
-      a: await ctx.db.insert("outlets", {
+      a: await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any),
-      b: await ctx.db.insert("outlets", {
+      b: await ctx.db.insert("outlets", { is_open: false,
         code: "BLKM", name: "y", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       } as any),

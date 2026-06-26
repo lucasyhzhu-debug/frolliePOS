@@ -20,7 +20,7 @@ describe("listTodaysRefundable WIB-day cutoff", () => {
     const { dayStartMs } = wibDayWindow(now);
 
     const { sessionId, todayTxnId } = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-CUT", name: "C", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),
@@ -74,7 +74,7 @@ describe("listTodaysRefundable WIB-day cutoff", () => {
     const { dayStartMs } = wibDayWindow(Date.now());
 
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", { code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
+      const outletId = await ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null } as any);
       const staffId = await ctx.db.insert("staff", {
         code: "S-CUT2", name: "C2", role: "staff", active: true,
         pin_hash: "x", created_at: Date.now(),

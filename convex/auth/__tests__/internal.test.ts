@@ -17,7 +17,7 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
       }),
     );
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -50,7 +50,7 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
       }),
     );
     const outletId = await t.run(async (ctx) =>
-      ctx.db.insert("outlets", {
+      ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any),
@@ -86,7 +86,7 @@ describe("_resolveSession_internal — staff active gate (v0.5.1)", () => {
       }),
     );
     const sessionId = await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

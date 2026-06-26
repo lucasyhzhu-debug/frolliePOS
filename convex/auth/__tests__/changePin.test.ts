@@ -11,7 +11,7 @@ import type { Id } from "../../_generated/dataModel";
 // and (optionally) a target staff access — then returns { outletId }.
 async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
   return await t.run((ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any),

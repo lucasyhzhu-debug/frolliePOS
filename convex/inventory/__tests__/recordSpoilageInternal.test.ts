@@ -15,7 +15,7 @@ import { internal } from "../../_generated/api";
  * audit_log.metadata is JSON.stringify'd by logAudit — parse before inspect.
  */
 async function seedOutletId(ctx: any) {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
     created_at: Date.now(), created_by: null,
   });

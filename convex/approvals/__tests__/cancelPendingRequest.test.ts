@@ -7,7 +7,7 @@ import { api } from "../../_generated/api";
 // session. Returns staffId (manager) and sessionId.
 async function seedManagerSession(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
-    const outletId = await (ctx.db as any).insert("outlets", {
+    const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });
@@ -34,7 +34,7 @@ async function seedManagerSession(t: ReturnType<typeof convexTest>) {
 // Seed a non-manager (staff role) session.
 async function seedStaffSession(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
-    const outletId = await (ctx.db as any).insert("outlets", {
+    const outletId = await (ctx.db as any).insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta",
       active: true, created_at: Date.now(), created_by: null,
     });
@@ -65,7 +65,7 @@ async function seedPendingRequest(t: ReturnType<typeof convexTest>) {
     const outlets = await (ctx.db as any).query("outlets").collect();
     const outletId =
       outlets[0]?._id ??
-      (await (ctx.db as any).insert("outlets", {
+      (await (ctx.db as any).insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       }));

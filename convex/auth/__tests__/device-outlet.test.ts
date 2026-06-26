@@ -18,7 +18,7 @@ import { internal } from "../../_generated/api";
 
 // Shared helper: insert a minimal outlet row and return its id.
 async function insertOutlet(ctx: any, code: string) {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code,
     name: `Outlet ${code}`,
     timezone: "Asia/Jakarta",

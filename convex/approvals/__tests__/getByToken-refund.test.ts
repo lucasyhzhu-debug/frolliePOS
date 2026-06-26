@@ -27,7 +27,7 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-corrupted-rn";
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -64,7 +64,7 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-corrupted-tr";
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);
@@ -100,7 +100,7 @@ describe("getByToken — refund branch corruption guards (B28a I2)", () => {
     const t = convexTest(schema);
     const rawToken = "tok-refund-ok";
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
         created_at: Date.now(), created_by: null,
       } as any);

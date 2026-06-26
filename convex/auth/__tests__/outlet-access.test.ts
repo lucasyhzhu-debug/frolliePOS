@@ -7,7 +7,7 @@ describe("_listStaffForOutlet_internal", () => {
   it("returns only access-granted active staff", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW",
         name: "x",
         timezone: "Asia/Jakarta",
@@ -45,7 +45,7 @@ describe("_listStaffForOutlet_internal", () => {
   it("excludes inactive staff even with an access row", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW2",
         name: "x",
         timezone: "Asia/Jakarta",
@@ -77,7 +77,7 @@ describe("_assertStaffHasOutletAccess_internal", () => {
   it("returns true when access row exists", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW3",
         name: "x",
         timezone: "Asia/Jakarta",
@@ -107,7 +107,7 @@ describe("_assertStaffHasOutletAccess_internal", () => {
   it("throws NO_OUTLET_ACCESS when no row exists", async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {
-      const outletId = await ctx.db.insert("outlets", {
+      const outletId = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW4",
         name: "x",
         timezone: "Asia/Jakarta",

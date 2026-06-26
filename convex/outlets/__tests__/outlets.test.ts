@@ -6,7 +6,7 @@ import { internal, api } from "../../_generated/api";
 test("_requireOutletCode_internal returns the code", async () => {
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) =>
-    ctx.db.insert("outlets", { code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null }),
+    ctx.db.insert("outlets", { is_open: false, code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta", active: true, created_at: Date.now(), created_by: null }),
   );
   const code = await t.run((ctx) => ctx.runQuery(internal.outlets.internal._requireOutletCode_internal, { outletId }));
   expect(code).toBe("PKW");

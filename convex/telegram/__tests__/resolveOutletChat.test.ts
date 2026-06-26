@@ -13,7 +13,7 @@ import { internal } from "../../_generated/api";
 test("single-outlet fallback: resolves bare managers row when exactly one outlet active", async () => {
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "Frollie — Pakuwon",
       timezone: "Asia/Jakarta",
@@ -43,7 +43,7 @@ test("single-outlet fallback: resolves bare managers row when exactly one outlet
 test("two-outlet fence: throws when two active outlets and no concrete outlet row", async () => {
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "x",
       timezone: "Asia/Jakarta",
@@ -51,7 +51,7 @@ test("two-outlet fence: throws when two active outlets and no concrete outlet ro
       created_at: Date.now(),
       created_by: null,
     });
-    await ctx.db.insert("outlets", {
+    await ctx.db.insert("outlets", { is_open: false,
       code: "BLK",
       name: "y",
       timezone: "Asia/Jakarta",
@@ -82,7 +82,7 @@ test("two-outlet fence: throws when two active outlets and no concrete outlet ro
 test("concrete outlet row: resolves directly without touching fallback", async () => {
   const t = convexTest(schema);
   const outletId = await t.run(async (ctx) => {
-    const a = await ctx.db.insert("outlets", {
+    const a = await ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "x",
       timezone: "Asia/Jakarta",
@@ -90,7 +90,7 @@ test("concrete outlet row: resolves directly without touching fallback", async (
       created_at: Date.now(),
       created_by: null,
     });
-    await ctx.db.insert("outlets", {
+    await ctx.db.insert("outlets", { is_open: false,
       code: "BLK",
       name: "y",
       timezone: "Asia/Jakarta",

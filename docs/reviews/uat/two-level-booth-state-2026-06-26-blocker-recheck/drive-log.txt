@@ -1,0 +1,27 @@
+== Re-seeding dev backend for deterministic state ==
+== Step 1: login as Bayu (crew), booth closed ==
+  reached /shift/start
+  [shot] 01-shift-start-count.png
+  booth opened, Bayu on home (holder). url=http://localhost:5173/
+  [shot] 02-bayu-home-booth-open.png
+== Step 2: Lock (logout) ==
+  back at /login (roster), booth still open + holder=Bayu
+  [shot] 03-login-roster.png
+== Step 3: tap Lucas → expect BLOCK ==
+  block screen shown
+  [shot] 04-blocked-screen.png
+== Step 4: Manager override → pick Lucas → PIN 9999 ==
+  [shot] 05-override-pin-sheet.png
+  override succeeded, roster returned
+  [body pointer-events] inline="" computed="auto"
+  [shot] 06-roster-after-override.png
+== Step 5 (CRITICAL): tap Lucas → keypad, fill 9-9-9-9 ==
+  [pin dots filled after 3 taps] = 3 (expect 3)
+  [shot] 07-keypad-mid-entry-dots.png
+  Lucas reached /shift/begin (incoming count)
+  [shot] 08-lucas-shift-begin.png
+
+==== VERDICT: PASS — keypad responsive (3 dots filled mid-entry), Lucas reached /shift/begin ====
+
+-- console errors (0) --
+-- network >=400 (0) --

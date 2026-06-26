@@ -19,7 +19,7 @@ export async function seedDefaultOutlet(
   t: ReturnType<typeof convexTest>,
 ): Promise<Id<"outlets">> {
   return await t.run(async (ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW",
       name: "x",
       timezone: "Asia/Jakarta",

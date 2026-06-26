@@ -7,7 +7,7 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 
 async function seedPkwOutlet(ctx: any) {
-  return ctx.db.insert("outlets", {
+  return ctx.db.insert("outlets", { is_open: false,
     code: "PKW", name: "Frollie — Pakuwon", timezone: "Asia/Jakarta",
     active: true, created_at: Date.now(), created_by: null,
   });

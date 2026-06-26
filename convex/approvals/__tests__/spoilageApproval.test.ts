@@ -51,7 +51,7 @@ const MGR_PIN = "9999";
 // it once per test and thread it through seedManager / seedSku / _createRequest.
 async function seedOutlet(t: ReturnType<typeof convexTest>): Promise<Id<"outlets">> {
   return await t.run((ctx) =>
-    ctx.db.insert("outlets", {
+    ctx.db.insert("outlets", { is_open: false,
       code: "PKW", name: "x", timezone: "Asia/Jakarta", active: true,
       created_at: Date.now(), created_by: null,
     } as any),

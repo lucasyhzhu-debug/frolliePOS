@@ -58,7 +58,7 @@ Physical outlet (store/booth) registry. One row per outlet within this business'
 | `active` | `boolean` | Soft delete |
 | `created_at` | `number` | ms epoch |
 | `created_by` | `Id<"staff"> \| null` | Manager who created the outlet; `null` for seed-created default outlet |
-| `is_open` | `boolean?` | *(ADR-053 Level 1)* `true` when the booth is open for the day. Set by `openBooth` / `managerSkipOpen`; cleared by `endOfDay`. Absent = closed (default). |
+| `is_open` | `boolean` | *(ADR-053 Level 1)* `true` when the booth is open for the day. Set by `openBooth` / `managerSkipOpen`; cleared by `endOfDay`. **REQUIRED** (enforce-flipped 2026-06-26 after prod backfill); a fresh outlet is inserted with `is_open: false`. |
 | `opened_at` | `number?` | UTC ms when `is_open` last became `true`. |
 | `opened_by` | `Id<"staff">?` | Staff who called `openBooth` / `managerSkipOpen`. |
 | `closed_at` | `number?` | UTC ms when `is_open` last became `false`. |
