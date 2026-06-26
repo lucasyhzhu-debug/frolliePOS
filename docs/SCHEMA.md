@@ -763,7 +763,7 @@ Append-only log of every state-changing action ([ADR-007](./ADR/007-audit-log-ap
 | `after_state` | `string?` | JSON snapshot after change |
 | `device_id` | `string?` | Where the action executed |
 | `mgr_approver_id` | `Id<"staff">?` | Manager who approved (for actions routed via WA approval) |
-| `source` | `"booth_inline" \| "wa_approval" \| "telegram_approval" \| "system" \| "reaper"` | Routing path for the action ([ADR-030](./ADR/030-approval-audit-captures-full-context.md)). `telegram_approval` added in v0.4; `wa_approval` retained for back-compat |
+| `source` | `"booth_inline" \| "wa_approval" \| "telegram_approval" \| "system" \| "reaper" \| "cockpit"` | Routing path for the action ([ADR-030](./ADR/030-approval-audit-captures-full-context.md)). `telegram_approval` added in v0.4; `wa_approval` retained for back-compat; `cockpit` added v1.3.0 — owner-initiated writes via cockpit (no device, no booth) |
 | `reason` | `string?` | For overrides, refunds, adjustments |
 | `metadata` | `string?` | JSON: e.g. `{ approval_request_id, token_consumed_at }` |
 | `created_at` | `number` | |
@@ -921,6 +921,8 @@ owner.login                     # verifyOwnerOtp action (success) — kind:"cock
 owner.logout                    # cockpit logout action — staff_sessions row ended; metadata={ staff_id, session_id }
 owner.device_remembered         # remember-device checkbox at cockpit login — remember_device binding row created; metadata={ staff_id, device_id }
 owner.quick_pin_failed          # quick-PIN miss on remembered-device re-entry; metadata={ staff_id, device_id, fail_count }. Isolated to per-binding counter; does NOT touch pos_auth_attempts or owner_auth_attempts
+# v1.3.0 owner cockpit writes (source=cockpit)
+outlet.created                  # owner created a new outlet via cockpit; source=cockpit; metadata={ name, code, ... }
 ```
 
 ## Relationship to Frollie Pro tables

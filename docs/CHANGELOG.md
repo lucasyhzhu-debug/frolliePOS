@@ -4,6 +4,31 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
+## 2026-06-26 — v1.3.0 Owner cockpit (Spec 3)
+
+**Scope:** Owner-facing management plane on top of the auth + data planes shipped in Specs 1–2. A new `convex/cockpit/` module is the sanctioned **outlet-UNSCOPED**, `requireCockpitSession`-gated read/clone surface; all cross-outlet reads route through owning-module internals per ADR-034.
+
+**Backend — `convex/cockpit/`:**
+- `outlets.ts`: `createOutlet` (public action — idempotency + `withActionCache` + cockpit `authCheck`-before-lookup) wraps `_createOutletAtomic_internal` (internalMutation) — atomically creates the outlet row, clones catalog + settings (or seeds blank), grants `staff_outlet_access`, and emits a single `outlet.created` audit row (`source: "cockpit"`). Errors: `OUTLET_CODE_TAKEN`, `SOURCE_OUTLET_REQUIRED` (clone path). `listOutlets` (query — all active outlets, projected). `listAssignableStaff` (query — active staff minus `pin_hash`).
+- `dashboard.ts`: `perOutletSummary` (query → `{ outletId, code, name, gross, txnCount, refundTotal }[]`; fans out via `computeDaySummary` per active outlet; the consolidated headline is derived client-side by summing all rows — no separate `consolidatedSummary` query).
+
+**Supporting helpers (plain V8-safe; in owning modules so `cockpit/` stays fence-clean):**
+- `convex/outlets/lib.ts`: `getOutletByCode`, `insertOutletRow`.
+- `convex/catalog/lib.ts`: `cloneCatalogRows` (FK-remap, active-only, photo reuse).
+- `convex/settings/lib.ts`: `cloneSettingsRow` / `seedSettingsRow`.
+- `convex/auth/grantAccess.ts`: `grantOutletAccessRow` (also now backing `_grantOutletAccess_internal`).
+- `convex/staff/internal.ts`: `_listAssignableStaff_internal`.
+
+**Audit:** `outlet.created` verb + `cockpit` source (both already present in SCHEMA.md from Task 1; confirmed present).
+
+**Frontend:**
+- `src/contexts/OutletContext.tsx` — outlet context, default `"all"`, localStorage-persisted with stale-id fallback.
+- `src/components/cockpit/OutletSwitcher.tsx` — header dropdown for outlet context.
+- `RootLayout` `CockpitShell` now wraps cockpit routes in `OutletProvider`, renders the switcher, and runs a `touchCockpitSession` keepalive (fresh idempotency key per ping).
+- New surfaces: cockpit dashboard landing (`src/routes/cockpit/index.tsx` — consolidated + per-outlet summary cards, replaces placeholder), outlet list (`src/routes/cockpit/outlets/index.tsx`), new-outlet wizard (`src/routes/cockpit/outlets/new/index.tsx` — blank-vs-clone → name/code → review).
+- New routes: `/cockpit/outlets`, `/cockpit/outlets/new`.
+- **Persona-UAT (run `v13-owner-cockpit-2026-06-26`):** 0 BLOCKER / 0 BUG; the actionable UX-HIGH/UX-NIT cluster was fixed (clone receipt-identity defaults to the new outlet name; zero-staff Review warning; IANA timezone validation; `CockpitSubLayout` strips booth printer/connection chrome from cockpit sub-routes; compact client-only EN/ID cockpit toggle; owner excluded from `listAssignableStaff`; net-takings figure; clone-source checkmark; `disabled:saturate-50`; desktop max-width).
+
 ## 2026-06-26 — v2.0 Two-level booth state (ADR-053) — PRs #147 + #148
 
 **Scope:** Replaces the derived/user-anchored booth-state machine (`deriveBoothState` over `pos_shift_events`, ADR-050) with **two stored levels**, eliminating the recurring `BOOTH_NOT_OPEN`-on-locked-booth incidents (#138/#139/#140/#143). Shipped to prod via the atomic Vercel build; prod backfilled + enforce-flipped the same day. ([ADR-053](./ADR/053-two-level-booth-state.md), supersedes ADR-050)

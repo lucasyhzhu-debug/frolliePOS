@@ -17,3 +17,9 @@ export const gridItemVariants = (reduce: boolean) => ({
   hidden: { opacity: reduce ? 1 : 0, y: reduce ? 0 : 8 },
   show: { opacity: 1, y: 0 },
 });
+
+export const stepSlideVariants = (dir: 1 | -1, reduce: boolean) => ({
+  enter: { opacity: reduce ? 1 : 0, x: reduce ? 0 : dir * 20 },
+  center: { opacity: 1, x: 0 },
+  exit: { opacity: reduce ? 1 : 0, x: reduce ? 0 : dir * -20 },
+});

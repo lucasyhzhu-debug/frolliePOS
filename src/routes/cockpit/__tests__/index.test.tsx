@@ -1,25 +1,45 @@
 /**
- * Tests for CockpitHomeRoute (v2.0 owner-auth, ADR-052) — the post-login landing
- * stub. It exists so a successful cockpit login has a real navigation target (its
- * absence bounce-loops via the `*` catch-all → `/` → cross-plane guard). Verifies
- * the owner greeting renders and sign-out ends the session + returns to login.
+ * Tests for CockpitHomeRoute (v1.3.0 Task 9) — real dashboard landing.
+ * Covers consolidated headline, per-outlet cards, loading/empty states, and the
+ * existing sign-out flow (preserved from the Spec-2 stub tests).
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderWithLocale as render, screen, waitFor, fireEvent } from "@/test-utils";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import CockpitHomeRoute from "../index";
 
-const { mockLogout, mockClearSession } = vi.hoisted(() => ({
-  mockLogout: vi.fn().mockResolvedValue(null),
-  mockClearSession: vi.fn(),
-}));
+// ── hoisted mocks ──────────────────────────────────────────────────────────────
+
+const { mockLogout, mockClearSession, mockUseQuery, mockUseOutletContext } =
+  vi.hoisted(() => ({
+    mockLogout: vi.fn().mockResolvedValue(null),
+    mockClearSession: vi.fn(),
+    mockUseQuery: vi.fn().mockReturnValue(undefined),
+    mockUseOutletContext: vi.fn(),
+  }));
+
+// ── module mocks ───────────────────────────────────────────────────────────────
 
 vi.mock("convex/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("convex/react")>();
-  return { ...actual, useMutation: vi.fn(() => mockLogout) };
+  return {
+    ...actual,
+    useMutation: vi.fn(() => mockLogout),
+    useQuery: mockUseQuery,
+  };
 });
+
+// framer-motion: make useReducedMotion deterministic in jsdom
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
+  return { ...actual, useReducedMotion: vi.fn(() => false) };
+});
+
+vi.mock("@/contexts/OutletContext", () => ({
+  useOutletContext: (...args: unknown[]) => mockUseOutletContext(...args),
+}));
 
 vi.mock("@/hooks/useIdempotency", () => ({
   useIdempotency: vi.fn(() => "test-idem-key"),
@@ -36,10 +56,34 @@ vi.mock("@/hooks/useSession", () => ({
   clearSession: (...args: unknown[]) => mockClearSession(...args),
 }));
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockLogout.mockResolvedValue(null);
-});
+// ── fixtures ───────────────────────────────────────────────────────────────────
+
+const PW_OUTLET = {
+  outletId: "kn7out000000000000000000000" as never,
+  code: "PW",
+  name: "Pakuwon Mall",
+  gross: 500000,
+  txnCount: 7,
+  refundTotal: 10000,
+};
+const SB_OUTLET = {
+  outletId: "kn7out111111111111111111111" as never,
+  code: "SB",
+  name: "Surabaya",
+  gross: 120000,
+  txnCount: 2,
+  refundTotal: 0,
+};
+
+/** Configure useQuery to return perOutlet (the only query in the component). */
+function setLoadedQueries(perOutlet = [PW_OUTLET]) {
+  mockUseQuery.mockImplementation((_fn: unknown, args: unknown) => {
+    if (args === "skip") return undefined;
+    return perOutlet;
+  });
+}
+
+// ── render helper ──────────────────────────────────────────────────────────────
 
 function renderHome() {
   const convex = new ConvexReactClient("https://example.convex.cloud");
@@ -55,13 +99,96 @@ function renderHome() {
   );
 }
 
+// ── setup ──────────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockLogout.mockResolvedValue(null);
+  // Reset to loading state by default
+  mockUseQuery.mockReturnValue(undefined);
+  // Reset outlet context to "all outlets" view by default
+  mockUseOutletContext.mockReturnValue({
+    currentOutletId: "all",
+    outlets: undefined,
+    setCurrentOutlet: vi.fn(),
+  });
+});
+
+// ── tests ──────────────────────────────────────────────────────────────────────
+
 describe("Cockpit home", () => {
-  it("renders the owner greeting", async () => {
+  it("renders the page heading and owner name while data loads", async () => {
     renderHome();
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /you're signed in/i })).toBeInTheDocument(),
+      expect(screen.getByRole("heading", { name: /today/i })).toBeInTheDocument(),
     );
     expect(screen.getByText("Lucas")).toBeInTheDocument();
+  });
+
+  it("shows loading skeletons while queries are undefined", async () => {
+    // mockUseQuery returns undefined (default beforeEach state)
+    renderHome();
+    await waitFor(() =>
+      expect(screen.getByTestId("consolidated-skeleton")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("outlets-skeleton")).toBeInTheDocument();
+    expect(screen.queryByTestId("consolidated-card")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("outlets-grid")).not.toBeInTheDocument();
+  });
+
+  it("renders consolidated headline numbers when data loads", async () => {
+    setLoadedQueries();
+    renderHome();
+    await waitFor(() =>
+      expect(screen.getByTestId("consolidated-card")).toBeInTheDocument(),
+    );
+    // Gross: rp(500000) → "Rp 500.000" (id-ID locale)
+    expect(screen.getByTestId("consolidated-gross")).toHaveTextContent("500");
+    // Transaction count is a plain number
+    expect(screen.getByTestId("consolidated-txn-count")).toHaveTextContent("7");
+    // Refund total: rp(10000) → "Rp 10.000"
+    expect(screen.getByTestId("consolidated-refund-total")).toHaveTextContent("10");
+    // Skeletons gone
+    expect(screen.queryByTestId("consolidated-skeleton")).not.toBeInTheDocument();
+  });
+
+  it("renders one outlet card per outlet when currentOutletId is 'all'", async () => {
+    setLoadedQueries([PW_OUTLET, SB_OUTLET]);
+    renderHome();
+    await waitFor(() =>
+      expect(screen.getByTestId("outlets-grid")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("outlet-card-PW")).toBeInTheDocument();
+    expect(screen.getByTestId("outlet-card-SB")).toBeInTheDocument();
+    expect(screen.getByText("Pakuwon Mall")).toBeInTheDocument();
+    expect(screen.getByText("Surabaya")).toBeInTheDocument();
+  });
+
+  it("filters to the selected outlet card when a specific outlet is selected", async () => {
+    // Override outlet context to select PW only
+    mockUseOutletContext.mockReturnValue({
+      currentOutletId: PW_OUTLET.outletId,
+      outlets: [PW_OUTLET, SB_OUTLET],
+      setCurrentOutlet: vi.fn(),
+    });
+    setLoadedQueries([PW_OUTLET, SB_OUTLET]);
+    renderHome();
+    await waitFor(() =>
+      expect(screen.getByTestId("outlet-card-PW")).toBeInTheDocument(),
+    );
+    // SB card filtered out
+    expect(screen.queryByTestId("outlet-card-SB")).not.toBeInTheDocument();
+    // Consolidated headline is unaffected (still business-wide)
+    expect(screen.getByTestId("consolidated-card")).toBeInTheDocument();
+  });
+
+  it("renders the empty-outlets state when there are no outlets", async () => {
+    setLoadedQueries([]); // empty perOutlet array
+    renderHome();
+    await waitFor(() =>
+      expect(screen.getByTestId("empty-outlets")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("outlets-grid")).not.toBeInTheDocument();
   });
 
   it("sign-out ends the cockpit session, clears the local session, and returns to login", async () => {
