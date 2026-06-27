@@ -50,6 +50,7 @@ export default function LoginRoute() {
     session.status === "active" ? session.staff.outlet_label : undefined;
   const login = useAction(api.auth.actions.loginWithPin);
   const managerOverride = useAction(api.shifts.actions.managerOverride);
+  const requestOverride = useAction(api.approvals.actions.requestShiftOverride);
 
   const [stage, setStage] = useState<Stage>({ kind: "list" });
   const [pinReset, setPinReset] = useState(0);
@@ -64,6 +65,17 @@ export default function LoginRoute() {
   } | null>(null);
   const [overrideError, setOverrideError] = useState<string | undefined>();
   const [overridePending, setOverridePending] = useState(false);
+
+  // Two-path override (v1.3.1): inline (Close/Release + PIN) + Request via Telegram.
+  // resultingState: which outcome the inline manager override produces (default "close").
+  const [resultingState, setResultingState] = useState<"close" | "release">("close");
+  // Telegram-request path: pending/requested/error states.
+  const [overrideRequested, setOverrideRequested] = useState(false);
+  const [requestPending, setRequestPending] = useState(false);
+  const [requestError, setRequestError] = useState<string | undefined>();
+  // Separate idempotency counter + key for the requestShiftOverride action.
+  const [requestReset, setRequestReset] = useState(0);
+  const requestKey = useIdempotency(`shift:override:request:${deviceId ?? "none"}:${requestReset}`);
 
   // Managers derived from the device-scoped staff list.
   const managers = staff?.filter((s) => s.role === "manager") ?? [];
@@ -109,6 +121,17 @@ export default function LoginRoute() {
   useEffect(() => {
     setPhase({ kind: "idle" });
   }, [stage]);
+
+  // Reactive guard: when a Telegram-requested override is approved (or the hold
+  // is cleared any other way), holderStaffId becomes null. Move back to the list
+  // so the blocked staffer can tap their own name to log in.
+  useEffect(() => {
+    if (stage.kind === "blocked" && ctx !== undefined && ctx.holderStaffId === null) {
+      setStage({ kind: "list" });
+      setOverrideRequested(false);
+      setRequestError(undefined);
+    }
+  }, [stage.kind, ctx]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
   // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
@@ -240,6 +263,7 @@ export default function LoginRoute() {
   const handleOverrideOpen = () => {
     setPickedManager(null);
     setOverrideError(undefined);
+    setResultingState("close"); // reset to default each time the sheet opens
     setOverrideOpen(true);
   };
 
@@ -256,6 +280,7 @@ export default function LoginRoute() {
         deviceId,
         managerStaffId: pickedManager._id,
         managerPin: pin,
+        resultingState,
       });
       setOverrideOpen(false);
       setPickedManager(null);
@@ -276,6 +301,29 @@ export default function LoginRoute() {
       // C1: rotate the key after every attempt (success + failure) so the next
       // call never replays a stale idempotency result.
       setOverrideReset((n) => n + 1);
+    }
+  };
+
+  // Telegram-request path: sends a shift-override request to the managers channel.
+  // On { requestId } → show waiting state; on { noHold: true } → no hold, go to list.
+  const handleRequestOverride = async () => {
+    if (!deviceId || !requestKey) return;
+    setRequestPending(true);
+    setRequestError(undefined);
+    try {
+      const result = await requestOverride({ deviceId, idempotencyKey: requestKey });
+      if ("noHold" in result && result.noHold) {
+        // Hold already gone — move back to list so the blocked staffer can log in
+        setStage({ kind: "list" });
+      } else {
+        setOverrideRequested(true);
+      }
+    } catch (err) {
+      setRequestError(errorMessage(err));
+    } finally {
+      setRequestPending(false);
+      // Rotate key after every attempt so the next call never replays a stale result.
+      setRequestReset((n) => n + 1);
     }
   };
 
@@ -349,21 +397,45 @@ export default function LoginRoute() {
           )}
         </div>
       ) : stage.kind === "blocked" ? (
-        // Shift held by someone else — block entry, offer manager override.
+        // Shift held by someone else — block entry, offer two override paths:
+        //   A) Inline: manager on-device enters their PIN (Close or Release).
+        //   B) Remote: send a Telegram approval request to the managers channel.
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
           <p className="text-sm text-muted-foreground">
             {t("login.shiftHeldBy", { name: ctx?.holderName ?? "" })}
           </p>
+          {overrideRequested ? (
+            // Telegram request sent — wait for manager approval; ctx clears the block reactively.
+            <p className="text-sm text-muted-foreground">{t("login.overrideRequested")}</p>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleOverrideOpen}
+                className="rounded-lg bg-card border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+              >
+                {t("login.managerOverride")}
+              </button>
+              <button
+                type="button"
+                onClick={handleRequestOverride}
+                disabled={requestPending}
+                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {t("login.requestOverrideViaTelegram")}
+              </button>
+              {requestError && (
+                <p className="text-sm text-destructive">{requestError}</p>
+              )}
+            </>
+          )}
           <button
             type="button"
-            onClick={handleOverrideOpen}
-            className="rounded-lg bg-card border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
-          >
-            {t("login.managerOverride")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setStage({ kind: "list" })}
+            onClick={() => {
+              setStage({ kind: "list" });
+              setOverrideRequested(false);
+              setRequestError(undefined);
+            }}
             className="text-sm text-muted-foreground underline-offset-4 hover:underline"
           >
             {t("login.back")}
@@ -403,6 +475,7 @@ export default function LoginRoute() {
           setOverrideOpen(false);
           setPickedManager(null);
           setOverrideError(undefined);
+          setResultingState("close"); // reset to default for next open
         }}
         extraField={
           !pickedManager ? (
@@ -421,7 +494,35 @@ export default function LoginRoute() {
                 <p className="text-sm text-muted-foreground">{t("lock.noManagers")}</p>
               )}
             </div>
-          ) : null
+          ) : (
+            // Close/Release segmented control — shown once a manager is picked.
+            // "Close" ends the hold AND closes the outlet (end-of-day).
+            // "Release" ends the hold only, leaving the outlet open for the next staff.
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setResultingState("close")}
+                className={`flex-1 rounded border px-3 py-2 text-sm font-medium transition-colors ${
+                  resultingState === "close"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-foreground hover:bg-accent"
+                }`}
+              >
+                {t("login.outcomeClose")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setResultingState("release")}
+                className={`flex-1 rounded border px-3 py-2 text-sm font-medium transition-colors ${
+                  resultingState === "release"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-foreground hover:bg-accent"
+                }`}
+              >
+                {t("login.outcomeRelease")}
+              </button>
+            </div>
+          )
         }
       />
     </main>

@@ -413,3 +413,244 @@ describe("PIN reset denial toast (remount dedup)", () => {
     expect(toast.error).toHaveBeenCalledTimes(1); // still once — not twice
   });
 });
+
+// ─── two-path manager override (v1.3.1) ──────────────────────────────────────
+//
+// The blocked stage now has two override paths:
+//   A) Inline: Manager picks Close/Release in the PinSheet, enters their PIN.
+//   B) Remote: "Request via Telegram" sends a shift-override request to managers.
+//
+// Mock strategy: use a single `mockReturnValue` stub for all useAction slots in
+// each test, then verify the stub was called with the right args for the path
+// under test. No PIN-entry (loginWithPin) occurs in these tests, so slot-1
+// collisions are not a concern.
+
+// Shared hoisted stubs for this suite
+const { mockOverrideStub, mockRequestStub } = vi.hoisted(() => ({
+  mockOverrideStub: vi.fn().mockResolvedValue({ ok: true }),
+  mockRequestStub: vi.fn().mockResolvedValue({ requestId: "req-123" }),
+}));
+
+describe("Login route — two-path blocked override (v1.3.1)", () => {
+  /**
+   * Wire useLoginContext to a blocked state (LUCAS holds, SARI trying to log in)
+   * and mockStaff to [SARI (staff), LUCAS (manager)].
+   */
+  async function setupBlocked() {
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      holderName: "Lucas",
+    });
+    mockStaff([SARI, LUCAS]);
+  }
+
+  /** Navigate from list → blocked stage by tapping SARI's name. */
+  async function goToBlocked() {
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /who's working/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText("Sari"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /manager override/i })).toBeInTheDocument(),
+    );
+  }
+
+  beforeEach(async () => {
+    // reset hoisted stubs
+    mockOverrideStub.mockClear();
+    mockRequestStub.mockClear();
+    mockOverrideStub.mockResolvedValue({ ok: true });
+    mockRequestStub.mockResolvedValue({ requestId: "req-123" });
+  });
+
+  it("blocked stage shows Manager Override button AND Request via Telegram button", async () => {
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    expect(screen.getByRole("button", { name: /manager override/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /request via telegram/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("PinSheet shows Close/Release segmented control only after manager is picked", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useAction as Mock).mockReturnValue(mockOverrideStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    // Open PinSheet
+    fireEvent.click(screen.getByRole("button", { name: /manager override/i }));
+
+    // PinSheet dialog should open
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    // Close/Release control must NOT be visible before picking a manager
+    expect(screen.queryByRole("button", { name: /close booth/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /release hold/i })).toBeNull();
+
+    // Pick Lucas in the manager list
+    const lucasButtons = screen.getAllByText("Lucas");
+    const lucasPicker = lucasButtons.find((el) => el.tagName === "BUTTON");
+    fireEvent.click(lucasPicker!);
+
+    // Now Close/Release control IS visible
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /close booth/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /release hold/i })).toBeInTheDocument();
+    });
+  });
+
+  it("inline override: managerOverride called with resultingState close (default)", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useAction as Mock).mockReturnValue(mockOverrideStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    // Open PinSheet → pick manager
+    fireEvent.click(screen.getByRole("button", { name: /manager override/i }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    const lucasButtons = screen.getAllByText("Lucas");
+    const lucasPicker = lucasButtons.find((el) => el.tagName === "BUTTON");
+    fireEvent.click(lucasPicker!);
+
+    // Wait for Close/Release control and ensure "Close booth" is selected (default)
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /close booth/i })).toBeInTheDocument(),
+    );
+
+    // Enter PIN via numeric keypad (same pattern as lock.test.tsx)
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() => expect(mockOverrideStub).toHaveBeenCalled());
+
+    // Find the call that has resultingState (the managerOverride call, not loginWithPin)
+    const overrideCall = mockOverrideStub.mock.calls.find(
+      (c) => c[0] && "resultingState" in c[0],
+    );
+    expect(overrideCall).toBeDefined();
+    expect(overrideCall![0]).toMatchObject({
+      resultingState: "close",
+      managerPin: "1111",
+      deviceId: "test-device-id",
+    });
+  });
+
+  it("inline override: managerOverride called with resultingState release when Release is picked", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useAction as Mock).mockReturnValue(mockOverrideStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /manager override/i }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    const lucasButtons = screen.getAllByText("Lucas");
+    const lucasPicker = lucasButtons.find((el) => el.tagName === "BUTTON");
+    fireEvent.click(lucasPicker!);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /release hold/i })).toBeInTheDocument(),
+    );
+
+    // Pick "Release hold"
+    fireEvent.click(screen.getByRole("button", { name: /release hold/i }));
+
+    // Enter PIN
+    const buttons = screen.getAllByRole("button");
+    const oneBtn = buttons.find((b) => b.textContent === "1");
+    if (oneBtn) {
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+      fireEvent.click(oneBtn);
+    }
+
+    await waitFor(() => expect(mockOverrideStub).toHaveBeenCalled());
+
+    const overrideCall = mockOverrideStub.mock.calls.find(
+      (c) => c[0] && "resultingState" in c[0],
+    );
+    expect(overrideCall).toBeDefined();
+    expect(overrideCall![0]).toMatchObject({ resultingState: "release" });
+  });
+
+  it("Request via Telegram calls requestShiftOverride with deviceId + idempotencyKey", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useAction as Mock).mockReturnValue(mockRequestStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /request via telegram/i }));
+
+    await waitFor(() => expect(mockRequestStub).toHaveBeenCalled());
+
+    // The request action call has deviceId + idempotencyKey but NOT managerPin
+    const requestCall = mockRequestStub.mock.calls.find(
+      (c) => c[0] && "deviceId" in c[0] && !("managerPin" in c[0]),
+    );
+    expect(requestCall).toBeDefined();
+    expect(requestCall![0]).toMatchObject({
+      deviceId: "test-device-id",
+      idempotencyKey: "test-idem-key",
+    });
+  });
+
+  it("shows overrideRequested message after Telegram request resolves", async () => {
+    const convexReact = await import("convex/react");
+    (convexReact.useAction as Mock).mockReturnValue(mockRequestStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /request via telegram/i }));
+
+    // After resolution, the "waiting" message should appear instead of the buttons
+    await waitFor(() =>
+      expect(
+        screen.getByText(/requested — waiting for a manager to approve/i),
+      ).toBeInTheDocument(),
+    );
+    // The two action buttons should no longer be visible
+    expect(screen.queryByRole("button", { name: /request via telegram/i })).toBeNull();
+  });
+
+  it("Request via Telegram: noHold response returns to list", async () => {
+    const convexReact = await import("convex/react");
+    const noHoldStub = vi.fn().mockResolvedValue({ noHold: true });
+    (convexReact.useAction as Mock).mockReturnValue(noHoldStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /request via telegram/i }));
+
+    // No hold → back to list
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /who's working/i }),
+      ).toBeInTheDocument(),
+    );
+  });
+});

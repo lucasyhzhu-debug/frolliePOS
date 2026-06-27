@@ -656,6 +656,11 @@ export const id: Record<keyof typeof en, string> = {
   "login.shiftHeldBy": "{name} masih dalam shift. Minta manajer untuk mengambil alih, atau tunggu serah terima.",
   "login.managerOverride": "Override manajer",
   "login.overridePickManager": "Pilih manajer",
+  // login — two-path manager override (v1.3.1)
+  "login.requestOverrideViaTelegram": "Minta via Telegram",
+  "login.overrideRequested": "Terkirim — menunggu manajer menyetujui",
+  "login.outcomeClose": "Tutup booth",
+  "login.outcomeRelease": "Lepas penahanan",
   // cockpitLogin — login cockpit pemilik (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Pemilik · Cockpit",
   "cockpitLogin.identifierTitle": "Masuk",

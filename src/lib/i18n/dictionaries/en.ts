@@ -658,6 +658,11 @@ export const en = {
   "login.shiftHeldBy": "{name} is still on shift. Ask a manager to override, or wait for handover.",
   "login.managerOverride": "Manager override",
   "login.overridePickManager": "Pick a manager",
+  // login — two-path manager override (v1.3.1)
+  "login.requestOverrideViaTelegram": "Request via Telegram",
+  "login.overrideRequested": "Requested — waiting for a manager to approve",
+  "login.outcomeClose": "Close booth",
+  "login.outcomeRelease": "Release hold",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",
