@@ -778,6 +778,171 @@ export const denyRequest = action({
 });
 
 /**
+ * Session-less off-booth shift-override request (v1.3.1 Task 4).
+ *
+ * Triggered when a booth device is stranded behind a locked session: the
+ * blocked staffer (who has NO session) calls this from the "Request Manager
+ * Override" screen. No sessionId — the device's outlet binding carries the
+ * outlet context.
+ *
+ *   1. Action-level idempotency pre-check (ADR-013).
+ *   2. Resolve outlet from deviceId via _getDeviceOutletId_internal.
+ *   3. Read the active pos_shifts hold via _getActiveShift_internal.
+ *      If no hold → return { noHold: true } (nothing to override; cached).
+ *   4. Dedup: if a pending shift_override request already exists for this hold
+ *      (keyed on entity_id = hold._id), return the existing requestId.
+ *   5. Build signoff summary (sales so far) + resolve stranded staff name +
+ *      outlet label.
+ *   6. Mint token; create approval row via _createRequest_internal.
+ *   7. Send Telegram card to managers. On failure, delete the request row and
+ *      rethrow (mirrors notifyStaffLockout / requestSpoilageApproval recovery).
+ *   8. Mark notified + write action-level idempotency cache.
+ *
+ * Never logs PIN or token values.
+ */
+export const requestShiftOverride = action({
+  args: {
+    deviceId: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ requestId: Id<"pos_approval_requests"> } | { noHold: true }> => {
+    // Step 1: action-level idempotency pre-check
+    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+      key: args.idempotencyKey,
+    });
+    if (cached) {
+      return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> } | { noHold: true };
+    }
+
+    // Step 2: resolve outlet from device (throws DEVICE_HAS_NO_OUTLET if unbound)
+    const outletId = await ctx.runQuery(
+      internal.auth.internal._getDeviceOutletId_internal,
+      { deviceId: args.deviceId },
+    );
+
+    // Step 3: check for an active shift hold
+    const hold = await ctx.runQuery(
+      internal.shifts.shiftsInternal._getActiveShift_internal,
+      { outletId },
+    );
+    if (!hold) {
+      const out: { noHold: true } = { noHold: true };
+      await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+        key: args.idempotencyKey,
+        mutationName: "approvals.requestShiftOverride",
+        response: JSON.stringify(out),
+      });
+      return out;
+    }
+
+    // Step 4: dedup — one pending override per shift (entity_id = hold._id)
+    const existing = await ctx.runQuery(
+      internal.approvals.internal._listPendingByKind_internal,
+      { kind: "shift_override", entityId: hold._id as unknown as string, outletId },
+    );
+    if (existing.length > 0) {
+      // Don't write the idempotency cache here: this is a dedup hit on a
+      // DIFFERENT idempotency key. A same-key replay short-circuits at step 1;
+      // this path is a distinct caller who found the same pending row. Cache
+      // the entry would pollute the idempotency store with a second key whose
+      // response is stale (if the request resolves, a retry of THIS key would
+      // still replay the old requestId). Mirrors requestManualPaymentApproval.
+      return { requestId: existing[0]._id };
+    }
+
+    // Step 5: build context for the approval card
+    const now = Date.now();
+    const summary = await ctx.runQuery(
+      internal.shifts.internal._buildSignoffSummary_internal,
+      { shiftStartMs: hold.started_at, endMs: now, outletId },
+    );
+    const staffNames = await ctx.runQuery(
+      internal.auth.internal._listStaffNames_internal,
+      {},
+    );
+    const strandedName =
+      staffNames.find((s) => s._id === hold.staff_id)?.name ?? "Staff";
+    const outlet = await ctx.runQuery(
+      internal.outlets.internal._getOutlet_internal,
+      { outletId },
+    );
+    const outletLabel = outlet?.name ?? "Booth";
+
+    const baseUrl = process.env.POS_BASE_URL;
+    if (!baseUrl) throw new Error("POS_BASE_URL not set");
+
+    // Step 5b: mint token (only hash persisted — ADR-029)
+    const rawToken = mintUrlSafeToken();
+    const tokenHash = sha256Hex(rawToken);
+
+    // Step 6: create the approval request row
+    const { requestId } = await ctx.runMutation(
+      internal.approvals.internal._createRequest_internal,
+      {
+        kind: "shift_override",
+        entity_type: "pos_shifts",
+        entity_id: hold._id as unknown as string,
+        context: {
+          shift_id: hold._id as unknown as string,
+          device_id: args.deviceId,
+          outlet_label: outletLabel,
+          stranded_staff_name: strandedName,
+          shift_started_at: hold.started_at,
+          sales_so_far_idr: summary.totalSalesIdr,
+          txn_count: summary.txnCount,
+        },
+        triggered_by_event: "shift_override_request",
+        triggered_at: now,
+        token_hash: tokenHash,
+        token_expires_at: now + TOKEN_TTL_MS,
+        outletId,
+      },
+    );
+
+    // Step 7: send Telegram card to managers. Delete the request row on failure
+    // so the next attempt mints a fresh request cleanly (mirrors notifyStaffLockout).
+    try {
+      await ctx.runAction(api.telegram.send.sendTemplate, {
+        role: "managers",
+        kind: "shift_override",
+        payload: {
+          outlet_label: outletLabel,
+          stranded_staff_name: strandedName,
+          shift_started_at: hold.started_at,
+          sales_so_far_idr: summary.totalSalesIdr,
+          txn_count: summary.txnCount,
+          approve_url: `${baseUrl}/approve/${rawToken}`,
+        },
+        idempotencyKey: `${args.idempotencyKey}:send`,
+        outletId,
+      });
+    } catch (err) {
+      await ctx.runMutation(internal.approvals.internal._deleteRequest_internal, {
+        requestId,
+      });
+      throw err;
+    }
+
+    // Step 8: mark notified + write action-level idempotency cache
+    await ctx.runMutation(internal.approvals.internal._markNotified_internal, {
+      requestId,
+    });
+
+    const out = { requestId };
+    await ctx.runMutation(internal.idempotency.internal._writeCache_internal, {
+      key: args.idempotencyKey,
+      mutationName: "approvals.requestShiftOverride",
+      response: JSON.stringify(out),
+    });
+
+    return out;
+  },
+});
+
+/**
  * Off-booth spoilage approval request (v0.6 Task S5). Manager-initiated at
  * /mgr/spoilage when "Request via Telegram" is tapped (vs the booth-inline
  * manager-PIN path in S4 — same _recordSpoilage_internal writer, different
