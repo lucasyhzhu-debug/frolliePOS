@@ -23,6 +23,18 @@ All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outle
 
 ---
 
+## Next — v1.3.1 off-booth manager override (planned, ready to execute)
+
+Spec + plan landed (2026-06-27), both staffreviewed. A blocked/stranded booth can request a **manager
+override via Telegram**; the manager approves remotely with their staff code + PIN and chooses to
+**close** the booth or **release** it open. New `shift_override` approval kind reusing the off-booth
+approval envelope; booth-inline override retained (now also offers close/release). Motivated by the
+2026-06-27 prod incident (booth left open + held, blocking the next staffer; resolved by a manual prod
+write). Spec: [off-booth manager override](./superpowers/specs/2026-06-27-off-booth-manager-override-design.md) ·
+Plan: [2026-06-27-off-booth-manager-override](./superpowers/plans/2026-06-27-off-booth-manager-override.md).
+
+---
+
 ## Backlog (unscheduled)
 
 - **Owner cockpit polish** — outlet-list/skeleton motion-safe pulse; `listOutlets` returns active-only (add `_listAllOutlets_internal` so the outlet-list inactive badge + wizard dup-code pre-warn cover deactivated outlets once a deactivation flow exists); wire or drop the `provision_managers_chat` toggle (deferred cockpit Minors). **From persona-UAT (dev + prod read-only, 2026-06-26 — 0 blocker / 0 bug; the actionable correctness/UX cluster already shipped in PR #146):** translate or drop the "Cockpit" eyebrow word under both locales (ID currently shows "PEMILIK · COCKPIT"); replace the free-text timezone field with an IANA-zone dropdown (inline validation already prevents bad data); staff-access selector affordance clarity (it's a square multi-select checkbox — add "(choose one or more)" + a selected-count on Review); desktop dashboard max-width container + responsive outlet-card grid; PKW code-badge contrast on the amber card; EN/ID toggle shape consistency; switcher dropdown overlapping "Sign out"; step-1 selected-mode checkmark; "Net = Gross when no refunds" hint. **Needs a dev run:** cockpit offline + loading/skeleton states (C10) and live cross-plane `NOT_BOOTH_SESSION` rejection (cockpit↔booth — covered by convex-tests, not exercised live).
