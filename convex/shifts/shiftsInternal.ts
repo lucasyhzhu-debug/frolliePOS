@@ -149,9 +149,17 @@ export const _managerOverrideCommit_internal = internalMutation({
     idempotencyKey: v.string(),
     deviceId: v.string(),
     managerStaffId: v.id("staff"),
+    closeOutlet: v.boolean(),
+    source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
   },
   handler: withIdempotency<
-    { idempotencyKey: string; deviceId: string; managerStaffId: Id<"staff"> },
+    {
+      idempotencyKey: string;
+      deviceId: string;
+      managerStaffId: Id<"staff">;
+      closeOutlet: boolean;
+      source: "booth_inline" | "telegram_approval";
+    },
     { ok: true }
   >(
     "shifts.managerOverride",
@@ -161,6 +169,15 @@ export const _managerOverrideCommit_internal = internalMutation({
       const outletId = await ctx.runQuery(internal.auth.internal._getDeviceOutletId_internal, {
         deviceId: args.deviceId,
       });
+
+      // Close the outlet regardless of whether a holder exists (edge case: off-booth
+      // override with closeOutlet:true when no shift is active — still must close).
+      if (args.closeOutlet) {
+        await ctx.runMutation(internal.outlets.status._setOutletClosed_internal, {
+          outletId, staffId: args.managerStaffId,
+        });
+      }
+
       const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, {
         outletId,
       });
@@ -181,8 +198,12 @@ export const _managerOverrideCommit_internal = internalMutation({
       });
       await logAudit(ctx, {
         actor_id: args.managerStaffId, action: "shift.manager_override",
-        entity_type: "pos_shifts", entity_id: holder._id, source: "booth_inline",
-        metadata: { durationMs: summary.durationMs, displaced_staff_id: holder.staff_id },
+        entity_type: "pos_shifts", entity_id: holder._id, source: args.source,
+        metadata: {
+          durationMs: summary.durationMs,
+          displaced_staff_id: holder.staff_id,
+          resulting_state: args.closeOutlet ? "closed" : "released",
+        },
       });
       await ctx.scheduler.runAfter(0, internal.shifts.actions._sendSignoffSummary, {
         eventId: holder._id, staffId: holder.staff_id, shiftStartMs: holder.started_at, shiftEndMs: now,
