@@ -81,30 +81,46 @@ pattern. The single-writer invariants (`_createRequest_internal`, `validateConte
   (never `callback_data`, per #8). Routes to the **per-outlet `managers` chat** via
   `resolveOutletChatId(ctx, "managers", outletId)` (Spec 4); the request carries `outlet_id`.
 
-### Touchpoint (c) — `/approve` UI variant (`src/routes/approve/`)
+### Touchpoint (c) — `/approve` UI variant (`src/routes/approve/index.tsx`)
 
-- `approve/index.tsx` discriminates on `kind`; add the `shift_override` branch rendering the context
-  card + **two outcome buttons** ("Close booth" / "Release, keep open") that carry the chosen
-  `resultingState` into the PIN screen.
-- `approve/pin.tsx` collects the manager PIN and calls `approveShiftOverride` with
-  `{ token, pin, resultingState }`.
+`src/routes/approve/index.tsx` holds **one component per kind** (`staff_pin_reset`,
+`manual_payment_override`, `refund`), each with its own `staffCode` + PIN `useState` and an
+`approve.err*` error map. There is **no** `approve/pin.tsx`.
+
+- Add a `ShiftOverride` component there: renders the context card (outlet, stranded staff, how long
+  open, sales-so-far) + **two outcome buttons** ("Close booth" / "Release, keep open") + the standard
+  **staff-code + PIN** entry (every kind component collects the approver's `managerStaffCode`).
+- The chosen outcome sets `resultingState`; the approve button calls `approveShiftOverride({ token,
+  managerStaffCode, managerPin, resultingState, idempotencyKey })`.
+- Register any new error literals in the `t("approve.err*")` switch (reuse `NOT_MANAGER`,
+  `INVALID_PIN`, `TOKEN_*`, `REQUEST_*` — all already mapped).
 
 ### Touchpoint (d) — request + approve actions (`convex/approvals/actions.ts`)
 
-Following the `requestManualPaymentApproval` / `approveManualPayment` / `denyRequest` pattern:
-
-- `requestShiftOverride` (action) — called from the booth "Request via Telegram" path. Resolves the
-  booth session → outlet, reads the active hold (`_getActiveShift_internal`) + its sales snapshot,
-  builds the context, calls `_createRequest_internal(kind:"shift_override", outlet_id, …)`, then
-  `_markNotified_internal` after the Telegram send. **Dedup:** at most one *pending* `shift_override`
-  per outlet — mirror `_cancelPendingManualPaymentForTxn_internal` with a
-  `_cancelPendingShiftOverrideForOutlet_internal`, so a double-tap doesn't fan out two cards.
-- `approveShiftOverride` (action) — `{ token, pin, resultingState }`. Loads the request by token
-  hash (`_getByTokenHash_internal`), verifies the approver's **booth manager-PIN**
-  (`verifyPinOrThrow`, with the token-PIN attempt cap and `countTowardLockout:false` — SEC-07), then
-  calls the **shared commit** with `closeOutlet = (resultingState === "close")` and
-  `source:"telegram_approval"`, and `_markResolved_internal`.
-- Denial reuses the generic `denyRequest`.
+- `requestShiftOverride` (action) — **session-less**, called from the blocked login screen. The
+  next staffer has NO session (the booth is blocked — that's the whole problem), so this takes
+  `{ deviceId, idempotencyKey }`, NOT a `sessionId`. It resolves the outlet from the device
+  (`internal.auth.internal._getDeviceOutletId_internal`), reads the active hold
+  (`_getActiveShift_internal(outletId)`) — **if none, return early WITHOUT a card** — builds the
+  context (sales snapshot via `_buildSignoffSummary_internal`, see I2), calls
+  `_createRequest_internal(kind:"shift_override", entity_type:"pos_shifts", entity_id: shift_id,
+  outletId, …)`, sends the Telegram card, then `_markNotified_internal`. **Dedup** via the existing
+  `_listPendingByKind_internal({ kind:"shift_override", entityId: shift_id, outletId })` → return the
+  existing request if found (manual-payment precedent; no new internal). Session-less device→outlet
+  resolution mirrors `notifyStaffLockout`.
+- `approveShiftOverride` (action) — `{ token, managerStaffCode, managerPin, resultingState,
+  idempotencyKey }`. **Copy `approveSpoilage`'s envelope verbatim** (it is the closest precedent):
+  (1) token lookup `_getByTokenHash_internal` + constant-time `timingSafeEqual` compare + state
+  guards (`kind === "shift_override"`, pending, not expired) — **before** the idempotency cache
+  pre-check (rule #21 / I5); (2) `_lookup_internal` cache pre-check; (3) resolve approver via
+  `_getByCode_internal(managerStaffCode)` (active `manager` only, else `NOT_MANAGER`); (4)
+  `argon2Verify({ password: managerPin, hash: manager.pin_hash })` — **NOT** `verifyPinOrThrow`; on
+  miss `_recordFailedAttempt_internal({ deviceId:"approve-route", countTowardLockout:false,
+  source:"telegram_approval" })` + `_recordTokenPinFailure_internal` (cap → `REQUEST_REVOKED`); (5)
+  call the **shared commit** with `closeOutlet = (resultingState === "close")`,
+  `source:"telegram_approval"`, `managerStaffId: manager._id`, `deviceId: ctx.device_id`; (6)
+  `_markResolved_internal`.
+- Denial reuses the generic kind-agnostic `denyRequest`.
 
 ### Touchpoint — shared commit refactor (`convex/shifts/shiftsInternal.ts`)
 
@@ -126,26 +142,33 @@ The booth-inline `shifts.managerOverride` action gains a `resultingState` arg an
 
 ## Flows
 
-**Booth-inline (manager present):** tap override → sheet → "Enter manager PIN" → pick Close/Release →
-PIN → `managerOverride` action → shared commit. (Today's flow + the Close/Release choice.)
+Both paths start from the blocked login screen (`login.tsx`, `boothState` held-by-other) and are
+**session-less** — the booth is blocked, so nobody is logged in.
+
+**Booth-inline (manager present):** tap "Manager override" → `PinSheet` → pick manager name + Close/
+Release + PIN → `shifts.managerOverride({ deviceId, managerStaffId, managerPin, resultingState })` →
+shared commit. (Today's flow + the Close/Release choice + `resultingState` arg.)
 
 **Off-booth (manager remote — the new path):**
-1. Staff taps override → sheet → "Request via Telegram".
-2. `requestShiftOverride` mints a token, inserts the `shift_override` request (outlet-scoped),
-   sends the per-outlet `managers` card with the `/approve/:token` button. Booth shows a pending state.
-3. Manager opens the link → `/approve` shows the context → picks **Close booth** or **Release** → PIN.
-4. `approveShiftOverride` verifies PIN → shared commit (`closeOutlet` per choice) → request resolved.
-5. Booth's reactive `boothState` / approval-status query flips; the next staffer logs in
-   (closed ⇒ start-of-day; released ⇒ steps into the open booth).
+1. Staff taps "Manager override" → sheet → "Request via Telegram".
+2. `requestShiftOverride({ deviceId, idempotencyKey })` resolves outlet from device, reads the active
+   hold, mints a token, inserts the `shift_override` request (outlet-scoped), sends the per-outlet
+   `managers` card with the `/approve/:token` button.
+3. Manager opens the link → `/approve` `ShiftOverride` shows the context → picks **Close booth** or
+   **Release** → enters staff code + PIN.
+4. `approveShiftOverride` (argon2 verify) → shared commit (`closeOutlet` per choice) → request resolved.
+5. Booth's reactive `boothState` flips; the next staffer logs in (closed ⇒ start-of-day; released ⇒
+   steps into the open booth).
 
 ## Security & routing
 
 - **Token authorises VIEW, PIN authorises ACT** (ADR-029). Token = single-use, 60-min TTL, hashed
   at rest. A leaked token cannot DoS-lock a booth login: the token-PIN attempt path runs with
   `countTowardLockout:false` (SEC-07) and writes the per-token cap, not `pos_auth_attempts`.
-- **Per-outlet (Spec 4):** request carries session-derived `outlet_id`; the card routes only to that
-  outlet's `managers` chat. `outlet_id` never crosses the wire as a client arg (ADR-051) — it's
-  resolved from the booth session.
+- **Per-outlet (Spec 4):** the request is session-less, so `outlet_id` is resolved from the booth
+  **device** binding (`_getDeviceOutletId_internal`), not a session — the only client arg over the
+  wire is `deviceId`, never `outlet_id` (ADR-051). The card routes only to that outlet's `managers`
+  chat via `resolveOutletChatId`.
 - **Manager-only:** `approveShiftOverride` rejects a non-manager PIN (the approver must be an active
   `manager`). Audit records the approving manager as actor.
 
@@ -160,7 +183,8 @@ PIN → `managerOverride` action → shared commit. (Today's flow + the Close/Re
 
 - `validateContext("shift_override", …)`: accepts a good context, rejects empty `shift_id`/`device_id`,
   non-integer `sales_so_far_idr`.
-- Dedup: a second `requestShiftOverride` while one is pending cancels/supersedes the first (one card).
+- Dedup: a second `requestShiftOverride` while one is pending returns the existing request (one card).
+- Session-less request: resolves outlet from `deviceId`; no active hold ⇒ no card (early return).
 - Shared commit, both branches: `closeOutlet:true` ends hold **and** flips `is_open=false`;
   `closeOutlet:false` ends hold only, outlet stays open. No-hold ⇒ idempotent no-op (both branches).
 - `approveShiftOverride`: happy path (manager PIN → commit + resolved); wrong PIN increments the
@@ -168,21 +192,25 @@ PIN → `managerOverride` action → shared commit. (Today's flow + the Close/Re
 - Per-outlet routing: the card resolves to the request's outlet `managers` chat (not business-wide).
 - Audit: `source` is `telegram_approval` on the off-booth path, `booth_inline` inline.
 
-## Assumptions to verify in staffreview (against real code)
+## Verified during staffreview (2026-06-27, against real code)
 
-1. `_managerOverrideCommit_internal` currently hardcodes `source:"booth_inline"` and takes
-   `{ idempotencyKey, deviceId, managerStaffId }` — confirm exact arg shape before adding
-   `closeOutlet` + `source`.
-2. `shifts.managerOverride` (action) is the only caller of that commit today — confirm so the
-   signature change is contained.
-3. The approve-action pattern (`approveManualPayment`) verifies PIN via `verifyPinOrThrow` with a
-   token-PIN cap helper (`TOKEN_PIN_ATTEMPT_CAP` / `_recordTokenPinFailure_internal`) — confirm the
-   exact helper names + that `countTowardLockout:false` is how booth-lockout isolation is expressed.
-4. `_cancelPendingManualPaymentForTxn_internal` is the dedup precedent — confirm signature to model
-   `_cancelPendingShiftOverrideForOutlet_internal`.
-5. `resolveOutletChatId(ctx, role, outletId)` + `sendTemplate`'s `kind` union + the `/approve`
-   `kind` discriminator — confirm the exact files/exports the new kind must touch.
-6. The booth "Manager override" control's current location (`src/routes/shift/*` or a component) —
-   confirm where the two-path sheet attaches.
-7. A query exists (or is needed) for the booth to show "override pending" — confirm whether
-   `getRequestStatus` / `boothState` already covers this or a small read is needed.
+Report: `docs/reviews/staffreview-off-booth-manager-override-spec-2026-06-27.md`. Corrections C1–C3
++ I1–I4 are already folded into the touchpoints above. Confirmed facts:
+
+1. `_managerOverrideCommit_internal` (`convex/shifts/shiftsInternal.ts`) takes
+   `{ idempotencyKey, deviceId, managerStaffId }`, resolves outlet from `deviceId`, hardcodes
+   `source:"booth_inline"`, ends the active hold or no-ops if none. Add `closeOutlet` + `source`. ✓
+2. `shifts.managerOverride` (`convex/shifts/actions.ts`) is the only caller — session-LESS, takes
+   `{ idempotencyKey, deviceId, managerStaffId, managerPin }`, verifies inline via `verifyPinOrThrow`. ✓
+3. **(C1)** Off-booth approve uses `argon2Verify` + `_getByCode_internal(managerStaffCode)`, NOT
+   `verifyPinOrThrow`; miss path = `_recordFailedAttempt_internal({ deviceId:"approve-route",
+   countTowardLockout:false })` + `_recordTokenPinFailure_internal` (cap). Verified across all four
+   `approve*` actions. ✓
+4. **(I1)** Dedup precedent is `_listPendingByKind_internal({ kind, entityId, outletId })` → return
+   existing (used by `requestManualPaymentApproval`). No new cancel fn. ✓
+5. `resolveOutletChatId(ctx, role, outletId)`, `sendTemplate`'s `kind` union, and the per-kind
+   component in `src/routes/approve/index.tsx` (no `pin.tsx`) are the touch-points. ✓ (I3)
+6. **(C2/I4)** The override lives in `src/routes/login.tsx` — a session-less `PinSheet` + manager
+   picker keyed on `deviceId`, shown on `login.shiftHeldBy`. Extend it (two-path + Close/Release). ✓
+7. **(R1)** No dedicated "pending" query needed — the reactive `boothState` flip already returns the
+   login screen to normal when the override resolves. An explicit pending banner is an optional R1.
