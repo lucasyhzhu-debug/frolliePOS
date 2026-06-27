@@ -76,6 +76,16 @@ export default function LoginRoute() {
   // Separate idempotency counter + key for the requestShiftOverride action.
   const [requestReset, setRequestReset] = useState(0);
   const requestKey = useIdempotency(`shift:override:request:${deviceId ?? "none"}:${requestReset}`);
+  // Track the pending approval requestId for reactive status polling.
+  const [requestId, setRequestId] = useState<Id<"pos_approval_requests"> | null>(null);
+  // Terminal result of the remote request so we can show denied/expired feedback.
+  const [overrideResult, setOverrideResult] = useState<"declined" | "expired" | null>(null);
+  // Reactive subscription for the pending shift-override approval request.
+  // "skip" when no request is outstanding so we don't issue unnecessary queries.
+  const reqStatus = useQuery(
+    api.approvals.public.getRequestStatus,
+    requestId ? { requestId } : "skip",
+  );
 
   // Managers derived from the device-scoped staff list.
   const managers = staff?.filter((s) => s.role === "manager") ?? [];
@@ -130,8 +140,29 @@ export default function LoginRoute() {
       setStage({ kind: "list" });
       setOverrideRequested(false);
       setRequestError(undefined);
+      setRequestId(null);
+      setOverrideResult(null);
     }
   }, [stage.kind, ctx]);
+
+  // React to the approval request status — surface denied/expired to the blocked
+  // staffer so they can retry rather than waiting indefinitely.
+  useEffect(() => {
+    if (!reqStatus) return;
+    if (reqStatus.status === "denied") {
+      setOverrideRequested(false);
+      setRequestId(null); // unsubscribe
+      setOverrideResult("declined");
+    } else if (reqStatus.status === "expired") {
+      setOverrideRequested(false);
+      setRequestId(null); // unsubscribe
+      setOverrideResult("expired");
+    } else if (reqStatus.status === "resolved") {
+      // Approval went through — the ctx holderStaffId effect handles returning to
+      // the list once the mutation commit propagates; just clear the subscription.
+      setRequestId(null);
+    }
+  }, [reqStatus]);
 
   // Use a stable fallback while deviceId resolves so useIdempotency key is stable.
   // Include `pinReset` so each retry mints a FRESH idempotencyKey — otherwise
@@ -310,13 +341,16 @@ export default function LoginRoute() {
     if (!deviceId || !requestKey) return;
     setRequestPending(true);
     setRequestError(undefined);
+    setOverrideResult(null); // clear any previous denied/expired state on retry
     try {
       const result = await requestOverride({ deviceId, idempotencyKey: requestKey });
       if ("noHold" in result && result.noHold) {
         // Hold already gone — move back to list so the blocked staffer can log in
         setStage({ kind: "list" });
       } else {
+        // Store requestId to subscribe to its status reactively.
         setOverrideRequested(true);
+        setRequestId((result as { requestId: Id<"pos_approval_requests"> }).requestId);
       }
     } catch (err) {
       setRequestError(errorMessage(err));
@@ -409,6 +443,12 @@ export default function LoginRoute() {
             <p className="text-sm text-muted-foreground">{t("login.overrideRequested")}</p>
           ) : (
             <>
+              {overrideResult === "declined" && (
+                <p className="text-sm text-destructive">{t("login.overrideDeclined")}</p>
+              )}
+              {overrideResult === "expired" && (
+                <p className="text-sm text-muted-foreground">{t("login.overrideExpired")}</p>
+              )}
               <button
                 type="button"
                 onClick={handleOverrideOpen}
@@ -435,6 +475,8 @@ export default function LoginRoute() {
               setStage({ kind: "list" });
               setOverrideRequested(false);
               setRequestError(undefined);
+              setRequestId(null);
+              setOverrideResult(null);
             }}
             className="text-sm text-muted-foreground underline-offset-4 hover:underline"
           >

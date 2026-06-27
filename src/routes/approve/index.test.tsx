@@ -847,4 +847,26 @@ describe("Approve route — shift_override variant", () => {
       screen.queryByRole("button", { name: /^Approve$/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("shows stale-shift message when approveShiftOverride rejects with SHIFT_CHANGED", async () => {
+    // Mirror the "shows inline error on INVALID_PIN" pattern for the payment variant.
+    mockApproveShiftOverride = vi.fn().mockRejectedValue(new Error("SHIFT_CHANGED"));
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt();
+
+    await selectManager("MGR01");
+    fireEvent.keyDown(document, { key: "1" });
+    fireEvent.keyDown(document, { key: "2" });
+    fireEvent.keyDown(document, { key: "3" });
+    fireEvent.keyDown(document, { key: "4" });
+
+    const approveBtn = screen.getByRole("button", { name: /^Approve$/i });
+    await waitFor(() => expect(approveBtn).not.toBeDisabled());
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent(/booth state changed/i);
+    });
+  });
 });

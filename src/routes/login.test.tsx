@@ -653,4 +653,53 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
       ).toBeInTheDocument(),
     );
   });
+
+  it("overrideRequested: getRequestStatus=denied shows declined message and re-enables button", async () => {
+    // Wire loginContext to blocked state (Lucas holds, Sari trying to log in).
+    const { useLoginContext } = await import("@/hooks/useLoginContext");
+    vi.mocked(useLoginContext).mockReturnValue({
+      outletOpen: true,
+      holderStaffId: LUCAS._id as import("../../convex/_generated/dataModel").Id<"staff">,
+      holderName: "Lucas",
+    });
+
+    // Mock useQuery to discriminate all three query args shapes:
+    //   { deviceId }    → staff list (listStaffForDevice)
+    //   { staffId }     → undefined (getRecentPinResetForStaff — skip)
+    //   { requestId }   → { status: "denied" } (getRequestStatus)
+    //   "skip"          → undefined
+    (useQueryMock as Mock).mockImplementation((_api: unknown, args: unknown) => {
+      if (args === "skip") return undefined;
+      if (args && typeof args === "object") {
+        if ("staffId" in (args as object)) return undefined;
+        if ("requestId" in (args as object)) return { status: "denied" };
+      }
+      return [SARI, LUCAS]; // listStaffForDevice
+    });
+
+    // requestShiftOverride resolves with a requestId, triggering the subscription.
+    const convexReact = await import("convex/react");
+    const requestStub = vi.fn().mockResolvedValue({ requestId: "pos_approval_requests_req123" });
+    (convexReact.useAction as Mock).mockReturnValue(requestStub);
+
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /request via telegram/i }));
+
+    // Declined message should appear (overrideResult="declined" branch).
+    await waitFor(() =>
+      expect(screen.getByText(/request declined/i)).toBeInTheDocument(),
+    );
+
+    // The "Request via Telegram" button is re-enabled so the staffer can retry.
+    expect(
+      screen.getByRole("button", { name: /request via telegram/i }),
+    ).not.toBeDisabled();
+
+    // The old "waiting" message should no longer be visible.
+    expect(
+      screen.queryByText(/requested — waiting for a manager to approve/i),
+    ).toBeNull();
+  });
 });

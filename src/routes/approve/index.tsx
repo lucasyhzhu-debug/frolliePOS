@@ -42,6 +42,7 @@ function mapError(err: unknown): string {
   if (msg.includes("INVALID_PIN")) return "INVALID_PIN";
   if (msg.includes("NEW_PIN_INVALID")) return "NEW_PIN_INVALID";
   if (msg.includes("WRONG_KIND")) return "WRONG_KIND";
+  if (msg.includes("SHIFT_CHANGED")) return "SHIFT_CHANGED";
   if (msg.includes("TXN_NOT_AWAITING")) return "TXN_NOT_AWAITING";
   if (msg.includes("TXN_NOT_REFUNDABLE")) return "TXN_NOT_REFUNDABLE";
   if (msg.includes("LINE_NOT_FOUND")) return "LINE_NOT_FOUND";
@@ -67,6 +68,7 @@ function useErrorMessage() {
       case "INVALID_PIN": return t("approve.errInvalidPin");
       case "NEW_PIN_INVALID": return t("approve.errNewPinInvalid");
       case "WRONG_KIND": return t("approve.errWrongKind");
+      case "SHIFT_CHANGED": return t("approve.shiftOverrideStaleShift");
       case "TXN_NOT_AWAITING": return t("approve.errTxnNotAwaiting");
       case "TXN_NOT_REFUNDABLE": return t("approve.errTxnNotRefundable");
       case "LINE_NOT_FOUND": return t("approve.errLineNotFound");
@@ -1672,7 +1674,8 @@ function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
       if (
         code === "TOKEN_INVALID" ||
         code === "TOKEN_EXPIRED" ||
-        code === "REQUEST_RESOLVED"
+        code === "REQUEST_RESOLVED" ||
+        code === "SHIFT_CHANGED"
       ) {
         void clearIntent(approveIntent);
       }

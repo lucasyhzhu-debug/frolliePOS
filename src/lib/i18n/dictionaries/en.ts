@@ -663,6 +663,8 @@ export const en = {
   "login.overrideRequested": "Requested — waiting for a manager to approve",
   "login.outcomeClose": "Close booth",
   "login.outcomeRelease": "Release hold",
+  "login.overrideDeclined": "Request declined — tap 'Request via Telegram' to try again",
+  "login.overrideExpired": "Request expired — tap 'Request via Telegram' to try again",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",
@@ -831,6 +833,7 @@ export const en = {
   "approve.outcomeRelease": "Release hold",
   "approve.shiftOverrideApproved": "✓ Override approved — shift force-ended.",
   "approve.shiftOverrideDenied": "Declined — no change made.",
+  "approve.shiftOverrideStaleShift": "The booth state changed since this request (it may have been handed over or already closed). Ask the booth to send a fresh override request.",
   "approve.denyReasonPlaceholderShiftOverride": "e.g. Staff is on their way back",
   "approve.terminalShiftOverrideResolved": "✓ Shift override already approved.",
   "approve.terminalShiftOverrideDenied": "Shift override was declined by {denier}.",

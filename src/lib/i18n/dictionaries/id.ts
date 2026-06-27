@@ -661,6 +661,8 @@ export const id: Record<keyof typeof en, string> = {
   "login.overrideRequested": "Terkirim — menunggu manajer menyetujui",
   "login.outcomeClose": "Tutup booth",
   "login.outcomeRelease": "Lepas penahanan",
+  "login.overrideDeclined": "Permintaan ditolak — ketuk 'Minta via Telegram' untuk coba lagi",
+  "login.overrideExpired": "Permintaan kedaluwarsa — ketuk 'Minta via Telegram' untuk coba lagi",
   // cockpitLogin — login cockpit pemilik (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Pemilik · Cockpit",
   "cockpitLogin.identifierTitle": "Masuk",
@@ -829,6 +831,7 @@ export const id: Record<keyof typeof en, string> = {
   "approve.outcomeRelease": "Lepas penahanan",
   "approve.shiftOverrideApproved": "✓ Override disetujui — shift dipaksa berakhir.",
   "approve.shiftOverrideDenied": "Ditolak — tidak ada perubahan.",
+  "approve.shiftOverrideStaleShift": "Keadaan booth berubah sejak permintaan ini (mungkin sudah serah terima atau sudah ditutup). Minta booth untuk mengirimkan permintaan override baru.",
   "approve.denyReasonPlaceholderShiftOverride": "mis. Staf sedang dalam perjalanan kembali",
   "approve.terminalShiftOverrideResolved": "✓ Override shift sudah disetujui.",
   "approve.terminalShiftOverrideDenied": "Override shift ditolak oleh {denier}.",
