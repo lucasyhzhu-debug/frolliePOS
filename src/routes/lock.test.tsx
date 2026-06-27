@@ -276,6 +276,8 @@ describe("Lock route — lock mutation + manager-override", () => {
     expect(callArgs).toMatchObject({
       managerStaffId: "kn7lucas000000000000000000000",
       managerPin: "1111",
+      // lock-screen override always releases the hold; it never closes the booth.
+      resultingState: "release",
     });
 
     // Navigates to /login (NOT /shift/handover) — override just clears the stranded

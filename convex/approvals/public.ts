@@ -81,11 +81,28 @@ type SpoilageResult = {
   resolved_at?: number;
 } & DenyDetails;
 
+// v1.3.1: off-booth shift override. Exposes display-relevant context fields
+// directly (no display.* wrapper — mirrors staff_pin_reset's flat layout).
+// device_id and shift_id are internal; excluded from the public surface.
+type ShiftOverrideResult = {
+  kind: "shift_override";
+  outlet_label: string;
+  stranded_staff_name: string;
+  shift_started_at: number;
+  sales_so_far_idr: number;
+  txn_count: number;
+  status: EffectiveStatus;
+  triggered_at: number;
+  token_expires_at: number;
+  resolved_at?: number;
+} & DenyDetails;
+
 type GetByTokenResult =
   | StaffPinResetResult
   | ManualPaymentOverrideResult
   | RefundResult
-  | SpoilageResult;
+  | SpoilageResult
+  | ShiftOverrideResult;
 
 /**
  * Resolve an approval request by its raw token (for the off-booth approval page).
@@ -345,6 +362,38 @@ export const getByToken = query({
           lines,
           ...(requester_name !== undefined ? { requester_name } : {}),
         },
+        ...base,
+        ...denyDetails,
+      };
+    }
+
+    if (req.kind === "shift_override") {
+      const ctx2 = req.context as
+        | {
+            outlet_label?: string;
+            stranded_staff_name?: string;
+            shift_started_at?: number;
+            sales_so_far_idr?: number;
+            txn_count?: number;
+          }
+        | undefined;
+
+      // validateContext("shift_override", ...) guarantees these fields at write
+      // time (single-writer invariant on _createRequest_internal). If anything is
+      // missing at read time the row was corrupted post-insert — fail loud.
+      if (typeof ctx2?.outlet_label !== "string") throw new Error("CONTEXT_CORRUPTED: outlet_label");
+      if (typeof ctx2.stranded_staff_name !== "string") throw new Error("CONTEXT_CORRUPTED: stranded_staff_name");
+      if (!Number.isInteger(ctx2.shift_started_at)) throw new Error("CONTEXT_CORRUPTED: shift_started_at");
+      if (!Number.isInteger(ctx2.sales_so_far_idr)) throw new Error("CONTEXT_CORRUPTED: sales_so_far_idr");
+      if (!Number.isInteger(ctx2.txn_count)) throw new Error("CONTEXT_CORRUPTED: txn_count");
+
+      return {
+        kind: "shift_override",
+        outlet_label: ctx2.outlet_label,
+        stranded_staff_name: ctx2.stranded_staff_name,
+        shift_started_at: ctx2.shift_started_at as number,
+        sales_so_far_idr: ctx2.sales_so_far_idr as number,
+        txn_count: ctx2.txn_count as number,
         ...base,
         ...denyDetails,
       };

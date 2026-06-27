@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { rp } from "@/lib/format";
+import { rp, fmtTime, fmtDate, fmtShiftDuration } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 
 /*
@@ -42,6 +42,7 @@ function mapError(err: unknown): string {
   if (msg.includes("INVALID_PIN")) return "INVALID_PIN";
   if (msg.includes("NEW_PIN_INVALID")) return "NEW_PIN_INVALID";
   if (msg.includes("WRONG_KIND")) return "WRONG_KIND";
+  if (msg.includes("SHIFT_CHANGED")) return "SHIFT_CHANGED";
   if (msg.includes("TXN_NOT_AWAITING")) return "TXN_NOT_AWAITING";
   if (msg.includes("TXN_NOT_REFUNDABLE")) return "TXN_NOT_REFUNDABLE";
   if (msg.includes("LINE_NOT_FOUND")) return "LINE_NOT_FOUND";
@@ -67,6 +68,7 @@ function useErrorMessage() {
       case "INVALID_PIN": return t("approve.errInvalidPin");
       case "NEW_PIN_INVALID": return t("approve.errNewPinInvalid");
       case "WRONG_KIND": return t("approve.errWrongKind");
+      case "SHIFT_CHANGED": return t("approve.shiftOverrideStaleShift");
       case "TXN_NOT_AWAITING": return t("approve.errTxnNotAwaiting");
       case "TXN_NOT_REFUNDABLE": return t("approve.errTxnNotRefundable");
       case "LINE_NOT_FOUND": return t("approve.errLineNotFound");
@@ -1584,6 +1586,384 @@ function SpoilageVariant({ token, request }: SpoilageProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// shift_override variant (v1.3.1)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface ShiftOverrideProps {
+  token: string;
+  request: {
+    kind: "shift_override";
+    outlet_label: string;
+    stranded_staff_name: string;
+    shift_started_at: number;
+    sales_so_far_idr: number;
+    txn_count: number;
+    status: string;
+    token_expires_at: number;
+  };
+}
+
+function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
+  const t = useT();
+  const mapErr = useErrorMessage();
+  const [staffCode, setStaffCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [resultingState, setResultingState] = useState<"close" | "release">("close");
+
+  // Deny-flow state — mirrors SpoilageVariant
+  const [showDenyReason, setShowDenyReason] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  const [denyPending, setDenyPending] = useState(false);
+
+  // Terminal outcome state
+  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+
+  const approveIntent = `approve-shift-override:${token}`;
+  const denyIntent = `deny-shift-override:${token}`;
+  const approveKey = useIdempotency(approveIntent);
+  const denyKey = useIdempotency(denyIntent);
+
+  const approveAction = useAction(api.approvals.actions.approveShiftOverride);
+  const denyAction = useAction(api.approvals.actions.denyRequest);
+
+  // Token-gated active-managers list (ADR-029)
+  const managers = useQuery(api.approvals.public.listActiveManagers, { token });
+
+  function handleKeyPress(key: string) {
+    setError(undefined);
+    setManagerPin((prev) => {
+      if (key === "C") return "";
+      if (key === "⌫") return prev.slice(0, -1);
+      return prev.length < 4 ? prev + key : prev;
+    });
+  }
+
+  async function handleApprove(e: React.FormEvent) {
+    e.preventDefault();
+    if (!approveKey) return;
+    if (!staffCode.trim()) {
+      setError(t("approve.validationStaffCode"));
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError(t("approve.validationManagerPin"));
+      return;
+    }
+
+    setPending(true);
+    setError(undefined);
+    try {
+      await approveAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        resultingState,
+        idempotencyKey: approveKey,
+      });
+      setOutcome("approved");
+    } catch (err) {
+      const code = mapError(err);
+      const mapped = mapErr(code);
+      setError(mapped);
+      if (
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED" ||
+        code === "SHIFT_CHANGED"
+      ) {
+        void clearIntent(approveIntent);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleConfirmDeny() {
+    if (!denyKey) return;
+    if (!staffCode.trim()) {
+      setError(t("approve.validationStaffCode"));
+      return;
+    }
+    if (managerPin.length !== 4) {
+      setError(t("approve.validationManagerPin"));
+      return;
+    }
+    if (!denyReason.trim()) return;
+
+    setDenyPending(true);
+    setError(undefined);
+    try {
+      await denyAction({
+        token,
+        managerStaffCode: staffCode.trim(),
+        managerPin,
+        denyReason: denyReason.trim(),
+        idempotencyKey: denyKey,
+      });
+      setOutcome("denied");
+    } catch (err) {
+      const code = mapError(err);
+      const mapped = mapErr(code);
+      setError(mapped);
+      if (
+        code === "TOKEN_INVALID" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "REQUEST_RESOLVED"
+      ) {
+        void clearIntent(denyIntent);
+      }
+    } finally {
+      setDenyPending(false);
+    }
+  }
+
+  // ── Outcome screens ────────────────────────────────────────────────────────
+  if (outcome === "approved") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <CheckCircle2 className="h-8 w-8 text-primary" />
+        <p className="text-sm font-medium">{t("approve.shiftOverrideApproved")}</p>
+      </main>
+    );
+  }
+
+  if (outcome === "denied") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-background text-center">
+        <XCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm font-medium">{t("approve.shiftOverrideDenied")}</p>
+      </main>
+    );
+  }
+
+  // ── Pending form ──────────────────────────────────────────────────────────
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
+      <header className="w-full max-w-sm text-center pt-6">
+        <h1 className="text-lg font-semibold">{t("approve.shiftOverrideTitle")}</h1>
+      </header>
+
+      {/* Context card */}
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideOutlet")}</span>
+          <span className="font-semibold">{request.outlet_label}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideHeldBy")}</span>
+          <span className="font-semibold">{request.stranded_staff_name}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideShiftStarted")}</span>
+          <span className="tabular-nums">
+            {fmtTime(request.shift_started_at)}{" "}
+            <span className="text-muted-foreground">
+              {fmtDate(request.shift_started_at)}
+            </span>
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideDuration")}</span>
+          <span className="tabular-nums">{fmtShiftDuration(Date.now() - request.shift_started_at)}</span>
+        </div>
+        <div className="pt-2 border-t border-border flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideSalesSoFar")}</span>
+          <span className="font-semibold tabular-nums">{rp(request.sales_so_far_idr)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">{t("approve.shiftOverrideTxnCount")}</span>
+          <span className="tabular-nums">{request.txn_count}</span>
+        </div>
+      </div>
+
+      {/* Close / Release choice */}
+      <div className="w-full max-w-sm grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant={resultingState === "close" ? "default" : "outline"}
+          onClick={() => setResultingState("close")}
+          disabled={pending || denyPending}
+        >
+          {t("common.outcomeClose")}
+        </Button>
+        <Button
+          type="button"
+          variant={resultingState === "release" ? "default" : "outline"}
+          onClick={() => setResultingState("release")}
+          disabled={pending || denyPending}
+        >
+          {t("common.outcomeRelease")}
+        </Button>
+      </div>
+
+      <form
+        onSubmit={handleApprove}
+        className="flex w-full max-w-sm flex-col gap-5"
+        aria-label={t("approve.shiftOverrideFormLabel")}
+      >
+        {/* Manager identity picker (token-gated query — ADR-029) */}
+        <div className="space-y-1.5">
+          <Label htmlFor="mgr-staff-code">{t("approve.managerIdentityLabel")}</Label>
+          <Select
+            value={staffCode}
+            onValueChange={(value) => {
+              setStaffCode(value);
+              setError(undefined);
+            }}
+            disabled={pending || denyPending || managers === undefined || managers === null}
+          >
+            <SelectTrigger id="mgr-staff-code">
+              <SelectValue
+                placeholder={
+                  managers === undefined
+                    ? t("common.loading")
+                    : managers === null
+                      ? t("approve.linkExpired")
+                      : managers.length === 0
+                        ? t("approve.noManagers")
+                        : t("approve.selectManager")
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {managers?.map((m) => (
+                <SelectItem key={m.code} value={m.code}>
+                  {m.code} — {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Manager PIN entry */}
+        <div className="space-y-2">
+          <div className="w-full rounded-md border border-input px-3 py-2.5 text-sm">
+            <span className="block text-xs font-medium text-muted-foreground mb-1.5">
+              {t("approve.managerPinLabel")}
+            </span>
+            {managerPin.length > 0 ? (
+              <PinDots value={managerPin} />
+            ) : (
+              <span className="text-muted-foreground">{t("approve.enter4DigitPin")}</span>
+            )}
+          </div>
+          <NumericKeypad
+            onPress={handleKeyPress}
+            onClear={() => handleKeyPress("C")}
+            onBackspace={() => handleKeyPress("⌫")}
+            size="compact"
+          />
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <p role="alert" className="text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {/* Deny reason input — revealed after clicking Deny */}
+        {showDenyReason && (
+          <div className="space-y-1.5">
+            <Label htmlFor="deny-reason">{t("approve.reasonForDeclining")}</Label>
+            <Input
+              id="deny-reason"
+              type="text"
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder={t("approve.denyReasonPlaceholderShiftOverride")}
+              disabled={denyPending}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-2">
+          {!showDenyReason ? (
+            <>
+              <Button
+                type="submit"
+                disabled={
+                  pending ||
+                  denyPending ||
+                  !approveKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4
+                }
+                className="w-full"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("approve.approving")}
+                  </>
+                ) : (
+                  t("approve.approve")
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => {
+                  setError(undefined);
+                  setShowDenyReason(true);
+                }}
+                disabled={pending || denyPending}
+              >
+                {t("approve.deny")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirmDeny}
+                disabled={
+                  denyPending ||
+                  pending ||
+                  !denyKey ||
+                  staffCode.trim().length === 0 ||
+                  managerPin.length !== 4 ||
+                  denyReason.trim().length === 0
+                }
+              >
+                {denyPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("approve.declining")}
+                  </>
+                ) : (
+                  t("approve.confirmDeny")
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setShowDenyReason(false);
+                  setDenyReason("");
+                  setError(undefined);
+                }}
+                disabled={denyPending}
+              >
+                {t("common.cancel")}
+              </Button>
+            </>
+          )}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Terminal-state per-kind copy registry
 // ────────────────────────────────────────────────────────────────────────────
 //
@@ -1631,6 +2011,11 @@ const TERMINAL_COPY: Record<string, TerminalCopy> = {
       t("approve.terminalSpoilageResolved", { qty: String(req.display.total_qty) }),
     deniedMsg: (req, denierLabel, t) =>
       t("approve.terminalSpoilageDenied", { qty: String(req.display.total_qty), denier: denierLabel }),
+  },
+  shift_override: {
+    resolvedMsg: (_req, t) => t("approve.terminalShiftOverrideResolved"),
+    deniedMsg: (_req, denierLabel, t) =>
+      t("approve.terminalShiftOverrideDenied", { denier: denierLabel }),
   },
 };
 
@@ -1738,6 +2123,10 @@ export default function Approve() {
 
   if (request.kind === "spoilage") {
     return <SpoilageVariant token={token} request={request} />;
+  }
+
+  if (request.kind === "shift_override") {
+    return <ShiftOverrideVariant token={token} request={request} />;
   }
 
   // Unknown kind — neutral fallback for future kinds not yet handled in UI

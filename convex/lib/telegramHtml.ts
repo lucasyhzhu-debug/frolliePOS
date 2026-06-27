@@ -478,6 +478,34 @@ export function renderOwnerOtp(p: OwnerOtpPayload): RenderedMessage {
   };
 }
 
+// v1.3.1: off-booth manager override approval template.
+// Routes to `managers` (outlet-scoped); URL button → /approve/:token (ADR-035).
+// Mirrors renderSpoilageApproval shape (RenderedMessage + inline_keyboard URL button).
+export type ShiftOverridePayload = {
+  outlet_label: string;
+  stranded_staff_name: string;
+  shift_started_at: number;
+  sales_so_far_idr: number;
+  txn_count: number;
+  approve_url: string;
+};
+
+export function renderShiftOverride(p: ShiftOverridePayload): RenderedMessage {
+  const text = [
+    `<b>🔓 Manager override requested</b>`,
+    `Outlet: <b>${escapeHtml(p.outlet_label)}</b>`,
+    `Booth held by: <b>${escapeHtml(p.stranded_staff_name)}</b>`,
+    `Shift started: <b>${escapeHtml(formatWibDateTime(p.shift_started_at))}</b>`,
+    `Sales so far: <b>Rp ${formatIdr(p.sales_so_far_idr)}</b> (${p.txn_count} txn)`,
+    ``,
+    `<i>Tap to review and release the booth. Expires in 60 min.</i>`,
+  ].join("\n");
+  return {
+    text,
+    inline_keyboard: [[{ text: "Open approval →", url: p.approve_url }]],
+  };
+}
+
 // Crypto-random hex nonce. 8 chars = 4 bytes = ~4 billion values — plenty for POC.
 // callback_data is limited to 64 bytes by Telegram so we keep the prefix short.
 export function makeNonce(): string {

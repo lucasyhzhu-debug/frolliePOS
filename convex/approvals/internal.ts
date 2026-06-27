@@ -22,8 +22,9 @@ export const _createRequest_internal = internalMutation({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
-      v.literal("refund"),   // v0.5.1 PR B: refund-approval requests funnel here too.
-      v.literal("spoilage"), // NEW v0.6: spoilage approval
+      v.literal("refund"),          // v0.5.1 PR B: refund-approval requests funnel here too.
+      v.literal("spoilage"),        // NEW v0.6: spoilage approval
+      v.literal("shift_override"),  // v1.3.1: off-booth shift override
     ),
     requester_staff_id: v.optional(v.id("staff")),
     entity_type: v.optional(v.string()),
@@ -314,8 +315,9 @@ export const _listPendingByKind_internal = internalQuery({
     kind: v.union(
       v.literal("staff_pin_reset"),
       v.literal("manual_payment_override"),
-      v.literal("refund"),   // v0.5.1 PR B: refund dedup guard reuses this helper.
-      v.literal("spoilage"), // NEW v0.6: spoilage approval
+      v.literal("refund"),          // v0.5.1 PR B: refund dedup guard reuses this helper.
+      v.literal("spoilage"),        // NEW v0.6: spoilage approval
+      v.literal("shift_override"),  // v1.3.1: off-booth shift override
     ),
     entityId: v.string(),
     outletId: v.id("outlets"),

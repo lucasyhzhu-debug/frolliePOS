@@ -571,7 +571,7 @@ Each row = one off-booth approval request ([ADR-029](./ADR/029-token-authorizes-
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | `Id<"pos_approval_requests">` | |
-| `kind` | `"staff_pin_reset" \| "manual_payment_override" \| "refund" \| "spoilage"` | `manual_payment_override` added in v0.4; `refund` added in v0.5.1 PR B; `spoilage` added in v0.6 (off-booth spoilage approval) |
+| `kind` | `"staff_pin_reset" \| "manual_payment_override" \| "refund" \| "spoilage" \| "shift_override"` | `manual_payment_override` added in v0.4; `refund` added in v0.5.1 PR B; `spoilage` added in v0.6 (off-booth spoilage approval); `shift_override` added in v1.3.1 (off-booth manager override — blocked booth requests a force-end via Telegram) |
 | `requester_staff_id` | `Id<"staff">?` | Staff who triggered the request; optional because `staff_pin_reset` is system-triggered |
 | `entity_type` | `string?` | Generic entity pointer — entity being approved (e.g. `"pos_transactions"`). Non-PIN kinds |
 | `entity_id` | `string?` | Stringified `_id` of the entity being approved |
@@ -617,7 +617,7 @@ POC debug-trail for inbound/outbound Telegram messages. **Not** the webhook dedu
 |---|---|---|
 | `_id` | `Id<"telegram_log">` | |
 | `direction` | `"out" \| "in"` | |
-| `template_kind` | `string?` | Template used for outbound messages. Known kinds (matches `sendTemplate`'s `kind` union in `convex/telegram/send.ts`): `staff_pin_reset`, `manual_payment_override`, `refund`, `founders_summary`, `recount_event`, `low_stock_alert`, `spoilage` *(v0.6 — approval template, URL button to `/approve/:token`)*, `stock_drift_alert` *(v0.6 — informational nightly drift notice; no URL button)* |
+| `template_kind` | `string?` | Template used for outbound messages. Known kinds (matches `sendTemplate`'s `kind` union in `convex/telegram/send.ts`): `staff_pin_reset`, `manual_payment_override`, `refund`, `founders_summary`, `recount_event`, `low_stock_alert`, `spoilage` *(v0.6 — approval template, URL button to `/approve/:token`)*, `stock_drift_alert` *(v0.6 — informational nightly drift notice; no URL button)*, `shift_override` *(v1.3.1 — approval template, URL button to `/approve/:token`, outlet-scoped `managers` role)* |
 | `payload_json` | `string` | Full message payload JSON |
 | `update_id` | `number?` | Telegram update ID (inbound) |
 | `callback_data` | `string?` | Callback query data (inbound) |
@@ -923,6 +923,10 @@ owner.device_remembered         # remember-device checkbox at cockpit login — 
 owner.quick_pin_failed          # quick-PIN miss on remembered-device re-entry; metadata={ staff_id, device_id, fail_count }. Isolated to per-binding counter; does NOT touch pos_auth_attempts or owner_auth_attempts
 # v1.3.0 owner cockpit writes (source=cockpit)
 outlet.created                  # owner created a new outlet via cockpit; source=cockpit; metadata={ name, code, ... }
+# v1.3.1 off-booth manager override (shift_override kind)
+shift_override.requested        # requestShiftOverride (session-less action) — pos_approval_requests row created (via _createRequest_internal) + outlet-scoped managers Telegram card sent; source=system; metadata={ approval_request_id, kind, entity_id, subject_staff_id? }. Dedups: one pending per active shift. (The shift hold itself ends only on approval — see shift.manager_override below.)
+shift_override.approval_resolved # approveShiftOverride — off-booth manager approved via /approve/:token; flips the request row (via _markResolved_internal / KIND_AUDIT); source=telegram_approval; metadata={ approval_request_id, kind }. The actual hold-end + resulting_state are recorded on the shift.manager_override row the commit emits (below); the close (if any) on an outlet.closed row.
+shift_override.denied           # denyRequest (kind=shift_override) — manager denied off-booth shift override; source=telegram_approval; via KIND_AUDIT
 ```
 
 ## Relationship to Frollie Pro tables
@@ -1002,11 +1006,11 @@ Indexes: `by_outlet_active` on `[outlet_id, ended_at]` (unique active holder per
 Audit verbs (source `booth_inline` unless noted):
 ```
 outlet.opened           # openBooth / managerSkipOpen → outlets.is_open = true (Level 1)
-outlet.closed           # endOfDay → outlets.is_open = false (Level 1)
+outlet.closed           # endOfDay → outlets.is_open = false (Level 1). ALSO emitted by _managerOverrideCommit_internal when a manager override closes the booth (metadata.via="manager_override"; source ∈ booth_inline|telegram_approval) — so an override-close is traced even on the no-holder path (v1.3.1)
 shift.start             # startShift → new pos_shifts row (Level 2)
 shift.handover          # handover out-half ends the row; in-half creates a new one
 shift.lock              # lock — session ends, pos_shifts row unchanged
-shift.manager_override  # managerOverride force-ends a stranded pos_shifts row
+shift.manager_override  # managerOverride / approveShiftOverride force-ends a stranded pos_shifts row; metadata.resulting_state ∈ "closed"|"released"; source ∈ booth_inline | telegram_approval. Off-booth path guards stale snapshots: the commit throws SHIFT_CHANGED (no row) if the live holder ≠ the request's expectedShiftId.
 ```
 
 ### `pos_shift_events` *(v1.2 #6 — legacy read-only after ADR-053, owned by `shifts/`)*

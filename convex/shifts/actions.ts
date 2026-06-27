@@ -95,6 +95,7 @@ export const managerOverride = action({
     deviceId: v.string(),
     managerStaffId: v.id("staff"),
     managerPin: v.string(),
+    resultingState: v.union(v.literal("close"), v.literal("release")),
   },
   handler: async (ctx, args): Promise<{ ok: true }> =>
     withActionCache(
@@ -124,6 +125,8 @@ export const managerOverride = action({
           idempotencyKey: `${args.idempotencyKey}:commit`,
           deviceId: args.deviceId,
           managerStaffId: args.managerStaffId,
+          closeOutlet: args.resultingState === "close",
+          source: "booth_inline",
         });
       },
     ),

@@ -3,7 +3,7 @@
 // add a literal here + its 4 touchpoints (CLAUDE.md "How to add a feature" #8).
 // Pure V8 module (no "use node") — imported by mutations, actions, and tests.
 
-export type ApprovalKind = "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage";
+export type ApprovalKind = "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage" | "shift_override";
 
 export type ManualPaymentContext = {
   txn_id: string;
@@ -41,6 +41,18 @@ export type SpoilageContext = {
   lines: Array<{ inventory_sku_id: string; sku_code: string; qty: number }>;
   total_qty: number;
   reason: string;
+};
+
+// v1.3.1: off-booth manager override of a stranded shift hold. Snapshotted at
+// request time so the approver previews who/how-much before entering PIN.
+export type ShiftOverrideContext = {
+  shift_id: string;            // Id<"pos_shifts"> serialised — the active hold
+  device_id: string;           // booth device; commit resolves outlet from it
+  outlet_label: string;
+  stranded_staff_name: string;
+  shift_started_at: number;
+  sales_so_far_idr: number;    // integer rupiah (ADR-015)
+  txn_count: number;
 };
 
 /** Validate + normalize the per-kind context BEFORE insert. The single writer
@@ -117,6 +129,21 @@ export function validateContext(kind: ApprovalKind, raw: unknown): Record<string
         reason: c.reason,
       };
     }
+    case "shift_override": {
+      const c = (raw ?? {}) as Partial<ShiftOverrideContext>;
+      if (typeof c.shift_id !== "string" || c.shift_id === "") throw new Error("CONTEXT_INVALID: shift_id");
+      if (typeof c.device_id !== "string" || c.device_id === "") throw new Error("CONTEXT_INVALID: device_id");
+      if (typeof c.outlet_label !== "string") throw new Error("CONTEXT_INVALID: outlet_label");
+      if (typeof c.stranded_staff_name !== "string") throw new Error("CONTEXT_INVALID: stranded_staff_name");
+      if (!Number.isInteger(c.shift_started_at)) throw new Error("CONTEXT_INVALID: shift_started_at");
+      if (!Number.isInteger(c.sales_so_far_idr)) throw new Error("CONTEXT_INVALID: sales_so_far_idr");
+      if (!Number.isInteger(c.txn_count)) throw new Error("CONTEXT_INVALID: txn_count");
+      return {
+        shift_id: c.shift_id, device_id: c.device_id, outlet_label: c.outlet_label,
+        stranded_staff_name: c.stranded_staff_name, shift_started_at: c.shift_started_at,
+        sales_so_far_idr: c.sales_so_far_idr, txn_count: c.txn_count,
+      };
+    }
   }
 }
 
@@ -139,12 +166,16 @@ export const KIND_AUDIT: Record<ApprovalKind, { requested: string; resolved: str
   // (_recordSpoilage_internal) emits "stock.spoilage" for the spoilage row
   // itself — see convex/inventory/internal.ts, SCHEMA.md, CHANGELOG.
   spoilage:                { requested: "spoilage.requested",                resolved: "spoilage.approval_resolved",       denied: "spoilage.denied" },
+  // v1.3.1: off-booth shift override. resolved verb is shift_override.approval_resolved
+  // to match the refund/spoilage split pattern (approval-row state ≠ commit verb).
+  shift_override:          { requested: "shift_override.requested",          resolved: "shift_override.approval_resolved", denied: "shift_override.denied" },
 };
 
 /** Maps kind → telegram template id (send.ts) AND → /approve UI variant id. */
-export const KIND_TEMPLATE: Record<ApprovalKind, "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage"> = {
+export const KIND_TEMPLATE: Record<ApprovalKind, "staff_pin_reset" | "manual_payment_override" | "refund" | "spoilage" | "shift_override"> = {
   staff_pin_reset: "staff_pin_reset",
   manual_payment_override: "manual_payment_override",
   refund: "refund",
   spoilage: "spoilage",   // v0.6 S2
+  shift_override: "shift_override", // v1.3.1
 };

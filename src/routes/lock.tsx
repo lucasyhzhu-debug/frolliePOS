@@ -86,6 +86,10 @@ export default function Lock() {
         deviceId,
         managerStaffId: pickedManager._id,
         managerPin: pin,
+        // "release": ends the stranded hold but leaves the outlet open so the
+        // manager (or original staffer) can log in normally. The lock-screen
+        // override never closes the booth — it only un-strands a held shift.
+        resultingState: "release",
       });
       setOverrideOpen(false);
       // Override just force-ends the stranded shift; the manager (or original

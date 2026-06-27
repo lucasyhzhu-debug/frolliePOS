@@ -17,6 +17,7 @@ import {
   renderTxnTicker,
   renderStaffShiftSignoff,
   renderOwnerOtp,
+  renderShiftOverride,
   type RenderedMessage,
   type LowStockAlertPayload,
   type ManagersDailySummaryPayload,
@@ -27,6 +28,7 @@ import {
   type TxnTickerPayload,
   type StaffShiftSignoffPayload,
   type OwnerOtpPayload,
+  type ShiftOverridePayload,
 } from "../lib/telegramHtml";
 import { ROLE_SCOPE } from "./config";
 import { resolveOutletChatId } from "./resolveOutletChat";
@@ -56,6 +58,7 @@ export const sendTemplate = action({
       v.literal("staff_shift_signoff"), // v1.2 #6 per-shift summary → founders
       v.literal("owner_otp"),             // v2.0 cockpit login OTP DM (ADR-052)
       v.literal("managers_daily_summary"), // v2.0 per-outlet managers EOD summary
+      v.literal("shift_override"),          // v1.3.1 off-booth manager override approval
     ),
     payload: v.union(
       // staff_pin_reset — matches StaffPinResetPayload in lib/telegramHtml.ts
@@ -189,6 +192,15 @@ export const sendTemplate = action({
           })),
         })),
       }),
+      // shift_override — matches ShiftOverridePayload in lib/telegramHtml.ts (v1.3.1)
+      v.object({
+        outlet_label: v.string(),
+        stranded_staff_name: v.string(),
+        shift_started_at: v.number(),
+        sales_so_far_idr: v.number(),
+        txn_count: v.number(),
+        approve_url: v.string(),
+      }),
     ),
     idempotencyKey: v.string(),
     disableNotification: v.optional(v.boolean()),
@@ -319,6 +331,9 @@ export const sendTemplate = action({
         break;
       case "managers_daily_summary":
         rendered = renderManagersDailySummary(args.payload as ManagersDailySummaryPayload);
+        break;
+      case "shift_override":
+        rendered = renderShiftOverride(args.payload as ShiftOverridePayload);
         break;
     }
 

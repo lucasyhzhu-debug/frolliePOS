@@ -7,6 +7,8 @@ export const en = {
   "common.save": "Save",
   "common.confirm": "Confirm",
   "common.loading": "Loading…",
+  "common.outcomeClose": "Close booth",
+  "common.outcomeRelease": "Release hold",
   // home
   "home.newSale": "New sale",
   "home.startCart": "start a cart",
@@ -658,6 +660,11 @@ export const en = {
   "login.shiftHeldBy": "{name} is still on shift. Ask a manager to override, or wait for handover.",
   "login.managerOverride": "Manager override",
   "login.overridePickManager": "Pick a manager",
+  // login — two-path manager override (v1.3.1)
+  "login.requestOverrideViaTelegram": "Request via Telegram",
+  "login.overrideRequested": "Requested — waiting for a manager to approve",
+  "login.overrideDeclined": "Request declined — tap 'Request via Telegram' to try again",
+  "login.overrideExpired": "Request expired — tap 'Request via Telegram' to try again",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",
@@ -813,6 +820,21 @@ export const en = {
   "approve.errTxnNotRefundable": "Transaction is not refundable",
   "approve.errLineNotFound": "Refund line no longer exists",
   "approve.errRequestMissing": "Refund request is incomplete — please re-request",
+  // shift_override (v1.3.1)
+  "approve.shiftOverrideTitle": "Shift Override Request",
+  "approve.shiftOverrideOutlet": "Outlet",
+  "approve.shiftOverrideHeldBy": "Held by",
+  "approve.shiftOverrideSalesSoFar": "Sales so far",
+  "approve.shiftOverrideShiftStarted": "Shift started",
+  "approve.shiftOverrideDuration": "Duration",
+  "approve.shiftOverrideTxnCount": "Transactions",
+  "approve.shiftOverrideFormLabel": "Shift override approval form",
+  "approve.shiftOverrideApproved": "✓ Override approved — shift force-ended.",
+  "approve.shiftOverrideDenied": "Declined — no change made.",
+  "approve.shiftOverrideStaleShift": "The booth state changed since this request (it may have been handed over or already closed). Ask the booth to send a fresh override request.",
+  "approve.denyReasonPlaceholderShiftOverride": "e.g. Staff is on their way back",
+  "approve.terminalShiftOverrideResolved": "✓ Shift override already approved.",
+  "approve.terminalShiftOverrideDenied": "Shift override was declined by {denier}.",
   // history
   "history.title": "History",
   "history.noTransactions": "No transactions",

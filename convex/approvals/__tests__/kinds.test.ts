@@ -22,3 +22,26 @@ describe("APPROVAL_KINDS registry", () => {
     expect(KIND_TEMPLATE.manual_payment_override).toBe("manual_payment_override");
   });
 });
+
+describe("shift_override kind", () => {
+  const good = {
+    shift_id: "shift123", device_id: "dev-1", outlet_label: "Block M",
+    stranded_staff_name: "Sasi", shift_started_at: 1782526962094,
+    sales_so_far_idr: 385000, txn_count: 5,
+  };
+  it("accepts a valid context", () => {
+    expect(validateContext("shift_override", good)).toMatchObject({
+      shift_id: "shift123", device_id: "dev-1", sales_so_far_idr: 385000, txn_count: 5,
+    });
+  });
+  it("rejects empty shift_id", () => {
+    expect(() => validateContext("shift_override", { ...good, shift_id: "" })).toThrow(/CONTEXT_INVALID/);
+  });
+  it("rejects non-integer sales", () => {
+    expect(() => validateContext("shift_override", { ...good, sales_so_far_idr: 1.5 })).toThrow(/CONTEXT_INVALID/);
+  });
+  it("registers audit + template maps", () => {
+    expect(KIND_AUDIT.shift_override.requested).toBe("shift_override.requested");
+    expect(KIND_TEMPLATE.shift_override).toBe("shift_override");
+  });
+});
