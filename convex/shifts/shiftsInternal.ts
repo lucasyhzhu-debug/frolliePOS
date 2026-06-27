@@ -151,6 +151,7 @@ export const _managerOverrideCommit_internal = internalMutation({
     managerStaffId: v.id("staff"),
     closeOutlet: v.boolean(),
     source: v.union(v.literal("booth_inline"), v.literal("telegram_approval")),
+    expectedShiftId: v.optional(v.string()),
   },
   handler: withIdempotency<
     {
@@ -159,6 +160,7 @@ export const _managerOverrideCommit_internal = internalMutation({
       managerStaffId: Id<"staff">;
       closeOutlet: boolean;
       source: "booth_inline" | "telegram_approval";
+      expectedShiftId?: string;
     },
     { ok: true }
   >(
@@ -170,17 +172,41 @@ export const _managerOverrideCommit_internal = internalMutation({
         deviceId: args.deviceId,
       });
 
+      // Resolve the live holder BEFORE any write so a stale off-booth request can
+      // never close the booth (C1): the snapshot guard below must run before the
+      // close block.
+      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, {
+        outletId,
+      });
+
+      // C1: off-booth snapshot consistency. The approver decided from a snapshot
+      // (the card showed "held by X"). If the live holder no longer matches that
+      // snapshot — handover/turnover/natural end during the token's 60-min TTL —
+      // refuse to act on stale intent rather than force-end an unrelated shift or
+      // wrongly close the booth. The inline path passes no expectedShiftId (manager
+      // is present, acting on live state) and is unaffected.
+      if (args.expectedShiftId !== undefined) {
+        if (!holder || (holder._id as unknown as string) !== args.expectedShiftId) {
+          throw new Error("SHIFT_CHANGED");
+        }
+      }
+
       // Close the outlet regardless of whether a holder exists (edge case: off-booth
       // override with closeOutlet:true when no shift is active — still must close).
       if (args.closeOutlet) {
         await ctx.runMutation(internal.outlets.status._setOutletClosed_internal, {
           outletId, staffId: args.managerStaffId,
         });
+        // I1 (ADR-007): the override's close path must be auditable. _setOutletClosed_internal
+        // is a bare db.patch (no audit — endOfDay audits separately at its own callsite), so
+        // emit the outlet.closed row here. Reuses the endOfDay verb; metadata.via distinguishes.
+        await logAudit(ctx, {
+          actor_id: args.managerStaffId, action: "outlet.closed",
+          entity_type: "outlets", entity_id: outletId, source: args.source,
+          metadata: { via: "manager_override" },
+        });
       }
 
-      const holder = await ctx.runQuery(internal.shifts.shiftsInternal._getActiveShift_internal, {
-        outletId,
-      });
       // No stranded holder → idempotent no-op (the blocked staffer can just log in).
       if (!holder) return { ok: true as const };
 

@@ -392,6 +392,114 @@ describe("approveShiftOverride", () => {
     ).rejects.toThrow("NOT_MANAGER");
   });
 
+  it("C1: stale request (holder changed since snapshot) throws SHIFT_CHANGED and leaves the new holder + booth untouched", async () => {
+    const t = convexTest(schema);
+    const { outletId, deviceId, shiftId, rawToken } = await seedApprovableOverride(t);
+
+    // Turnover during the token's TTL: end the snapshotted hold (shiftId) and
+    // start a NEW hold for a different staffer. The approval request still
+    // carries the OLD shift_id in its context snapshot.
+    const newHolderShiftId = await t.run(async (ctx: any) => {
+      const newHolder = await ctx.db.insert("staff", {
+        name: "Incoming Dewi", code: "S-IN1", role: "staff", active: true,
+        pin_hash: "x", created_at: Date.now(),
+      });
+      await ctx.db.patch(shiftId, { ended_at: Date.now(), ended_via: "handover" } as any);
+      return await ctx.db.insert("pos_shifts", {
+        outlet_id: outletId, device_id: deviceId, staff_id: newHolder,
+        started_at: Date.now(), started_via: "handover",
+        ended_at: null, ended_via: null, open_count: null, close_count: null,
+        outgoing_uncounted: null, steps: [], summary: null, prev_shift_id: shiftId,
+        created_at: Date.now(),
+      } as any);
+    });
+
+    await expect(
+      t.action(api.approvals.actions.approveShiftOverride, {
+        token: rawToken,
+        managerStaffCode: MGR_CODE,
+        managerPin: MGR_PIN,
+        resultingState: "close",
+        idempotencyKey: "ovr-stale",
+      }),
+    ).rejects.toThrow(/SHIFT_CHANGED/);
+
+    // The NEW holder's shift is untouched, and the booth is still open.
+    const status = await t.query(
+      internal.outlets.status._getOutletStatus_internal,
+      { outletId },
+    );
+    expect(status.is_open).toBe(true);
+    const newShift = await t.run((ctx) => ctx.db.get(newHolderShiftId as Id<"pos_shifts">));
+    expect(newShift?.ended_at).toBeNull();
+
+    // The request stays pending (the commit threw before _markResolved).
+    const reqRows = await t.run((ctx) =>
+      ctx.db.query("pos_approval_requests").collect(),
+    );
+    expect(reqRows[0].status).toBe("pending");
+  });
+
+  it("token reuse after a successful approval throws REQUEST_RESOLVED", async () => {
+    const t = convexTest(schema);
+    const { rawToken } = await seedApprovableOverride(t);
+
+    // First approval succeeds.
+    await t.action(api.approvals.actions.approveShiftOverride, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: MGR_PIN,
+      resultingState: "release",
+      idempotencyKey: "ovr-reuse-1",
+    });
+    await drainScheduled(t);
+
+    // Reusing the token (fresh idempotency key) hits the status guard, not the cache.
+    await expect(
+      t.action(api.approvals.actions.approveShiftOverride, {
+        token: rawToken,
+        managerStaffCode: MGR_CODE,
+        managerPin: MGR_PIN,
+        resultingState: "release",
+        idempotencyKey: "ovr-reuse-2",
+      }),
+    ).rejects.toThrow(/REQUEST_RESOLVED/);
+  });
+
+  it("a token for a non-shift_override request throws WRONG_KIND", async () => {
+    const t = convexTest(schema);
+
+    const wrongRawToken = "raw-token-wrong-kind";
+    const outletId = await t.run(async (ctx: any) => {
+      const outletId = await ctx.db.insert("outlets", {
+        is_open: true, code: "PKW", name: "Pakuwon", timezone: "Asia/Jakarta",
+        active: true, created_at: Date.now(), created_by: null,
+      } as any);
+      // Seed a spoilage request row directly with a known token hash.
+      await ctx.db.insert("pos_approval_requests", {
+        kind: "spoilage",
+        triggered_by_event: "spoilage_request",
+        triggered_at: Date.now(),
+        token_hash: sha256Hex(wrongRawToken),
+        token_expires_at: Date.now() + 3_600_000,
+        status: "pending",
+        outlet_id: outletId,
+      } as any);
+      return outletId;
+    });
+    expect(outletId).toBeTruthy();
+
+    await expect(
+      t.action(api.approvals.actions.approveShiftOverride, {
+        token: wrongRawToken,
+        managerStaffCode: MGR_CODE,
+        managerPin: MGR_PIN,
+        resultingState: "close",
+        idempotencyKey: "ovr-wrongkind",
+      }),
+    ).rejects.toThrow(/WRONG_KIND/);
+  });
+
   it("wrong PIN throws INVALID_PIN and writes no booth lockout row (SEC-07)", async () => {
     const t = convexTest(schema);
     const { managerId, rawToken } = await seedApprovableOverride(t);

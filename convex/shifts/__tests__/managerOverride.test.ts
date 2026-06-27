@@ -400,3 +400,121 @@ test("_managerOverrideCommit closeOutlet:true with NO hold still closes the outl
   const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
   expect(status.is_open).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// Helper: read the live holder's shift id for an outlet.
+// ---------------------------------------------------------------------------
+async function activeShiftId(
+  t: ReturnType<typeof convexTest>,
+  outletId: Id<"outlets">,
+): Promise<Id<"pos_shifts"> | null> {
+  const hold = await t.query(
+    internal.shifts.shiftsInternal._getActiveShift_internal,
+    { outletId },
+  );
+  return (hold?._id ?? null) as Id<"pos_shifts"> | null;
+}
+
+// ---------------------------------------------------------------------------
+// C1: stale off-booth request — expectedShiftId no longer matches live holder.
+// The commit must throw SHIFT_CHANGED BEFORE any write (no close, no end).
+// ---------------------------------------------------------------------------
+test("C1: _managerOverrideCommit with stale expectedShiftId throws SHIFT_CHANGED and writes nothing", async () => {
+  const t = convexTest(schema);
+
+  // Booth held by H_A; capture H_A's shift id (the snapshot the approver saw).
+  const { outletId, deviceId, managerId } = await seedOpenBoothHeldByOther(t, "d-stale-1");
+  const staleShiftId = await activeShiftId(t, outletId);
+  expect(staleShiftId).not.toBeNull();
+
+  // Turnover: end H_A's hold and start a NEW hold for H_B (a different staffer).
+  const holderB = await seedStaff(t, "HolderB", "2222", "staff");
+  await t.run(async (ctx: any) => {
+    await ctx.db.patch(staleShiftId!, { ended_at: Date.now(), ended_via: "handover" } as any);
+    await ctx.db.insert("pos_shifts", {
+      outlet_id: outletId, device_id: deviceId, staff_id: holderB,
+      started_at: Date.now(), started_via: "handover",
+      ended_at: null, ended_via: null, open_count: null, close_count: null,
+      outgoing_uncounted: null, steps: [], summary: null, prev_shift_id: staleShiftId,
+      created_at: Date.now(),
+    } as any);
+  });
+  const liveShiftId = await activeShiftId(t, outletId);
+  expect(liveShiftId).not.toBe(staleShiftId);
+
+  // Stale request (expectedShiftId = H_A's id) with closeOutlet:true → SHIFT_CHANGED.
+  await expect(
+    t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+      idempotencyKey: "c1-stale",
+      deviceId,
+      managerStaffId: managerId,
+      closeOutlet: true,
+      source: "telegram_approval",
+      expectedShiftId: staleShiftId as unknown as string,
+    }),
+  ).rejects.toThrow(/SHIFT_CHANGED/);
+
+  // The throw rolled everything back: outlet still open, H_B's hold still active.
+  const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
+  expect(status.is_open).toBe(true);
+  const stillLive = await t.query(
+    internal.shifts.shiftsInternal._getActiveShift_internal,
+    { outletId },
+  );
+  expect(stillLive?._id).toBe(liveShiftId);
+  expect(stillLive?.ended_at).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// C1 match path: expectedShiftId == live holder id → succeeds (close + end).
+// ---------------------------------------------------------------------------
+test("C1: _managerOverrideCommit with matching expectedShiftId succeeds (ends hold + closes outlet)", async () => {
+  const t = convexTest(schema);
+
+  const { outletId, deviceId, managerId } = await seedOpenBoothHeldByOther(t, "d-match-1");
+  const liveShiftId = await activeShiftId(t, outletId);
+  expect(liveShiftId).not.toBeNull();
+
+  await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+    idempotencyKey: "c1-match",
+    deviceId,
+    managerStaffId: managerId,
+    closeOutlet: true,
+    source: "telegram_approval",
+    expectedShiftId: liveShiftId as unknown as string,
+  });
+
+  const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
+  expect(status.is_open).toBe(false);
+  const hold = await t.query(
+    internal.shifts.shiftsInternal._getActiveShift_internal,
+    { outletId },
+  );
+  expect(hold).toBeNull();
+
+  await drainScheduled(t);
+});
+
+// ---------------------------------------------------------------------------
+// I1 (ADR-007): a closeOutlet:true override emits an outlet.closed audit row.
+// ---------------------------------------------------------------------------
+test("I1: closeOutlet:true override emits an outlet.closed audit row (via:manager_override)", async () => {
+  const t = convexTest(schema);
+
+  const { outletId, deviceId, managerId } = await seedOpenBoothNoHold(t, "d-audit-1");
+
+  await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+    idempotencyKey: "i1-audit",
+    deviceId,
+    managerStaffId: managerId,
+    closeOutlet: true,
+    source: "telegram_approval",
+  });
+
+  const audits = await t.query(internal.audit.internal._list_internal, {
+    action: "outlet.closed",
+  });
+  const forOutlet = audits.filter((a: any) => a.entity_id === outletId);
+  expect(forOutlet.length).toBeGreaterThanOrEqual(1);
+  expect(JSON.parse(forOutlet[0].metadata as string).via).toBe("manager_override");
+});

@@ -1046,6 +1046,10 @@ export const approveShiftOverride = action({
         managerStaffId: manager._id,
         closeOutlet: args.resultingState === "close",
         source: "telegram_approval",
+        // C1: thread the snapshotted shift_id so the commit refuses to act on a
+        // stale request (handover/turnover during the token's TTL). Makes the
+        // already-validated ctxBag.shift_id load-bearing.
+        expectedShiftId: ctxBag.shift_id,
       },
     );
 
