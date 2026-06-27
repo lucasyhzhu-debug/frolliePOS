@@ -924,8 +924,8 @@ owner.quick_pin_failed          # quick-PIN miss on remembered-device re-entry; 
 # v1.3.0 owner cockpit writes (source=cockpit)
 outlet.created                  # owner created a new outlet via cockpit; source=cockpit; metadata={ name, code, ... }
 # v1.3.1 off-booth manager override (shift_override kind)
-shift_override.requested        # requestShiftOverride (session-less action) — pos_approval_requests row created + outlet-scoped managers Telegram card sent; source=system; metadata={ device_id, outlet_id }. Dedups: one pending per active shift.
-shift_override.approval_resolved # approveShiftOverride — off-booth manager approved via /approve/:token; funnels through _managerOverrideCommit_internal; source=telegram_approval; metadata={ resulting_state:"close"|"release" }; via KIND_AUDIT
+shift_override.requested        # requestShiftOverride (session-less action) — pos_approval_requests row created (via _createRequest_internal) + outlet-scoped managers Telegram card sent; source=system; metadata={ approval_request_id, kind, entity_id, subject_staff_id? }. Dedups: one pending per active shift. (The shift hold itself ends only on approval — see shift.manager_override below.)
+shift_override.approval_resolved # approveShiftOverride — off-booth manager approved via /approve/:token; flips the request row (via _markResolved_internal / KIND_AUDIT); source=telegram_approval; metadata={ approval_request_id, kind }. The actual hold-end + resulting_state are recorded on the shift.manager_override row the commit emits (below); the close (if any) on an outlet.closed row.
 shift_override.denied           # denyRequest (kind=shift_override) — manager denied off-booth shift override; source=telegram_approval; via KIND_AUDIT
 ```
 
@@ -1006,11 +1006,11 @@ Indexes: `by_outlet_active` on `[outlet_id, ended_at]` (unique active holder per
 Audit verbs (source `booth_inline` unless noted):
 ```
 outlet.opened           # openBooth / managerSkipOpen → outlets.is_open = true (Level 1)
-outlet.closed           # endOfDay → outlets.is_open = false (Level 1)
+outlet.closed           # endOfDay → outlets.is_open = false (Level 1). ALSO emitted by _managerOverrideCommit_internal when a manager override closes the booth (metadata.via="manager_override"; source ∈ booth_inline|telegram_approval) — so an override-close is traced even on the no-holder path (v1.3.1)
 shift.start             # startShift → new pos_shifts row (Level 2)
 shift.handover          # handover out-half ends the row; in-half creates a new one
 shift.lock              # lock — session ends, pos_shifts row unchanged
-shift.manager_override  # managerOverride force-ends a stranded pos_shifts row; metadata.resulting_state ∈ "close"|"release"; source ∈ booth_inline | telegram_approval
+shift.manager_override  # managerOverride / approveShiftOverride force-ends a stranded pos_shifts row; metadata.resulting_state ∈ "closed"|"released"; source ∈ booth_inline | telegram_approval. Off-booth path guards stale snapshots: the commit throws SHIFT_CHANGED (no row) if the live holder ≠ the request's expectedShiftId.
 ```
 
 ### `pos_shift_events` *(v1.2 #6 — legacy read-only after ADR-053, owned by `shifts/`)*
