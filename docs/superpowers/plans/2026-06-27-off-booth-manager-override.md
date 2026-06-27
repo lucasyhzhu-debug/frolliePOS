@@ -196,55 +196,47 @@ git commit -m "feat(approvals): add shift_override kind + context validator"
 **Files:**
 - Modify: `convex/shifts/shiftsInternal.ts:147-196` (`_managerOverrideCommit_internal`)
 - Modify: `convex/shifts/actions.ts:92-130` (`managerOverride`)
-- Test: `convex/shifts/__tests__/stateGuards.test.ts` (or a new `managerOverride.test.ts`)
+- Test: `convex/shifts/__tests__/managerOverride.test.ts` (**EXISTS — extend + update the 5 existing calls**, review P1)
 
 **Interfaces:**
 - Produces: `_managerOverrideCommit_internal({ idempotencyKey, deviceId, managerStaffId, closeOutlet, source })` → `{ ok: true }`. `shifts.managerOverride({ idempotencyKey, deviceId, managerStaffId, managerPin, resultingState: "close"|"release" })`.
 - Consumes: `internal.outlets.status._setOutletClosed_internal({ outletId, staffId })`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: FIRST update the existing tests (review P1)** — `convex/shifts/__tests__/managerOverride.test.ts` ALREADY EXISTS with 5 tests that call `api.shifts.actions.managerOverride` **without** `resultingState`. Since T2 makes `resultingState` required, update all 5 calls to add `resultingState: "release"` (preserves their current "outlet stays open" assertions). The file already has an inline seed (`t.run(async (ctx) => …)` ~line 67) — **there is no `_helpers.ts`**; seed inline like the existing tests.
+
+- [ ] **Step 2: Add the new failing tests** — extend the SAME file, using its inline `t.run` seed pattern (insert `outlets` with `is_open:true`, a bound `registered_devices` row, a manager `staff`, and an open `pos_shifts`). Add:
 
 ```ts
-// convex/shifts/__tests__/managerOverride.test.ts
-import { convexTest } from "convex-test";
-import { describe, it, expect } from "vitest";
-import schema from "../../schema";
-import { internal } from "../../_generated/api";
-import { seedOutletAndOpenShift } from "./_helpers"; // existing helper pattern — see stateGuards.test.ts
+test("managerOverride resultingState:close ends hold AND closes the outlet", async () => {
+  const t = makeT(); // however the file constructs convexTest(schema)
+  const { outletId, deviceId, managerId, managerPin } = await seedOpenBoothHeldByOther(t); // inline seed (see file ~line 67)
+  await t.action(api.shifts.actions.managerOverride, {
+    idempotencyKey: "c1", deviceId, managerStaffId: managerId, managerPin, resultingState: "close",
+  });
+  const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
+  expect(status.is_open).toBe(false);
+  const hold = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(hold).toBeNull();
+});
 
-describe("_managerOverrideCommit_internal closeOutlet", () => {
-  it("closeOutlet:true ends hold AND closes the outlet", async () => {
-    const t = convexTest(schema);
-    const { outletId, deviceId, managerId } = await seedOutletAndOpenShift(t);
-    await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
-      idempotencyKey: "k1", deviceId, managerStaffId: managerId, closeOutlet: true, source: "telegram_approval",
-    });
-    const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
-    expect(status.is_open).toBe(false);
-    const hold = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
-    expect(hold).toBeNull();
+test("_managerOverrideCommit closeOutlet:true with NO hold still closes the outlet", async () => {
+  const t = makeT();
+  const { outletId, deviceId, managerId } = await seedOpenBoothNoHold(t); // is_open:true, no pos_shifts
+  await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+    idempotencyKey: "c2", deviceId, managerStaffId: managerId, closeOutlet: true, source: "telegram_approval",
   });
-  it("closeOutlet:false ends hold but leaves outlet open", async () => {
-    const t = convexTest(schema);
-    const { outletId, deviceId, managerId } = await seedOutletAndOpenShift(t);
-    await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
-      idempotencyKey: "k2", deviceId, managerStaffId: managerId, closeOutlet: false, source: "telegram_approval",
-    });
-    const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
-    expect(status.is_open).toBe(true);
-    const hold = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
-    expect(hold).toBeNull();
-  });
+  const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
+  expect(status.is_open).toBe(false);
 });
 ```
-> If `seedOutletAndOpenShift` does not exist, build it in `_helpers.ts` from the existing seed pattern in `stateGuards.test.ts` (insert outlet, registered_device bound to it, a staff manager, and an open `pos_shifts` via `_startShift_internal`). Folded into this task.
+> `makeT` / `seedOpenBoothHeldByOther` / `seedOpenBoothNoHold` mean: reuse the exact inline seed the file already does at ~line 67–120 (copy it; don't import a non-existent helper).
 
-- [ ] **Step 2: Run — verify FAIL**
+- [ ] **Step 3: Run — verify FAIL** (and the updated existing calls compile)
 
 Run: `npx vitest run convex/shifts/__tests__/managerOverride.test.ts`
-Expected: FAIL — commit doesn't accept `closeOutlet`/`source`.
+Expected: the 2 new tests FAIL — commit doesn't accept `closeOutlet`/`source`; the 5 updated tests still pass once `resultingState` is threaded (Step 5).
 
-- [ ] **Step 3: Implement the commit change** in `convex/shifts/shiftsInternal.ts`
+- [ ] **Step 4: Implement the commit change** in `convex/shifts/shiftsInternal.ts`
 
 Add to the `args` of `_managerOverrideCommit_internal`:
 ```ts
@@ -278,7 +270,7 @@ After the `_endShift_internal` call (and still inside the `if (holder)` branch, 
       // ... existing end-shift + audit + telegram ...
 ```
 
-- [ ] **Step 4: Update the inline action** in `convex/shifts/actions.ts:92`
+- [ ] **Step 5: Update the inline action** in `convex/shifts/actions.ts:92`
 
 Add `resultingState: v.union(v.literal("close"), v.literal("release"))` to `managerOverride`'s args; in the body's `runMutation` to `_managerOverrideCommit_internal`, pass:
 ```ts
@@ -291,12 +283,12 @@ Add `resultingState: v.union(v.literal("close"), v.literal("release"))` to `mana
         });
 ```
 
-- [ ] **Step 5: Run tests + typecheck — verify PASS**
+- [ ] **Step 6: Run tests + typecheck — verify PASS**
 
 Run: `npx vitest run convex/shifts && npm run typecheck`
-Expected: PASS. (Existing `managerOverride` callers — only `login.tsx` — will be updated in T7; the action arg is now required, so T7 must pass `resultingState`. Note this dependency.)
+Expected: PASS (all 5 updated + 2 new tests). (The only other `managerOverride` caller — `login.tsx` — is updated in T7; the arg is now required, so T7 must pass `resultingState`.)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add convex/shifts/shiftsInternal.ts convex/shifts/actions.ts convex/shifts/__tests__/
@@ -336,22 +328,30 @@ it("renders shift_override card with approve URL button", () => {
 
 - [ ] **Step 3: Implement `renderShiftOverride`** in `convex/lib/telegramHtml.ts`
 
-Mirror an existing informational+button renderer (e.g. `renderManualPaymentOverride`). Use the shared HTML/number helpers already in the file (`escapeHtml`, the IDR formatter, and the inline-keyboard URL-button helper):
+Model on **`renderSpoilageApproval`** (closest precedent — an approval card with a URL button routed
+to `managers`). Every renderer returns the shared `RenderedMessage` type. Define a `ShiftOverridePayload`
+type beside the other payload types and reuse the file's existing helpers (`escapeHtml`, the IDR
+formatter, and the URL-button/inline-keyboard builder that `renderSpoilageApproval` uses):
 ```ts
-export function renderShiftOverride(p: {
+export type ShiftOverridePayload = {
   outlet_label: string; stranded_staff_name: string; shift_started_at: number;
   sales_so_far_idr: number; txn_count: number; approve_url: string;
-}): { text: string; reply_markup: object } {
+};
+export function renderShiftOverride(p: ShiftOverridePayload): RenderedMessage {
+  // copy renderSpoilageApproval's body shape exactly — same RenderedMessage return,
+  // same URL-button construction; only the text lines + payload differ:
   const text =
     `<b>🔓 Manager override requested</b>\n` +
     `Outlet: <b>${escapeHtml(p.outlet_label)}</b>\n` +
     `Booth held by: <b>${escapeHtml(p.stranded_staff_name)}</b>\n` +
     `Sales so far: <b>${formatIdr(p.sales_so_far_idr)}</b> (${p.txn_count} txn)\n` +
     `Tap to review and release the booth.`;
-  return { text, reply_markup: urlButton("Review & override", p.approve_url) };
+  return { /* RenderedMessage exactly as renderSpoilageApproval builds it */ text, /* reply_markup with the approve_url button */ };
 }
 ```
-> Match the EXACT return shape the other `render*` button functions use (some return a string, some `{text, reply_markup}`). Copy the shape of `renderManualPaymentOverride` verbatim so `sendTemplate`'s dispatch consumes it identically.
+> Open `renderSpoilageApproval` (`convex/lib/telegramHtml.ts:266`) and copy its `RenderedMessage`
+> construction verbatim (text + `reply_markup` URL button) so `sendTemplate`'s dispatch consumes it
+> identically. Do NOT invent a `{ text, reply_markup: object }` shape.
 
 - [ ] **Step 4: Wire into `sendTemplate`** (`convex/telegram/send.ts`)
 
@@ -443,8 +443,8 @@ export const requestShiftOverride = action({
     const summary = await ctx.runQuery(internal.shifts.internal._buildSignoffSummary_internal, {
       shiftStartMs: hold.started_at, endMs: now, outletId });
     const staffNames = await ctx.runQuery(internal.auth.internal._listStaffNames_internal, {});
-    const strandedName = staffNames.find((s: { _id: string }) => s._id === hold.staff_id)?.name ?? "Staff";
-    const outlet = await ctx.runQuery(internal.outlets.internal._getOutletById_internal, { outletId }); // see note
+    const strandedName = staffNames.find((s) => s._id === hold.staff_id)?.name ?? "Staff";
+    const outlet = await ctx.runQuery(internal.outlets.internal._getOutlet_internal, { outletId });
     const outletLabel = outlet?.name ?? "Booth";
 
     const baseUrl = process.env.POS_BASE_URL;
@@ -486,7 +486,11 @@ export const requestShiftOverride = action({
   },
 });
 ```
-> **Verify-first:** `_listStaffNames_internal`'s return shape (it may return `{name, code}` keyed differently — confirm against `convex/auth/internal.ts`; if it doesn't expose `_id`, use `_getStaffNameCode_internal({ staffId: hold.staff_id })` instead, which is the per-staff lookup `requestManualPaymentApproval` uses). **`_getOutletById_internal`:** confirm an internal outlet-by-id reader exists in `convex/outlets/internal.ts`; if not, read the label via the existing `_getDefaultOutlet_internal` shape or add a tiny `_getOutletById_internal` (one `ctx.db.get`) in this task.
+> **Verified (plan staffreview P2/P4):** `_listStaffNames_internal` returns `Array<{ _id, name }>`
+> (confirmed in `convex/auth/internal.ts`) — the `.find((s) => s._id === hold.staff_id)` works as
+> written. The outlet reader is `internal.outlets.internal._getOutlet_internal({ outletId })`
+> (`ctx.db.get(outletId)` → outlet doc, can be null → `outlet?.name ?? "Booth"`). There is no
+> `_getOutletById_internal`.
 
 - [ ] **Step 4: Run tests + typecheck — verify PASS** — `npx vitest run convex/approvals && npm run typecheck`.
 
