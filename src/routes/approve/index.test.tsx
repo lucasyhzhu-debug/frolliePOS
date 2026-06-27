@@ -717,3 +717,134 @@ describe("Approve route — spoilage variant", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// ---------- shift_override variant tests (v1.3.1 T6) -------------------------
+
+describe("Approve route — shift_override variant", () => {
+  const shiftStartedAt = Date.now() - 3_600_000; // 1 hour ago
+  const pendingShiftOverrideRequest = {
+    kind: "shift_override" as const,
+    outlet_label: "Pakuwon Mall",
+    stranded_staff_name: "Budi",
+    shift_started_at: shiftStartedAt,
+    sales_so_far_idr: 250_000,
+    txn_count: 3,
+    status: "pending",
+    triggered_at: Date.now() - 5 * 60 * 1000,
+    token_expires_at: Date.now() + 55 * 60 * 1000,
+  };
+
+  let mockApproveShiftOverride: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    __resetForTests();
+    actionSlots.length = 0;
+    slotCounter = 0;
+    queryCounter = 0;
+    mockManagersReturn = DEFAULT_MANAGERS;
+    mockQueryReturn = pendingShiftOverrideRequest;
+    mockApproveShiftOverride = vi.fn().mockResolvedValue({ resolved: true });
+    mockDenyRequest = vi.fn().mockResolvedValue({ denied: true });
+  });
+
+  it("renders heading, outlet label, stranded staff name, and formatted sales when pending", () => {
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByRole("heading", { name: /Shift Override Request/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Pakuwon Mall/i)).toBeInTheDocument();
+    expect(screen.getByText(/Budi/i)).toBeInTheDocument();
+    // rp(250_000) = "Rp 250.000" — at least one match
+    expect(screen.getByText(/250/)).toBeInTheDocument();
+  });
+
+  it("renders both Close booth and Release hold outcome buttons", () => {
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt();
+
+    expect(screen.getByRole("button", { name: /Close booth/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Release hold/i })).toBeInTheDocument();
+  });
+
+  it("Approve button is disabled when staff code or PIN is missing", () => {
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt();
+
+    expect(screen.getByRole("button", { name: /^Approve$/i })).toBeDisabled();
+  });
+
+  it("calls approveShiftOverride with correct args on Approve (default resultingState=close)", async () => {
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt("shift-token-xyz");
+
+    await selectManager("MGR01");
+
+    fireEvent.keyDown(document, { key: "1" });
+    fireEvent.keyDown(document, { key: "2" });
+    fireEvent.keyDown(document, { key: "3" });
+    fireEvent.keyDown(document, { key: "4" });
+
+    const approveBtn = screen.getByRole("button", { name: /^Approve$/i });
+    await waitFor(() => expect(approveBtn).not.toBeDisabled());
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      expect(mockApproveShiftOverride).toHaveBeenCalledTimes(1);
+    });
+
+    const args = mockApproveShiftOverride.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.token).toBe("shift-token-xyz");
+    expect(args.managerStaffCode).toBe("MGR01");
+    expect(args.managerPin).toBe("1234");
+    expect(args.resultingState).toBe("close");
+    expect(typeof args.idempotencyKey).toBe("string");
+    expect((args.idempotencyKey as string).length).toBeGreaterThan(0);
+  });
+
+  it("passes resultingState='release' when Release hold is selected before submit", async () => {
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt("shift-token-rel");
+
+    // Switch to "Release hold"
+    fireEvent.click(screen.getByRole("button", { name: /Release hold/i }));
+
+    await selectManager("MGR02");
+
+    fireEvent.keyDown(document, { key: "5" });
+    fireEvent.keyDown(document, { key: "6" });
+    fireEvent.keyDown(document, { key: "7" });
+    fireEvent.keyDown(document, { key: "8" });
+
+    const approveBtn = screen.getByRole("button", { name: /^Approve$/i });
+    await waitFor(() => expect(approveBtn).not.toBeDisabled());
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      expect(mockApproveShiftOverride).toHaveBeenCalledTimes(1);
+    });
+
+    const args = mockApproveShiftOverride.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.resultingState).toBe("release");
+  });
+
+  it("shows resolved terminal screen when status is 'resolved'", () => {
+    mockQueryReturn = {
+      ...pendingShiftOverrideRequest,
+      status: "resolved",
+      resolved_at: Date.now() - 60_000,
+    };
+    stageActions(mockApproveShiftOverride, mockDenyRequest);
+    renderAt();
+
+    expect(
+      screen.getByText(/Shift override already approved/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Approve$/i }),
+    ).not.toBeInTheDocument();
+  });
+});
