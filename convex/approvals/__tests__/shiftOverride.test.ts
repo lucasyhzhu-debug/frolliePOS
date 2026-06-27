@@ -15,9 +15,18 @@
 
 import { convexTest } from "convex-test";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
 import schema from "../../schema";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { drainScheduled } from "../../__tests__/_helpers";
+
+function sha256Hex(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
+}
+
+const MGR_CODE = "S-MGR1";
+const MGR_PIN = "4242";
 
 // ---------------------------------------------------------------------------
 // Telegram fetch stub (matches managerOverride.test.ts pattern)
@@ -143,6 +152,110 @@ async function seedOutletClosedNoShift(
   return { outletId, deviceId };
 }
 
+/**
+ * Seed an approvable shift_override: open outlet + bound device + active hold +
+ * a manager (real argon2 PIN hash via _seedHashedStaff_internal) + a pending
+ * shift_override approval request with a KNOWN raw token (mirrors
+ * spoilageApproval.test.ts seedApprovable — seed the request row directly via
+ * _createRequest_internal rather than capturing the token off the send stub).
+ */
+async function seedApprovableOverride(
+  t: ReturnType<typeof convexTest>,
+  deviceId = "d-shift-override-approve",
+): Promise<{
+  outletId: Id<"outlets">;
+  deviceId: string;
+  holderId: Id<"staff">;
+  shiftId: Id<"pos_shifts">;
+  managerId: Id<"staff">;
+  rawToken: string;
+}> {
+  const rawToken = "raw-token-shift-override-approve";
+
+  // Manager with a real PIN hash (the approve path argon2-verifies it).
+  const managerId = await t.action(
+    internal.auth.actions._seedHashedStaff_internal,
+    { name: "Manager Mira", pin: MGR_PIN, role: "manager" },
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.patch(managerId, { code: MGR_CODE });
+  });
+
+  const { outletId, shiftId, holderId } = await t.run(async (ctx: any) => {
+    const outletId = await ctx.db.insert("outlets", {
+      is_open: true,
+      code: "PKW",
+      name: "Pakuwon",
+      timezone: "Asia/Jakarta",
+      active: true,
+      created_at: Date.now(),
+      created_by: null,
+    } as any);
+    await ctx.db.insert("registered_devices", {
+      device_id: deviceId,
+      label: "Test Device",
+      activated_at: Date.now(),
+      active: true,
+      outlet_id: outletId,
+    } as any);
+    const holderId = await ctx.db.insert("staff", {
+      name: "Stranded Sisca",
+      code: "S-ST1",
+      role: "staff",
+      active: true,
+      pin_hash: "x",
+      created_at: Date.now(),
+    });
+    const shiftId = await ctx.db.insert("pos_shifts", {
+      outlet_id: outletId,
+      device_id: deviceId,
+      staff_id: holderId,
+      started_at: Date.now() - 60_000,
+      started_via: "sop",
+      ended_at: null,
+      ended_via: null,
+      open_count: null,
+      close_count: null,
+      outgoing_uncounted: null,
+      steps: [],
+      summary: null,
+      prev_shift_id: null,
+      created_at: Date.now() - 60_000,
+    } as any);
+    await ctx.db.insert("telegramChats", {
+      chatId: "-100managers",
+      chatType: "supergroup",
+      title: "Mgrs",
+      role: "managers",
+      registeredAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
+    return { outletId, shiftId, holderId };
+  });
+
+  await t.mutation(internal.approvals.internal._createRequest_internal, {
+    kind: "shift_override",
+    entity_type: "pos_shifts",
+    entity_id: shiftId as unknown as string,
+    context: {
+      shift_id: shiftId as unknown as string,
+      device_id: deviceId,
+      outlet_label: "Pakuwon",
+      stranded_staff_name: "Stranded Sisca",
+      shift_started_at: Date.now() - 60_000,
+      sales_so_far_idr: 0,
+      txn_count: 0,
+    },
+    triggered_by_event: "shift_override_request",
+    triggered_at: Date.now(),
+    token_hash: sha256Hex(rawToken),
+    token_expires_at: Date.now() + 3_600_000,
+    outletId,
+  });
+
+  return { outletId, deviceId, holderId, shiftId, managerId, rawToken };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -195,5 +308,117 @@ describe("requestShiftOverride", () => {
       ctx.db.query("pos_approval_requests").collect(),
     );
     expect(rows.length).toBe(0);
+  });
+});
+
+describe("approveShiftOverride", () => {
+  it("manager code+PIN with resultingState close closes the booth and ends the hold", async () => {
+    const t = convexTest(schema);
+    const { outletId, shiftId, rawToken } = await seedApprovableOverride(t);
+
+    const res = await t.action(api.approvals.actions.approveShiftOverride, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: MGR_PIN,
+      resultingState: "close",
+      idempotencyKey: "ovr-close-1",
+    });
+    expect(res).toEqual({ resolved: true });
+
+    // Outlet closed.
+    const status = await t.query(
+      internal.outlets.status._getOutletStatus_internal,
+      { outletId },
+    );
+    expect(status.is_open).toBe(false);
+
+    // Hold force-ended via manager_override.
+    const shift = await t.run((ctx) => ctx.db.get(shiftId));
+    expect(shift?.ended_at).not.toBeNull();
+    expect(shift?.ended_via).toBe("manager_override");
+
+    // Request resolved.
+    const reqRows = await t.run((ctx) =>
+      ctx.db.query("pos_approval_requests").collect(),
+    );
+    expect(reqRows[0].status).toBe("resolved");
+
+    // Drain the scheduled _sendSignoffSummary action (commit schedules it).
+    await drainScheduled(t);
+  });
+
+  it("resultingState release ends the hold but leaves the booth open", async () => {
+    const t = convexTest(schema);
+    const { outletId, shiftId, rawToken } = await seedApprovableOverride(t);
+
+    const res = await t.action(api.approvals.actions.approveShiftOverride, {
+      token: rawToken,
+      managerStaffCode: MGR_CODE,
+      managerPin: MGR_PIN,
+      resultingState: "release",
+      idempotencyKey: "ovr-release-1",
+    });
+    expect(res).toEqual({ resolved: true });
+
+    // Outlet stays open — release force-ends the holder without closing.
+    const status = await t.query(
+      internal.outlets.status._getOutletStatus_internal,
+      { outletId },
+    );
+    expect(status.is_open).toBe(true);
+
+    // Hold still force-ended.
+    const shift = await t.run((ctx) => ctx.db.get(shiftId));
+    expect(shift?.ended_at).not.toBeNull();
+    expect(shift?.ended_via).toBe("manager_override");
+
+    // Drain the scheduled _sendSignoffSummary action (commit schedules it).
+    await drainScheduled(t);
+  });
+
+  it("rejects a non-manager code with NOT_MANAGER", async () => {
+    const t = convexTest(schema);
+    const { rawToken } = await seedApprovableOverride(t);
+
+    // S-ST1 is the stranded staffer (role: "staff"), not a manager.
+    await expect(
+      t.action(api.approvals.actions.approveShiftOverride, {
+        token: rawToken,
+        managerStaffCode: "S-ST1",
+        managerPin: MGR_PIN,
+        resultingState: "close",
+        idempotencyKey: "ovr-nonmgr",
+      }),
+    ).rejects.toThrow("NOT_MANAGER");
+  });
+
+  it("wrong PIN throws INVALID_PIN and writes no booth lockout row (SEC-07)", async () => {
+    const t = convexTest(schema);
+    const { managerId, rawToken } = await seedApprovableOverride(t);
+
+    await expect(
+      t.action(api.approvals.actions.approveShiftOverride, {
+        token: rawToken,
+        managerStaffCode: MGR_CODE,
+        managerPin: "0000", // wrong
+        resultingState: "close",
+        idempotencyKey: "ovr-wrongpin",
+      }),
+    ).rejects.toThrow("INVALID_PIN");
+
+    // SEC-07: off-booth miss never touches the booth lockout counter.
+    const attempts = await t.run((ctx) =>
+      ctx.db
+        .query("pos_auth_attempts")
+        .filter((q) => q.eq(q.field("staff_id"), managerId))
+        .collect(),
+    );
+    expect(attempts.length).toBe(0);
+
+    // The per-token PIN-attempt cap incremented instead.
+    const reqRows = await t.run((ctx) =>
+      ctx.db.query("pos_approval_requests").collect(),
+    );
+    expect((reqRows[0] as any).failed_pin_attempts).toBe(1);
   });
 });
