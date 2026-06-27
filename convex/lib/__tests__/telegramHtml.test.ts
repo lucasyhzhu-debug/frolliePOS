@@ -1,5 +1,5 @@
 import { describe, it, expect, test } from "vitest";
-import { renderOwnersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker, renderStaffShiftSignoff } from "../telegramHtml";
+import { renderOwnersSummary, renderLowStockAlert, renderRecountNotice, renderSystemError, renderTxnTicker, renderStaffShiftSignoff, renderShiftOverride } from "../telegramHtml";
 
 describe("renderSystemError", () => {
   it("escapes HTML and has no buttons", () => {
@@ -142,6 +142,17 @@ test("renderStaffShiftSignoff: omits manual-BCA section when count=0", () => {
     endedBy: "self",
   });
   expect(out.text).not.toContain("Manual BCA");
+});
+
+it("renders shift_override card with approve URL button", () => {
+  const result = renderShiftOverride({
+    outlet_label: "Block M", stranded_staff_name: "Sasi",
+    shift_started_at: 1782526962094, sales_so_far_idr: 385000, txn_count: 5,
+    approve_url: "https://pos.example/approve/RAW",
+  });
+  expect(result.text).toContain("Block M");
+  expect(result.text).toContain("Sasi");
+  expect(result.inline_keyboard?.[0]?.[0]?.url).toContain("https://pos.example/approve/RAW");
 });
 
 describe("telegramHtml v0.5.2 renderers", () => {
