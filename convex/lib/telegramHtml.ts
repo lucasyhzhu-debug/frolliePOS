@@ -495,6 +495,7 @@ export function renderShiftOverride(p: ShiftOverridePayload): RenderedMessage {
     `<b>🔓 Manager override requested</b>`,
     `Outlet: <b>${escapeHtml(p.outlet_label)}</b>`,
     `Booth held by: <b>${escapeHtml(p.stranded_staff_name)}</b>`,
+    `Shift started: <b>${escapeHtml(formatWibDateTime(p.shift_started_at))}</b>`,
     `Sales so far: <b>Rp ${formatIdr(p.sales_so_far_idr)}</b> (${p.txn_count} txn)`,
     ``,
     `<i>Tap to review and release the booth. Expires in 60 min.</i>`,
