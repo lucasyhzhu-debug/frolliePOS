@@ -4,6 +4,17 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
 
+## 2026-06-27 — v1.3.1: off-booth manager override (shift_override)
+
+- New `shift_override` approval kind: a blocked booth can request a manager override via Telegram;
+  the manager approves remotely with their staff code + PIN and chooses to **close** the booth or
+  **release** it open. Booth-inline override retained (now also offers close/release).
+- Session-less `requestShiftOverride({deviceId})` (the blocked staffer has no session) → per-outlet
+  `managers` card → `/approve` → `approveShiftOverride` (argon2 code+PIN, token-before-cache, SEC-07
+  lockout isolation). Shared commit `_managerOverrideCommit_internal` gains `closeOutlet` + `source`.
+- Audit verbs `shift_override.requested|approval_resolved|denied`; `shift.manager_override` now
+  records `resulting_state` + real `source`.
+
 ## 2026-06-26 — v1.3.0 Owner cockpit (Spec 3)
 
 **Scope:** Owner-facing management plane on top of the auth + data planes shipped in Specs 1–2. A new `convex/cockpit/` module is the sanctioned **outlet-UNSCOPED**, `requireCockpitSession`-gated read/clone surface; all cross-outlet reads route through owning-module internals per ADR-034.

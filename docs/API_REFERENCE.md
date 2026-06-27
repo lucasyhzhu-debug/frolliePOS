@@ -190,15 +190,17 @@ Public surface for the FPOS-internal inventory slice — stock-check screen, sta
 | m | `createDiscount` | `{ name, type, value, requiresManager, idempotencyKey }` | `Discount` | Manager-only |
 | m | `editDiscount` | `{ id, patch, idempotencyKey }` | `Discount` | Manager-only |
 
-## `approvals.ts` *(v0.3 + v0.4 + v0.5.0 — Telegram approval surface)*
+## `approvals.ts` *(v0.3 + v0.4 + v0.5.0 + v1.3.1 — Telegram approval surface)*
 
 > **v0.4 generalization:** `pos_approval_requests` now supports multiple kinds (`staff_pin_reset`, `manual_payment_override`). The `kind` field in all return types is a discriminant. `getByToken` returns a discriminated union.
 >
 > **v0.5.0 additions:** per-token PIN attempt cap (`TOKEN_PIN_ATTEMPT_CAP = 5`); `cancelPendingRequest` manager mutation for stuck-approval cleanup; `failed_pin_attempts` field on `pos_approval_requests`.
+>
+> **v1.3.1 additions:** `shift_override` kind — session-less `requestShiftOverride` (blocked booth has no session; outlet resolved from device) + `approveShiftOverride` (token + code + argon2 PIN, off-booth; SEC-07 lockout isolation). Shared commit `_managerOverrideCommit_internal` gains `closeOutlet: boolean` + `source` args.
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| q | `approvals.public.getByToken` | `{ rawToken: string }` | `StaffPinResetResult \| ManualPaymentOverrideResult \| null` | PUBLIC. Powers `/approve/:token` landing page. Discriminated by `kind`. Computes effective status (`pending \| resolved \| denied \| expired`) without mutating the DB. Token authorises VIEW only (ADR-029). |
+| q | `approvals.public.getByToken` | `{ rawToken: string }` | `StaffPinResetResult \| ManualPaymentOverrideResult \| ShiftOverrideResult \| null` | PUBLIC. Powers `/approve/:token` landing page. Discriminated by `kind`. Computes effective status (`pending \| resolved \| denied \| expired`) without mutating the DB. Token authorises VIEW only (ADR-029). `ShiftOverrideResult` *(v1.3.1)* returns safe context fields only (outlet label, stranded staff name) for the `/approve` review screen. |
 | q | `approvals.public.getRequestStatus` | `{ requestId: Id<"pos_approval_requests"> }` | `{ status: "pending" \| "resolved" \| "denied" \| "expired" } \| null` | Reactive. Used by `useApproval` hook. Returns effective status by ID (no token required — caller already has the ID from `requestManualPaymentApproval`). |
 | m | `approvals.public.cancelPendingRequest` | `{ sessionId, requestId, reason?, idempotencyKey }` | `{ ok: true }` | Manager-only *(v0.5.0)*. Transitions a `pending` request to `denied` with `denied_by_manager_id: "system"`. Used to clean up stuck approvals (e.g. after the charge screen is abandoned). Throws `APPROVAL_NOT_PENDING` if the request is not in `pending` state. |
 | a | `approvals.actions.requestManualPaymentApproval` | `{ sessionId, txnId, reason, idempotencyKey }` | `{ requestId }` | Action (Node). Creates `manual_payment_override` approval request + sends Telegram card to `managers` role. Dedups on one live pending request per txnId. Requires txn in `awaiting_payment` state. Deletes request row on Telegram send failure (recovery pattern). |
@@ -206,6 +208,8 @@ Public surface for the FPOS-internal inventory slice — stock-check screen, sta
 | a | `approvals.actions.denyRequest` | `{ token, managerStaffCode, managerPin, denyReason, idempotencyKey }` | `{ denied: true }` | Action (Node). Kind-agnostic deny — works for any pending request. Validates token + argon2 manager PIN. Commits `_markDenied_internal`. The denied transaction (if any) stays in its pre-denial state. |
 | a | `approvals.actions.approveStaffPinReset` | `{ token, managerStaffCode, managerPin, newPin, idempotencyKey }` | `{ resolved: true }` | Action (Node). Off-booth PIN reset via Telegram link. Validates token + argon2 manager PIN + hashes new PIN. Commits via `_changePinCommit_internal` (source: `telegram_approval`). |
 | a | `approvals.actions.notifyStaffLockout` | `{ staffId }` | `{}` | InternalAction. Fires on 3-strike lockout (scheduled by `_recordFailedAttempt_internal`). Mints token, creates `staff_pin_reset` request, sends Telegram card. Deduped — skips if a live pending request already exists. |
+| a | `approvals.actions.requestShiftOverride` | `{ deviceId: string, idempotencyKey }` | `{ requestId } \| { noHold: true }` | **SESSION-LESS** *(v1.3.1)*. The blocked booth staffer has no session; outlet resolved from `registered_devices.outlet_id`. Creates a `shift_override` approval request + sends Telegram managers card (outlet-scoped). Returns `{ noHold: true }` if no active hold exists (booth is open but unblocked — caller should offer `managerOverride` instead). Dedups: one pending request per active shift. Audits `shift_override.requested`. Idempotency-keyed (ADR-013). |
+| a | `approvals.actions.approveShiftOverride` | `{ token: string, managerStaffCode: string, managerPin: string, resultingState: "close" \| "release", idempotencyKey }` | `{ resolved: true }` | Action (Node) *(v1.3.1)*. Off-booth `/approve/:token` PIN-submit endpoint for `kind: "shift_override"`. Token-auth before cache lookup (ADR-046 + ADR-029). argon2 manager PIN verify; wrong-PIN increments `failed_pin_attempts` (auto-deny at cap 5); counts toward THIS manager's `pos_auth_attempts` (SEC-07: cannot DoS-lock a booth login — same isolation as `approveRefund`). On success: delegates to `shifts/internal._managerOverrideCommit_internal` with `closeOutlet: resultingState === "close"` + `source: "telegram_approval"`, then `_markResolved_internal`. Audits `shift_override.approval_resolved` via `KIND_AUDIT`. |
 
 ## `telegram.chatRegistry` *(v0.4 — manager admin surface; v0.5.0 split into public/internal)*
 
@@ -298,7 +302,7 @@ Booth shift state is **two stored levels** ([ADR-053](./ADR/053-two-level-booth-
 
 | Type | Name | Args | Returns | Notes |
 |---|---|---|---|---|
-| a | `shifts.actions.managerOverride` | `{ idempotencyKey, deviceId, managerStaffId, managerPin }` | `{ ok: true }` | **Manager-PIN gated** (argon2id, ADR-046). Force-ends the stranded `pos_shifts` row without creating a new session. The original staffer (or manager) re-authenticates via standard login. Errors: `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. Audits `shift.manager_override`. |
+| a | `shifts.actions.managerOverride` | `{ idempotencyKey, deviceId, managerStaffCode: string, managerPin: string, resultingState: "close" \| "release" }` | `{ ok: true }` | **Manager-PIN gated** (argon2id, ADR-046). Booth-inline override path. `resultingState: "release"` ends the active hold only; `"close"` also clears `outlets.is_open = false` (valid even if there is no active hold). No new session created; the original staffer re-authenticates via standard login. Errors: `NOT_MANAGER`, `INVALID_PIN`, `LOCKED_OUT:<secs>`. Audits `shift.manager_override` with `metadata.resulting_state` + `source: "booth_inline"`. |
 | a | `shifts.actions.managerSkipOpen` | `{ idempotencyKey, sessionId, managerPin }` | `{ ok: true; shiftId }` | **Manager-session + PIN** (ADR-046). Opens the booth without the full SOP checklist. Equivalent to `openBooth` but PIN-gated. Audits `outlet.opened` + `shift.start`. |
 
 ### Internal (helpers — `convex/shifts/internal.ts` + `convex/shifts/shiftsInternal.ts`)
@@ -309,7 +313,7 @@ Booth shift state is **two stored levels** ([ADR-053](./ADR/053-two-level-booth-
 | `_getActiveShift_internal` | Returns the active `pos_shifts` row for an outlet (`ended_at == null`). Used by signoff/handover/override. |
 | `_startShift_internal` | Inserts a new `pos_shifts` row + audits `shift.start`. Single writer for Level 2. |
 | `_endShift_internal` | Patches `ended_at` + `end_reason` + `summary` on a `pos_shifts` row. |
-| `_managerOverrideCommit_internal` | Atomic commit for `managerOverride`: fetch active shift by outlet → set `ended_at` + `end_reason: "manager_override"` → audit. No new session created. |
+| `_managerOverrideCommit_internal` | Atomic commit for both booth-inline `managerOverride` and off-booth `approveShiftOverride`. Args: `closeOutlet: boolean`, `source: "booth_inline" \| "telegram_approval"`. Pipeline: if active hold exists → set `ended_at` + `end_reason: "manager_override"`; if `closeOutlet` → set `outlets.is_open = false`; audit `shift.manager_override` with `metadata.resulting_state` + `source`. Runs even with no active hold (the close-outlet path is valid without a holder). *(v1.3.1 — previously single-path for booth-inline only)* |
 | `_managerSkipOpenCommit_internal` | Atomic commit for `managerSkipOpen`: set `outlets.is_open = true` + insert `pos_shifts` row + audit. |
 
 ### Actions (Node runtime — internal helpers)
