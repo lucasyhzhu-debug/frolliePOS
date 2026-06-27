@@ -1600,10 +1600,6 @@ interface ShiftOverrideProps {
     txn_count: number;
     status: string;
     token_expires_at: number;
-    deny_reason?: string;
-    denied_by_manager_name?: string;
-    denied_by_manager_code?: string;
-    denied_at?: number;
   };
 }
 
@@ -1743,8 +1739,6 @@ function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
   }
 
   // ── Pending form ──────────────────────────────────────────────────────────
-  const shiftDurationMs = Date.now() - request.shift_started_at;
-
   return (
     <main className="flex min-h-screen flex-col items-center justify-start gap-6 p-6 bg-background">
       <header className="w-full max-w-sm text-center pt-6">
@@ -1772,7 +1766,7 @@ function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t("approve.shiftOverrideDuration")}</span>
-          <span className="tabular-nums">{fmtShiftDuration(shiftDurationMs)}</span>
+          <span className="tabular-nums">{fmtShiftDuration(Date.now() - request.shift_started_at)}</span>
         </div>
         <div className="pt-2 border-t border-border flex justify-between">
           <span className="text-muted-foreground">{t("approve.shiftOverrideSalesSoFar")}</span>
@@ -1792,7 +1786,7 @@ function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
           onClick={() => setResultingState("close")}
           disabled={pending || denyPending}
         >
-          {t("approve.outcomeClose")}
+          {t("common.outcomeClose")}
         </Button>
         <Button
           type="button"
@@ -1800,7 +1794,7 @@ function ShiftOverrideVariant({ token, request }: ShiftOverrideProps) {
           onClick={() => setResultingState("release")}
           disabled={pending || denyPending}
         >
-          {t("approve.outcomeRelease")}
+          {t("common.outcomeRelease")}
         </Button>
       </div>
 

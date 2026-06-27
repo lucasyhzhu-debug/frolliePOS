@@ -7,6 +7,8 @@ export const id: Record<keyof typeof en, string> = {
   "common.save": "Simpan",
   "common.confirm": "Konfirmasi",
   "common.loading": "Memuat…",
+  "common.outcomeClose": "Tutup booth",
+  "common.outcomeRelease": "Lepas penahanan",
   "home.newSale": "Penjualan baru",
   "home.startCart": "mulai keranjang",
   "home.changePin": "Ubah PIN",
@@ -659,8 +661,6 @@ export const id: Record<keyof typeof en, string> = {
   // login — two-path manager override (v1.3.1)
   "login.requestOverrideViaTelegram": "Minta via Telegram",
   "login.overrideRequested": "Terkirim — menunggu manajer menyetujui",
-  "login.outcomeClose": "Tutup booth",
-  "login.outcomeRelease": "Lepas penahanan",
   "login.overrideDeclined": "Permintaan ditolak — ketuk 'Minta via Telegram' untuk coba lagi",
   "login.overrideExpired": "Permintaan kedaluwarsa — ketuk 'Minta via Telegram' untuk coba lagi",
   // cockpitLogin — login cockpit pemilik (v2.0 owner-auth, ADR-052)
@@ -827,8 +827,6 @@ export const id: Record<keyof typeof en, string> = {
   "approve.shiftOverrideDuration": "Durasi",
   "approve.shiftOverrideTxnCount": "Transaksi",
   "approve.shiftOverrideFormLabel": "Formulir persetujuan override shift",
-  "approve.outcomeClose": "Tutup booth",
-  "approve.outcomeRelease": "Lepas penahanan",
   "approve.shiftOverrideApproved": "✓ Override disetujui — shift dipaksa berakhir.",
   "approve.shiftOverrideDenied": "Ditolak — tidak ada perubahan.",
   "approve.shiftOverrideStaleShift": "Keadaan booth berubah sejak permintaan ini (mungkin sudah serah terima atau sudah ditutup). Minta booth untuk mengirimkan permintaan override baru.",

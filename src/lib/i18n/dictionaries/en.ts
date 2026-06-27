@@ -7,6 +7,8 @@ export const en = {
   "common.save": "Save",
   "common.confirm": "Confirm",
   "common.loading": "Loading…",
+  "common.outcomeClose": "Close booth",
+  "common.outcomeRelease": "Release hold",
   // home
   "home.newSale": "New sale",
   "home.startCart": "start a cart",
@@ -661,8 +663,6 @@ export const en = {
   // login — two-path manager override (v1.3.1)
   "login.requestOverrideViaTelegram": "Request via Telegram",
   "login.overrideRequested": "Requested — waiting for a manager to approve",
-  "login.outcomeClose": "Close booth",
-  "login.outcomeRelease": "Release hold",
   "login.overrideDeclined": "Request declined — tap 'Request via Telegram' to try again",
   "login.overrideExpired": "Request expired — tap 'Request via Telegram' to try again",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
@@ -829,8 +829,6 @@ export const en = {
   "approve.shiftOverrideDuration": "Duration",
   "approve.shiftOverrideTxnCount": "Transactions",
   "approve.shiftOverrideFormLabel": "Shift override approval form",
-  "approve.outcomeClose": "Close booth",
-  "approve.outcomeRelease": "Release hold",
   "approve.shiftOverrideApproved": "✓ Override approved — shift force-ended.",
   "approve.shiftOverrideDenied": "Declined — no change made.",
   "approve.shiftOverrideStaleShift": "The booth state changed since this request (it may have been handed over or already closed). Ask the booth to send a fresh override request.",

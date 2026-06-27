@@ -517,7 +517,6 @@ export default function LoginRoute() {
           setOverrideOpen(false);
           setPickedManager(null);
           setOverrideError(undefined);
-          setResultingState("close"); // reset to default for next open
         }}
         extraField={
           !pickedManager ? (
@@ -550,7 +549,7 @@ export default function LoginRoute() {
                     : "border-border bg-card text-foreground hover:bg-accent"
                 }`}
               >
-                {t("login.outcomeClose")}
+                {t("common.outcomeClose")}
               </button>
               <button
                 type="button"
@@ -561,7 +560,7 @@ export default function LoginRoute() {
                     : "border-border bg-card text-foreground hover:bg-accent"
                 }`}
               >
-                {t("login.outcomeRelease")}
+                {t("common.outcomeRelease")}
               </button>
             </div>
           )

@@ -855,20 +855,15 @@ export const requestShiftOverride = action({
 
     // Step 5: build context for the approval card
     const now = Date.now();
-    const summary = await ctx.runQuery(
-      internal.shifts.internal._buildSignoffSummary_internal,
-      { shiftStartMs: hold.started_at, endMs: now, outletId },
-    );
-    const staffNames = await ctx.runQuery(
-      internal.auth.internal._listStaffNames_internal,
-      {},
-    );
+    const [summary, staffNames, outlet] = await Promise.all([
+      ctx.runQuery(internal.shifts.internal._buildSignoffSummary_internal, {
+        shiftStartMs: hold.started_at, endMs: now, outletId,
+      }),
+      ctx.runQuery(internal.auth.internal._listStaffNames_internal, {}),
+      ctx.runQuery(internal.outlets.internal._getOutlet_internal, { outletId }),
+    ]);
     const strandedName =
       staffNames.find((s) => s._id === hold.staff_id)?.name ?? "Staff";
-    const outlet = await ctx.runQuery(
-      internal.outlets.internal._getOutlet_internal,
-      { outletId },
-    );
     const outletLabel = outlet?.name ?? "Booth";
 
     const baseUrl = process.env.POS_BASE_URL;
