@@ -33,7 +33,7 @@ outlet **"Frollie — Pakuwon"**.
 - Per-outlet Telegram chat routing + OTP-to-DM binding → **Telegram-per-outlet spec**.
 - **Multi-business / SaaS** (control plane, business registry, billing, per-tenant provisioning, the
   `business_id`-pooled hybrid) → **deferred to a future roadmap**, not this program (ADR-051 *Future
-  roadmap*; ADR-053 + SaaS spec retained as deferred artifacts only).
+  roadmap*; ADR-054 + SaaS spec retained as deferred artifacts only).
 - Cross-deployment `products` sync to Frollie Pro (already out of v1; unchanged).
 
 ---
@@ -554,7 +554,7 @@ rule; FE + backend together).
 - **Sibling specs (depend on this):** owner-cockpit design (owner role, cockpit auth, clone wizard);
   Telegram-per-outlet design (`telegramChats.outlet_id`, per-outlet routing, OTP-to-DM; may add
   `pending_device_setups.target_outlet_id` if Telegram pre-assignment is ever wanted — not in Phase 1 per OQ4).
-- **Deferred (future roadmap, not this program):** ADR-053 + SaaS control-plane / provisioning spec.
+- **Deferred (future roadmap, not this program):** ADR-054 + SaaS control-plane / provisioning spec.
 - **Key files:** `convex/auth/sessions.ts`, `convex/auth/internal.ts` (`_loginCommit_internal`),
   `convex/auth/public.ts` (`getSession`), `convex/staff/internal.ts`
   (`_activateDeviceCommit_internal`), new `convex/outlets/`, new `convex/lib/outletScope.ts`, new
