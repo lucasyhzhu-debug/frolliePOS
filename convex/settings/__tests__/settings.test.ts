@@ -210,8 +210,8 @@ it("_getSettings_internal returns manual_bca defaults when row absent", async ()
   const s = await t.query(internal.settings.internal._getSettings_internal, { outletId });
   expect(s.manual_bca.enabled).toBe(true);
   expect(s.manual_bca.bank_name).toBe("BCA");
-  expect(s.manual_bca.account_name).toBe("PT Malo Group Bahagia");
-  expect(s.manual_bca.account_number).toBe("6044830994");
+  expect(s.manual_bca.account_name).toBe("EXAMPLE COMPANY");
+  expect(s.manual_bca.account_number).toBe("0000000000");
 });
 
 // ─── manual-BCA config (v1.2 #10 T4) ────────────────────────────────────────
@@ -247,8 +247,8 @@ describe("manual-BCA", () => {
     const cfg = await t.query(api.settings.public.getManualBcaConfig, { sessionId: mgr });
     expect(cfg.enabled).toBe(true);
     expect(cfg.bank_name).toBe("BCA");
-    expect(cfg.account_name).toBe("PT Malo Group Bahagia");
-    expect(cfg.account_number).toBe("6044830994");
+    expect(cfg.account_name).toBe("EXAMPLE COMPANY");
+    expect(cfg.account_number).toBe("0000000000");
     await expect(
       t.query(api.settings.public.getManualBcaConfig, { sessionId: staff }),
     ).rejects.toThrow("MANAGER_ONLY");
@@ -258,9 +258,9 @@ describe("manual-BCA", () => {
     const t = convexTest(schema);
     const { mgr, staff } = await seedSessions(t);
     const cfgMgr = await t.query(api.settings.public.getManualBcaAccount, { sessionId: mgr });
-    expect(cfgMgr.account_number).toBe("6044830994");
+    expect(cfgMgr.account_number).toBe("0000000000");
     const cfgStaff = await t.query(api.settings.public.getManualBcaAccount, { sessionId: staff });
-    expect(cfgStaff.account_number).toBe("6044830994");
+    expect(cfgStaff.account_number).toBe("0000000000");
   });
 
   it("_updateManualBcaConfig_internal persists + audits as system; validates fields", async () => {
@@ -300,7 +300,7 @@ describe("manual-BCA", () => {
     // FIELD_REQUIRED enforced for a blank/whitespace-only account_number
     await expect(
       t.mutation(internal.settings.internal._updateManualBcaConfig_internal, {
-        enabled: true, bank_name: "BCA", account_name: "PT Malo Group Bahagia", account_number: "   ",
+        enabled: true, bank_name: "BCA", account_name: "EXAMPLE COMPANY", account_number: "   ",
       }),
     ).rejects.toThrow(/FIELD_REQUIRED:account_number/);
   });

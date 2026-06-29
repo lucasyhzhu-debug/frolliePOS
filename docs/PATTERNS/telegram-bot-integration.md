@@ -29,7 +29,7 @@ The daily delivery report is one-way. Manager approvals are two-way.
 2. Send `/newbot` and follow prompts:
    - **Name** (shown in chats): e.g., `Frollie Delivery Bot`
    - **Username** (must end in `bot`): e.g., `FrollieDeliveryBot`
-3. BotFather replies with the **bot token** — a string like `8972468030:AAFDNdc5QyyVvDhatvz0WmC-YCNy6fPI2U8`. **This is the only credential you'll ever need.** Save it to a secrets store immediately.
+3. BotFather replies with the **bot token** — a string like `123456789:AA-EXAMPLE-TOKEN-not-a-real-credential`. **This is the only credential you'll ever need.** Save it to a secrets store immediately.
 4. **(Optional polish)** Set the bot description and about-text via `/setdescription` and `/setabouttext`. Useful for distinguishing dev vs prod bots in a search.
 
 **Sanity test the token:**

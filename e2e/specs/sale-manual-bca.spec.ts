@@ -14,8 +14,8 @@ test("Manual BCA sale: cart → charge → Bank transfer tab → attest → conf
   await page.getByRole("tab", { name: /Bank transfer/i }).click();
 
   // Wait for the account to render (getManualBcaAccount resolved) before attesting,
-  // so we don't race the query — the default account number is "6044830994".
-  await expect(page.getByText(/6044830994/)).toBeVisible({ timeout: 10_000 });
+  // so we don't race the query — the default account number is "0000000000".
+  await expect(page.getByText(/0000000000/)).toBeVisible({ timeout: 10_000 });
 
   // The static account is shown; attestation gates the confirm button.
   const confirm = page.getByRole("button", { name: /Confirm payment/i });

@@ -675,8 +675,8 @@ Single-row settings table. v0.4 ships one field (`founders_summary_enabled`); v0
 | `txn_ticker_enabled` | `boolean?` | *(v1.0.2)* Writable via the manager-session toggle on `/mgr/telegram-chats` (`settings.setTxnTickerEnabled`). Read-time default `true` when absent. Dashboard edit remains a break-glass kill-switch. |
 | `manual_bca_enabled` | `boolean?` | *(v1.2 #10)* Shows/hides the "Bank transfer (manual)" tender on the charge screen. Read-time default `true` when absent (`MANUAL_BCA_DEFAULTS`, `settings/internal.ts`). |
 | `manual_bca_bank_name` | `string?` | *(v1.2 #10)* Display label for the bank. Read-time default `"BCA"` when absent. |
-| `manual_bca_account_name` | `string?` | *(v1.2 #10)* Account holder name shown to staff for verification. Read-time default `"PT Malo Group Bahagia"` when absent. |
-| `manual_bca_account_number` | `string?` | *(v1.2 #10)* Account number shown to staff — stored as a **string** (leading-zero safe, never coerced). Read-time default `"6044830994"` when absent. |
+| `manual_bca_account_name` | `string?` | *(v1.2 #10)* Account holder name shown to staff for verification. Read-time default `"EXAMPLE COMPANY"` when absent. |
+| `manual_bca_account_number` | `string?` | *(v1.2 #10)* Account number shown to staff — stored as a **string** (leading-zero safe, never coerced). Read-time default `"0000000000"` when absent. |
 | `outlet_device_id` | `string?` | *(v1.2 — **RETIRED in v2.0**)* Was the designated booth outlet device_id for the PR #124 SOP gate. **Replaced by `registered_devices.outlet_id` + `assignDeviceOutlet`.** Existing rows are ignored; `settings.outletStatus` and `staff.setOutletDevice` have been deleted. |
 | `outlet_id` | `Id<"outlets">?` | *(v2.0)* Scopes this settings row to a specific outlet. `_getSettings_internal` takes an `outletId?` arg and reads `by_outlet`. Pre-v2.0 singleton row has no `outlet_id` and is the fallback. |
 | `updated_at` | `number` | |

@@ -14,20 +14,23 @@ export const RECEIPT_DEFAULTS = {
   footer_text: "Thank you!",
 } as const;
 
-// v1.2 #10 manual-BCA account defaults — the live company account. Editable via
-// settings.public.updateManualBcaConfig; these are the fallback when the row /
-// field is absent.
-// POC tradeoff: a real money destination (account number) is hardcoded as the
-// read-time default so the booth works out-of-the-box with zero config, exactly
-// mirroring RECEIPT_DEFAULTS. Acceptable for a single-booth internal tool where
-// the account is the company's own and a manager can override via /mgr. If this
-// pattern ever serves multiple tenants, the default must move to per-tenant
-// config (a hardcoded payout account is a cross-tenant hazard).
+// v1.2 #10 manual-BCA account defaults — the read-time fallback when the
+// per-outlet pos_settings row / field is absent.
+//
+// The real payout account is NEVER hardcoded here (it would leak a money
+// destination in a public repo). It is configured at runtime via Convex env vars
+// — set on BOTH dev and prod with:
+//   npx convex env set MANUAL_BCA_ACCOUNT_NAME "<holder>"   [--prod]
+//   npx convex env set MANUAL_BCA_ACCOUNT_NUMBER "<number>" [--prod]
+// — or, preferably, via the per-outlet pos_settings row (written by
+// _updateManualBcaConfig_internal), which takes precedence over this default.
+// The placeholder fallback below keeps dev/tests/out-of-the-box runs working
+// with zero config; if a customer ever sees it, the env var simply wasn't set.
 export const MANUAL_BCA_DEFAULTS = {
   enabled: true,
   bank_name: "BCA",
-  account_name: "PT Malo Group Bahagia",
-  account_number: "6044830994",
+  account_name: process.env.MANUAL_BCA_ACCOUNT_NAME ?? "EXAMPLE COMPANY",
+  account_number: process.env.MANUAL_BCA_ACCOUNT_NUMBER ?? "0000000000",
 } as const;
 
 export const _getSettings_internal = internalQuery({
