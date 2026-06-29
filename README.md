@@ -1,168 +1,118 @@
 # Frollie POS
 
-Internal point-of-sale system for the Frollie booth. Mobile web app (PWA) running on Android. Digital payments via Xendit (QRIS + BCA Virtual Account). Same Convex project as [product_master](https://github.com/lucasyhzhu-debug/product_master).
+The point-of-sale that runs [Frollie](https://instagram.com/frollie.id), our snacks business in Jakarta. It lives entirely on one Android phone. No terminal, no extra hardware, no monthly SaaS.
 
-> Current state: **v0.2 baseline scaffolding** committed. Backend, screens, and PWA polish land per the phased roadmap (see `docs/WORKFLOW.md`).
+We built it for our own counter and have run it at our Block M outlet every day since launch. Now it's open source, so any small shop can fork it and make it theirs. Built with [Claude Code](https://claude.com/claude-code).
+
+A web app (installable PWA), so the whole thing is a URL on a phone. Digital payments only: QRIS for tap-to-pay, manual bank transfer as the backup. Money is whole-rupiah integers, never floats.
+
+---
+
+## What it does
+
+Everything below is a button on the home screen. A staffer signs in with a 4-digit PIN and gets the day-to-day surfaces; a manager PIN unlocks the rest.
+
+**Selling**
+- **New sale** — build a cart from the catalog, charge by QRIS or manual transfer. Works offline; the charge step waits for a connection.
+- **Saved carts** — park a cart mid-sale and resume it later (drafts queue offline).
+- **History** — today's sales, reprint a receipt, or start a refund.
+- **Refund** — refund a paid sale. A refund is its own record, never an edit to the original sale.
+
+**Stock**
+- **Stock check** — live inventory and a guided recount. Stock decrements at the inventory-SKU level, and a sale is never hard-blocked at zero (it's flagged for review instead).
+
+**You**
+- **Change PIN** — staff self-service.
+- **Language** — switch English / Bahasa Indonesia per person, instantly.
+- **Lock** — hand the phone to the next person; the session ends cleanly.
+- **Receipt printer** — connect a Bluetooth thermal printer, test, and print.
+- **Install / Update** — add the app to the home screen, and a banner pushes the newest build so a kiosk never sits on a stale version.
+
+**Manager** (manager PIN)
+- **Manager home** — the back office: dashboard (today's totals, payment mix, top SKUs, per-staff), products (price, photo, archive), staff (roles, deactivate, reset PIN), vouchers, spoilage, receipt branding, stock-drift triage, device setup, and an append-only audit log.
+- **Settlements** — track Xendit payouts to your bank, with manual entry on payout day.
+- **Telegram chats** — register the bot and route each alert to the right group.
+
+**End of shift**
+- **Close booth** and **Handover** — the two ways to end a shift. Both send the daily summary to the owners over Telegram.
+
+**Owners** (a separate plane at `/cockpit`)
+- Sign in with a one-time code sent to your Telegram. Get a daily sales rollup, approve manager actions remotely (refunds, voids, PIN resets, manual payments), and run multiple outlets from one place.
+
+---
+
+## How it works
+
+- **Approvals and alerts run on Telegram.** Off-booth approvals arrive as a single-use link; owners get a daily sales summary; managers get a live sales ticker, low-stock alerts, and recount notices. Owner login is a Telegram one-time code.
+- **Payments are webhook-confirmed.** QRIS renders in-app via Xendit's QR Codes API; confirmation comes from the payment webhook, with a manager-PIN override as the manual fallback. No polling.
+- **Auth is PIN-first.** 4-digit PINs hashed with argon2id, device registration before first login, lockout on repeated misses. Manager-PIN gates the actions that move money or change identity; owners authorise the rest by one-time code.
+- **Offline is partial and honest.** Catalog, cart, drafts, and the stock-in queue work offline. Payments, auth, and refunds tell you plainly that they need a connection rather than failing silently.
+- **Multi-outlet by design.** Every operational query is scoped to the outlet bound to the device; owners see across all of them.
 
 ## Stack
 
-- Convex 1.31.7 (shared deployment with product_master)
-- React 19 + TypeScript + Vite 6
-- Tailwind CSS 4 + shadcn/ui (new-york, stone, tuned to Frollie teal)
-- Framer Motion · React Router v7
-- Xendit Invoice API (QRIS + BCA VA)
-- Vercel (frontend hosting)
-- PWA via `vite-plugin-pwa` (installable on Android)
-- Sonner toasts · Zustand for local cart state · IDB for offline queue
+React 19 + TypeScript + Vite, [Convex](https://convex.dev) for the backend and real-time sync, Tailwind 4 + shadcn/ui, Framer Motion, React Router v7. Zustand for cart state, IndexedDB for the offline queue. [Xendit](https://xendit.co) for payments, the Telegram Bot API for comms. Hosted on Vercel as an installable PWA.
 
-Design tokens mirror Frollie Pro's design system (Inter, Frollie teal palette, role/channel/station colors). Source: `frollie-pos design files/lucas-frollie-design-system`, embedded in `src/index.css`.
+The depth lives in [`CLAUDE.md`](./CLAUDE.md) and [`docs/`](./docs) — architecture decisions in [`docs/ADR/`](./docs/ADR), the schema in [`docs/SCHEMA.md`](./docs/SCHEMA.md), the function inventory in [`docs/API_REFERENCE.md`](./docs/API_REFERENCE.md), and Telegram ops in [`docs/RUNBOOK-telegram.md`](./docs/RUNBOOK-telegram.md).
 
-## Quick start
+## Run it locally
 
 ```bash
-# clone
-git clone git@github.com:lucasyhzhu-debug/frolliePOS.git
+git clone https://github.com/lucasyhzhu-debug/frolliePOS.git
 cd frolliePOS
-
-# install
 npm install
 
-# env (copy from .env.example, fill in values)
-cp .env.example .env.local
-# Required client-side: VITE_CONVEX_URL
-# Required server-side (set via `npx convex env set`):
-#   XENDIT_SECRET_KEY, XENDIT_CALLBACK_TOKEN,
-#   RECEIPT_SIGNING_SECRET, APPROVAL_TOKEN_SECRET
+cp .env.example .env.local        # set VITE_CONVEX_URL
 
-# dev (two terminals)
-npm run dev
-npx convex dev
+# two terminals
+npm run dev                        # vite on http://localhost:5173
+npx convex dev                     # backend (creates your own Convex dev project)
 
-# open
-http://localhost:5173
+npx convex run seed:reset          # dev staff + a pre-registered booth device
 ```
 
-Seed data (once `convex/seed.ts` lands in Wave 3): `npx convex run seed:reset` writes test staff (PIN `0000`) and a manager (PIN `9999`). Set the `dev_staff` PIN in `convex/seed.ts` if you want a different value.
-
-## Commands
+In dev, `seed:reset` pre-registers a fixed device so you skip activation. The seeded manager's PIN comes from `BOOTSTRAP_MANAGER_PIN` (see below).
 
 ```bash
-npm run dev              # vite dev server
-npx convex dev           # convex dev (connects to dev deployment)
-npm run build            # production build (tsc -b && vite build)
-npm run preview          # preview production build locally
-npm run deploy           # vercel deploy
-npx convex deploy        # convex prod deploy (shared deployment — coordinate)
-npm run typecheck        # tsc --noEmit
+npm run build        # tsc -b && vite build
+npm run typecheck    # tsc --noEmit
 npm run lint
+npm run deploy       # frontend → Vercel
+npx convex deploy    # backend → your Convex prod
 ```
 
-## Project structure
+## Configuration
 
-```
-frolliePOS/
-├── CLAUDE.md                       # AI agent context — read first
-├── README.md
-├── package.json · vite.config.ts · tsconfig.json
-├── components.json                 # shadcn/ui config
-├── convex.json
-├── index.html
-├── .env.example · .gitignore
-│
-├── convex/                         # backend (filled in Wave 3)
-│   ├── schema.ts                   # POS table definitions
-│   ├── auth.ts                     # PIN auth (argon2id), sessions, lockout
-│   ├── staff.ts                    # staff + device CRUD
-│   ├── transactions.ts             # cart, draft, void
-│   ├── payments.ts                 # Xendit invoice lifecycle
-│   ├── refunds.ts                  # refund flow (with WA approval entry)
-│   ├── stock.ts                    # movements, levels, reconciliation
-│   ├── products.ts                 # products + inventory SKUs + components
-│   ├── vouchers.ts · discounts.ts
-│   ├── approvals.ts                # WA approval requests + tokens
-│   ├── audit.ts                    # logAudit helper + audit query
-│   ├── dashboard.ts                # manager dashboard queries
-│   ├── settlements.ts              # Xendit settlement sync
-│   ├── settings.ts                 # pos_settings singleton
-│   ├── idempotency.ts              # mutation harness + dedupe helpers
-│   ├── seed.ts                     # dev seeding
-│   └── xendit/
-│       ├── invoice.ts
-│       ├── webhook.ts              # HTTP action for Xendit callbacks
-│       ├── polling.ts
-│       └── refund.ts
-│
-├── src/
-│   ├── main.tsx · router.tsx · index.css
-│   ├── routes/                     # one file per route (see router.tsx)
-│   │   ├── login.tsx · home.tsx · lock.tsx · history.tsx · settlements.tsx
-│   │   ├── refund.tsx · wait.tsx
-│   │   ├── sale/                   # index, drafts, voucher, charge, charge-success
-│   │   ├── stock/                  # index (check), in
-│   │   ├── mgr/                    # home, dashboard, products, receipt
-│   │   ├── approve/                # index (WA landing), pin (PUBLIC routes)
-│   │   └── receipt.tsx             # PUBLIC /r/:receiptNumber
-│   ├── components/
-│   │   ├── ui/                     # shadcn primitives — button, badge, card,
-│   │   │                           #   input, label, separator, dialog,
-│   │   │                           #   dropdown-menu, popover, select, switch,
-│   │   │                           #   tabs, tooltip, progress, scroll-area,
-│   │   │                           #   sonner (toast)
-│   │   ├── layout/                 # RootLayout, Stub (PhoneFrame, ConnDot land per phase)
-│   │   ├── pos/                    # NumericKeypad (PIN + qty entry, keyboard-aware)
-│   │   └── (screen-specific)/      # ProductGrid, CartPanel, etc. (land per phase)
-│   ├── hooks/                      # useSession, useCart, useOfflineQueue, useIdempotency (per phase)
-│   └── lib/
-│       └── utils.ts                # cn() — clsx + tailwind-merge. Other utils per phase
-│
-├── public/                         # static assets, icons (Wave 8)
-│
-├── docs/
-│   ├── SCHEMA.md                   # POS tables + Frollie Pro relationship
-│   ├── ADR/                        # 000-strategic-foundations.md + 33 numbered ADRs
-│   │   └── README.md               # index
-│   ├── DECISIONS.md                # legacy product/flow decisions reference
-│   ├── CHANGELOG.md
-│   ├── WORKFLOW.md                 # extends Frollie Pro's
-│   └── API_REFERENCE.md            # Convex function inventory
-│
-├── archive/                        # local-only (.gitignore'd) — original delivery bundle
-└── frollie-pos design files/       # local-only (.gitignore'd) — wireframe handoff bundle
-                                    # (source of truth for screens + 33-ADR registry)
-```
+Client (Vite, shipped in the bundle — never secret):
 
-## Environment variables
+| Var | Purpose |
+|---|---|
+| `VITE_CONVEX_URL` | Convex deployment URL |
+| `VITE_APP_URL` | base URL for shareable receipt links |
+| `VITE_OPS_INGEST_TOKEN` | client error-reporting token |
 
-```
-# Client (Vite, public — included in build)
-VITE_CONVEX_URL=
-VITE_APP_URL=                    # used for receipt URLs sent via WhatsApp
+Server (set with `npx convex env set …`, on both dev and prod):
 
-# Server (set via `npx convex env set`, NEVER in client bundle)
-XENDIT_SECRET_KEY=
-XENDIT_CALLBACK_TOKEN=           # webhook signature verification
-RECEIPT_SIGNING_SECRET=          # HMAC for receipt URL tokens
-APPROVAL_TOKEN_SECRET=           # HMAC for WA approval tokens
-```
+| Var | Purpose |
+|---|---|
+| `BOOTSTRAP_MANAGER_PIN` | 4-digit PIN for the seeded manager; forced to rotate on first login |
+| `XENDIT_SECRET_KEY` | Xendit API key (QRIS) |
+| `XENDIT_CALLBACK_TOKEN` | verifies the payment webhook signature |
+| `TELEGRAM_BOT_TOKEN` | the bot that sends approvals, summaries, and OTPs |
+| `TELEGRAM_WEBHOOK_SECRET` | verifies inbound Telegram updates |
+| `TELEGRAM_BOT_USERNAME` | builds owner bind deep-links |
+| `MANUAL_BCA_ACCOUNT_NUMBER` · `MANUAL_BCA_ACCOUNT_NAME` | the bank account shown for manual transfers |
+| `POS_BASE_URL` | base URL for approval and receipt links |
+| `OPS_INGEST_TOKEN` | server side of error reporting |
 
-## Deployment
+## Deploy
 
-**Frontend:** `vercel --prod` or push to `main` if GitHub integration is wired.
+Frollie runs on its **own** Convex project (dev + prod). The Vercel production build ships backend and frontend together: on `VERCEL_ENV === "production"`, `npm run build` runs `npx convex deploy` first, then builds the frontend against the prod URL, so the app can never go live against a stale backend. A production deploy needs `CONVEX_DEPLOY_KEY` in Vercel's Production env.
 
-**Backend:** `npx convex deploy` — deploys to the **shared product_master Convex deployment**. Coordinate with the Frollie Pro maintainer before running this. The shared schema means a broken POS deploy can affect product_master queries.
+## What it is, and isn't
 
-See `docs/WORKFLOW.md` for the deploy-coordination checklist.
+Built for a single booth, two or three staff, digital payments only. It is not a cash drawer, a kitchen/recipe inventory system, a customer-facing screen, or a Play Store app. It sells finished goods, tracks them at the SKU level, and stays out of everything else. The reasoning behind each of those lines is written down in [`docs/ADR/`](./docs/ADR).
 
-## Documentation
+## License
 
-- [CLAUDE.md](./CLAUDE.md) — agent context, business rules, conventions
-- [docs/SCHEMA.md](./docs/SCHEMA.md) — POS tables and Frollie Pro relationship
-- [docs/ADR/](./docs/ADR/) — architecture decisions (33 implementation ADRs + consolidated strategic foundations)
-- [docs/DECISIONS.md](./docs/DECISIONS.md) — legacy product/flow decisions reference
-- [docs/CHANGELOG.md](./docs/CHANGELOG.md) — version history
-- [docs/WORKFLOW.md](./docs/WORKFLOW.md) — dev workflow (extends Frollie Pro's)
-- [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) — Convex function reference
-
-## Wireframes & handoff
-
-The visual + IA source of truth lives in `frollie-pos design files/project/Frollie POS Wireframes.html` (not in the repo — provided as a handoff bundle from Claude Design). When implementing a screen, open the corresponding artboard's source under `wireframes/*.jsx` for layout intent. The hand-drawn aesthetic in the wireframes is a wireframe convention; implementation uses production-polish shadcn/Tailwind via the tokens in `src/index.css`.
+[MIT](./LICENSE). Fork it, ship it, make it yours.
