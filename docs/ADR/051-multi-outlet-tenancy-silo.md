@@ -12,7 +12,7 @@
 > **Scope note (2026-06-22):** the **multi-business / SaaS** axis (selling the POS to other
 > businesses — a shared control plane, business registry, billing, per-tenant provisioning) is
 > **deferred to a future roadmap** and is NOT part of this program. See *Future roadmap (multi-business)*
-> below. ADR-053 + the SaaS control-plane spec are retained as deferred design artifacts only.
+> below. ADR-054 + the SaaS control-plane spec are retained as deferred design artifacts only.
 
 ---
 
@@ -143,7 +143,7 @@ foreclose it; **none of this ships in the multi-outlet program**:
   "silo" — one deployment = one business), keeping cross-business blast radius at the deployment wall.
 - **Shared control plane** (`frollie-platform`): business registry, billing, per-deployment routing —
   a *separate* Convex project that never reaches into a business's data plane. (Deferred design:
-  ADR-053 + the SaaS control-plane spec, both retained as roadmap artifacts only.)
+  ADR-054 + the SaaS control-plane spec, both retained as roadmap artifacts only.)
 - **Per-tenant provisioning** (fresh Convex project + schema push + bootstrap seed on signup) is not a
   turnkey Convex feature; it must be SPIKEd (Convex team API + scoped deploy keys, a pre-provisioned
   deployment pool, or manual provisioning) **before** any self-serve-signup work is planned.
@@ -172,7 +172,7 @@ foreclose it; **none of this ships in the multi-outlet program**:
 
 - **Implementation spec:** `docs/superpowers/specs/2026-06-21-multi-tenancy-foundation-design.md`
 - **Sibling specs (same program):** owner-cockpit design, Telegram-per-outlet design.
-- **Deferred roadmap artifacts (not in this program):** ADR-053 + SaaS control-plane / provisioning spec.
+- **Deferred roadmap artifacts (not in this program):** ADR-054 + SaaS control-plane / provisioning spec.
 - **Affected schema modules:** `auth/`, `catalog/`, `transactions/`, `payments/`, `receipts/`,
   `refunds/`, `inventory/`, `vouchers/`, `approvals/`, `settings/`, `shifts/`, `telegram/`.
 - **Affected helpers:** `convex/auth/sessions.ts` (`requireSession`), `convex/auth/internal.ts`

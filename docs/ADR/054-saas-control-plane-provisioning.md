@@ -1,4 +1,4 @@
-# ADR-053. Control-plane / data-plane split for multi-tenant SaaS; per-tenant provisioning is an open spike
+# ADR-054. Control-plane / data-plane split for multi-tenant SaaS; per-tenant provisioning is an open spike
 
 **Date:** 2026-06-21
 **Status:** Deferred — future multi-business roadmap (not part of the multi-outlet program)

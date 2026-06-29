@@ -4,7 +4,7 @@
 **Phase:** Future multi-business roadmap (SaaS / control plane) — **deferred, not part of the multi-outlet program**
 **Branch (target):** `feat/phase2-saas-control-plane` (control plane is a **separate Convex project** — likely a sibling repo `frollie-platform/`, not a branch of `frolliepos`)
 **Status:** Deferred — retained as a future-roadmap design artifact only (2026-06-22)
-**ADR:** [`docs/ADR/053-saas-control-plane-provisioning.md`](../../ADR/053-saas-control-plane-provisioning.md)
+**ADR:** [`docs/ADR/054-saas-control-plane-provisioning.md`](../../ADR/054-saas-control-plane-provisioning.md)
 
 > **DEFERRED (2026-06-22).** Multi-business / SaaS is out of the current multi-outlet program (Frollie,
 > one deployment, many outlets). This spec is preserved for a future roadmap; nothing here is built or
@@ -15,7 +15,7 @@
 - Spec 2 — owner cockpit: [`2026-06-21-owner-cockpit-design.md`](./2026-06-21-owner-cockpit-design.md)
 - Spec 3 — per-outlet Telegram: [`2026-06-21-per-outlet-telegram-routing-design.md`](./2026-06-21-per-outlet-telegram-routing-design.md)
 
-> ⚠️ **Exploratory.** Phase 2 is the SaaS bet. The single hardest piece — programmatic per-tenant provisioning — is **NOT turnkey on Convex** and is recorded here as a **SPIKE**, not a solved design. Do not promise self-serve signup until §6's spike resolves. Read ADR-053 first.
+> ⚠️ **Exploratory.** Phase 2 is the SaaS bet. The single hardest piece — programmatic per-tenant provisioning — is **NOT turnkey on Convex** and is recorded here as a **SPIKE**, not a solved design. Do not promise self-serve signup until §6's spike resolves. Read ADR-054 first.
 
 ---
 
@@ -52,7 +52,7 @@ This spec ships the **commercial + operational scaffolding** for SaaS. It delibe
 | E | Migration fan-out orchestration | `scripts/deploy-all-tenants.mjs` | Medium — operational tooling, skew-fatal per tenant |
 | F | Plane boundary & isolation invariants | cross-cutting | Low — enforced by "no shared DB" |
 
-The **control plane holds no POS transactional data.** Its only link to a silo is the `business_deployments` row (URL + scoped key ref). All cross-plane runtime calls go *through that URL*, never a shared table (ADR-053 Decision A).
+The **control plane holds no POS transactional data.** Its only link to a silo is the `business_deployments` row (URL + scoped key ref). All cross-plane runtime calls go *through that URL*, never a shared table (ADR-054 Decision A).
 
 ```
                 ┌──────────────────────────────────────────┐
@@ -177,7 +177,7 @@ defineTable({
 
 - **Auth:** platform admins are NOT `staff`. Separate identity (`platform_admins`), separate session (`platform_admin_sessions`), durable with idle timeout. v1 auth recommendation: **email magic-link or OAuth (Google Workspace) for Frollie staff** — small fixed set of vendor employees, not OTP-to-Telegram (that's the owner cockpit pattern). Reuse the "token authorizes view, PIN/OTP authorizes act" lineage (ADR-029) only loosely — vendor admins are trusted internal staff, gate on session + role.
 - **Route tree:** `frollie-platform` is its own Vercel project / subdomain (e.g. `console.frollie.*`), separate from any tenant FE. Routes: `/console/businesses` (list + health), `/console/businesses/:id` (detail: deployment, plan, provisioning jobs, audit), `/console/provision` (new-tenant wizard), `/console/migrations` (run + drift view).
-- **Console NEVER renders tenant POS data inline.** It renders the registry + operations. Inspecting a tenant's actual sales = impersonate through that tenant's cockpit (Spec 2), audited — because there is nothing to cross-silo-join (ADR-053 Decision D).
+- **Console NEVER renders tenant POS data inline.** It renders the registry + operations. Inspecting a tenant's actual sales = impersonate through that tenant's cockpit (Spec 2), audited — because there is nothing to cross-silo-join (ADR-054 Decision D).
 
 **Per-route checklist:**
 - [ ] `/console/businesses` — table of businesses (name, status, plan, schema_version, health dot).
@@ -217,7 +217,7 @@ defineTable({
   .index("by_provider_sub", ["provider_subscription_id"])
 ```
 
-### Plan-gating — PUSH model (ADR-053 Decision E)
+### Plan-gating — PUSH model (ADR-054 Decision E)
 On plan change (admin edit, or later a billing webhook), the control plane **pushes** a `plan_envelope` into the tenant silo by running a seed-style mutation against that deployment (via the scoped key): writes/updates a **per-deployment `pos_plan` singleton** (data-plane, §7). The silo gates **locally** — `createOutlet` (Spec 2 owner action) reads `pos_plan.max_outlets`; `createStaff` reads `pos_plan.max_staff`; feature-flagged surfaces read `pos_plan.features`. No control-plane round-trip on the hot path; stale-tolerant (downgrade applies on next push).
 
 - **Billing provider integration is a follow-up.** v1 stores the subscription row, set manually by an admin. Webhook ingestion (`POST /platform-webhook/billing`) lands when a provider is chosen — it lives in the **control plane only** and updates `subscriptions.status` + re-pushes the envelope.
@@ -228,7 +228,7 @@ On plan change (admin edit, or later a billing webhook), the control plane **pus
 
 ## 6. Workstream D — Provisioning (Manual-first-N now; automation = SPIKE)
 
-> **This is the exploratory core.** Programmatic Convex project creation is **not a documented turnkey feature**. We ship Manual-first-N and spike automation in parallel (ADR-053 Decision B).
+> **This is the exploratory core.** Programmatic Convex project creation is **not a documented turnkey feature**. We ship Manual-first-N and spike automation in parallel (ADR-054 Decision B).
 
 ### What "provision a tenant" means (the always-true sequence)
 1. A Convex **project** exists for the business (the unknown — *how* it gets created varies by strategy).
@@ -320,7 +320,7 @@ The invariants reviewers must hold the line on:
 
 1. **No shared DB across the plane boundary.** The control plane never holds a `pos_*`/`staff` row; a silo never holds a `businesses`/`subscriptions` row. The ONLY link is `business_deployments` (URL + key ref).
 2. **Cross-plane calls go through the deployment URL + scoped key**, never a table read.
-3. **`outlet_id` (Spec 1) survives the hybrid escape hatch.** If small tenants are later pooled behind `business_id` in a shared deployment (ADR-053 Decision C), the prefix-scoping discipline gains an outer `business_id` column (`[business_id, outlet_id, ...]`); `withOutletScope` → `withTenantScope`. **Do not build the hybrid now (YAGNI)** — just keep data-plane scoping prefix-based, not post-filtered, so the option stays cheap.
+3. **`outlet_id` (Spec 1) survives the hybrid escape hatch.** If small tenants are later pooled behind `business_id` in a shared deployment (ADR-054 Decision C), the prefix-scoping discipline gains an outer `business_id` column (`[business_id, outlet_id, ...]`); `withOutletScope` → `withTenantScope`. **Do not build the hybrid now (YAGNI)** — just keep data-plane scoping prefix-based, not post-filtered, so the option stays cheap.
 4. **Three surfaces never conflate** (booth / owner cockpit / platform console) — separate auth, separate route trees, separate planes for the console.
 
 ---
@@ -335,7 +335,7 @@ The invariants reviewers must hold the line on:
 
 ## 10. Cross-references
 
-- ADR fulfilled: [`docs/ADR/053-saas-control-plane-provisioning.md`](../../ADR/053-saas-control-plane-provisioning.md).
+- ADR fulfilled: [`docs/ADR/054-saas-control-plane-provisioning.md`](../../ADR/054-saas-control-plane-provisioning.md).
 - Spec 1 (silo this provisions, `outlet_id`, hybrid-survival rationale): [`2026-06-21-multi-tenancy-foundation-design.md`](./2026-06-21-multi-tenancy-foundation-design.md).
 - Spec 2 (owner cockpit — `createOutlet` reads `pos_plan`, OTP bootstrap uses `businesses.owner_telegram_user_id`): [`2026-06-21-owner-cockpit-design.md`](./2026-06-21-owner-cockpit-design.md).
 - [ADR-034](../../ADR/034-deep-modules-surface-apis.md) — vendor↔tenant integration via API/URL, not shared tables.
@@ -347,11 +347,11 @@ The invariants reviewers must hold the line on:
 
 **Q1 — Is programmatic Convex project + deploy-key creation available?**
 *Recommendation:* Treat as UNKNOWN; ship Manual-first-N; run the spike against Convex docs/support before designing the automated wizard.
-*Why:* This is the single gate on self-serve signup. Designing automation on an unverified API is the costliest possible bet (ADR-053 Decision B).
+*Why:* This is the single gate on self-serve signup. Designing automation on an unverified API is the costliest possible bet (ADR-054 Decision B).
 
 **Q2 — Plan gating push vs pull?**
 *Recommendation:* PUSH the envelope into a `pos_plan` silo singleton; gate locally.
-*Why:* Avoids a cross-deployment hot-path dependency where billing-plane downtime would break the POS (ADR-053 Decision E).
+*Why:* Avoids a cross-deployment hot-path dependency where billing-plane downtime would break the POS (ADR-054 Decision E).
 
 **Q3 — Platform-admin auth mechanism?**
 *Recommendation:* Email magic-link or Google-Workspace OAuth for the small fixed set of Frollie staff — NOT Telegram-OTP (that's the owner cockpit).
@@ -371,4 +371,4 @@ The invariants reviewers must hold the line on:
 
 **Q7 — When (if ever) do we trigger the hybrid escape hatch?**
 *Recommendation:* Do NOT build it now. Document the trigger as "silo fan-out ops cost exceeds X engineer-hours/month at Y tenants" and revisit; keep data-plane scoping prefix-based so the switch stays cheap.
-*Why:* YAGNI; the Spec-1 investment already survives the switch (ADR-053 Decision C).
+*Why:* YAGNI; the Spec-1 investment already survives the switch (ADR-054 Decision C).

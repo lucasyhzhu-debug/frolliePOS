@@ -54,6 +54,22 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 | [038](./038-refund-settlement-manual-v1.md) | Pay | Refund settlement: POS is system-of-record, money moves manually in v1 | 2026-05-31 | Accepted |
 | [039](./039-receipt-after-refund-display-contract.md) | Receipts | Receipt-after-refund display contract | 2026-05-31 | Accepted |
 | [040](./040-voucher-attribution-partial-refunds.md) | Pay | Voucher attribution on partial refunds: proportional, floor-rounded | 2026-06-01 | Accepted |
+| [041](./041-recount-staff-absolute-stock-update.md) | Inventory | Staff-driven absolute stock recount (`recount` movement) | 2026-06-01 | Accepted |
+| [042](./042-low-stock-detection-inventory-telegram.md) | Inventory | Reactive low-stock detection (`low_threshold` + `inventory` Telegram role) | 2026-06-01 | Accepted |
+| [043](./043-web-bluetooth-escpos-printing.md) | Receipts | Client-side Web Bluetooth ESC/POS thermal printing | 2026-06-02 | Accepted |
+| [044](./044-nightly-stock-recon-report-only.md) | Inventory | Nightly stock reconciliation: ledger is truth, drift reported not corrected | 2026-06-02 | Accepted |
+| [045](./045-route-chunk-reload-boundary.md) | Arch | Route-level chunk-reload error boundary | 2026-06-03 | Accepted |
+| [046](./046-action-cache-auth-before-lookup.md) | Pay | Action-cache auth runs before the idempotency lookup | 2026-06-07 | Accepted |
+| [047](./047-phthalo-dark-design-system.md) | Design | Phthalo-dark design system + glare-gate fallback | 2026-06-18 | Accepted |
+| [048](./048-inline-messaging-policy.md) | Design | Inline `FieldMessage` for sync validation; toasts for global/async | 2026-06-19 | Accepted |
+| [049](./049-i18n-client-typed-dictionary.md) | i18n | Client-side typed i18n dictionary (EN/ID) | 2026-06-19 | Accepted |
+| [050](./050-shift-lifecycle-state-machine.md) | Ops | Booth shift lifecycle as a state machine over `pos_shift_events` | 2026-06-19 | Superseded by ADR-053 (two-level booth state) |
+| [051](./051-multi-outlet-tenancy-silo.md) | Strategic | Multi-outlet tenancy — silo deployment + `outlet_id` as the sole scoping column | 2026-06-21 | Accepted |
+| [052](./052-owner-auth-telegram-otp.md) | Auth | Owner auth plane — Telegram-OTP authorises MANAGE | 2026-06-21 | Accepted |
+| [053](./053-two-level-booth-state.md) | Ops | Two-level booth state (stored `is_open` + `pos_shifts` holder) | 2026-06-26 | Accepted |
+| [054](./054-saas-control-plane-provisioning.md) | Strategic | Control-plane/data-plane split for multi-tenant SaaS; per-tenant provisioning spike | 2026-06-21 | Deferred (not scheduled) |
+
+> **Note (2026-06-28):** the deferred SaaS ADR was originally filed as a second `053` (collision with the two-level booth-state ADR) and renumbered to **054**; all cross-references were swept. "ADR-053" now unambiguously means the two-level booth state ADR.
 
 ## Groups
 
@@ -61,12 +77,16 @@ One file per implementation decision. Format: `NNN-kebab-case-title.md`. Strateg
 - **Ops** — shifts, audit, refunds, vouchers (ADR-006 through ADR-010)
 - **Pay** — Xendit, idempotency, currency, refund settlement (ADR-011 through ADR-015; ADR-036 extends; ADR-038 refund settlement; ADR-011 superseded by ADR-036); ADR-040 refund math
 - **Stock** — products ↔ inventory, movements (ADR-016 through ADR-020)
+- **Inventory** — recount, low-stock detection, nightly reconciliation (ADR-041, ADR-042, ADR-044)
 - **Receipts** — receipt URL, numbering, tax, refund display (ADR-021 through ADR-024; ADR-039 refund display contract)
 - **Sync** — offline, service worker, reconciliation (ADR-025, ADR-026)
 - **WA** — WhatsApp manager approval (ADR-027 through ADR-030; ADR-027 superseded by ADR-035)
 - **Time** — timestamps, retention, scheduled (ADR-031 through ADR-033; ADR-033 superseded by ADR-035)
-- **Arch** — foundational architecture (ADR-034)
+- **Arch** — foundational architecture, route resilience (ADR-034, ADR-045)
 - **Comms** — internal communications channel (ADR-035, ADR-037)
+- **Design** — design system, inline validation messaging (ADR-047, ADR-048)
+- **i18n** — client-side typed EN/ID dictionary (ADR-049)
+- **Strategic** — multi-outlet tenancy, SaaS control-plane (ADR-051, ADR-054; see also ADR-000)
 
 ## Template
 
