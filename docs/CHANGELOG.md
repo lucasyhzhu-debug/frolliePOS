@@ -4,6 +4,24 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-06-29 — v1.4.1: add-to-home-screen install prompt (PWA)
+
+- **Capability added:** a dismissible in-app affordance nudging staff to install Frollie to the home
+  screen, so the booth launches the PWA full-screen (reliable offline launch) instead of a browser tab.
+  Previously the only install path was the browser's own buried menu — easy for non-technical staff to miss.
+- New `src/hooks/useA2HS.ts`: captures the deferred `beforeinstallprompt` (Android Chrome — the booth's
+  platform), detects an already-installed standalone launch via `display-mode: standalone` /
+  `navigator.standalone` (affordance never nags an installed app), branches to static Share-sheet steps on
+  iOS (which fires no programmatic prompt), and persists dismissal with a **7-day re-show cooldown** (a
+  one-time dismiss would bury it forever; staff turn over).
+- New `src/components/pos/InstallPrompt.tsx`: mounted atop the home banner stack (`src/routes/home.tsx`).
+  Renders only when installable — native **Install** button (Android) or static instructions (iOS); returns
+  null when standalone or recently dismissed. Reuses the home-tile card idiom + citrus accent; static (no
+  Framer Motion), semantic tokens only (re-tints under the cockpit theme). Bilingual EN/ID (ADR-049).
+- `INSTALL_DISMISSED_KEY` added to the `storage-keys.ts` namespace. `package.json` bumped to `1.4.1`.
+- Tests: 10 `useA2HS` unit tests (event capture, standalone/iOS detection, dismissal cooldown,
+  `appinstalled`) + 4 `InstallPrompt` component tests.
+
 ## 2026-06-29 — v1.4.0: forced new-build refresh (PWA update banner)
 
 - **Problem fixed:** an always-open booth PWA never reloaded, so vite-plugin-pwa's silent

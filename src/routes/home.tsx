@@ -7,6 +7,7 @@ import { useRecountNudge } from "@/hooks/useRecountNudge";
 import { useAwaitingPaymentRecovery } from "@/hooks/useAwaitingPaymentRecovery";
 import { ConnDot } from "@/components/layout/ConnDot";
 import { PrinterSheet } from "@/components/pos/PrinterSheet";
+import { InstallPrompt } from "@/components/pos/InstallPrompt";
 import { LocaleToggle } from "@/components/pos/LocaleToggle";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,8 @@ export default function HomeRoute() {
 
       <main className="flex flex-1 flex-col gap-4 p-4 overflow-y-auto">
         {/* Banners */}
+        <InstallPrompt />
+
         {nudge && (
           <Link to="/stock/recount" className={BANNER_CLS}>
             {t("home.recountNudge")}

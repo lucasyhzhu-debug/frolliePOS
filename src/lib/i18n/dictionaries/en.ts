@@ -13,6 +13,12 @@ export const en = {
   "update.available": "A new version is available.",
   "update.refresh": "Update now",
   "update.updating": "Updating…",
+  // install (PWA add-to-home-screen affordance)
+  "install.title": "Install Frollie",
+  "install.body": "Add Frollie to your home screen for one-tap, full-screen access.",
+  "install.cta": "Install",
+  "install.iosBody": "Tap the Share button, then “Add to Home Screen”.",
+  "install.dismiss": "Dismiss",
   // home
   "home.newSale": "New sale",
   "home.startCart": "start a cart",

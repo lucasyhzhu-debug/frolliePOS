@@ -20,6 +20,14 @@ export const REMEMBER_DEVICE_TOKEN_KEY = "frollie-remember-device-token";
 export const SHOWN_PIN_RESET_DENIALS_KEY = "frollie-shown-pin-reset-denials";
 
 /**
+ * Add-to-home-screen nudge dismissal. Stores the epoch-ms timestamp of the last
+ * time a staffer dismissed the install affordance. `useA2HS` re-surfaces the
+ * nudge once a cooldown elapses (staff turn over; a one-time dismiss would
+ * otherwise bury it forever).
+ */
+export const INSTALL_DISMISSED_KEY = "frollie-install-dismissed-at";
+
+/**
  * Cockpit outlet switcher — persists the owner's last-selected outlet scope
  * ("all" | an outlet Id string) across page reloads. Read on mount by
  * OutletProvider; written on every `setCurrentOutlet` call.
