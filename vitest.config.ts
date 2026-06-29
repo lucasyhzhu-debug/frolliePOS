@@ -18,6 +18,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `virtual:pwa-register/react` only exists at Vite build time (injected by
+      // vite-plugin-pwa). Point test resolution at an inert stub so the new-build
+      // banner (src/pwa) renders under jsdom instead of failing to resolve.
+      "virtual:pwa-register/react": path.resolve(
+        __dirname,
+        "./src/test/pwaRegisterStub.ts",
+      ),
       // esc-pos-encoder's default export condition pulls in the native `canvas`
       // module (intentionally unbuilt); its "browser" build is canvas-free.
       // Alias the test resolution straight to that browser bundle — the same

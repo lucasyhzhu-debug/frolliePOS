@@ -2,7 +2,22 @@
 
 All notable changes to Frollie POS. Format follows Frollie Pro's conventions. This is the **shipped record** (the source of truth for what exists); the forward queue of unbuilt specs/plans lives in [`ROADMAP.md`](./ROADMAP.md).
 
-**Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`).
+**Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
+
+## 2026-06-29 — v1.4.0: forced new-build refresh (PWA update banner)
+
+- **Problem fixed:** an always-open booth PWA never reloaded, so vite-plugin-pwa's silent
+  `autoUpdate` never *detected* new builds — devices stayed stuck on an old version for days. (The
+  version label compounded it: `package.json` had been left at `1.2.1` since the 1.2 line, so the
+  booth showed `v1.2.1` while 1.3.x was live.)
+- PWA switched from `registerType: "autoUpdate"` → `"prompt"`. New `src/pwa/useAppUpdate.ts` wraps
+  `useRegisterSW` and **polls `registration.update()` every 60s + on tab-focus/online**, so a kiosk
+  actually detects a deploy within ~a minute. When a new worker is waiting, `needRefresh` flips and
+  `src/pwa/AppUpdateBanner.tsx` (mounted app-wide in `main.tsx`) pins a bilingual tap-to-update bar.
+- Tapping calls `updateServiceWorker(true)` (skipWaiting + reload) with a **guaranteed-reload
+  fallback** if `controllerchange` doesn't fire — the force-refresh button is never a dead end.
+- `package.json` bumped to `1.4.0` (and **version-label drift is now CI-enforced** — see above).
+- Test stub `src/test/pwaRegisterStub.ts` aliased for the `virtual:pwa-register/react` build-time module.
 
 ## 2026-06-27 — v1.3.1: off-booth manager override (shift_override)
 

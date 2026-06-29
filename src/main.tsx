@@ -4,6 +4,7 @@ import { RouterProvider } from "react-router";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { Toaster } from "sonner";
 import { LocaleProvider } from "@/lib/i18n";
+import { AppUpdateBanner } from "@/pwa/AppUpdateBanner";
 import { router } from "@/router";
 import "@/index.css";
 import { reportOps } from "@/lib/reportOps";
@@ -41,6 +42,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ConvexProvider client={convex}>
       <LocaleProvider>
         <RouterProvider router={router} />
+        {/* Global new-build banner — always mounted, independent of route gating. */}
+        <AppUpdateBanner />
       </LocaleProvider>
       <Toaster position="top-center" richColors closeButton />
     </ConvexProvider>

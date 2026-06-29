@@ -9,6 +9,10 @@ export const id: Record<keyof typeof en, string> = {
   "common.loading": "Memuat…",
   "common.outcomeClose": "Tutup booth",
   "common.outcomeRelease": "Lepas penahanan",
+  // app update (PWA new-build banner)
+  "update.available": "Versi baru tersedia.",
+  "update.refresh": "Perbarui sekarang",
+  "update.updating": "Memperbarui…",
   "home.newSale": "Penjualan baru",
   "home.startCart": "mulai keranjang",
   "home.changePin": "Ubah PIN",
