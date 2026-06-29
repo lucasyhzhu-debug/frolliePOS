@@ -13,6 +13,12 @@ export const id: Record<keyof typeof en, string> = {
   "update.available": "Versi baru tersedia.",
   "update.refresh": "Perbarui sekarang",
   "update.updating": "Memperbarui…",
+  // install (PWA add-to-home-screen affordance)
+  "install.title": "Pasang Frollie",
+  "install.body": "Tambahkan Frollie ke layar utama untuk akses satu ketuk, layar penuh.",
+  "install.cta": "Pasang",
+  "install.iosBody": "Ketuk tombol Bagikan, lalu pilih “Tambah ke Layar Utama”.",
+  "install.dismiss": "Tutup",
   "home.newSale": "Penjualan baru",
   "home.startCart": "mulai keranjang",
   "home.changePin": "Ubah PIN",
