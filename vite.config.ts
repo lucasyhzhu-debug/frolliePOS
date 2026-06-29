@@ -20,7 +20,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: "autoUpdate",
+      // `prompt` (not `autoUpdate`): a new build does NOT silently swap under an
+      // open booth PWA — instead `useRegisterSW().needRefresh` flips true and we
+      // surface a tap-to-update banner (src/pwa). An always-open kiosk never
+      // reloads, so silent autoUpdate's detection starved and devices stuck on an
+      // old build; the banner + periodic update poll in useAppUpdate fixes that.
+      registerType: "prompt",
       includeAssets: ["icons/*"],
       manifest: {
         name: "Frollie POS",

@@ -9,6 +9,10 @@ export const en = {
   "common.loading": "Loading…",
   "common.outcomeClose": "Close booth",
   "common.outcomeRelease": "Release hold",
+  // app update (PWA new-build banner)
+  "update.available": "A new version is available.",
+  "update.refresh": "Update now",
+  "update.updating": "Updating…",
   // home
   "home.newSale": "New sale",
   "home.startCart": "start a cart",
