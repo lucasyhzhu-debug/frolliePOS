@@ -127,6 +127,66 @@ it("(a) two outlets → owners rollup payload perOutlet sums to business total +
   expect(ownersRollup?.text as string).toContain("Citraland");
 });
 
+// ─── (a2) per-SKU units: merged in owners rollup, per-outlet in managers ──────
+
+it("(a2) sale movements surface as per-SKU units — merged across outlets in the owners rollup, own-outlet only in each managers summary", async () => {
+  const ownersChat = "-100owners-sku";
+  const mgrChatPkw = "-100mgr-pkw-sku";
+  const mgrChatCit = "-100mgr-cit-sku";
+  const capturedBodies: Array<{ chat_id?: unknown; text?: unknown }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.body) {
+        capturedBodies.push(JSON.parse(options.body as string) as { chat_id?: unknown; text?: unknown });
+      }
+      return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+    }),
+  );
+
+  const t = convexTest(schema);
+  const o1 = await seedOutlet(t, { code: "PKW", name: "Pakuwon" });
+  const o2 = await seedOutlet(t, { code: "CIT", name: "Citraland" });
+  await seedOwnersChat(t, ownersChat);
+  await seedManagersChat(t, mgrChatPkw, o1.outletId);
+  await seedManagersChat(t, mgrChatCit, o2.outletId);
+
+  // Same SKU string in both outlets (cloned catalogs) → merged by `sku` key.
+  // Movements use Date.now() so they land inside the current WIB day window.
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    const dubaiPkw = await ctx.db.insert("pos_inventory_skus", {
+      sku: "dubai", name: "Dubai Cookie", unit: "piece", low_threshold: 5,
+      active: true, created_at: now, outlet_id: o1.outletId,
+    });
+    const dubaiCit = await ctx.db.insert("pos_inventory_skus", {
+      sku: "dubai", name: "Dubai Cookie", unit: "piece", low_threshold: 5,
+      active: true, created_at: now, outlet_id: o2.outletId,
+    });
+    // Pakuwon sells 120 pcs; Citraland sells 30 pcs → business total 150.
+    await ctx.db.insert("pos_stock_movements", {
+      inventory_sku_id: dubaiPkw, qty: -120, source: "sale",
+      created_at: now, outlet_id: o1.outletId,
+    });
+    await ctx.db.insert("pos_stock_movements", {
+      inventory_sku_id: dubaiCit, qty: -30, source: "sale",
+      created_at: now, outlet_id: o2.outletId,
+    });
+  });
+
+  const res = await t.action(internal.telegram.ownersSummary.sendOwnersSummary, {});
+  expect((res as { ok: boolean }).ok).toBe(true);
+
+  const ownersRollup = capturedBodies.find((b) => b.chat_id === ownersChat);
+  expect(ownersRollup?.text as string).toContain("Units sold");
+  expect(ownersRollup?.text as string).toContain("• Dubai Cookie: 150 pcs");
+
+  const pkwSummary = capturedBodies.find((b) => b.chat_id === mgrChatPkw);
+  expect(pkwSummary?.text as string).toContain("• Dubai Cookie: 120 pcs");
+  const citSummary = capturedBodies.find((b) => b.chat_id === mgrChatCit);
+  expect(citSummary?.text as string).toContain("• Dubai Cookie: 30 pcs");
+});
+
 // ─── (b) each outlet's managers_daily_summary uses its OWN chat ───────────────
 
 it("(b) each outlet's managers_daily_summary resolves its OWN (managers, outletId) chat", async () => {

@@ -96,12 +96,18 @@ export type ManualBcaTally = {
 
 export const MANUAL_BCA_EOD_MAX_LINES = 30;
 
+// v1.4.2: per-inventory-SKU units sold, appended to the EOD summaries.
+// Sourced from sale stock movements (see inventory._dailySkuUnits_internal) —
+// gross units, refunds excluded, matching the topSkus convention.
+export type SkuUnitsEntry = { name: string; units: number };
+
 export type FoundersSummaryPayload = {
   dateLabel: string;
   totalSalesIdr: number;
   txnCount: number;
   flaggedCount: number;
   manualBca?: ManualBcaTally; // v1.2 #10
+  skuUnits?: SkuUnitsEntry[]; // v1.4.2 — business-wide units by inventory SKU
   /** v2.0 Spec-4: per-outlet breakdown appended when > 1 active outlet. */
   perOutlet?: Array<{
     outletLabel: string;
@@ -125,6 +131,17 @@ function renderManualBcaBlock(tally: ManualBcaTally, lines: string[]): void {
   if (overflow > 0) lines.push(`…+${overflow} more — see POS`);
 }
 
+/** Shared helper: appends the per-SKU units-sold block into an existing lines
+ * array. Called by renderOwnersSummary and renderManagersDailySummary. Skips
+ * entirely when there are no units (no-sales days stay clean). V8-safe. */
+function renderSkuUnitsBlock(skuUnits: SkuUnitsEntry[], lines: string[]): void {
+  if (skuUnits.length === 0) return;
+  lines.push("", `🍪 <b>Units sold</b>`);
+  for (const s of skuUnits) {
+    lines.push(`• ${escapeHtml(s.name)}: ${s.units} pcs`);
+  }
+}
+
 /**
  * Render the owners shift-summary (business rollup, with optional per-outlet
  * breakdown when more than one outlet is active).
@@ -140,6 +157,7 @@ export function renderOwnersSummary(p: FoundersSummaryPayload): RenderedMessage 
     `<b>Transactions:</b> ${p.txnCount}`,
     `<b>Flagged for review:</b> ${p.flaggedCount}`,
   ];
+  if (p.skuUnits) renderSkuUnitsBlock(p.skuUnits, lines);
   if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
   // Per-outlet breakdown — only rendered when more than one outlet is present.
   if (p.perOutlet && p.perOutlet.length > 1) {
@@ -445,6 +463,7 @@ export interface ManagersDailySummaryPayload {
   txnCount: number;
   flaggedCount: number;
   manualBca?: ManualBcaTally;
+  skuUnits?: SkuUnitsEntry[]; // v1.4.2 — this outlet's units by inventory SKU
 }
 
 export function renderManagersDailySummary(p: ManagersDailySummaryPayload): RenderedMessage {
@@ -456,6 +475,7 @@ export function renderManagersDailySummary(p: ManagersDailySummaryPayload): Rend
   if (p.flaggedCount > 0) {
     lines.push(`<b>Flagged for review:</b> ${p.flaggedCount}`);
   }
+  if (p.skuUnits) renderSkuUnitsBlock(p.skuUnits, lines);
   if (p.manualBca) renderManualBcaBlock(p.manualBca, lines);
   return { text: lines.join("\n") };
 }
