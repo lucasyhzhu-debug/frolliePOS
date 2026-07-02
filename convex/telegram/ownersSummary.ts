@@ -37,7 +37,7 @@ import {
   resilientRetryDelayMs,
   RESILIENT_MAX_ATTEMPTS,
 } from "../lib/cronRetry";
-import type { ManualBcaTally } from "../lib/telegramHtml";
+import type { ManualBcaTally, SkuUnitsEntry } from "../lib/telegramHtml";
 import { resolveOutletChatId, isRoleUnboundError } from "./resolveOutletChat";
 
 // ─── sendOwnersSummary ────────────────────────────────────────────────────────
@@ -131,6 +131,7 @@ export const sendOwnersSummary = internalAction({
       outlet: (typeof outlets)[number];
       entry: PerOutletEntry;
       manualBca: ManualBcaTally;
+      skuUnits: SkuUnitsEntry[];
     }> = [];
     let bizTotalSalesIdr = 0;
     let bizTxnCount = 0;
@@ -138,9 +139,13 @@ export const sendOwnersSummary = internalAction({
 
     // Business-wide manualBca tally (summed across all outlets).
     const bizManualBca: ManualBcaTally = { count: 0, totalIdr: 0, items: [] };
+    // Business-wide per-SKU units (v1.4.2), merged across outlets by the SKU
+    // string key (outlets clone catalogs, so "dubai" is the same SKU concept
+    // everywhere; the display name comes from the first outlet that sold it).
+    const bizSkuUnits = new Map<string, SkuUnitsEntry>();
 
     for (const o of outlets) {
-      const [summary, manualBca] = await Promise.all([
+      const [summary, manualBca, skuUnits] = await Promise.all([
         ctx.runQuery(internal.transactions.internal._dailySalesSummary_internal, {
           dayStartMs,
           dayEndMs,
@@ -150,6 +155,11 @@ export const sendOwnersSummary = internalAction({
           internal.transactions.internal._manualBcaReconciliation_internal,
           { dayStartMs, dayEndMs, outletId: o._id },
         ),
+        ctx.runQuery(internal.inventory.internal._dailySkuUnits_internal, {
+          dayStartMs,
+          dayEndMs,
+          outletId: o._id,
+        }),
       ]);
 
       outletData.push({
@@ -161,6 +171,7 @@ export const sendOwnersSummary = internalAction({
           flaggedCount: summary.flaggedCount,
         },
         manualBca,
+        skuUnits: skuUnits.map(({ name, units }) => ({ name, units })),
       });
 
       bizTotalSalesIdr += summary.totalSalesIdr;
@@ -171,7 +182,18 @@ export const sendOwnersSummary = internalAction({
       bizManualBca.count += manualBca.count;
       bizManualBca.totalIdr += manualBca.totalIdr;
       bizManualBca.items.push(...manualBca.items);
+
+      // Merge per-outlet SKU units into the business tally.
+      for (const s of skuUnits) {
+        const e = bizSkuUnits.get(s.sku);
+        if (e) e.units += s.units;
+        else bizSkuUnits.set(s.sku, { name: s.name, units: s.units });
+      }
     }
+
+    const bizSkuUnitsSorted = [...bizSkuUnits.values()].sort(
+      (a, b) => b.units - a.units,
+    );
 
     // Step 5: send owners rollup.
     // perOutlet is included when > 1 outlet so renderOwnersSummary appends a
@@ -187,6 +209,8 @@ export const sendOwnersSummary = internalAction({
           txnCount: bizTxnCount,
           flaggedCount: bizFlaggedCount,
           manualBca: bizManualBca.count > 0 ? bizManualBca : undefined,
+          skuUnits:
+            bizSkuUnitsSorted.length > 0 ? bizSkuUnitsSorted : undefined,
           perOutlet:
             outletData.length > 1 ? outletData.map((d) => d.entry) : undefined,
         },
@@ -205,7 +229,12 @@ export const sendOwnersSummary = internalAction({
 
     // Step 6: per-outlet managers_daily_summary.
     // Each outlet is independent — an unbound/disabled outlet never aborts the loop.
-    for (const { outlet: o, entry, manualBca: outletManualBca } of outletData) {
+    for (const {
+      outlet: o,
+      entry,
+      manualBca: outletManualBca,
+      skuUnits: outletSkuUnits,
+    } of outletData) {
       // Per-outlet toggle check.
       const outletSettings = await ctx.runQuery(
         internal.settings.internal._getSettings_internal,
@@ -244,6 +273,7 @@ export const sendOwnersSummary = internalAction({
             txnCount: entry.txnCount,
             flaggedCount: entry.flaggedCount,
             manualBca: outletManualBca.count > 0 ? outletManualBca : undefined,
+            skuUnits: outletSkuUnits.length > 0 ? outletSkuUnits : undefined,
           },
           idempotencyKey: `mgrsum:${o.code}:${dateLabel}`,
           chatIdOverride: mgrChatId,

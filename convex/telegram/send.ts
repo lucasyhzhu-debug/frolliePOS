@@ -88,6 +88,10 @@ export const sendTemplate = action({
             staffName: v.string(), receiptNumber: v.string(),
           })),
         })),
+        // v1.4.2: business-wide units sold by inventory SKU.
+        skuUnits: v.optional(v.array(v.object({
+          name: v.string(), units: v.number(),
+        }))),
         // v2.0 Spec-4: per-outlet breakdown for multi-outlet owners rollup.
         perOutlet: v.optional(v.array(v.object({
           outletLabel: v.string(),
@@ -191,6 +195,10 @@ export const sendTemplate = action({
             staffName: v.string(), receiptNumber: v.string(),
           })),
         })),
+        // v1.4.2: this outlet's units sold by inventory SKU.
+        skuUnits: v.optional(v.array(v.object({
+          name: v.string(), units: v.number(),
+        }))),
       }),
       // shift_override — matches ShiftOverridePayload in lib/telegramHtml.ts (v1.3.1)
       v.object({
@@ -281,6 +289,7 @@ export const sendTemplate = action({
               count: number; totalIdr: number;
               items: Array<{ paidAt: number; total: number; staffName: string; receiptNumber: string }>;
             };
+            skuUnits?: Array<{ name: string; units: number }>;
             perOutlet?: Array<{
               outletLabel: string;
               totalSalesIdr: number;

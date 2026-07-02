@@ -4,6 +4,7 @@ import {
   formatIdr,
   renderManualPaymentApproval,
   renderOwnersSummary,
+  renderManagersDailySummary,
   renderStaffPinReset,
   makeNonce,
 } from "./telegramHtml";
@@ -96,6 +97,58 @@ describe("renderOwnersSummary", () => {
     });
     expect(result.text).toContain("&lt;test&gt;");
     expect(result.text).not.toContain("<test>");
+  });
+
+  test("renders the per-SKU units block when skuUnits present (v1.4.2)", () => {
+    const result = renderOwnersSummary({
+      dateLabel: "Selasa, 27 Mei",
+      totalSalesIdr: 4275000,
+      txnCount: 42,
+      flaggedCount: 0,
+      skuUnits: [
+        { name: "Dubai Cookie", units: 120 },
+        { name: "Matcha <Special>", units: 24 },
+      ],
+    });
+    expect(result.text).toContain("Units sold");
+    expect(result.text).toContain("• Dubai Cookie: 120 pcs");
+    // SKU names are HTML-escaped.
+    expect(result.text).toContain("• Matcha &lt;Special&gt;: 24 pcs");
+    expect(result.text).not.toContain("<Special>");
+  });
+
+  test("omits the units block when skuUnits is absent or empty", () => {
+    const absent = renderOwnersSummary({
+      dateLabel: "d", totalSalesIdr: 0, txnCount: 0, flaggedCount: 0,
+    });
+    const empty = renderOwnersSummary({
+      dateLabel: "d", totalSalesIdr: 0, txnCount: 0, flaggedCount: 0, skuUnits: [],
+    });
+    expect(absent.text).not.toContain("Units sold");
+    expect(empty.text).not.toContain("Units sold");
+  });
+});
+
+describe("renderManagersDailySummary — skuUnits (v1.4.2)", () => {
+  test("renders the per-SKU units block for the outlet", () => {
+    const result = renderManagersDailySummary({
+      dateLabel: "Selasa, 27 Mei",
+      outletLabel: "Pakuwon",
+      totalSalesIdr: 100000,
+      txnCount: 3,
+      flaggedCount: 0,
+      skuUnits: [{ name: "Dubai Cookie", units: 42 }],
+    });
+    expect(result.text).toContain("Units sold");
+    expect(result.text).toContain("• Dubai Cookie: 42 pcs");
+  });
+
+  test("omits the units block when skuUnits is absent", () => {
+    const result = renderManagersDailySummary({
+      dateLabel: "d", outletLabel: "Pakuwon",
+      totalSalesIdr: 0, txnCount: 0, flaggedCount: 0,
+    });
+    expect(result.text).not.toContain("Units sold");
   });
 });
 

@@ -189,6 +189,62 @@ export const _getOnHandBySkus_internal = internalQuery({
 });
 
 /**
+ * Per-inventory-SKU units sold within a day window, for the EOD owners /
+ * managers Telegram summaries (v1.4.2).
+ *
+ * Sums `source: "sale"` movements rather than re-expanding transaction lines
+ * through live pos_product_components: movements are the immutable proof of
+ * what actually decremented at sale time, so the tally stays correct even if
+ * a product's recipe changes later (rule #1 spirit). Movements are written
+ * inside _confirmPaid, so `created_at` aligns with the summary's `paid_at`
+ * window. Gross units — refund re-credits (source: "refund") are excluded,
+ * matching the topSkus convention in transactions/lib.
+ *
+ * Iterates ALL of the outlet's SKUs (active + archived — an SKU archived
+ * mid-day must still report its morning sales) via catalog's
+ * _getSkusForOutlet_internal (ADR-034: pos_inventory_skus is catalog-owned),
+ * then one indexed window scan per SKU. SKU counts are single-digit per
+ * outlet, so the fan-out is trivial.
+ */
+export const _dailySkuUnits_internal = internalQuery({
+  args: {
+    dayStartMs: v.number(),
+    dayEndMs: v.number(),
+    outletId: v.id("outlets"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ sku: string; name: string; units: number }>> => {
+    const skus = await ctx.runQuery(
+      internal.catalog.internal._getSkusForOutlet_internal,
+      { outletId: args.outletId },
+    );
+
+    const out: Array<{ sku: string; name: string; units: number }> = [];
+    for (const sku of skus) {
+      const movements = await ctx.db
+        .query("pos_stock_movements")
+        .withIndex("by_outlet_sku_created", (q) =>
+          q
+            .eq("outlet_id", args.outletId)
+            .eq("inventory_sku_id", sku._id)
+            .gte("created_at", args.dayStartMs)
+            .lt("created_at", args.dayEndMs),
+        )
+        .collect();
+      let units = 0;
+      for (const m of movements) {
+        // sale movements are signed-negative decrements; negate to count units.
+        if (m.source === "sale") units += -m.qty;
+      }
+      if (units > 0) out.push({ sku: sku.sku, name: sku.name, units });
+    }
+    return out.sort((a, b) => b.units - a.units);
+  },
+});
+
+/**
  * Decrement on_hand directly without writing a movement row. Used by v0.5
  * stock-adjustment flows where the movement was already written separately.
  * Intentionally unexported for public use in v0.3 — kept for v0.5 callers.

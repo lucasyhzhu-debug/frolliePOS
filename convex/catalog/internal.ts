@@ -72,6 +72,26 @@ export const _getActiveSkus_internal = internalQuery({
 });
 
 /**
+ * ALL of an outlet's SKUs — active AND archived — for cross-module consumers
+ * (ADR-034 boundary, same rationale as _getActiveSkus_internal above).
+ *
+ * v1.4.2: the EOD per-SKU units tally (inventory._dailySkuUnits_internal) must
+ * include a SKU archived mid-day — its morning sales still happened — so it
+ * can't use the active-only query. Uses the by_outlet_active index PREFIX
+ * (outlet_id only), which spans both active values.
+ */
+export const _getSkusForOutlet_internal = internalQuery({
+  args: { outletId: v.id("outlets") },
+  handler: async (ctx, args): Promise<Array<{ _id: Id<"pos_inventory_skus">; sku: string; name: string }>> => {
+    const rows = await ctx.db
+      .query("pos_inventory_skus")
+      .withIndex("by_outlet_active", (q) => q.eq("outlet_id", args.outletId))
+      .collect();
+    return rows.map((r) => ({ _id: r._id, sku: r.sku, name: r.name }));
+  },
+});
+
+/**
  * Expand a list of product IDs to their component SKU requirements.
  * Used by transactions/internal to build sale movements + projected NEG_STOCK
  * checks without touching catalog-owned tables directly (ADR-034 module boundary).

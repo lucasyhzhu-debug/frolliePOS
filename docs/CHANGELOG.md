@@ -4,6 +4,27 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-02 — v1.4.2: per-SKU units sold in the EOD Telegram summaries
+
+- **Capability added:** the daily owners rollup (`shift_summary`) and each per-outlet
+  `managers_daily_summary` now append a **"🍪 Units sold"** block listing units sold per
+  **inventory SKU** — e.g. 10× dubai-1 + 10× dubai-3 + 10× dubai-8 renders as
+  `• Dubai Cookie: 120 pcs`. Owners see the business-wide merge (keyed by SKU string across
+  cloned catalogs); each managers chat sees only its outlet's tally.
+- New `inventory/internal._dailySkuUnits_internal`: sums `source: "sale"` rows from
+  `pos_stock_movements` per SKU over the WIB day window (`by_outlet_sku_created` index).
+  Movements — not lines×live-components — so the tally reflects the recipe **as sold**
+  (rule #1 spirit; a later recipe edit can't rewrite history). Movements are written inside
+  `_confirmPaid`, so `created_at` aligns with the summary's `paid_at` window. **Gross** units:
+  refund re-credits excluded, matching the `topSkus` convention. Archived SKUs still report
+  (sold-then-archived-same-day), and zero-unit SKUs are omitted (block absent on no-sales days).
+- `telegramHtml.ts`: `SkuUnitsEntry` type + shared `renderSkuUnitsBlock` wired into
+  `renderOwnersSummary` + `renderManagersDailySummary`; `sendTemplate` payload validators gain
+  optional `skuUnits`. `package.json` bumped to `1.4.2`.
+- Tests: `_dailySkuUnits_internal` aggregation (window/outlet/source filters, archived SKU),
+  renderer blocks (present/absent/escaping), and an end-to-end `sendOwnersSummary` case
+  asserting the cross-outlet merge vs. per-outlet split.
+
 ## 2026-06-29 — v1.4.1: add-to-home-screen install prompt (PWA)
 
 - **Capability added:** a dismissible in-app affordance nudging staff to install Frollie to the home
