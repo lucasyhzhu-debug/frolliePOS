@@ -52,3 +52,65 @@ describe("seed/_reset_internal — dev device pre-registration", () => {
     expect(devices[0].device_id).toBe("dev-booth-device");
   });
 });
+
+describe("seed/_reset_internal — ADR-053 booth state (open outlet + shift holder)", () => {
+  const baseArgs = {
+    staffPinHash: "h1",
+    mgrPinHash: "h2",
+    staffNames: ["Bayu", "Citra", "Dewi", "Eka"],
+  };
+
+  it("opens the seeded outlet and seats Lucas as the default active holder", async () => {
+    const t = convexTest(schema);
+    await t.mutation(internal.seed.internal._reset_internal, baseArgs);
+
+    const outlet = await t.run(async (ctx) => (await ctx.db.query("outlets").collect())[0]);
+    expect(outlet.is_open).toBe(true);
+    expect(outlet.opened_via).toBe("sop");
+
+    const shifts = await t.run((ctx) => ctx.db.query("pos_shifts").collect());
+    expect(shifts.length).toBe(1);
+    expect(shifts[0].ended_at).toBeNull();
+    expect(shifts[0].device_id).toBe("dev-booth-device");
+    const holder = await t.run((ctx) => ctx.db.get(shifts[0].staff_id));
+    expect(holder?.name).toBe("Lucas");
+  });
+
+  it("holderStaffName seats the named staff as holder (e2e signedInAsStaff)", async () => {
+    const t = convexTest(schema);
+    await t.mutation(internal.seed.internal._reset_internal, {
+      ...baseArgs,
+      holderStaffName: "Bayu",
+    });
+
+    const shifts = await t.run((ctx) => ctx.db.query("pos_shifts").collect());
+    expect(shifts.length).toBe(1);
+    const holder = await t.run((ctx) => ctx.db.get(shifts[0].staff_id));
+    expect(holder?.name).toBe("Bayu");
+    expect(holder?.role).toBe("staff");
+  });
+
+  it("rejects an unknown holder name", async () => {
+    const t = convexTest(schema);
+    await expect(
+      t.mutation(internal.seed.internal._reset_internal, {
+        ...baseArgs,
+        holderStaffName: "Nobody",
+      }),
+    ).rejects.toThrow("SEED_UNKNOWN_HOLDER");
+  });
+
+  it("re-running reset leaves exactly one active holder (pos_shifts is wiped)", async () => {
+    const t = convexTest(schema);
+    await t.mutation(internal.seed.internal._reset_internal, baseArgs);
+    await t.mutation(internal.seed.internal._reset_internal, {
+      ...baseArgs,
+      holderStaffName: "Bayu",
+    });
+
+    const shifts = await t.run((ctx) => ctx.db.query("pos_shifts").collect());
+    expect(shifts.length).toBe(1);
+    const holder = await t.run((ctx) => ctx.db.get(shifts[0].staff_id));
+    expect(holder?.name).toBe("Bayu");
+  });
+});

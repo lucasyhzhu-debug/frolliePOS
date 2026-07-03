@@ -1,5 +1,6 @@
 "use node";
 
+import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { assertNotProd } from "./internal";
@@ -24,9 +25,15 @@ const STAFF_NAMES = ["Bayu", "Citra", "Dewi", "Eka"] as const;
  * api.*.
  */
 export const reset = internalAction({
-  args: {},
+  args: {
+    // ADR-053: seeded active-shift holder (default "Lucas"). e2e fixtures pass
+    // the staff they sign in as — a non-holder login is blocked by the
+    // two-level booth state.
+    holderStaffName: v.optional(v.string()),
+  },
   handler: async (
     ctx,
+    args,
   ): Promise<{
     wiped: number;
     inserted: number;
@@ -55,6 +62,7 @@ export const reset = internalAction({
       staffPinHash,
       mgrPinHash,
       staffNames: STAFF_NAMES as unknown as string[],
+      holderStaffName: args.holderStaffName,
     });
     return result;
   },

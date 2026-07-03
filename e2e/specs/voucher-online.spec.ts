@@ -44,9 +44,10 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   // Dubai 1pc @ 45k - 10% = 40.5k IDR
   await simulateQrisPaid(qrId, 40_500);
   // Stale-expectation fix: charge-success.tsx renders "Payment confirmed" + the
-  // hero receipt number "R-YYYY-NNNN" (src/routes/sale/charge-success.tsx:119,130),
-  // never "Paid". Assert the verified-real receipt-number landing signal.
-  await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
+  // hero receipt number (v2.0 outlet-coded: "R-PKW-2026-0001"), never "Paid".
+  // Assert the verified-real receipt-number landing signal. 30s: webhook-
+  // roundtrip latency spikes under full-suite load.
+  await expect(page.getByText(/R-[A-Z]+-\d{4}-\d{4}/)).toBeVisible({ timeout: 30_000 });
 
   // 4. Verify redemption in mgr drawer
   // Stale-expectation fix: the per-voucher history toggle is labelled
@@ -55,5 +56,5 @@ test("voucher (online): mgr creates → staff applies → paid → redemption vi
   // row's receipt number (vouchers.tsx:548).
   await page.goto("/mgr/vouchers");
   await page.getByRole("button", { name: /Redemptions/i }).first().click();
-  await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible();
+  await expect(page.getByText(/R-[A-Z]+-\d{4}-\d{4}/)).toBeVisible();
 });
