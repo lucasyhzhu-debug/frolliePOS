@@ -17,7 +17,10 @@ test("QRIS sale: cart → charge → simulate → paid receipt", async ({ signed
   // 2 × Dubai 1pc @ 45k = 90k IDR per seed (convex/seed/internal.ts:102)
   await simulateQrisPaid(qrId, 90_000);
 
-  await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
+  // v2.0: receipt numbers carry the outlet code — "R-PKW-2026-0001".
+  // 30s: the paid state arrives via a real Xendit-test webhook roundtrip,
+  // whose latency spikes under full-suite load (15s flaked in-suite).
+  await expect(page.getByText(/R-[A-Z]+-\d{4}-\d{4}/)).toBeVisible({ timeout: 30_000 });
   // Webhook-confirmed paid state renders "Payment confirmed" (charge-success.tsx).
   // The literal "Paid" only appears as a methodLabel fallback when confirmed_via is null.
   await expect(page.getByText(/Payment confirmed/i)).toBeVisible();

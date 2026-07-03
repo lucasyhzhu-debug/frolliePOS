@@ -36,6 +36,12 @@ async function awaitSignedIn(page: Page, staffName: string): Promise<void> {
   await expect(page).not.toHaveURL(/\/login/, { timeout: 2_000 });
 }
 
+// ADR-053: the seed must seat the shift HOLDER as the staff the fixture signs
+// in as — the two-level booth state blocks a non-holder login, and only
+// "outlet open + holder === me" resumes straight to the home dashboard that
+// awaitSignedIn expects. Default holder is Lucas; the staff fixture overrides.
+// JSON arg uses escaped double quotes so it survives both bash (CI) and
+// cmd.exe (local Windows dev).
 export const test = base.extend<Fixtures>({
   signedInAsLucas: async ({ page }, use) => {
     execSync("npx convex run seed/actions:reset", { stdio: "inherit" });
@@ -47,7 +53,7 @@ export const test = base.extend<Fixtures>({
   },
 
   signedInAsStaff: async ({ page }, use) => {
-    execSync("npx convex run seed/actions:reset", { stdio: "inherit" });
+    execSync('npx convex run seed/actions:reset "{\\"holderStaffName\\":\\"Bayu\\"}"', { stdio: "inherit" });
     await page.goto("/");
     await page.getByRole("button", { name: /Bayu/i }).click();       // first seed-staff
     await enterPin(page, "0000");                                    // real staff PIN per seed

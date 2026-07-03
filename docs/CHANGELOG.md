@@ -4,6 +4,35 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-03 — v1.4.3: e2e unblocked — seed opens the booth the ADR-053 way
+
+- **Problem fixed:** every e2e sign-in spec (7 of 8) had been failing since ADR-053 shipped
+  (2026-06-26): `seed/_reset_internal` still "opened the booth" by inserting a legacy ADR-050
+  `pos_shift_events` row, which the two-level stored booth state no longer reads — so every
+  seeded login hit a closed outlet and redirected to `/shift/start` instead of home. The break
+  was masked until 2026-07-03 by a second, infra-level failure: three UAT-leftover `outlets`
+  rows on shared dev lacked `is_open`, so the e2e job's `convex deploy` died at schema
+  validation before any test ran (fixed operationally: tolerate-window push →
+  `backfillOutletStatus` on dev → enforce re-push; nothing committed).
+- `_reset_internal` now writes the real ADR-053 state: patches the seeded outlet
+  `is_open: true` (`opened_via: "sop"`) + inserts an active `pos_shifts` holder row (shape
+  mirrors `_startShift_internal`). New optional `holderStaffName` arg (default `"Lucas"`) —
+  e2e's `signedInAsStaff` fixture passes `"Bayu"`, because a non-holder login is blocked
+  under ADR-053. `pos_shifts` added to the wipe list (stale holders no longer survive reseeds).
+- **Two more latent spec regressions surfaced once sign-in worked** (both pre-dated today,
+  masked since 06-24/06-26): **(a)** the receipt-number assertion `/R-\d{4}-\d{4}/` in 4 specs
+  predated v2.0's outlet-coded format (`R-PKW-2026-0001`) — the "consistent refund e2e fail"
+  was this stale regex, not a payment bug (forensics: the txn was `paid`,
+  `confirmed_via: "webhook"`, 3.2s after charge — the whole Xendit webhook pipeline works);
+  now `/R-[A-Z]+-\d{4}-\d{4}/`. **(b)** `sale-manual-bca` asserted the literal default account
+  `0000000000`, but `MANUAL_BCA_DEFAULTS` reads the deployment's `MANUAL_BCA_ACCOUNT_*` env
+  vars (real account on shared dev since the secrets scrub) — now asserts any digit-string
+  account. `pos_settings` also added to the seed wipe list (a configured row must not leak
+  into a "reset" environment). Webhook-wait timeouts 15s → 30s (Xendit-test roundtrip latency
+  spikes under full-suite load).
+- Tests: 4 new `_reset_internal` booth-state tests (default holder, named holder, unknown
+  holder throws, re-run leaves one holder). `package.json` bumped to `1.4.3`.
+
 ## 2026-07-02 — v1.4.2: per-SKU units sold in the EOD Telegram summaries
 
 - **Capability added:** the daily owners rollup (`shift_summary`) and each per-outlet

@@ -100,6 +100,10 @@ export const _reset_internal = internalMutation({
     staffPinHash: v.string(),
     mgrPinHash: v.string(),
     staffNames: v.array(v.string()),
+    // ADR-053: which seeded staff holds the active shift (default "Lucas").
+    // e2e fixtures pass the staff they're about to sign in as, because a
+    // non-holder login is BLOCKED under the two-level booth state.
+    holderStaffName: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -116,7 +120,13 @@ export const _reset_internal = internalMutation({
       // Without these, a dev reset left orphaned txns + an ever-climbing receipt
       // counter, breaking the "wipe + bootstrap" smoke-flow premise (I5).
       "pos_voucher_redemptions", "pos_stock_movements", "pos_xendit_invoices",
-      "pos_refunds", "pos_shift_events",
+      "pos_refunds", "pos_shift_events", "pos_shifts",
+      // pos_settings survived resets for years unnoticed, until a real manual-BCA
+      // account configured on dev leaked into e2e (spec expects the "0000000000"
+      // default that only renders when no settings row exists for the outlet).
+      // Settings are per-outlet (v2.0) and outlets are wiped below — a surviving
+      // row is always an orphan pointing at a deleted outlet.
+      "pos_settings",
       "pos_transaction_lines", "pos_transactions", "pos_receipt_counters",
       "pos_vouchers", "pos_approval_requests",
       "pos_low_stock_alerts", "pos_recount_state",
@@ -290,26 +300,41 @@ export const _reset_internal = internalMutation({
     });
     inserted++;
 
-    // Open the booth: record a start_of_day shift event so the seeded device
-    // boots into an OPEN booth (booth state derives from the latest
-    // pos_shift_events row — ADR-050). Without this the booth is CLOSED and the
-    // login-gate + RootLayout SOP fork redirects every e2e sign-in to
-    // /shift/start instead of the home dashboard the flow specs expect.
-    await ctx.db.insert("pos_shift_events", {
-      device_id: "dev-booth-device",
-      type: "start_of_day",
-      staff_id: lucasId,
-      shift_started_at: now,
-      shift_ended_at: null,
-      steps: [],
-      count_changed: null,
-      takeover: null,
-      outgoing_uncounted: null,
-      stale_autoclose: null,
-      linked_event_id: null,
-      summary: null,
-      created_at: now,
+    // Open the booth — ADR-053 two-level stored state (supersedes the ADR-050
+    // pos_shift_events open-event this block used to write; deriveBoothState is
+    // deleted, so that event no longer opened anything and every seeded login
+    // redirected to /shift/start — the silent e2e sign-in breakage of 2026-06-26).
+    // Level 1: outlets.is_open. Level 2: an active pos_shifts holder row
+    // (shape mirrors shiftsInternal._startShift_internal). Both are required
+    // for a login to resume at the home dashboard; the holder must be the
+    // person logging in (a non-holder login is blocked).
+    const holderName = args.holderStaffName ?? "Lucas";
+    const holderId =
+      holderName === "Lucas"
+        ? lucasId
+        : seededStaffIds[args.staffNames.indexOf(holderName)];
+    if (!holderId) throw new Error(`SEED_UNKNOWN_HOLDER: ${holderName}`);
+    await ctx.db.patch(outletId, {
+      is_open: true,
+      opened_at: now,
+      opened_by: holderId,
+      opened_via: "sop",
+    });
+    await ctx.db.insert("pos_shifts", {
       outlet_id: outletId,
+      device_id: "dev-booth-device",
+      staff_id: holderId,
+      started_at: now,
+      started_via: "sop",
+      ended_at: null,
+      ended_via: null,
+      open_count: null,
+      close_count: null,
+      outgoing_uncounted: null,
+      steps: [],
+      summary: null,
+      prev_shift_id: null,
+      created_at: now,
     });
     inserted++;
 

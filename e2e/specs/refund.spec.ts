@@ -11,7 +11,9 @@ test("refund: paid sale → mgr refund 1 line with PIN → refund row + receipt 
   const qrId = await page.locator("[data-qr-id]").first().getAttribute("data-qr-id");
   if (!qrId) throw new Error("no qrId");
   await simulateQrisPaid(qrId, 45_000); // 1 × Dubai 1pc @ 45k IDR per seed
-  await expect(page.getByText(/R-\d{4}-\d{4}/)).toBeVisible({ timeout: 15_000 });
+  // v2.0: receipt numbers carry the outlet code — "R-PKW-2026-0001".
+  // 30s: webhook-roundtrip latency spikes under full-suite load.
+  await expect(page.getByText(/R-[A-Z]+-\d{4}-\d{4}/)).toBeVisible({ timeout: 30_000 });
 
   // 2. Open via history; the Refund button navigates to /refund/:txnId
   // (src/routes/history/$txnId.tsx:259 — data-testid="history-refund").
