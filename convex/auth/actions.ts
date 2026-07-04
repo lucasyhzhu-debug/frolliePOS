@@ -8,6 +8,15 @@ import { argon2id } from "hash-wasm";
 import { verifyPinOrThrow, verifyManagerPinOrThrow, assertManagerSessionInAction } from "./verifyPin";
 import { withActionCache } from "../idempotency/action";
 
+/**
+ * Bound on the loginWithPin derived-key chain walk (Fix 5 loop form). Each
+ * dead cached session derives one more `:r` suffix; within the 24h cache TTL
+ * a real device can only accumulate a handful (one per login→lock cycle on
+ * the same client key). 8 is far beyond any legitimate chain — past the cap
+ * we commit under a count-suffixed key instead of looping forever.
+ */
+const MAX_LOGIN_KEY_CHAIN = 8;
+
 const ARGON2_PARAMS = {
   parallelism: 1,
   iterations: 2,
@@ -78,9 +87,15 @@ export const _hashQuickPin_internal = internalAction({
  * The action checks the cache FIRST via _lookup_internal so a retry skips
  * argon2 verify entirely.
  *
- * Fix 5: after a cache hit, verify the session is still live. If the session
- * was force-ended between the original login and this retry, treat as a cache
- * miss and run a fresh login.
+ * Fix 5 (loop form, v1.4.5): after a cache hit, verify the cached session is
+ * still live — walking the WHOLE chain of derived commit keys, not just the
+ * base key. The original single base+":refresh" check had a hole: if the
+ * ":refresh" entry was ALSO cached-and-dead (login → lock → re-login → lock
+ * again within the 24h cache TTL), the commit replayed the dead ":refresh"
+ * session forever and the client bounced back to the PIN screen on every
+ * retry (permanent loop — verified in prod). The loop ends at either a LIVE
+ * cached session (replay it, argon2 still skipped) or a cache MISS (fall
+ * through and commit fresh under that missed key).
  *
  * SEC-01: the failed-attempt counter is no longer deduped on a client key
  * (the old "Fix 10" derived-key wrap let a reused key defeat lockout). Booth
@@ -98,23 +113,31 @@ export const loginWithPin = action({
     deviceId: v.string(),
   },
   handler: async (ctx, args): Promise<{ sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" }> => {
-    // Short-circuit on cache hit BEFORE running argon2
-    const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
-      key: args.idempotencyKey,
-    });
-
-    // Fix 5: after a cache hit, verify the cached session is still live.
-    // If the session was force-ended (manager logout, deactivated staff),
-    // fall through to run a fresh login with a derived commit key so the
-    // _loginCommit_internal idempotency cache is also bypassed.
+    // Fix 5 (loop form): short-circuit on a LIVE cache hit BEFORE running
+    // argon2, walking the chain of derived commit keys and re-checking session
+    // liveness at EACH step. A dead cached session (force-ended, manual lock,
+    // deactivated staff) derives the next key and re-checks — so a chain of
+    // dead entries (base dead AND its derived key dead, from repeated
+    // login→lock cycles on the same client key) can never be replayed. The
+    // loop exits with commitKey pointing at a guaranteed cache-miss key, so
+    // _loginCommit_internal's own idempotency cache is also bypassed and a
+    // fresh session is issued.
     let commitKey = args.idempotencyKey;
-    if (cached) {
+    for (let depth = 0; ; depth++) {
+      if (depth >= MAX_LOGIN_KEY_CHAIN) {
+        // Pathological chain — cap the walk with a count-suffixed key.
+        commitKey = `${args.idempotencyKey}:r${MAX_LOGIN_KEY_CHAIN}`;
+        break;
+      }
+      const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
+        key: commitKey,
+      });
+      if (!cached) break; // cache miss — commit fresh under commitKey below
       const parsed = JSON.parse(cached) as { sessionId: Id<"staff_sessions">; role: "staff" | "manager" | "owner" };
       const live = await ctx.runQuery(api.auth.public.getSession, { sessionId: parsed.sessionId });
-      if (live) return parsed; // session still valid — replay cache
-      // Session is dead. Use a derived commit key so the stale commit-level
-      // cache is bypassed when we issue a fresh session below.
-      commitKey = `${args.idempotencyKey}:refresh`;
+      if (live) return parsed; // session still valid — replay cache, skip argon2
+      // Dead session under this key — derive the next key and re-check.
+      commitKey = `${commitKey}:r`;
     }
 
     const staff = await ctx.runQuery(internal.auth.internal._getStaffPinHash_internal, {
@@ -140,8 +163,9 @@ export const loginWithPin = action({
       { lockOnFail: true },
     );
 
-    // PIN verified — commit session (use commitKey which may differ from
-    // args.idempotencyKey if a stale-session refresh forced a cache bypass)
+    // PIN verified — commit session under commitKey (a guaranteed cache-miss
+    // key: it may differ from args.idempotencyKey if the dead-session chain
+    // walk above derived past stale entries)
     return await ctx.runMutation(internal.auth.internal._loginCommit_internal, {
       idempotencyKey: commitKey,
       staffId: args.staffId,

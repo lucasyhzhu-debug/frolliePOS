@@ -127,6 +127,29 @@ export const _writeCache_internal = internalMutation({
   },
 });
 
+/**
+ * Break-glass ops helper: delete ALL pos_idempotency rows for a key (the
+ * by_key index tolerates duplicate rows, so collect + delete each). Lets ops
+ * clear a wedged cache entry without a code deploy:
+ *
+ *   npx convex run idempotency/internal:_purgeKey_internal '{"key":"<key>"}' --prod
+ *
+ * INTERNAL — never reachable from a public client.
+ */
+export const _purgeKey_internal = internalMutation({
+  args: { key: v.string() },
+  handler: async (ctx, args): Promise<{ deleted: number }> => {
+    const rows = await ctx.db
+      .query("pos_idempotency")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .collect();
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+    return { deleted: rows.length };
+  },
+});
+
 // Test-only mutations. Both INTERNAL — never reachable from a public client.
 export const __test_echo = internalMutation({
   args: { idempotencyKey: v.string(), value: v.number() },

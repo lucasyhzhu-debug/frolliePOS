@@ -516,3 +516,123 @@ describe("Fix 5: cache hit with ended session triggers fresh login", () => {
     expect(newSession?.ended_at).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix 5 loop form (v1.4.5) — dead-session key CHAIN must never be replayed.
+// Prod bug: base key cached-dead AND its derived key cached-dead (login →
+// lock → re-login → lock again on the same client key) → the old single-step
+// check committed under the deterministic derived key, replayed the dead
+// derived session, and returned a dead sessionId forever (permanent
+// PIN-screen bounce). The loop walks the chain to a miss and commits fresh.
+// ---------------------------------------------------------------------------
+describe("Fix 5 loop: dead-session key chain walks to a fresh live session", () => {
+  it("base + derived key BOTH cached-dead → returns a NEW LIVE session (prod regression)", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Hesti", "4321");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
+    const key = "chain-idem-key";
+
+    // Login 1 — caches { sessionId } under the base key.
+    const first = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    // Lock — the base cache entry is now dead.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(first.sessionId, { ended_at: Date.now(), end_reason: "manual_lock" as const });
+    });
+
+    // Login 2 (same key) — base is dead, commits fresh under the derived key.
+    const second = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    expect(second.sessionId).not.toBe(first.sessionId);
+    // Lock AGAIN — now BOTH the base and the derived cache entries are dead.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(second.sessionId, { ended_at: Date.now(), end_reason: "manual_lock" as const });
+    });
+
+    // Login 3 (same key) — pre-fix this replayed the dead derived session on
+    // every retry (permanent loop). Post-fix: walks base(dead) → derived(dead)
+    // → miss, and commits a fresh LIVE session.
+    const third = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    expect(third.sessionId).not.toBe(first.sessionId);
+    expect(third.sessionId).not.toBe(second.sessionId);
+    const session = await t.run(async (ctx) => ctx.db.get(third.sessionId));
+    expect(session?.ended_at).toBeNull();
+
+    // The commit-level cache now holds the full derived-key chain.
+    const keys = await t.run(async (ctx) =>
+      (await ctx.db.query("pos_idempotency").collect()).map((r) => r.key),
+    );
+    expect(keys).toContain(key);
+    expect(keys).toContain(`${key}:r`);
+    expect(keys).toContain(`${key}:r:r`);
+  });
+
+  it("base key cached-LIVE → replays without writing a new session row", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Intan", "4321");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
+    const key = "live-replay-key";
+
+    const first = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    const sessionsBefore = await t.run(async (ctx) => ctx.db.query("staff_sessions").collect());
+
+    const second = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    expect(second.sessionId).toBe(first.sessionId);
+
+    // No new session row and no second staff.login audit (replay short-circuited)
+    const sessionsAfter = await t.run(async (ctx) => ctx.db.query("staff_sessions").collect());
+    expect(sessionsAfter.length).toBe(sessionsBefore.length);
+    const audits = await t.query(internal.audit.internal._list_internal, { action: "staff.login" });
+    expect(audits).toHaveLength(1);
+  });
+
+  it("no cache → normal fresh login commits under the base key", async () => {
+    const t = convexTest(schema);
+    const staffId = await seedStaff(t, "Joko", "4321");
+    await seedOutletDeviceAccess(t, staffId, "dev-1");
+    const key = "fresh-login-key";
+
+    const { sessionId, role } = await t.action(api.auth.actions.loginWithPin, {
+      staffId, pin: "4321", deviceId: "dev-1", idempotencyKey: key,
+    });
+    expect(role).toBe("staff");
+    const session = await t.run(async (ctx) => ctx.db.get(sessionId));
+    expect(session?.ended_at).toBeNull();
+
+    // Committed under the BASE key (no derived suffix on the happy path).
+    const rows = await t.run(async (ctx) =>
+      (await ctx.db.query("pos_idempotency").collect()).map((r) => r.key),
+    );
+    expect(rows).toContain(key);
+    expect(rows.some((k) => k.startsWith(`${key}:r`))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _purgeKey_internal — break-glass ops helper to clear a wedged idempotency key
+// ---------------------------------------------------------------------------
+describe("_purgeKey_internal (break-glass)", () => {
+  it("deletes all rows for the key (duplicates included), leaves other keys", async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      const row = { mutation_name: "auth.loginWithPin", response_blob: "{}", expires_at: Date.now() + 1000 };
+      await ctx.db.insert("pos_idempotency", { key: "wedged", ...row });
+      await ctx.db.insert("pos_idempotency", { key: "wedged", ...row }); // duplicate row
+      await ctx.db.insert("pos_idempotency", { key: "other", ...row });
+    });
+
+    const res = await t.mutation(internal.idempotency.internal._purgeKey_internal, { key: "wedged" });
+    expect(res.deleted).toBe(2);
+
+    const remaining = await t.run(async (ctx) => ctx.db.query("pos_idempotency").collect());
+    expect(remaining.map((r) => r.key)).toEqual(["other"]);
+  });
+});

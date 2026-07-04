@@ -4,6 +4,28 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-04 — v1.4.6: fix the login idempotency dead-session replay loop
+
+- **Problem fixed (PROD, Block M):** a staffer entered the correct PIN, saw the spinner, then got
+  bounced straight back to the PIN screen — every attempt, permanently. Root cause: `loginWithPin`'s
+  "Fix 5" dead-session guard only re-checked the session cached under the *base* idempotency key,
+  then committed under a single deterministic `:refresh` key. When that `:refresh` entry was ALSO
+  cached-and-dead (login → lock → re-login → lock again on the same non-rotating client key, within
+  the 24h cache TTL), every retry replayed the dead `:refresh` session and returned it — `getSession`
+  then resolved null and the app bounced to login. No new session was ever written (verified against
+  `pos_idempotency` + prod logs: 9 "successful" `loginCommit` replays, zero new session rows).
+- **Fix:** `loginWithPin` now walks the WHOLE chain of derived commit keys (`key`, `key:r`, `key:r:r`,
+  …), re-checking session liveness at each step, until it hits a LIVE cached session (replay, argon2
+  skipped) or a cache MISS (commit fresh). A dead chain of any depth self-heals to a fresh live session
+  on the next retry. Bounded by `MAX_LOGIN_KEY_CHAIN = 8`.
+- **Break-glass:** new `idempotency/internal:_purgeKey_internal` deletes all cache rows for a key, so
+  ops can clear a wedged entry without a code deploy
+  (`npx convex run idempotency/internal:_purgeKey_internal '{"key":"…"}' --prod`).
+- Tests: prod regression (login→lock→login→lock→login yields a third distinct LIVE session + the
+  `key`/`key:r`/`key:r:r` chain), live-replay (no new session/audit), fresh-login, and purge.
+- Shipped to prod backend via break-glass `npx convex deploy` during the incident; the affected
+  staffer's stale keys purged live. `package.json` → `1.4.6`.
+
 ## 2026-07-04 — v1.4.5: harden the blocked-booth recovery paths
 
 - **Context:** during the v1.4.4 incidents, both booth-recovery paths appeared to "do nothing"
