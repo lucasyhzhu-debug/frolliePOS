@@ -133,6 +133,18 @@ export const startShift = mutation({
       if (holder) throw new Error("SHIFT_IN_PROGRESS");
 
       const prev = await ctx.runQuery(internal.shifts.shiftsInternal._lastEndedShift_internal, { outletId });
+
+      // Reject a SELF-handover: the staffer who just handed the booth over cannot
+      // immediately re-claim it. Handover is person-to-person (ADR-053) — a same-staff
+      // "handover" is meaningless, and in prod it minted a holder that then STRANDED the
+      // booth on the next lock (holder with no live session blocks every other login,
+      // recoverable only by a manager). Refusing it here keeps the booth open + holderless
+      // so the ACTUAL next person can log in and take over. The outgoing staffer who truly
+      // means to keep working never taps "handover"; a genuine stranded holder left by a
+      // DIFFERENT person stays manager-override-gated (business rule #23).
+      if (prev && prev.ended_via === "handover" && prev.staff_id === staffId) {
+        throw new Error("SELF_HANDOVER_NOT_ALLOWED");
+      }
       const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
         internal.shifts.shiftsInternal._startShift_internal,
         {

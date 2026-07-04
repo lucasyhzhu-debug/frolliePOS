@@ -4,6 +4,39 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-04 — v1.4.4: reject self-handover — stop the stranded-holder booth lockout
+
+- **Problem fixed:** twice within a day (PROD, Block M) every staffer was blocked from
+  signing in / handing over, requiring a manager break-glass CLI call to recover. Root cause:
+  handover is two decoupled halves (ADR-053) — outgoing `handover()` ends the shift + logs out,
+  then *whoever logs in next* claims the holder via `startShift`. Nothing stopped the **outgoing
+  staffer from re-logging-in as themselves** and re-claiming the booth (a meaningless
+  self-handover); when that self-minted holder then **locked** (plain logout), it left an active
+  `pos_shifts` holder with no live session — which blocks every *other* staffer's login
+  (`SHIFT_IN_PROGRESS` / `NOT_SHIFT_HOLDER`), recoverable only by a manager-PIN override.
+- **Fix:** `startShift` now throws `SELF_HANDOVER_NOT_ALLOWED` when the last-ended shift was a
+  `handover` by the same staffer now attempting to start. The booth stays open + holderless, so
+  the *actual* next person logs in and takes over cleanly — the stranded-holder trap can never be
+  minted. A genuine stranded holder left by a **different** person stays manager-override-gated
+  (business rule #23, unchanged — no security-gate relaxation here). FE `/shift/begin` catches
+  the error, toasts a clear message (`shiftBegin.selfHandoverBlocked`, EN+ID), logs the outgoing
+  staffer out, and returns them to `/login`. The FE also ends that session server-side
+  (`lock`, best-effort) before clearing the client, so the rejection path leaves no orphaned
+  `ended_at:null` session row (mirrors `lock.tsx`).
+- Tests: backend `startShift` self-handover rejection (+ asserts no holder row created);
+  backend restart-after-`manager_override` is NOT blocked (guard keys on `ended_via === "handover"`,
+  not staff-id alone); FE `begin.tsx` rejection path (toast + logout + `/login`, no navigate-home).
+  Full suite green. `package.json` bumped to `1.4.4`.
+- **Known limitation (narrow):** after a reject the booth is open + *holderless*, so the
+  existing PIN-gated override / Telegram-request recovery UI (which keys on a non-null holder) is
+  not reachable. A staffer working truly alone who completes a handover wizard by mistake has no
+  in-app self-recovery until a second person or manager logs in. Rare (handover implies a
+  successor; a solo close uses "Tutup booth"), and any second login clears it.
+- **Follow-ups (not in this hotfix):** (a) a "you just handed over — resume my shift?" choice at
+  login so outgoing vs. incoming staffer are disambiguated up front (closes the solo dead-end
+  without the auto-strand); (b) whether staff should self-release a genuine stranded holder left
+  by a *different* person (today: manager-PIN only) — a policy question for owner decision.
+
 ## 2026-07-03 — v1.4.3: e2e unblocked — seed opens the booth the ADR-053 way
 
 - **Problem fixed:** every e2e sign-in spec (7 of 8) had been failing since ADR-053 shipped

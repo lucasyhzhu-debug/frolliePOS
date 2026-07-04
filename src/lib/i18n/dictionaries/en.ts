@@ -997,6 +997,7 @@ export const en = {
   "shiftBegin.title": "Begin shift",
   "shiftBegin.stepCountLabel": "Count stock",
   "shiftBegin.terminalLabel": "Start shift",
+  "shiftBegin.selfHandoverBlocked": "You just handed the booth over — the next staff should log in to take over.",
   // stock
   "stock.title": "Stock",
   "stock.noSkus": "No SKUs yet. A manager can add SKUs via the Manage Products page.",

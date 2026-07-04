@@ -995,6 +995,7 @@ export const id: Record<keyof typeof en, string> = {
   "shiftBegin.title": "Mulai shift",
   "shiftBegin.stepCountLabel": "Hitung stok",
   "shiftBegin.terminalLabel": "Mulai shift",
+  "shiftBegin.selfHandoverBlocked": "Kamu baru saja serah terima booth — staf berikutnya yang harus login untuk melanjutkan.",
   // stock
   "stock.title": "Stok",
   "stock.noSkus": "Belum ada SKU. Manajer menambahkan SKU lewat halaman Kelola Produk.",
