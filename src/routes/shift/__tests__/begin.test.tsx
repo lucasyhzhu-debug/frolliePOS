@@ -8,6 +8,10 @@ import { MemoryRouter } from "react-router";
 
 const mockStartShift = vi.fn();
 const mockNavigate = vi.fn();
+const mockClearSession = vi.fn();
+const mockToastError = vi.fn();
+
+vi.mock("sonner", () => ({ toast: { error: (...a: unknown[]) => mockToastError(...a) } }));
 
 // Mutable login context so each test can set the desired guard state.
 let mockLoginCtx: { outletOpen: boolean; holderStaffId: string | null; holderName: string | null } | undefined = {
@@ -22,6 +26,7 @@ vi.mock("@/hooks/useSession", () => ({
     sessionId: "session_abc",
     staff: { _id: "staff_1", name: "Budi", role: "staff", must_change_pin: false },
   }),
+  clearSession: () => mockClearSession(),
 }));
 
 vi.mock("@/hooks/useIdempotency", () => ({
@@ -156,5 +161,24 @@ describe("ShiftBegin route (/shift/begin)", () => {
     renderRoute();
     expect(screen.queryByTestId("count-step-stub")).toBeNull();
     expect(mockStartShift).not.toHaveBeenCalled();
+  });
+
+  it("self-handover rejection: SELF_HANDOVER_NOT_ALLOWED → toast + logout + back to /login (no navigate home)", async () => {
+    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
+    renderRoute();
+
+    fireEvent.click(screen.getByTestId("count-step-submit"));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /start shift/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /start shift/i }));
+
+    await waitFor(() => {
+      expect(mockClearSession).toHaveBeenCalledTimes(1);
+    });
+    expect(mockToastError).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+    // Must NOT navigate home on the rejection path.
+    expect(mockNavigate).not.toHaveBeenCalledWith("/", { replace: true });
   });
 });

@@ -1,11 +1,13 @@
 import { Navigate, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { useSession } from "@/hooks/useSession";
+import { useSession, clearSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { useLoginContext } from "@/hooks/useLoginContext";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
 import { useT } from "@/lib/i18n";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * /shift/begin — session-FULL incoming-shift count → startShift.
@@ -40,10 +42,16 @@ export default function ShiftBegin() {
   const ctx = useLoginContext();
   const steps = useSteps();
   const startShift = useMutation(api.shifts.shifts.startShift);
+  const lock = useMutation(api.shifts.shifts.lock);
 
   const sessionId = session.status === "active" ? session.sessionId : null;
   const idempotencyKey = useIdempotency(
     sessionId ? `shift:begin:${sessionId}` : "shift:begin:none",
+  );
+  // Distinct intent from the begin key — used only to end the session server-side
+  // when a self-handover is rejected (mirrors lock.tsx's lock-then-clear pattern).
+  const lockKey = useIdempotency(
+    sessionId ? `shift:begin:lock:${sessionId}` : "shift:begin:lock:none",
   );
 
   if (session.status === "loading") return null;
@@ -60,13 +68,33 @@ export default function ShiftBegin() {
 
   async function onComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
     if (!idempotencyKey || !sessionId) return;
-    await startShift({
-      idempotencyKey,
-      sessionId,
-      steps: confirmed,
-      ...(countChanged != null ? { openCount: countChanged } : {}),
-    });
-    navigate("/", { replace: true });
+    try {
+      await startShift({
+        idempotencyKey,
+        sessionId,
+        steps: confirmed,
+        ...(countChanged != null ? { openCount: countChanged } : {}),
+      });
+      navigate("/", { replace: true });
+    } catch (err) {
+      // SELF_HANDOVER_NOT_ALLOWED: the staffer who just handed over tried to re-claim
+      // the booth. Sending them back to /login (logged out) leaves the booth open +
+      // holderless so the actual next person can take over — and prevents the
+      // stranded-holder trap that blocked every other login in prod.
+      if (errorMessage(err).includes("SELF_HANDOVER_NOT_ALLOWED")) {
+        toast.error(t("shiftBegin.selfHandoverBlocked"));
+        // End the just-created session server-side before clearing the client, so we
+        // don't leave an orphaned ended_at:null row (mirrors lock.tsx). Best-effort:
+        // a lock failure must not strand the staffer on /shift/begin.
+        try {
+          if (lockKey) await lock({ idempotencyKey: lockKey, sessionId });
+        } catch { /* best-effort session cleanup */ }
+        clearSession();
+        navigate("/login", { replace: true });
+        return;
+      }
+      throw err;
+    }
   }
 
   return (

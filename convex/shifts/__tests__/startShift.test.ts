@@ -45,6 +45,53 @@ test("startShift begins a new shift after handover; prev_shift_id links", async 
   await drainScheduled(t);
 });
 
+test("startShift rejects a self-handover: the outgoing staffer cannot immediately re-claim the booth", async () => {
+  const t = convexTest(schema);
+  const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
+  await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
+
+  // Sisca (the SAME staff who just handed over) logs back in on the now-holderless
+  // open outlet. This is the prod footgun: re-claiming mints a holder that strands
+  // on the next lock. startShift must refuse it.
+  const siscaSession2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db.query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
+    return ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
+  });
+
+  await expect(
+    t.mutation(api.shifts.shifts.startShift, { idempotencyKey: "s-self", sessionId: siscaSession2, steps: [], openCount: 8 }),
+  ).rejects.toThrow(/SELF_HANDOVER_NOT_ALLOWED/);
+
+  // No holder was created — the booth stays open + holderless so the ACTUAL next
+  // person can log in and take over cleanly.
+  const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(holder).toBeNull();
+  await drainScheduled(t);
+});
+
+test("startShift is NOT blocked after a manager_override release by the same staff (guard keys on ended_via=handover, not staff-id)", async () => {
+  const t = convexTest(schema);
+  const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
+
+  // A manager releases the booth (closeOutlet:false): Sisca's shift ends via
+  // manager_override, the outlet stays open + holderless.
+  await t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+    idempotencyKey: "ov1", deviceId: "d1", managerStaffId: staffId,
+    closeOutlet: false, source: "booth_inline",
+  });
+
+  // The SAME staff (Sisca) starts again. Because the prior shift ended via
+  // manager_override (NOT handover), this is a legitimate restart, not a self-handover.
+  const res = await t.mutation(api.shifts.shifts.startShift, {
+    idempotencyKey: "s-after-override", sessionId, steps: [], openCount: 8,
+  });
+  expect(res.ok).toBe(true);
+  const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(holder?.staff_id).toBe(staffId);
+  await drainScheduled(t);
+});
+
 test("startShift on a closed outlet → BOOTH_NOT_OPEN; with a holder → SHIFT_IN_PROGRESS", async () => {
   const t = convexTest(schema);
   const { sessionId } = await seedOpen(t); // open, holder = Sisca
