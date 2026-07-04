@@ -675,6 +675,8 @@ export const en = {
   "login.overrideRequested": "Requested — waiting for a manager to approve",
   "login.overrideDeclined": "Request declined — tap 'Request via Telegram' to try again",
   "login.overrideExpired": "Request expired — tap 'Request via Telegram' to try again",
+  "login.overrideNotReady": "Not ready yet — please try again in a moment.",
+  "login.overrideNotifyFailed": "Couldn't reach managers on Telegram. Ask a manager to unlock on this device (Manager override), or try again.",
   // cockpitLogin — owner cockpit login (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Owner · Cockpit",
   "cockpitLogin.identifierTitle": "Sign in",

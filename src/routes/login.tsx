@@ -67,8 +67,12 @@ export default function LoginRoute() {
   const [overridePending, setOverridePending] = useState(false);
 
   // Two-path override (v1.3.1): inline (Close/Release + PIN) + Request via Telegram.
-  // resultingState: which outcome the inline manager override produces (default "close").
-  const [resultingState, setResultingState] = useState<"close" | "release">("close");
+  // resultingState: which outcome the inline manager override produces. Default
+  // "release" — the blocked-booth recovery case is "someone needs to get in", so the
+  // safe default keeps the outlet OPEN and hands off; "close" (end-of-day) is the
+  // deliberate opt-in. (Defaulting to "close" was a footgun: a manager tapping through
+  // would shut the whole booth instead of releasing the stranded holder.)
+  const [resultingState, setResultingState] = useState<"close" | "release">("release");
   // Telegram-request path: pending/requested/error states.
   const [overrideRequested, setOverrideRequested] = useState(false);
   const [requestPending, setRequestPending] = useState(false);
@@ -294,7 +298,7 @@ export default function LoginRoute() {
   const handleOverrideOpen = () => {
     setPickedManager(null);
     setOverrideError(undefined);
-    setResultingState("close"); // reset to default each time the sheet opens
+    setResultingState("release"); // reset to the safe default (keep booth open) each open
     setOverrideOpen(true);
   };
 
@@ -338,7 +342,13 @@ export default function LoginRoute() {
   // Telegram-request path: sends a shift-override request to the managers channel.
   // On { requestId } → show waiting state; on { noHold: true } → no hold, go to list.
   const handleRequestOverride = async () => {
-    if (!deviceId || !requestKey) return;
+    // Don't silently no-op if the idempotency key isn't ready yet (IDB race): tell
+    // the staffer to retry rather than leaving the tap looking dead. The button is
+    // also disabled until requestKey resolves; this is the belt-and-braces guard.
+    if (!deviceId || !requestKey) {
+      setRequestError(t("login.overrideNotReady"));
+      return;
+    }
     setRequestPending(true);
     setRequestError(undefined);
     setOverrideResult(null); // clear any previous denied/expired state on retry
@@ -347,6 +357,11 @@ export default function LoginRoute() {
       if ("noHold" in result && result.noHold) {
         // Hold already gone — move back to list so the blocked staffer can log in
         setStage({ kind: "list" });
+      } else if ("notifyFailed" in result && result.notifyFailed) {
+        // Telegram send failed — the request was rolled back. Steer the staffer to
+        // the Telegram-INDEPENDENT inline manager-PIN override (or retry) instead of
+        // a dead end.
+        setRequestError(t("login.overrideNotifyFailed"));
       } else {
         // Store requestId to subscribe to its status reactively.
         setOverrideRequested(true);
@@ -459,7 +474,7 @@ export default function LoginRoute() {
               <button
                 type="button"
                 onClick={handleRequestOverride}
-                disabled={requestPending}
+                disabled={requestPending || !requestKey}
                 className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
               >
                 {t("login.requestOverrideViaTelegram")}
