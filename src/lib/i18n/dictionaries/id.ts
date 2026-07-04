@@ -673,6 +673,8 @@ export const id: Record<keyof typeof en, string> = {
   "login.overrideRequested": "Terkirim — menunggu manajer menyetujui",
   "login.overrideDeclined": "Permintaan ditolak — ketuk 'Minta via Telegram' untuk coba lagi",
   "login.overrideExpired": "Permintaan kedaluwarsa — ketuk 'Minta via Telegram' untuk coba lagi",
+  "login.overrideNotReady": "Belum siap — coba lagi sebentar.",
+  "login.overrideNotifyFailed": "Tidak bisa menghubungi manajer via Telegram. Minta manajer membuka di perangkat ini (Override manajer), atau coba lagi.",
   // cockpitLogin — login cockpit pemilik (v2.0 owner-auth, ADR-052)
   "cockpitLogin.eyebrow": "Pemilik · Cockpit",
   "cockpitLogin.identifierTitle": "Masuk",

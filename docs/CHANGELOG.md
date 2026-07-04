@@ -4,6 +4,29 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-04 — v1.4.5: harden the blocked-booth recovery paths
+
+- **Context:** during the v1.4.4 incidents, both booth-recovery paths appeared to "do nothing"
+  when a staffer was blocked by a stranded holder. Forensics showed Telegram was **not** down
+  (sends ran continuously) — the real driver was the self-handover churn (fixed in v1.4.4). But
+  the investigation surfaced three genuine fragilities in the recovery UX, fixed here.
+- **`requestShiftOverride` no longer self-destructs on a Telegram hiccup.** On a send failure it
+  still rolls the request row back (so a retry re-sends cleanly), but now **returns
+  `{ notifyFailed: true }` instead of throwing** — so the booth shows an actionable message
+  ("couldn't reach managers on Telegram — use the on-device Manager PIN, or try again") steering
+  to the **Telegram-independent** inline override, rather than a generic error dead-end.
+- **The "Request via Telegram" button no longer silently no-ops.** It was `return`-ing when its
+  idempotency key hadn't resolved yet (IDB race), so a tap could look dead. It's now **disabled
+  until the key is ready**, and the handler surfaces a "not ready — try again" message as a
+  belt-and-braces guard.
+- **The inline manager-override now defaults to "Release", not "Close".** The blocked-booth case
+  is "someone needs to get in", so the safe default keeps the outlet **open** and hands off;
+  "Close" (end-of-day) is now the deliberate opt-in. (Defaulting to Close was a footgun — a
+  manager tapping through would shut the whole booth.)
+- Tests: backend `requestShiftOverride` notifyFailed path (returns the flag + rolls the row
+  back); FE default-is-release, explicit-close, and notifyFailed-steers-to-inline. New i18n keys
+  `login.overrideNotReady` + `login.overrideNotifyFailed` (EN+ID). `package.json` → `1.4.5`.
+
 ## 2026-07-04 — v1.4.4: reject self-handover — stop the stranded-holder booth lockout
 
 - **Problem fixed:** twice within a day (PROD, Block M) every staffer was blocked from

@@ -794,8 +794,10 @@ export const denyRequest = action({
  *   5. Build signoff summary (sales so far) + resolve stranded staff name +
  *      outlet label.
  *   6. Mint token; create approval row via _createRequest_internal.
- *   7. Send Telegram card to managers. On failure, delete the request row and
- *      rethrow (mirrors notifyStaffLockout / requestSpoilageApproval recovery).
+ *   7. Send Telegram card to managers. On failure, delete the request row (so a
+ *      retry re-sends cleanly) and return { notifyFailed: true } — NOT a throw —
+ *      so the booth can steer the staffer to the Telegram-independent inline
+ *      manager-PIN override instead of a generic-error dead end.
  *   8. Mark notified + write action-level idempotency cache.
  *
  * Never logs PIN or token values.
@@ -808,13 +810,19 @@ export const requestShiftOverride = action({
   handler: async (
     ctx,
     args,
-  ): Promise<{ requestId: Id<"pos_approval_requests"> } | { noHold: true }> => {
+  ): Promise<
+    | { requestId: Id<"pos_approval_requests"> }
+    | { noHold: true }
+    | { notifyFailed: true }
+  > => {
     // Step 1: action-level idempotency pre-check
     const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,
     });
     if (cached) {
-      return JSON.parse(cached) as { requestId: Id<"pos_approval_requests"> } | { noHold: true };
+      return JSON.parse(cached) as
+        | { requestId: Id<"pos_approval_requests"> }
+        | { noHold: true };
     }
 
     // Step 2: resolve outlet from device (throws DEVICE_HAS_NO_OUTLET if unbound)
@@ -897,8 +905,12 @@ export const requestShiftOverride = action({
       },
     );
 
-    // Step 7: send Telegram card to managers. Delete the request row on failure
-    // so the next attempt mints a fresh request cleanly (mirrors notifyStaffLockout).
+    // Step 7: send Telegram card to managers. On send failure, delete the request
+    // row so the next attempt mints a fresh request cleanly (mirrors
+    // notifyStaffLockout), and return { notifyFailed: true } rather than throwing —
+    // so the booth can steer the blocked staffer to the Telegram-INDEPENDENT inline
+    // manager-PIN override (or retry) instead of a generic error dead-end. We do NOT
+    // write the idempotency cache on this path so a retry re-attempts the send.
     try {
       await ctx.runAction(api.telegram.send.sendTemplate, {
         role: "managers",
@@ -914,11 +926,11 @@ export const requestShiftOverride = action({
         idempotencyKey: `${args.idempotencyKey}:send`,
         outletId,
       });
-    } catch (err) {
+    } catch {
       await ctx.runMutation(internal.approvals.internal._deleteRequest_internal, {
         requestId,
       });
-      throw err;
+      return { notifyFailed: true as const };
     }
 
     // Step 8: mark notified + write action-level idempotency cache

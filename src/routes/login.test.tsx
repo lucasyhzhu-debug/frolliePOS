@@ -506,7 +506,7 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
     });
   });
 
-  it("inline override: managerOverride called with resultingState close (default)", async () => {
+  it("inline override: managerOverride called with resultingState release (safe default)", async () => {
     const convexReact = await import("convex/react");
     (convexReact.useAction as Mock).mockReturnValue(mockOverrideStub);
 
@@ -522,9 +522,9 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
     const lucasPicker = lucasButtons.find((el) => el.tagName === "BUTTON");
     fireEvent.click(lucasPicker!);
 
-    // Wait for Close/Release control and ensure "Close booth" is selected (default)
+    // Wait for the Close/Release control; do NOT touch it — assert the DEFAULT.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /close booth/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /release hold/i })).toBeInTheDocument(),
     );
 
     // Enter PIN via numeric keypad (same pattern as lock.test.tsx)
@@ -544,14 +544,15 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
       (c) => c[0] && "resultingState" in c[0],
     );
     expect(overrideCall).toBeDefined();
+    // Default is now "release" (keep the booth open) — not "close".
     expect(overrideCall![0]).toMatchObject({
-      resultingState: "close",
+      resultingState: "release",
       managerPin: "1111",
       deviceId: "test-device-id",
     });
   });
 
-  it("inline override: managerOverride called with resultingState release when Release is picked", async () => {
+  it("inline override: managerOverride called with resultingState close when Close is picked", async () => {
     const convexReact = await import("convex/react");
     (convexReact.useAction as Mock).mockReturnValue(mockOverrideStub);
 
@@ -567,11 +568,11 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
     fireEvent.click(lucasPicker!);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /release hold/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /close booth/i })).toBeInTheDocument(),
     );
 
-    // Pick "Release hold"
-    fireEvent.click(screen.getByRole("button", { name: /release hold/i }));
+    // Explicitly pick "Close booth" (the non-default outcome)
+    fireEvent.click(screen.getByRole("button", { name: /close booth/i }));
 
     // Enter PIN
     const buttons = screen.getAllByRole("button");
@@ -589,7 +590,7 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
       (c) => c[0] && "resultingState" in c[0],
     );
     expect(overrideCall).toBeDefined();
-    expect(overrideCall![0]).toMatchObject({ resultingState: "release" });
+    expect(overrideCall![0]).toMatchObject({ resultingState: "close" });
   });
 
   it("Request via Telegram calls requestShiftOverride with deviceId + idempotencyKey", async () => {
@@ -652,6 +653,31 @@ describe("Login route — two-path blocked override (v1.3.1)", () => {
         screen.getByRole("heading", { name: /who's working/i }),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("Request via Telegram: notifyFailed steers to inline override and stays on blocked screen", async () => {
+    const convexReact = await import("convex/react");
+    const notifyFailStub = vi.fn().mockResolvedValue({ notifyFailed: true });
+    (convexReact.useAction as Mock).mockReturnValue(notifyFailStub);
+
+    await setupBlocked();
+    renderLogin();
+    await goToBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: /request via telegram/i }));
+
+    // Actionable message steering to the on-device manager PIN override.
+    await waitFor(() =>
+      expect(screen.getByText(/couldn't reach managers on telegram/i)).toBeInTheDocument(),
+    );
+    // Stays on the blocked screen (NOT sent to the waiting state) so the inline
+    // Manager Override path is still available.
+    expect(
+      screen.getByRole("button", { name: /manager override/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/requested — waiting for a manager to approve/i),
+    ).toBeNull();
   });
 
   it("overrideRequested: getRequestStatus=denied shows declined message and re-enables button", async () => {

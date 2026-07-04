@@ -309,6 +309,38 @@ describe("requestShiftOverride", () => {
     );
     expect(rows.length).toBe(0);
   });
+
+  it("returns { notifyFailed: true } and rolls the request back when the Telegram send fails", async () => {
+    const t = convexTest(schema);
+    const { deviceId } = await seedOutletAndOpenShift(t);
+
+    // Make the Telegram send fail (Telegram responds ok:false → sendTemplate throws).
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).includes("telegram")) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ ok: false, description: "Bad Gateway" }),
+          text: async () => "{}",
+        } as unknown as Response;
+      }
+      return realFetch(url as RequestInfo);
+    }) as typeof fetch;
+
+    const r = await t.action(api.approvals.actions.requestShiftOverride, {
+      deviceId,
+      idempotencyKey: "r-notify-fail",
+    });
+    // Degrades gracefully instead of throwing — the booth can steer to inline PIN.
+    expect(r).toMatchObject({ notifyFailed: true });
+
+    // The request row was rolled back — nothing left pending (so a retry re-sends
+    // cleanly rather than dedup-ing to a never-notified ghost row).
+    const overrides = await t.run((ctx) =>
+      ctx.db.query("pos_approval_requests").collect(),
+    );
+    expect(overrides.filter((r) => r.kind === "shift_override").length).toBe(0);
+  });
 });
 
 describe("approveShiftOverride", () => {
