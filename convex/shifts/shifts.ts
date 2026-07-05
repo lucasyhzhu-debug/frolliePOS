@@ -114,14 +114,20 @@ export const handover = mutation({
   ),
 });
 
+type StartShiftArgs = OpenBoothArgs & { allowSelfResume?: boolean };
+
 export const startShift = mutation({
   args: {
     idempotencyKey: v.string(),
     sessionId: v.id("staff_sessions"),
     steps: v.array(stepValidator),
     openCount: v.optional(v.number()),
+    // Solo-resume opt-in (issue #158). Absent/false on the normal auto-path so a
+    // self-handover is still refused; the FE sets it true ONLY on the operator's
+    // explicit "Resume shift" tap in /shift/begin. See the self-handover block below.
+    allowSelfResume: v.optional(v.boolean()),
   },
-  handler: withIdempotency<OpenBoothArgs, OpenBoothResult>(
+  handler: withIdempotency<StartShiftArgs, OpenBoothResult>(
     "shifts.startShift",
     async (ctx, args): Promise<OpenBoothResult> => {
       const { staffId, deviceId, outlet_id: outletId } = await requireSession(ctx, args.sessionId);
@@ -134,15 +140,20 @@ export const startShift = mutation({
 
       const prev = await ctx.runQuery(internal.shifts.shiftsInternal._lastEndedShift_internal, { outletId });
 
-      // Reject a SELF-handover: the staffer who just handed the booth over cannot
-      // immediately re-claim it. Handover is person-to-person (ADR-053) — a same-staff
-      // "handover" is meaningless, and in prod it minted a holder that then STRANDED the
-      // booth on the next lock (holder with no live session blocks every other login,
-      // recoverable only by a manager). Refusing it here keeps the booth open + holderless
-      // so the ACTUAL next person can log in and take over. The outgoing staffer who truly
-      // means to keep working never taps "handover"; a genuine stranded holder left by a
-      // DIFFERENT person stays manager-override-gated (business rule #23).
-      if (prev && prev.ended_via === "handover" && prev.staff_id === staffId) {
+      // SELF-handover: the staffer who just handed the booth over is trying to re-claim
+      // it. Handover is person-to-person (ADR-053), and a silent self-reclaim mints a
+      // holder that then STRANDS the booth on the next lock (holder with no live session,
+      // recoverable only by a manager). So the AUTO path still refuses it — keeping the
+      // booth open + holderless lets the ACTUAL next (different) person log in freely.
+      //
+      // BUT when the handover-er is the ONLY staffer present (solo booth), that hard
+      // refusal strands HER on an open booth with no in-app escape (PROD 2026-07-05,
+      // Block M — recovery needed an ops DB write). `allowSelfResume` is her EXPLICIT
+      // opt-in from the /shift/begin "Resume shift" prompt — she consciously re-claims
+      // the shift she just handed over. It's her own shift + she's PIN-authenticated,
+      // so no manager gate (mirrors lock/resume, ADR-053). issue #158.
+      const isSelfHandover = !!(prev && prev.ended_via === "handover" && prev.staff_id === staffId);
+      if (isSelfHandover && args.allowSelfResume !== true) {
         throw new Error("SELF_HANDOVER_NOT_ALLOWED");
       }
       const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
@@ -156,7 +167,10 @@ export const startShift = mutation({
       await logAudit(ctx, {
         actor_id: staffId, action: "shift.start", entity_type: "pos_shifts",
         entity_id: shiftId, source: "booth_inline",
-        metadata: { started_via: "handover", prev_shift_id: prev?._id ?? null },
+        metadata: {
+          started_via: "handover", prev_shift_id: prev?._id ?? null,
+          ...(isSelfHandover ? { self_resume: true } : {}),
+        },
       });
       return { ok: true as const, shiftId };
     },

@@ -1,11 +1,12 @@
+import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
-import { toast } from "sonner";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useSession, clearSession } from "@/hooks/useSession";
 import { useIdempotency } from "@/hooks/useIdempotency";
 import { useLoginContext } from "@/hooks/useLoginContext";
 import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/pos/ShiftWizard";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 import { errorMessage } from "@/lib/errors";
 
@@ -49,10 +50,22 @@ export default function ShiftBegin() {
     sessionId ? `shift:begin:${sessionId}` : "shift:begin:none",
   );
   // Distinct intent from the begin key — used only to end the session server-side
-  // when a self-handover is rejected (mirrors lock.tsx's lock-then-clear pattern).
+  // when the operator chooses "log out for the next person" from the self-handover
+  // prompt (mirrors lock.tsx's lock-then-clear pattern).
   const lockKey = useIdempotency(
     sessionId ? `shift:begin:lock:${sessionId}` : "shift:begin:lock:none",
   );
+
+  // Self-handover prompt (issue #158). When the SAME staffer who just handed the
+  // booth over completes the count, startShift rejects with SELF_HANDOVER_NOT_ALLOWED.
+  // Instead of silently bouncing to /login — which loops forever for a SOLO operator
+  // with no colleague to take over (PROD 2026-07-05) — we surface an explicit choice:
+  // Resume this shift (re-submit with allowSelfResume), or log out for the next person.
+  // Holds the completed count so "Resume" can re-submit without re-counting.
+  const [resumePrompt, setResumePrompt] = useState<
+    { confirmed: ConfirmedStep[]; countChanged: number | null } | null
+  >(null);
+  const [resumePending, setResumePending] = useState(false);
 
   if (session.status === "loading") return null;
   if (session.status !== "active") return null; // RootLayout no-session gate handles
@@ -61,40 +74,62 @@ export default function ShiftBegin() {
   if (ctx === undefined) return null;
 
   // Stray visit guard: redirect if outlet is closed (RootLayout SOP gate will
-  // then send to /shift/start) or a shift is already in progress.
-  if (!ctx.outletOpen || ctx.holderStaffId !== null) {
+  // then send to /shift/start) or a shift is already in progress. Suppressed while
+  // the resume prompt is open — the prompt owns the next navigation.
+  if (resumePrompt === null && (!ctx.outletOpen || ctx.holderStaffId !== null)) {
     return <Navigate to="/" replace />;
+  }
+
+  // Single start path. allowSelfResume is set ONLY by the explicit Resume tap.
+  async function runStart(
+    confirmed: ConfirmedStep[],
+    countChanged: number | null,
+    allowSelfResume: boolean,
+  ) {
+    if (!idempotencyKey || !sessionId) return;
+    await startShift({
+      idempotencyKey,
+      sessionId,
+      steps: confirmed,
+      ...(countChanged != null ? { openCount: countChanged } : {}),
+      ...(allowSelfResume ? { allowSelfResume: true } : {}),
+    });
+    navigate("/", { replace: true });
   }
 
   async function onComplete(confirmed: ConfirmedStep[], countChanged: number | null) {
     if (!idempotencyKey || !sessionId) return;
     try {
-      await startShift({
-        idempotencyKey,
-        sessionId,
-        steps: confirmed,
-        ...(countChanged != null ? { openCount: countChanged } : {}),
-      });
-      navigate("/", { replace: true });
+      await runStart(confirmed, countChanged, false);
     } catch (err) {
-      // SELF_HANDOVER_NOT_ALLOWED: the staffer who just handed over tried to re-claim
-      // the booth. Sending them back to /login (logged out) leaves the booth open +
-      // holderless so the actual next person can take over — and prevents the
-      // stranded-holder trap that blocked every other login in prod.
       if (errorMessage(err).includes("SELF_HANDOVER_NOT_ALLOWED")) {
-        toast.error(t("shiftBegin.selfHandoverBlocked"));
-        // End the just-created session server-side before clearing the client, so we
-        // don't leave an orphaned ended_at:null row (mirrors lock.tsx). Best-effort:
-        // a lock failure must not strand the staffer on /shift/begin.
-        try {
-          if (lockKey) await lock({ idempotencyKey: lockKey, sessionId });
-        } catch { /* best-effort session cleanup */ }
-        clearSession();
-        navigate("/login", { replace: true });
+        // Don't act yet — let the operator decide (Resume / Log out).
+        setResumePrompt({ confirmed, countChanged });
         return;
       }
       throw err;
     }
+  }
+
+  async function onResume() {
+    if (!resumePrompt) return;
+    setResumePending(true);
+    try {
+      await runStart(resumePrompt.confirmed, resumePrompt.countChanged, true);
+    } finally {
+      setResumePending(false);
+    }
+  }
+
+  async function onLogoutForNext() {
+    // No shift was created (startShift threw + rolled back). End this session so the
+    // booth stays open + holderless and the next person logs in fresh. Best-effort:
+    // a lock failure must not strand the operator on the prompt.
+    try {
+      if (lockKey && sessionId) await lock({ idempotencyKey: lockKey, sessionId });
+    } catch { /* best-effort session cleanup */ }
+    clearSession();
+    navigate("/login", { replace: true });
   }
 
   return (
@@ -106,6 +141,38 @@ export default function ShiftBegin() {
         terminalLabel={t("shiftBegin.terminalLabel")}
         sessionId={sessionId ?? undefined}
       />
+
+      {/* Self-handover resume choice. Plain inline overlay (NOT a Radix Dialog —
+          Radix can leave body{pointer-events:none} stuck on close amid state churn). */}
+      {resumePrompt && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("shiftBegin.resumeTitle")}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-foreground">
+              {t("shiftBegin.resumeTitle")}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("shiftBegin.resumeBody")}
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <Button onClick={onResume} disabled={resumePending} size="lg">
+                {t("shiftBegin.resumeConfirm")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={onLogoutForNext}
+                disabled={resumePending}
+              >
+                {t("shiftBegin.resumeLogout")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

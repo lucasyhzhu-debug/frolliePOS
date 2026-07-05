@@ -70,6 +70,39 @@ test("startShift rejects a self-handover: the outgoing staffer cannot immediatel
   await drainScheduled(t);
 });
 
+test("startShift with allowSelfResume:true lets the self-handover staffer re-claim the booth (solo-resume, issue #158)", async () => {
+  const t = convexTest(schema);
+  const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
+  await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
+
+  // Sisca (the SAME staff who just handed over) logs back in — but she's the only
+  // person present, so she explicitly opts to RESUME. allowSelfResume bypasses the
+  // SELF_HANDOVER_NOT_ALLOWED guard and mints her holder so she can operate again.
+  const siscaSession2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db.query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
+    return ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
+  });
+
+  const res = await t.mutation(api.shifts.shifts.startShift, {
+    idempotencyKey: "s-resume", sessionId: siscaSession2, steps: [], openCount: 8, allowSelfResume: true,
+  });
+  expect(res.ok).toBe(true);
+
+  const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(holder?.staff_id).toBe(staffId);
+  expect(holder?.started_via).toBe("handover");
+  expect(holder?.open_count).toBe(8);
+
+  // The resume is audited with self_resume:true so managers can see it in the log.
+  const audit = await t.run(async (ctx: any) =>
+    ctx.db.query("audit_log").order("desc").take(20),
+  );
+  const startRow = audit.find((r: any) => r.action === "shift.start");
+  expect(JSON.parse(startRow.metadata).self_resume).toBe(true);
+  await drainScheduled(t);
+});
+
 test("startShift is NOT blocked after a manager_override release by the same staff (guard keys on ended_via=handover, not staff-id)", async () => {
   const t = convexTest(schema);
   const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)

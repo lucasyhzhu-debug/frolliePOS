@@ -163,22 +163,66 @@ describe("ShiftBegin route (/shift/begin)", () => {
     expect(mockStartShift).not.toHaveBeenCalled();
   });
 
-  it("self-handover rejection: SELF_HANDOVER_NOT_ALLOWED → toast + logout + back to /login (no navigate home)", async () => {
-    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
-    renderRoute();
-
+  // Helper: drive the wizard to the terminal "Start shift" tap.
+  async function submitWizard() {
     fireEvent.click(screen.getByTestId("count-step-submit"));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /start shift/i })).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole("button", { name: /start shift/i }));
+  }
+
+  it("self-handover rejection: shows the Resume/Logout prompt — does NOT auto-logout or navigate home", async () => {
+    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
+    renderRoute();
+    await submitWizard();
+
+    // The resume prompt appears; no automatic logout / navigation.
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
+    });
+    expect(mockClearSession).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("self-handover → Resume: re-submits startShift with allowSelfResume + navigates home", async () => {
+    mockStartShift
+      .mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"))
+      .mockResolvedValueOnce({ ok: true });
+    renderRoute();
+    await submitWizard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /resume shift/i }));
+
+    await waitFor(() => {
+      expect(mockStartShift).toHaveBeenCalledTimes(2);
+    });
+    // The retry carries the opt-in flag; the first attempt did not.
+    expect(mockStartShift.mock.calls[0][0].allowSelfResume).toBeUndefined();
+    expect(mockStartShift.mock.calls[1][0].allowSelfResume).toBe(true);
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
+    });
+    expect(mockClearSession).not.toHaveBeenCalled();
+  });
+
+  it("self-handover → Logout: ends the session and returns to /login (no home nav)", async () => {
+    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
+    renderRoute();
+    await submitWizard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /log out for the next person/i }));
 
     await waitFor(() => {
       expect(mockClearSession).toHaveBeenCalledTimes(1);
     });
-    expect(mockToastError).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
-    // Must NOT navigate home on the rejection path.
     expect(mockNavigate).not.toHaveBeenCalledWith("/", { replace: true });
   });
 });

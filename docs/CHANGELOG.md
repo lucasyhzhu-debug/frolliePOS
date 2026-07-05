@@ -4,6 +4,33 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-05 — v1.4.7: solo-operator self-handover resume (unblock the stranded-open-booth deadlock)
+
+- **Problem fixed (PROD, Block M):** a staffer (Sasi) opened the booth via SOP, worked a full shift,
+  then tapped **Handover** (instead of Lock) while working **solo**, and logged straight back in. The
+  booth was left `is_open=true` + holderless (by design, so a *different* next person can take over
+  with no manager), so she landed on **"Mulai shift"** (`/shift/begin`) — where `startShift` threw
+  `SELF_HANDOVER_NOT_ALLOWED` (the v1.4.4 guard) on every attempt. With no colleague to take over and
+  the `managerOverride` UI keyed on a non-null holder (there was none), she had **no in-app escape** —
+  the booth was down until an ops break-glass close. This is exactly the solo-resume limitation
+  flagged in **issue #158**.
+- **Immediate recovery:** break-glass `npx convex run outlets/status:_setOutletClosed_internal --prod`
+  drops the operator to the normal start-of-day SOP (`openBooth` needs closed + holderless — both
+  true), so she re-counts and reopens herself. Cleaner than fabricating a shift row.
+- **Root-cause fix:** `startShift` gains an optional **`allowSelfResume`** arg. The self-handover guard
+  still **rejects by default** (the auto-path keeps the booth open + holderless for a *different* next
+  person — the v1.4.4 intent is preserved). Only an **explicit** `allowSelfResume:true` lets the same
+  staffer re-claim the shift she just handed over. The resume is audited with `self_resume:true`.
+- **FE (`/shift/begin`):** instead of silently bouncing the self-handover person to `/login` (which
+  loops forever for a solo operator), it now surfaces an inline **Resume / Log-out-for-the-next-person**
+  choice. "Resume" re-submits with `allowSelfResume:true` (reusing the same idempotency key — thrown
+  mutations cache nothing, so the retry re-executes cleanly); "Log out" ends the session so the booth
+  stays open + holderless for the next person. Plain overlay, **not** a Radix dialog (avoids the
+  known `body{pointer-events:none}`-stuck bug).
+- Tests: server (`allowSelfResume` mints the holder + `self_resume:true` audit), FE (rejection → prompt
+  with no auto-logout, Resume path, Log-out path). Full gate green — 82 shift/login tests, typecheck,
+  lint. Addresses **issue #158**. `package.json` → `1.4.7`.
+
 ## 2026-07-04 — v1.4.6: fix the login idempotency dead-session replay loop
 
 - **Problem fixed (PROD, Block M):** a staffer entered the correct PIN, saw the spinner, then got
