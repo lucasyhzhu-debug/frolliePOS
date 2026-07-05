@@ -998,6 +998,10 @@ export const id: Record<keyof typeof en, string> = {
   "shiftBegin.stepCountLabel": "Hitung stok",
   "shiftBegin.terminalLabel": "Mulai shift",
   "shiftBegin.selfHandoverBlocked": "Kamu baru saja serah terima booth — staf berikutnya yang harus login untuk melanjutkan.",
+  "shiftBegin.resumeTitle": "Lanjutkan shift kamu?",
+  "shiftBegin.resumeBody": "Kamu baru saja serah terima booth. Kalau tidak ada yang menggantikan, lanjutkan shift kamu — atau keluar untuk petugas berikutnya.",
+  "shiftBegin.resumeConfirm": "Lanjutkan shift",
+  "shiftBegin.resumeLogout": "Keluar untuk petugas berikutnya",
   // stock
   "stock.title": "Stok",
   "stock.noSkus": "Belum ada SKU. Manajer menambahkan SKU lewat halaman Kelola Produk.",

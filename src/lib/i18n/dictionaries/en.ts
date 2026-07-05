@@ -1000,6 +1000,10 @@ export const en = {
   "shiftBegin.stepCountLabel": "Count stock",
   "shiftBegin.terminalLabel": "Start shift",
   "shiftBegin.selfHandoverBlocked": "You just handed the booth over — the next staff should log in to take over.",
+  "shiftBegin.resumeTitle": "Resume your shift?",
+  "shiftBegin.resumeBody": "You just handed the booth over. If no one else is taking over, resume your shift — or log out for the next person.",
+  "shiftBegin.resumeConfirm": "Resume shift",
+  "shiftBegin.resumeLogout": "Log out for the next person",
   // stock
   "stock.title": "Stock",
   "stock.noSkus": "No SKUs yet. A manager can add SKUs via the Manage Products page.",
