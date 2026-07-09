@@ -30,7 +30,7 @@
 | T3 | `loginContext` gains `holderLocked` | `convex/shifts/shifts.ts`, `convex/shifts/__tests__/` | `convex-expert` | 1 | T2 |
 | T4 | `takeOverLockedBooth` public mutation | `convex/shifts/shifts.ts`, `convex/shifts/__tests__/` | `convex-expert` | 1 | T1, T2 |
 | T5 | `useLoginContext` type + all new i18n keys | `src/hooks/useLoginContext.ts`, `src/lib/i18n/dictionaries/{en,id}.ts` | `frontend-integrator` | 2 | T3 (codegen) |
-| T6 | `login.tsx` — locked-holder → PIN/takeover branching | `src/routes/login.tsx`, `src/routes/__tests__/` | `frontend-integrator` | 2 | T4, T5 |
+| T6 | `login.tsx` + `RootLayout.tsx` — locked-holder → PIN/takeover branching + force count-wizard gate | `src/routes/login.tsx`, `src/components/layout/RootLayout.tsx`, `src/routes/__tests__/`, `src/components/layout/__tests__/` | `frontend-integrator` | 2 | T4, T5 |
 | T7 | `begin.tsx` — takeover dispatch + race handling | `src/routes/shift/begin.tsx`, `src/routes/shift/__tests__/` | `frontend-integrator` | 2 | T4, T5 |
 | T8 | Docs — SCHEMA.md verb + ended_via, ADR-053 amendment, CLAUDE.md rule #23 | `docs/SCHEMA.md`, `docs/ADR/053-two-level-booth-state.md`, `CLAUDE.md` | `general-purpose` | 3 | T1–T7 |
 
@@ -42,7 +42,7 @@
 
 **(a) Wave dispatch map**
 - **Wave 1 — backend + backend tests (`convex-expert`).** T1 and T2 are independent (different files) → run in parallel. T3 and T4 both depend on T2 and **both edit `convex/shifts/shifts.ts`** → run them **sequentially, T3 then T4** (shared-file serialization). T4 also depends on T1. **Barrier:** after all four, run `npx convex codegen` once on the merged tree, then `npm run typecheck` + `npx vitest run convex/` must be green before Wave 2.
-- **Wave 2 — frontend + FE tests (`frontend-integrator`).** T5 first (adds the `holderLocked` type + all i18n keys the routes consume). Then T6 (`login.tsx`) and T7 (`begin.tsx`) in parallel (different route files). **Barrier:** `npm run typecheck` + `npx vitest run src/` green.
+- **Wave 2 — frontend + FE tests (`frontend-integrator`).** T5 first (adds the `holderLocked` type + all i18n keys the routes consume). Then T6 (`login.tsx` + `RootLayout.tsx`) and T7 (`begin.tsx`) in parallel — file-disjoint (T6 touches login.tsx + RootLayout.tsx; T7 touches begin.tsx), so parallelism is preserved. **Barrier:** `npm run typecheck` + `npx vitest run src/` green.
 - **Wave 3 — docs (`general-purpose`).** T8 solo. No code, no tests.
 
 **(b) Shared-file / generated-file serialization**
@@ -86,6 +86,7 @@ Then re-run `npm run typecheck` + full `npx vitest run`; bump `package.json.vers
 | `src/hooks/useLoginContext.ts` | login-context subscription | Add `holderLocked` to `LoginContext` type |
 | `src/lib/i18n/dictionaries/{en,id}.ts` | i18n copy | Add takeover keys (EN + ID) |
 | `src/routes/login.tsx` | login journey | Locked-holder → PIN/takeover instead of block |
+| `src/components/layout/RootLayout.tsx` | global booth gate | Level-2 gate forces `/shift/begin` for the takeover case (the server-of-record guarantee) |
 | `src/routes/shift/begin.tsx` | count wizard | Takeover dispatch + race handling |
 
 ---
@@ -388,12 +389,43 @@ Create `convex/shifts/__tests__/takeOverLockedBooth.test.ts` covering:
 
 ```ts
 test("peer takes over a locked booth", async () => {
-  // seed: outlet open; H holds (started via handover), H's session ended (lock);
-  // P logs in (active booth session) → sessionId_P.
-  // call takeOverLockedBooth({ idempotencyKey, sessionId: sessionId_P, steps: [...] })
-  // assert: H shift ended_via==="peer_takeover", outgoing_uncounted===true;
-  //         active shift now P with prev_shift_id===H._id, started_via==="handover".
+  const t = convexTest(schema, modules);
+  // seed via the sibling handover/managerOverride test helpers:
+  //  - outlet bound to the booth device + _setOutletOpen_internal
+  //  - H (holder) started via _startShift_internal, then H's booth session ended (lock)
+  //  - P logs in on the same device → active booth session → sessionId_P, staffId_P
+  const { holderShiftId, sessionId_P, staffId_P } = await seedLockedBoothWithIncoming(t);
+
+  const res = await t.mutation(api.shifts.shifts.takeOverLockedBooth, {
+    idempotencyKey: "take-1", sessionId: sessionId_P,
+    steps: [{ key: "count", label: "Count", type: "count", confirmed_at: Date.now() }],
+    openCount: 42,
+  });
+  expect(res.ok).toBe(true);
+
+  const rows = await t.run(async (ctx) => ({
+    old: await ctx.db.get(holderShiftId),
+    active: await ctx.db.query("pos_shifts")
+      .withIndex("by_outlet_active", (q) => q.eq("outlet_id", res_outletId).eq("ended_at", null))
+      .unique(),
+  }));
+  // Displaced holder ended as peer_takeover, uncounted.
+  expect(rows.old!.ended_via).toBe("peer_takeover");
+  expect(rows.old!.outgoing_uncounted).toBe(true);
+  // Incoming holder minted, links back to the displaced shift.
+  expect(rows.active!.staff_id).toBe(staffId_P);
+  expect(rows.active!._id).toBe(res.shiftId);
+  expect(rows.active!.prev_shift_id).toBe(holderShiftId);
+  expect(rows.active!.started_via).toBe("handover");
+  expect(rows.active!.open_count).toBe(42);
 });
+```
+
+> **Executor note:** `seedLockedBoothWithIncoming` + `res_outletId` are illustrative — resolve the
+> outlet id from the seed and copy the actual seed helper from the sibling `handover`/`managerOverride`
+> tests (device→outlet bind, `_setOutletOpen_internal`, `_startShift_internal`, `loginWithPin` /
+> `_loginCommit_internal` for P's session). The **assertions above are the contract** — keep them
+> concrete.
 
 test("throws HOLDER_ACTIVE when holder has a live booth session", async () => {
   // H has ended_at==null booth session → expect rejects /HOLDER_ACTIVE/.
@@ -575,15 +607,17 @@ git commit -m "feat(login): holderLocked type + takeover i18n keys"
 
 ---
 
-## Task 6: `login.tsx` — locked-holder → PIN/takeover branching
+## Task 6: `login.tsx` + `RootLayout.tsx` — locked-holder → PIN/takeover branching + force-wizard gate
 
 **Files:**
 - Modify: `src/routes/login.tsx` (pre-stage guard ~122, `onPinSubmit` re-check ~224, nav target ~247, `handleStaffTap` ~284, PIN-stage hint)
+- Modify: `src/components/layout/RootLayout.tsx:177-186` (Level-2 gate — extend for the takeover case)
 - Test: `src/routes/__tests__/login.test.tsx` (extend existing if present; else Create a focused test)
+- Test: `src/components/layout/__tests__/RootLayout.test.tsx` (extend existing if present; else Create)
 
 **Interfaces:**
-- Consumes: `ctx.holderLocked` (T5), `login.boothLeftOpenBy` (T5).
-- Produces: locked-holder → PIN entry + `/shift/begin` nav target; active-holder → `blocked` (unchanged).
+- Consumes: `ctx.holderLocked` (T5), `login.boothLeftOpenBy` (T5), `session.staff._id`.
+- Produces: locked-holder → PIN entry + `/shift/begin` nav target; active-holder → `blocked` (unchanged); RootLayout globally forces `/shift/begin` for a takeover until the incoming staffer becomes the holder.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -685,16 +719,56 @@ In the PIN-stage JSX branch (the final `else` that renders `<PinEntry />`), add 
           />
 ```
 
-- [ ] **Step 5: Run tests + typecheck**
+> **Redundancy note (staffreview plan #3):** the nav-target branch (3d) is a fast-path — it avoids a
+> screen flash. The **RootLayout gate below (Step 5) is the actual guarantee** that a takeover person
+> completes the count before operating. Keep both; do not later "simplify" the RootLayout gate away
+> thinking login handles it — login only fires on the login screen, not on every route.
 
-Run: `npx vitest run src/routes/__tests__/login.test.tsx && npm run typecheck`
+- [ ] **Step 5: Extend the RootLayout Level-2 gate for takeover (CRITICAL — the server-of-record guarantee)**
+
+`loginWithPin` is auth-only (no shift guard), so an incoming staffer holds a valid session while the
+locked holder row still exists. `RootLayout.tsx:177` currently forces `/shift/begin` only when
+`holderStaffId === null` — in a takeover the holder is non-null, so without this the incoming staffer
+could navigate to `/` and operate the booth under the OLD holder's shift (sales/shift attribution
+mismatch). Extend the gate. In `src/components/layout/RootLayout.tsx`, add `me` near the other
+derived values and replace the Level-2 gate condition:
+
+```ts
+  const me = session.status === "active" ? session.staff._id : null;
+
+  // Level-2 gate — force the count wizard before operating. Fires for a NORMAL
+  // incoming shift (no holder) AND a peer takeover of a LOCKED holder (holder
+  // present, no live booth session, ≠ me). After takeOverLockedBooth commits,
+  // holderStaffId === me → the gate lifts (same as normal handover). The old
+  // locked holder has no session, so this never applies to them.
+  if (
+    session.status === "active" &&
+    ctx !== undefined &&
+    deviceIsOutlet &&
+    ctx.outletOpen === true &&
+    (ctx.holderStaffId === null ||
+      (ctx.holderLocked === true && ctx.holderStaffId !== me)) &&
+    location.pathname !== "/shift/begin"
+  ) {
+    return <Navigate to="/shift/begin" replace />;
+  }
+```
+
+Add RootLayout tests: (a) active session + `holderLocked && holderStaffId !== me` → redirects to
+`/shift/begin`; (b) `holderStaffId === me` → no redirect; (c) existing normal-handover redirect
+(`holderStaffId === null`) still fires. Mock `useLoginContext` + `useSession` per the existing
+RootLayout test setup.
+
+- [ ] **Step 6: Run tests + typecheck**
+
+Run: `npx vitest run src/routes/__tests__/login.test.tsx src/components/layout/__tests__/RootLayout.test.tsx && npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/routes/login.tsx src/routes/__tests__/login.test.tsx
-git commit -m "feat(login): route locked-holder to PIN/takeover, keep active-holder block"
+git add src/routes/login.tsx src/components/layout/RootLayout.tsx src/routes/__tests__/login.test.tsx src/components/layout/__tests__/RootLayout.test.tsx
+git commit -m "feat(login): locked-holder PIN/takeover + RootLayout force-wizard gate"
 ```
 
 ---
@@ -724,14 +798,18 @@ Expected: FAIL — `begin.tsx` currently redirects `/` whenever `holderStaffId !
 
 - [ ] **Step 3: Add the takeover mutation + key + `me`**
 
-Near the existing hooks in `ShiftBegin`:
+**Rules-of-Hooks (staffreview plan #1):** `useMutation` and `useIdempotency` are hooks — they MUST be
+placed with the other top-of-component hooks (alongside the existing `startShift`/`lock`/
+`idempotencyKey`/`lockKey` at `begin.tsx:45-57`), **before** the early returns
+(`if (session.status === "loading") return null;` at ~70). `me` is a plain const (not a hook) and can
+go anywhere before its first use.
 
 ```ts
   const takeOverLockedBooth = useMutation(api.shifts.shifts.takeOverLockedBooth);
-  const me = session.status === "active" ? session.staff._id : null;
   const takeoverKey = useIdempotency(
     sessionId ? `shift:begin:takeover:${sessionId}` : "shift:begin:takeover:none",
   );
+  const me = session.status === "active" ? session.staff._id : null;
 ```
 
 - [ ] **Step 4: Rewrite the stray-visit guard (~79)**
@@ -872,4 +950,5 @@ git commit -m "docs(shifts): peer-takeover verb, ADR-053 amendment, rule #23"
 
 - Normal handover (`holderStaffId === null` → `startShift`) and the v1.4.7 self-handover Resume prompt must be unchanged — asserted in T7 tests.
 - The `blocked` stage for active holders must be unchanged — asserted in T6 tests.
-- `loginContext` consumers other than login (if any) tolerate the added field (additive).
+- **RootLayout's existing normal-handover redirect** (`holderStaffId === null` → `/shift/begin`) must still fire after the Level-2 gate edit — asserted in the T6 RootLayout test alongside the new takeover-redirect assertion.
+- `loginContext` consumers are exactly `login.tsx`, `RootLayout.tsx`, `begin.tsx` (grep-verified) — all three updated; the added `holderLocked` field is additive so no other consumer breaks.
