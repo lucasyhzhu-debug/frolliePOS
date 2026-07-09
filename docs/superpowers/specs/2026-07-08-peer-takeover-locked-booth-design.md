@@ -1,6 +1,7 @@
 # Spec — Peer takeover of a locked booth (v1.5.0)
 
-**Status:** design (post-brainstorm, both open decisions resolved). Pre-plan.
+**Status:** design — staffreview gate passed (Critical + all Improvements addressed inline, see
+`docs/reviews/staffreview-peer-takeover-locked-booth-spec-2026-07-08.md`). Ready for planning.
 **Target version:** v1.5.0 (new user-facing capability → minor bump).
 **Amends:** business rule #23 / ADR-053. Related: rule #9, issue #158, v1.4.7 (self-handover).
 
@@ -52,34 +53,41 @@ Add `v.literal("peer_takeover")` to the `pos_shifts.ended_via` union in
 `convex/shifts/shiftsInternal.ts:61` (currently `handover | end_of_day | manager_override`).
 Adding a union literal is additive; existing rows unaffected. No new index, no field.
 
-### B2 — Holder-liveness internal query (auth-owned)
+### B2 — Holder booth-session-liveness internal query (auth-owned)
 `staff_sessions` is auth-owned (ADR-034). Add an internal query in `convex/auth/internal.ts`:
 
 ```ts
-// _hasActiveSession_internal({ staffId }) → boolean
-// True iff staff has any session with ended_at == null (single-device booth ⇒
-// an active session anywhere = present at the booth).
-export const _hasActiveSession_internal = internalQuery({
+// _hasActiveBoothSession_internal({ staffId }) → boolean
+// True iff staff has any live BOOTH session (ended_at == null, kind booth/legacy).
+export const _hasActiveBoothSession_internal = internalQuery({
   args: { staffId: v.id("staff") },
   handler: async (ctx, { staffId }): Promise<boolean> => {
-    const s = await ctx.db
+    const rows = await ctx.db
       .query("staff_sessions")
       .withIndex("by_staff_active", (q) => q.eq("staff_id", staffId).eq("ended_at", null))
-      .first();
-    return s !== null;
+      .collect();
+    // CRITICAL (staffreview #1): cockpit sessions (ADR-052/rule #26) are a
+    // different auth plane and do NOT mean "present at the booth." An owner/manager
+    // can hold a booth shift AND have a cockpit tab open on another device; counting
+    // that would wrongly block a legit peer takeover of their locked booth. Legacy
+    // rows carry no `kind` ⇒ treat as booth.
+    return rows.some((r) => (r.kind ?? "booth") === "booth");
   },
 });
 ```
 
-Uses the **existing** `by_staff_active` index (`["staff_id","ended_at"]`, `auth/schema.ts:49`) — a
-point query, no new index. `by_staff_active` leads with `staff_id` (an auth index, not
-outlet-scoped); it is a pre-existing definition that already passes the `index-leads-with-outlet_id`
-fence, and this spec adds **no** new index, so the fence is not re-triggered.
+Uses the **existing** `by_staff_active` index (`["staff_id","ended_at"]`, `auth/schema.ts:49`).
+`.collect()` (not `.first()`) so the `kind` filter is applied — a booth staffer has at most one live
+booth session, so N is tiny. No new index. `by_staff_active` leads with `staff_id` (an auth index,
+not outlet-scoped); it is a pre-existing definition that already passes the
+`index-leads-with-outlet_id` fence, and this spec adds **no** new index, so the fence is not
+re-triggered. Both callsites (B3 + B4) MUST use this one helper so the FE gate and the server gate
+agree on "present."
 
 ### B3 — `loginContext` gains `holderLocked`
 `convex/shifts/shifts.ts:261` `loginContext(deviceId)` currently returns
 `{outletOpen, holderStaffId, holderName}`. Add **`holderLocked: boolean`** = a holder exists AND
-`_hasActiveSession_internal({staffId: holder.staff_id}) === false`. When no holder,
+`_hasActiveBoothSession_internal({staffId: holder.staff_id}) === false`. When no holder,
 `holderLocked = false`. Resolve concurrently with the existing `Promise.all`.
 
 ### B4 — New public mutation `takeOverLockedBooth`
@@ -97,9 +105,9 @@ incoming holder in one mutation transaction, so no intermediate stranded state:
    - **`holder.staff_id === staffId`** → throw `SELF_NOT_PEER` (that's resume, not takeover — the
      FE routes self to `/`).
 4. **SAFETY GATE (the hijack guard — server-side, not just FE):** re-check holder liveness via
-   `_hasActiveSession_internal({staffId: holder.staff_id})`. If **true** → throw **`HOLDER_ACTIVE`**
-   (holder came back / never really left; FE falls back to manager override). Must be inside the
-   mutation.
+   `_hasActiveBoothSession_internal({staffId: holder.staff_id})` (the SAME helper as B3). If **true**
+   → throw **`HOLDER_ACTIVE`** (holder came back / never really left; FE falls back to manager
+   override). Must be inside the mutation.
 5. Build displaced holder's summary via `_buildSignoffSummary_internal({shiftStartMs:
    holder.started_at, endMs: now, outletId})`.
 6. End the locked holder's shift via `_endShift_internal`: `endedVia="peer_takeover"`,
@@ -110,6 +118,12 @@ incoming holder in one mutation transaction, so no intermediate stranded state:
    outletId})` — mirror the `manager_override` callsite (note `staffId` is the *displaced* holder).
 8. Start the incoming shift via `_startShift_internal`: `startedVia="handover"`,
    `prevShiftId = holder._id`, `openCount = args.openCount ?? null`, `steps = args.steps`.
+   **Note (staffreview #2):** the incoming row's `started_via="handover"` does NOT self-identify a
+   peer takeover — the `_startShift_internal` union is `sop | manager_skip | handover` (no schema
+   change here, by design). The peer-takeover nature is captured on the **outgoing** row
+   (`ended_via="peer_takeover"`) + the `shift.peer_takeover` audit verb, linked by `prev_shift_id`.
+   Any reporting that needs to isolate peer takeovers joins outgoing→incoming via
+   `prev_shift_id`/audit, not the incoming `started_via`.
 9. Audit **`shift.peer_takeover`** (new verb; `audit_log.action` is a free `v.string()` — no enum),
    `source: "booth_inline"`, `entity_id: holder._id`, metadata
    `{displaced_staff_id: holder.staff_id, prev_shift_id: holder._id, incoming_staff_id: staffId,
@@ -150,9 +164,18 @@ Currently redirects home when `ctx.holderStaffId !== null` (line 79). Extend to 
   handover]** OR (`holderLocked` && `holderStaffId !== me` **[peer takeover]**)).
 - **Redirect `/`** when holder is **active** (not locked) and ≠ me (login owns the block), or when
   `holderStaffId === me` (resume — ADR-053, unchanged).
-- **`onComplete`** dispatches by context: `holderStaffId === null` → `startShift` (unchanged path,
-  keeps the v1.4.7 self-handover Resume prompt intact); locked holder ≠ me → **`takeOverLockedBooth`**.
+- **`onComplete`** dispatches from **live `ctx` at call time** (not the render-time snapshot, which
+  can go stale during the count): `ctx.holderStaffId === null` → `startShift` (unchanged path, keeps
+  the v1.4.7 self-handover Resume prompt intact); locked holder ≠ me → **`takeOverLockedBooth`**.
   Same `ShiftWizard` / count-step UI, same `onComplete(confirmed, countChanged)` signature.
+- **Race handling (staffreview #1):** the hold can change between count-start and submit. Catch the
+  two expected server throws and DON'T dead-end the operator with a raw error toast:
+  - `NO_HOLDER` (hold cleared mid-count — holder logged back in and out, or a manager released) →
+    fall back to a `startShift` retry, or route to `/` and let login re-decide.
+  - `HOLDER_ACTIVE` (holder came back and is working) → route to `/` (login owns the block screen).
+  Cover the "hold cleared mid-count" path with an FE test (cf. `countstep-handover-dead-button`,
+  `handover-no-session-deadlock`). The server throws remain the correctness backstop; this is purely
+  about not stranding the operator.
 - Need `me` (own staffId) — available from `useSession()` (`session.staff._id` when active).
 - Add a distinct idempotency intent for the takeover mutation (scoped to the incoming sessionId,
   mirror `shift:begin:${sessionId}` with a `:takeover` suffix so it never collides with the
@@ -193,9 +216,12 @@ new ADR — lean amend-in-place. Update the CLAUDE.md rule #23 wording at execut
 - `NO_HOLDER` thrown when no active holder.
 - `BOOTH_NOT_OPEN` thrown when outlet closed.
 - idempotent replay (same key → no second shift).
-- signoff scheduled for the *displaced* holder.
-- `loginContext.holderLocked` true (holder, no live session) / false (holder with live session /
-  no holder).
+- signoff scheduled for the *displaced* holder (assert the scheduler arg `staffId ===
+  holder.staff_id`, NOT the incoming caller's id).
+- `loginContext.holderLocked` true (holder, no live booth session) / false (holder with live booth
+  session / no holder).
+- **`holderLocked` true when the holder's ONLY live session is `kind:"cockpit"`** (staffreview #1
+  regression guard) — a cockpit session must not count as booth presence.
 
 **FE (`src/routes/**/__tests__/`):**
 - login routes locked-holder → PIN/takeover vs active-holder → blocked (both `handleStaffTap` and
@@ -203,8 +229,21 @@ new ADR — lean amend-in-place. Update the CLAUDE.md rule #23 wording at execut
 - post-login nav target = `/shift/begin` for the takeover case.
 - `begin.tsx` takeover terminal calls `takeOverLockedBooth`; normal-handover terminal still calls
   `startShift`; self-handover Resume prompt still works.
+- `begin.tsx` "hold cleared mid-count" — `takeOverLockedBooth` throws `NO_HOLDER` → FE falls back
+  gracefully (no dead-end / raw error), per F3 race handling.
 
 ---
+
+## Rollback / deploy notes
+- **All schema changes are additive** (a new `ended_via` literal, a new field on the `loginContext`
+  return, a new mutation, a new internal query). No field removal, no required-flip, no migration —
+  so a straight revert is safe and there is nothing to backfill.
+- **Deploy skew is safe both directions (staffreview #3)** — this is NOT a mutation↔action rename, so
+  not deploy-skew-fatal. FE-first: reads `holderLocked` from an old backend → `undefined` → falsy →
+  degrades to *current* block-and-manager-override behavior (no takeover offered). Backend-first: the
+  extra field is ignored and the new mutation is simply unused. The atomic Vercel build
+  (`scripts/build.mjs`) ships both sides together anyway. Note this in the plan so a reviewer doesn't
+  flag the added field as a skew risk.
 
 ## Versioning
 New user-facing capability → **v1.5.0** (minor bump). Record in `docs/ROADMAP.md` at plan-merge
