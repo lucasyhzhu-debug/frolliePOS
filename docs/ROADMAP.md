@@ -80,6 +80,18 @@ Launch hardening built the happy path. Several operational routes have no define
 
 ---
 
+## v1.5.0 — peer takeover of a locked booth — **PLANNED**
+
+> New user-facing capability (staff can self-serve a takeover) → minor bump. Version named ahead; set at ship.
+
+**Spec:** [`superpowers/specs/2026-07-08-peer-takeover-locked-booth-design.md`](./superpowers/specs/2026-07-08-peer-takeover-locked-booth-design.md) · **Plan:** [`superpowers/plans/2026-07-08-peer-takeover-locked-booth.md`](./superpowers/plans/2026-07-08-peer-takeover-locked-booth.md) · reviews in [`reviews/`](./reviews/) (spec + plan staffreviews). Amends rule #23 / ADR-053. Related: issue #158, v1.4.7 (self-handover).
+
+**What it delivers.** A booth left **LOCKED** by one holder (holder row with no live *booth* session) can be taken over by any other staffer using their **own PIN** — no manager override. An **actively-working** holder (live booth session) is unchanged: peer is blocked → manager override, so a live shift can't be hijacked. The displaced holder's shift ends `ended_via="peer_takeover"` (uncounted) and they still receive their Telegram signoff summary. Removes the every-morning manager-approval friction (3 mornings running in Block M).
+
+**Shape.** New auth-owned `_hasActiveBoothSession_internal` (booth-only liveness, excludes cockpit sessions per ADR-052) → `loginContext.holderLocked` → login routes locked-holder to PIN/takeover instead of block; `RootLayout` forces the count wizard for the takeover case; new single-writer atomic `takeOverLockedBooth` mutation (ends locked holder + mints incoming in one transaction, server-side hijack guard). Additive schema (`peer_takeover` literal), deploy-skew-safe both ways. 8 tasks, 3 waves (backend → frontend → docs). Both pipeline gates passed.
+
+---
+
 ## Backlog (unscheduled)
 
 - **Owner cockpit polish** — outlet-list/skeleton motion-safe pulse; `listOutlets` returns active-only (add `_listAllOutlets_internal` so the outlet-list inactive badge + wizard dup-code pre-warn cover deactivated outlets once a deactivation flow exists); wire or drop the `provision_managers_chat` toggle (deferred cockpit Minors). **From persona-UAT (dev + prod read-only, 2026-06-26 — 0 blocker / 0 bug; the actionable correctness/UX cluster already shipped in PR #146):** translate or drop the "Cockpit" eyebrow word under both locales (ID currently shows "PEMILIK · COCKPIT"); replace the free-text timezone field with an IANA-zone dropdown (inline validation already prevents bad data); staff-access selector affordance clarity (it's a square multi-select checkbox — add "(choose one or more)" + a selected-count on Review); desktop dashboard max-width container + responsive outlet-card grid; PKW code-badge contrast on the amber card; EN/ID toggle shape consistency; switcher dropdown overlapping "Sign out"; step-1 selected-mode checkmark; "Net = Gross when no refunds" hint. **Needs a dev run:** cockpit offline + loading/skeleton states (C10) and live cross-plane `NOT_BOOTH_SESSION` rejection (cockpit↔booth — covered by convex-tests, not exercised live).
