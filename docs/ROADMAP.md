@@ -23,6 +23,18 @@ All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outle
 
 ---
 
+## v1.4.9 — QRIS paid-callback forwarder (POS → Recipe Master) — **PLAN**
+
+> Patch bump — integration/hardening slice within payments. Version set at ship.
+
+The shared Xendit account delivers every QR-paid event to THIS POS's account-level webhook; Recipe Master (Frollie Pro) QR orders therefore never auto-reconcile (per-QR `callback_url` proven ignored by Xendit v2, order `0716-001`). This slice adds a durable transactional-outbox forwarder in `payments/webhook.ts` that relays genuine QR-payment callbacks to the RM endpoint — refund-gated, `kind`-annotated (POS paid path byte-identical), dedup + retry/backoff, 401-terminal, second-secret authed, kill-switch. Two staffreview gates passed; RM side already shipped (`product_master` Phase 1).
+
+- **Spec:** [`superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md)
+- **Plan:** [`superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md)
+- **Handoff:** `.claude/handoff/execute_2026-07-16-qris-pos-rm-forwarder.md`
+
+---
+
 ## v1.3.2 — full-route empty / loading / error sweep (post-launch hardening) — **SPEC**
 
 > Version named ahead; set at ship. Hardening pass within v1.3.x, so a patch bump.
