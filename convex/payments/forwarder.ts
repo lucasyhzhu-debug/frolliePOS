@@ -23,9 +23,13 @@ const RM_QR_WEBHOOK = "https://decisive-wombat-7.convex.site/api/xendit/qr-payme
 const MAX_ATTEMPTS = 5;               // initial try + 4 retries
 const BACKOFF_CAP_MS = 600_000;       // 10 min cap
 // Exponential backoff, LONGER than cron's linear 60s*(n+1) — an RM redeploy can
-// exceed 2 min. `tryNumber` is 1-based (the try that just failed).
+// exceed 2 min. `tryNumber` is 1-based (the try that just failed). Only
+// backoffMs(1..MAX_ATTEMPTS-1) is ever scheduled (the MAX_ATTEMPTS-th failure is
+// terminal, not rescheduled), so with MAX_ATTEMPTS=5 the reachable delays are
+// 60s,120s,240s,480s; BACKOFF_CAP_MS is a defensive ceiling that never binds at
+// current MAX_ATTEMPTS but bounds the schedule if MAX_ATTEMPTS is raised.
 function backoffMs(tryNumber: number): number {
-  return Math.min(60_000 * 2 ** (tryNumber - 1), BACKOFF_CAP_MS); // 60s,120s,240s,480s,600s...
+  return Math.min(60_000 * 2 ** (tryNumber - 1), BACKOFF_CAP_MS);
 }
 const LAST_ERROR_MAX = 500;           // truncate stored error
 
@@ -73,14 +77,17 @@ export const _markDelivered_internal = internalMutation({
 });
 
 export const _markFailed_internal = internalMutation({
-  args: { id: v.id("pos_qris_forward_outbox"), last_error: v.string() },
+  // `attempts` is the actual number of delivery tries made (the terminal try
+  // included) — so a stuck `failed` row reads true forensics. See handleRetryable
+  // / the 401 branch: both pass row.attempts + 1 (the try that just failed).
+  args: { id: v.id("pos_qris_forward_outbox"), last_error: v.string(), attempts: v.number() },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
     if (!row) return;
     await ctx.db.patch(args.id, {
       status: "failed",
       last_error: truncate(args.last_error),
-      attempts: row.attempts,
+      attempts: args.attempts,
     });
   },
 });
@@ -119,16 +126,28 @@ async function reportForwardError(ctx: ActionCtx, message: string): Promise<void
 
 // ── Retry-or-fail (shared by 5xx and connection-error paths) ─────────────────
 
+// NOTE: the fail-vs-retry decision reads `row.attempts` from the action's
+// entry snapshot (line ~145), NOT a fresh read. This is correct ONLY because a
+// single self-rescheduling chain guarantees exactly one in-flight _deliverForward
+// per row. If a recovery sweeper is ever added (deferred follow-up — see the
+// by_status_next index), it MUST NOT re-drive a row with a live in-flight
+// delivery, or two _deliverForward run concurrently → double POST + double
+// increment. Add a lease/claim before relaxing this invariant.
 async function handleRetryable(
   ctx: ActionCtx,
-  row: { attempts: number },
+  row: { attempts: number; xendit_qr_id: string },
   id: Id<"pos_qris_forward_outbox">,
   errMsg: string,
 ): Promise<void> {
   const nextAttempts = row.attempts + 1;
   if (nextAttempts >= MAX_ATTEMPTS) {
-    await ctx.runMutation(internal.payments.forwarder._markFailed_internal, { id, last_error: errMsg });
-    await reportForwardError(ctx, "max attempts exhausted: " + errMsg);
+    await ctx.runMutation(internal.payments.forwarder._markFailed_internal, {
+      id, last_error: errMsg, attempts: nextAttempts,
+    });
+    // Include qr id so the recorded error row + any alert names the exact payment
+    // to reconcile (each failed forward is a captured payment). qr_ids are
+    // alphanumeric, so distinct failures also get distinct error signatures.
+    await reportForwardError(ctx, `max attempts exhausted qr=${row.xendit_qr_id}: ${errMsg}`);
   } else {
     await ctx.runMutation(internal.payments.forwarder._markRetry_internal, { id, last_error: errMsg });
   }
@@ -164,9 +183,13 @@ export const _deliverForward = internalAction({
       }
       const errMsg = `RM ${res.status}`;
       if (res.status === 401) {
-        // TERMINAL: token/secret misconfig — retry won't help.
-        await ctx.runMutation(internal.payments.forwarder._markFailed_internal, { id, last_error: errMsg });
-        await reportForwardError(ctx, `401 from RM (token/secret misconfig): ${errMsg}`);
+        // TERMINAL: token/secret misconfig — retry won't help. (Recovery of a
+        // failed row after the operator corrects the secret is a deferred
+        // follow-up — see the outbox durability/recovery note in ROADMAP.)
+        await ctx.runMutation(internal.payments.forwarder._markFailed_internal, {
+          id, last_error: errMsg, attempts: row.attempts + 1,
+        });
+        await reportForwardError(ctx, `401 from RM (token/secret misconfig) qr=${row.xendit_qr_id}: ${errMsg}`);
         return;
       }
       // Non-terminal (RM 5xx etc.) -> retry-or-fail.

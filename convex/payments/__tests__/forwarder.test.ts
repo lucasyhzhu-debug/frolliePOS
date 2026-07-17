@@ -97,6 +97,9 @@ describe("payments/forwarder", () => {
     const headers = call[1].headers;
     expect(headers["x-callback-token"]).toBe("tok-test-1234567890");
     expect(headers["x-frollie-forward-secret"]).toBe("fwd-secret-abc");
+    // Byte-identical re-POST is the core contract — RM re-parses the raw envelope.
+    // A regression that JSON-round-trips or wraps the body would break RM matching.
+    expect(call[1].body).toBe(JSON.stringify({ event: "qr.payment", data: { qr_id: "q1" } }));
   });
 
   it("500 → still pending, attempts incremented, next_attempt_at pushed out", async () => {
@@ -121,15 +124,20 @@ describe("payments/forwarder", () => {
 
     const row = await t.run(async (ctx) => ctx.db.get(id));
     expect(row?.status).toBe("failed");
+    // The terminal try IS counted — a stuck failed row reads the true try count.
+    expect(row?.attempts).toBe(MAX_ATTEMPTS);
 
     const reports = await t.run(async (ctx) =>
       ctx.db.query("pos_error_reports").collect(),
     );
-    expect(reports.some((r) => r.route === "convex/payments/forwarder")).toBe(true);
+    const forwarderReport = reports.find((r) => r.route === "convex/payments/forwarder");
+    expect(forwarderReport).toBeDefined();
+    // The alert/record names the exact payment to reconcile (money path).
+    expect(forwarderReport!.message).toContain("qr=q1");
     await drainScheduled(t); // ops report schedules a Telegram alert (runAfter 0)
   });
 
-  it("401 → failed immediately (terminal, not retried) + ops report", async () => {
+  it("401 → failed immediately (terminal, not retried) + ops report names the qr", async () => {
     const t = convexTest(schema);
     const id = await insertPending(t, { attempts: 0 });
     stubFetch(401);
@@ -137,14 +145,47 @@ describe("payments/forwarder", () => {
 
     const row = await t.run(async (ctx) => ctx.db.get(id));
     expect(row?.status).toBe("failed");
-    // Proves it did NOT go through the retry path (attempts stays 0, not MAX).
-    expect(row?.attempts).toBe(0);
+    // Terminal after ONE try: attempts is 1 (that try counted), NOT driven to MAX.
+    expect(row?.attempts).toBe(1);
 
     const reports = await t.run(async (ctx) =>
       ctx.db.query("pos_error_reports").collect(),
     );
-    expect(reports.some((r) => r.route === "convex/payments/forwarder")).toBe(true);
+    const forwarderReport = reports.find((r) => r.route === "convex/payments/forwarder");
+    expect(forwarderReport).toBeDefined();
+    expect(forwarderReport!.message).toContain("qr=q1");
     await drainScheduled(t); // ops report schedules a Telegram alert (runAfter 0)
+  });
+
+  it("fetch throws (connection error) → retry path: still pending, attempts incremented", async () => {
+    const t = convexTest(schema);
+    const createdAt = Date.now();
+    const id = await insertPending(t, { created_at: createdAt });
+    // Exercises the catch (e) branch — a dropped/hung RM connection, the failure
+    // the outbox exists to survive. stubFetch only ever returns Responses, so
+    // this throwing stub is the only coverage of that path.
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
+    await t.action(internal.payments.forwarder._deliverForward, { id });
+
+    const row = await t.run(async (ctx) => ctx.db.get(id));
+    expect(row?.status).toBe("pending");
+    expect(row?.attempts).toBe(1);
+    expect(row!.next_attempt_at).toBeGreaterThan(createdAt);
+  });
+
+  it("FROLLIE_FORWARD_SECRET absent → sends empty secret header (no crash)", async () => {
+    const t = convexTest(schema);
+    const id = await insertPending(t);
+    delete process.env.FROLLIE_FORWARD_SECRET; // beforeEach re-sets it next test
+    stubFetch(200);
+    await t.action(internal.payments.forwarder._deliverForward, { id });
+
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    // The `?? ""` fallback sends an empty secret rather than throwing; real RM
+    // would then 401 (terminal) — a clean, loud misconfig failure.
+    expect(call[1].headers["x-frollie-forward-secret"]).toBe("");
+    const row = await t.run(async (ctx) => ctx.db.get(id));
+    expect(row?.status).toBe("delivered"); // stub returns 200 regardless
   });
 
   it("non-pending row is a no-op (fetch not called)", async () => {

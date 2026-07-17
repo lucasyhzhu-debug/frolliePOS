@@ -262,9 +262,9 @@ describe("payments/webhook", () => {
   });
 
   // ── POS -> RM forward seam (T4) ───────────────────────────────────────────
-  it("qr_payment + kill-switch ON → enqueues exactly one outbox row", async () => {
+  it("qr_payment + kill-switch ON → enqueues AND the POS paid path still fires", async () => {
     const t = convexTest(schema);
-    await seedAwaitingWithInvoice(t, "qr_fwd");
+    const s = await seedAwaitingWithInvoice(t, "qr_fwd");
     process.env.FROLLIE_FORWARD_ENABLED = "true";
     vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
     const r = await t.fetch("/payments/webhook", {
@@ -284,6 +284,10 @@ describe("payments/webhook", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].xendit_qr_id).toBe("qr_fwd");
+    // The forward enqueue is ADDITIVE — the POS's own paid path must still run on
+    // the same delivery (proves the two independent paths both fire together).
+    const txn = await t.run((ctx) => ctx.db.get(s.txn));
+    expect(txn?.status).toBe("paid");
     await drainScheduled(t);
   });
 
