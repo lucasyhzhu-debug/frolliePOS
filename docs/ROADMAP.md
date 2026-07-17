@@ -34,6 +34,15 @@ The shared Xendit account delivers every QR-paid event to THIS POS's account-lev
 - **Spec:** [`superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md)
 - **Plan:** [`superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md)
 - **Handoff:** `.claude/handoff/execute_2026-07-16-qris-pos-rm-forwarder.md`
+- **Code:** implemented + triple-reviewed + simplified on `feature/qris-pos-rm-forwarder` (T1–T5, 1077 tests green). Pending live-env go-live steps (env vars on both deployments, POS deploy, live smoke, reconcile `0716-001`).
+
+### Deferred follow-up — outbox durability & recovery hardening (NOT built in v1.4.9)
+
+The v1.4.9 outbox is at-least-once via a single self-rescheduling delivery chain. Triple-review surfaced three recovery gaps in the **same durability class the spec deliberately deferred** (§4.2 Impr#5 / §6 scheduler-loss). Track as a follow-up hardening slice:
+
+- **Recovery sweeper** over `pos_qris_forward_outbox.by_status_next` (index already shipped for this): a cron re-drives rows stuck `pending` (a delivery action that died before any terminal mutation — transient `no available workers` on the initial read, worker eviction, deploy mid-action). MUST add a lease/claim (`claimed_at`) so it never double-drives a row with a live in-flight delivery (double POST + double increment — see the `handleRetryable` note in `forwarder.ts`).
+- **`fetch` timeout / AbortController** in `_deliverForward` so a hung RM connection hits the catch→retry path deterministically instead of being platform-killed (which strands the row until the sweeper). Verify `AbortSignal.timeout` in the Convex V8 action runtime before relying on it.
+- **Requeue path for `failed` rows** (401 terminal): after an operator corrects a mismatched `FROLLIE_FORWARD_SECRET`/`XENDIT_CALLBACK_TOKEN`, every forward during the bad window is terminal-`failed` with no automated recovery — an admin "requeue failed forwards" mutation (or make 401 retryable-with-cap) recovers them.
 
 ---
 
