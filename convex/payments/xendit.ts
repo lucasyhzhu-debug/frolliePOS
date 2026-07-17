@@ -20,6 +20,12 @@ export type ChargeResult = {
   statusAtCreate: string;
 };
 
+// A PURE ANNOTATION describing which Xendit envelope shape this callback is.
+// Derived alongside — never feeds back into — paid/matchKey/amount/receiptId/
+// paymentSource (see parseXenditWebhook). Added so a downstream forwarder can
+// route/label callbacks without re-parsing.
+export type WebhookKind = "qr_payment" | "bca_va" | "refund" | "ignored";
+
 export type WebhookParse = {
   paid: boolean;
   matchKey: string | null;
@@ -28,6 +34,8 @@ export type WebhookParse = {
   // The paying wallet/bank (DANA/OVO/BCA). Named distinctly from the funnel's
   // `source` (the confirmation PATH: webhook/polling/manual) to avoid confusion.
   paymentSource?: string;
+  // Pure annotation (never alters the fields above). See WebhookKind.
+  kind: WebhookKind;
 };
 
 /** Basic auth: secret key as username, EMPTY password. Buffer (node runtime). */
@@ -133,9 +141,20 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
   try {
     p = JSON.parse(rawBody);
   } catch {
-    return { paid: false, matchKey: null };
+    return { paid: false, matchKey: null, kind: "ignored" };
   }
-  if (!p || typeof p !== "object") return { paid: false, matchKey: null };
+  if (!p || typeof p !== "object") return { paid: false, matchKey: null, kind: "ignored" };
+
+  // `kind` is a PURE ANNOTATION derived here, BEFORE the existing branch bodies
+  // run. It is attached to whatever those branches return WITHOUT altering their
+  // paid/matchKey/amount/receiptId/paymentSource values. Refund detection wins
+  // over the bca_va/qr_payment labels but must NOT suppress the existing
+  // status-guarded logic — a refund of an already-paid POS txn stays the
+  // harmless no-op it is today; it is merely labeled `refund` here.
+  const hasRefund = (v: unknown): boolean =>
+    typeof v === "string" && v.toLowerCase().includes("refund");
+  const refundDetected =
+    hasRefund(p.event) || hasRefund(p.data?.type) || hasRefund(p.type);
 
   // BCA VA — flat FVA payment callback (no event envelope; arrival = paid).
   if (p.callback_virtual_account_id && p.event === undefined) {
@@ -144,6 +163,7 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
       matchKey: p.callback_virtual_account_id,
       amount: p.amount,
       receiptId: p.payment_id,
+      kind: refundDetected ? "refund" : "bca_va",
     };
   }
 
@@ -165,9 +185,10 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
       amount: d.amount,
       receiptId: d.payment_detail?.receipt_id,
       paymentSource: d.payment_detail?.source,
+      kind: refundDetected ? "refund" : "qr_payment",
     };
   }
-  return { paid: false, matchKey: null };
+  return { paid: false, matchKey: null, kind: refundDetected ? "refund" : "ignored" };
 }
 
 // ─── List Transactions (settlement poll, v0.7) ───────────────────────────────

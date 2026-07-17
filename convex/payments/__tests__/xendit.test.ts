@@ -62,12 +62,13 @@ describe("parseXenditWebhook", () => {
       amount: 35000,
       receiptId: "RRN-1",
       paymentSource: "DANA",
+      kind: "qr_payment",
     });
   });
 
   it("QRIS non-SUCCEEDED status → not paid", () => {
     const body = JSON.stringify({ event: "qr.payment", data: { qr_id: "qr_9", status: "PENDING" } });
-    expect(parseXenditWebhook(body)).toEqual({ paid: false, matchKey: null });
+    expect(parseXenditWebhook(body)).toEqual({ paid: false, matchKey: null, kind: "ignored" });
   });
 
   it("BCA flat FVA callback → paid, matchKey=callback_virtual_account_id (live-unverified shape)", () => {
@@ -83,6 +84,7 @@ describe("parseXenditWebhook", () => {
       matchKey: "va_456",
       amount: 50000,
       receiptId: "pay_1",
+      kind: "bca_va",
     });
   });
 
@@ -90,11 +92,85 @@ describe("parseXenditWebhook", () => {
     expect(parseXenditWebhook(JSON.stringify({ id: "inv_1", status: "PAID" }))).toEqual({
       paid: false,
       matchKey: null,
+      kind: "ignored",
     });
   });
 
   it("unparseable / empty → not paid, no match key", () => {
-    expect(parseXenditWebhook("not json")).toEqual({ paid: false, matchKey: null });
-    expect(parseXenditWebhook("")).toEqual({ paid: false, matchKey: null });
+    expect(parseXenditWebhook("not json")).toEqual({ paid: false, matchKey: null, kind: "ignored" });
+    expect(parseXenditWebhook("")).toEqual({ paid: false, matchKey: null, kind: "ignored" });
+  });
+
+  // ─── kind annotation (T1) — PURE ANNOTATION, never alters paid/matchKey ───
+
+  it("C1 invariant: a refund envelope that looks paid stays byte-identical paid/matchKey (kind is annotation-only)", () => {
+    // A refund of an already-paid QR: today's status-guarded logic returns
+    // paid:true, matchKey:qr_r1 (a harmless no-op downstream). The new `kind`
+    // MUST NOT suppress that — assert the EXACT existing values, plus kind.
+    const body = JSON.stringify({
+      event: "qr.payment.refunded",
+      data: { qr_id: "qr_r1", status: "SUCCEEDED", amount: 5000 },
+    });
+    expect(parseXenditWebhook(body)).toEqual({
+      paid: true,
+      matchKey: "qr_r1",
+      amount: 5000,
+      receiptId: undefined,
+      paymentSource: undefined,
+      kind: "refund",
+    });
+  });
+
+  it("C1 invariant: a refund envelope that is not paid → paid:false, matchKey:null, kind:refund", () => {
+    const body = JSON.stringify({ event: "refund.succeeded", data: { id: "rf_1", status: "PENDING" } });
+    expect(parseXenditWebhook(body)).toEqual({ paid: false, matchKey: null, kind: "refund" });
+  });
+
+  it("genuine qr.payment SUCCEEDED → kind:qr_payment", () => {
+    const body = JSON.stringify({ event: "qr.payment", data: { qr_id: "qr_ok", status: "SUCCEEDED", amount: 12000 } });
+    expect(parseXenditWebhook(body)).toEqual({
+      paid: true,
+      matchKey: "qr_ok",
+      amount: 12000,
+      receiptId: undefined,
+      paymentSource: undefined,
+      kind: "qr_payment",
+    });
+  });
+
+  it("data.type contains refund → kind:refund (refund detection via data.type)", () => {
+    const body = JSON.stringify({ data: { type: "REFUND", qr_id: "qr_t", status: "PENDING" } });
+    expect(parseXenditWebhook(body)).toEqual({ paid: false, matchKey: null, kind: "refund" });
+  });
+
+  it("top-level type contains refund → kind:refund", () => {
+    const body = JSON.stringify({ type: "payment.refund", id: "x", status: "PENDING" });
+    expect(parseXenditWebhook(body)).toEqual({ paid: false, matchKey: null, kind: "refund" });
+  });
+
+  it("BCA VA refund envelope → paid stays byte-identical, kind:refund (refund precedence over bca_va)", () => {
+    // Refund flagged via top-level `type` so the FVA branch (which requires
+    // event === undefined) still matches and computes paid/matchKey as today.
+    const body = JSON.stringify({
+      type: "refund",
+      callback_virtual_account_id: "va_r1",
+      amount: 50000,
+      payment_id: "pay_r1",
+    });
+    expect(parseXenditWebhook(body)).toEqual({
+      paid: true,
+      matchKey: "va_r1",
+      amount: 50000,
+      receiptId: "pay_r1",
+      kind: "refund",
+    });
+  });
+
+  it("junk object → kind:ignored", () => {
+    expect(parseXenditWebhook(JSON.stringify({ hello: "world" }))).toEqual({
+      paid: false,
+      matchKey: null,
+      kind: "ignored",
+    });
   });
 });
