@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../../schema";
 import { PAYMENT_AMOUNT_MISMATCH } from "../../transactions/flags";
@@ -11,6 +11,13 @@ setupTelegramStub();
 
 beforeEach(() => {
   process.env.XENDIT_CALLBACK_TOKEN = "tok-test-1234567890";
+  // Kill-switch hygiene: default OFF so existing tests never enqueue a forward.
+  delete process.env.FROLLIE_FORWARD_ENABLED;
+});
+
+afterEach(() => {
+  delete process.env.FROLLIE_FORWARD_ENABLED;
+  vi.unstubAllGlobals();
 });
 
 async function seedAwaitingWithInvoice(
@@ -251,6 +258,121 @@ describe("payments/webhook", () => {
     expect(txn?.status).toBe("paid");
     // One sale movement only — the second delivery hit the status guard and no-op'd.
     expect(movements.length).toBe(1);
+    await drainScheduled(t);
+  });
+
+  // ── POS -> RM forward seam (T4) ───────────────────────────────────────────
+  it("qr_payment + kill-switch ON → enqueues exactly one outbox row", async () => {
+    const t = convexTest(schema);
+    await seedAwaitingWithInvoice(t, "qr_fwd");
+    process.env.FROLLIE_FORWARD_ENABLED = "true";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test-1234567890" },
+      body: JSON.stringify({
+        event: "qr.payment",
+        data: { qr_id: "qr_fwd", status: "SUCCEEDED", amount: 25_000 },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("pos_qris_forward_outbox")
+        .withIndex("by_xendit_qr_id", (q) => q.eq("xendit_qr_id", "qr_fwd"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].xendit_qr_id).toBe("qr_fwd");
+    await drainScheduled(t);
+  });
+
+  it("qr_payment + kill-switch OFF (unset) → NO enqueue", async () => {
+    const t = convexTest(schema);
+    await seedAwaitingWithInvoice(t, "qr_off");
+    // FROLLIE_FORWARD_ENABLED deleted in beforeEach.
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test-1234567890" },
+      body: JSON.stringify({
+        event: "qr.payment",
+        data: { qr_id: "qr_off", status: "SUCCEEDED", amount: 25_000 },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("pos_qris_forward_outbox")
+        .withIndex("by_xendit_qr_id", (q) => q.eq("xendit_qr_id", "qr_off"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+    await drainScheduled(t);
+  });
+
+  it("refund envelope → NO enqueue (kind resolves to 'refund')", async () => {
+    const t = convexTest(schema);
+    process.env.FROLLIE_FORWARD_ENABLED = "true";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test-1234567890" },
+      body: JSON.stringify({
+        event: "qr.payment.refunded",
+        data: { qr_id: "qr_r", status: "SUCCEEDED", amount: 25_000 },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("pos_qris_forward_outbox")
+        .withIndex("by_xendit_qr_id", (q) => q.eq("xendit_qr_id", "qr_r"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+    await drainScheduled(t);
+  });
+
+  it("bca_va callback → NO enqueue", async () => {
+    const t = convexTest(schema);
+    process.env.FROLLIE_FORWARD_ENABLED = "true";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test-1234567890" },
+      body: JSON.stringify({
+        callback_virtual_account_id: "va_x",
+        account_number: "1080099887",
+        amount: 25_000,
+        payment_id: "p",
+      }),
+    });
+    expect(r.status).toBe(200);
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("pos_qris_forward_outbox")
+        .withIndex("by_xendit_qr_id", (q) => q.eq("xendit_qr_id", "va_x"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+    await drainScheduled(t);
+  });
+
+  it("matchKey null (SUCCEEDED QR, no qr_id) → NO enqueue even with kill-switch ON", async () => {
+    const t = convexTest(schema);
+    process.env.FROLLIE_FORWARD_ENABLED = "true";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("ok", { status: 200 })));
+    const r = await t.fetch("/payments/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-callback-token": "tok-test-1234567890" },
+      body: JSON.stringify({
+        event: "qr.payment",
+        data: { status: "SUCCEEDED", amount: 25_000 },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const rows = await t.run(async (ctx) => ctx.db.query("pos_qris_forward_outbox").collect());
+    expect(rows).toHaveLength(0);
     await drainScheduled(t);
   });
 });
