@@ -151,6 +151,12 @@ export function parseXenditWebhook(rawBody: string): WebhookParse {
   // over the bca_va/qr_payment labels but must NOT suppress the existing
   // status-guarded logic — a refund of an already-paid POS txn stays the
   // harmless no-op it is today; it is merely labeled `refund` here.
+  // LIVE-UNVERIFIED (same discipline as the BCA-VA branch): the refund envelope's
+  // field names (`event`/`data.type`/`type` containing "refund") are asserted from
+  // Xendit docs, NOT confirmed against a real refund callback. This is safe either
+  // way — the label only ever GATES the forward-out decision (never `paid`), so a
+  // mislabel can at worst forward a refund, which RM's Phase-1 refund gate absorbs.
+  // Verify the real refund field names before treating this label as authoritative.
   const hasRefund = (v: unknown): boolean =>
     typeof v === "string" && v.toLowerCase().includes("refund");
   const refundDetected =
