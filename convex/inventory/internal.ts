@@ -428,7 +428,11 @@ async function checkLowStockOne(
     // flag-insert cycle is unique (keying on on_hand would collide
     // across yo-yo bounces within the 24h action-cache window).
     await ctx.scheduler.runAfter(0, internal.telegram.dispatch.dispatchRoleAlert, {
-      role: "inventory",
+      // v1.4.11: repointed inventory → managers. The `inventory` role has no
+      // bound chat, so these alerts were being audited-skipped and delivered
+      // nowhere; `managers` (FrolliePOS_Approvals) is the single operational
+      // channel the booth actually watches.
+      role: "managers",
       kind: "low_stock_alert",
       payload: {
         sku_name: sku.name,

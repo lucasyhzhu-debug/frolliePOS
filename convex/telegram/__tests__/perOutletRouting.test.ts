@@ -219,14 +219,14 @@ test("(b) _sendSignoffSummary routes to per-outlet managers, not founders", asyn
 // chat IDs and verifies only the correct outlet's chat received the message.
 
 /**
- * (c) low_stock alert at outlet B routes to outlet B's `inventory` chat,
+ * (c) low_stock alert at outlet B routes to outlet B's `managers` chat,
  * NOT outlet A's. Asserts chatIdOverride = B's chat_id in the fetch call.
  *
- * Mechanism: dispatchRoleAlert now calls resolveOutletChatId(ctx, "inventory",
- * outlet_id) instead of the global getChatIdByRole, so the chat resolves per-
- * outlet. We capture fetch calls and assert the correct chat_id was used.
+ * v1.4.11: low_stock alerts repointed inventory → managers. Mechanism:
+ * dispatchRoleAlert calls resolveOutletChatId(ctx, "managers", outlet_id) so
+ * the chat resolves per-outlet. We capture fetch calls and assert the chat_id.
  */
-test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", async () => {
+test("(c) low_stock alert at outlet B routes to outlet B's managers chat", async () => {
   const t = convexTest(schema);
 
   const capturedBodies: Record<string, unknown>[] = [];
@@ -245,7 +245,7 @@ test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", asyn
   }) as typeof fetch;
 
   try {
-    const { outletB, skuId } = await t.run(async (ctx: any) => {
+    const { outletB } = await t.run(async (ctx: any) => {
       const outletA = await ctx.db.insert("outlets", { is_open: false,
         code: "PKW", name: "Outlet A", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
@@ -254,15 +254,15 @@ test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", asyn
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      // Two distinct inventory chats — one per outlet.
+      // Two distinct managers chats — one per outlet (low_stock → managers, v1.4.11).
       await ctx.db.insert("telegramChats", {
-        chatId: "-100inv-A", chatType: "supergroup", title: "Inv A",
-        role: "inventory", registeredAt: Date.now(), lastSeenAt: Date.now(),
+        chatId: "-100mgr-lowstk-A", chatType: "supergroup", title: "Mgr A",
+        role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
         outlet_id: outletA,
       });
       await ctx.db.insert("telegramChats", {
-        chatId: "-100inv-B", chatType: "supergroup", title: "Inv B",
-        role: "inventory", registeredAt: Date.now(), lastSeenAt: Date.now(),
+        chatId: "-100mgr-lowstk-B", chatType: "supergroup", title: "Mgr B",
+        role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
         outlet_id: outletB,
       });
       // Seed a SKU + low stock level at outlet B.
@@ -274,12 +274,12 @@ test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", asyn
         inventory_sku_id: skuId, on_hand: 2, updated_at: Date.now(),
         outlet_id: outletB,
       });
-      return { outletB, skuId };
+      return { outletB };
     });
 
-    // Fire dispatchRoleAlert directly with outletB's id + inventory role.
+    // Fire dispatchRoleAlert directly with outletB's id + managers role (v1.4.11).
     await t.action(internal.telegram.dispatch.dispatchRoleAlert, {
-      role: "inventory",
+      role: "managers",
       kind: "low_stock_alert",
       payload: { sku_name: "Dubai Box", on_hand: 2, low_threshold: 5 },
       idempotencyKey: `test-lowstock-c-${Date.now()}`,
@@ -289,7 +289,7 @@ test("(c) low_stock alert at outlet B routes to outlet B's inventory chat", asyn
     // The Telegram API call must have gone to outlet B's chat.
     expect(capturedBodies.length).toBeGreaterThanOrEqual(1);
     const lastBody = capturedBodies[capturedBodies.length - 1];
-    expect(lastBody.chat_id).toBe("-100inv-B");
+    expect(lastBody.chat_id).toBe("-100mgr-lowstk-B");
   } finally {
     globalThis.fetch = savedFetch;
   }
@@ -401,15 +401,15 @@ test("(e) drift cron sends per-outlet alerts — two outlets, two distinct chat_
         code: "BLK", name: "Outlet B", timezone: "Asia/Jakarta",
         active: true, created_at: Date.now(), created_by: null,
       });
-      // Two distinct inventory chats.
+      // Two distinct managers chats (drift → managers, v1.4.11).
       await ctx.db.insert("telegramChats", {
-        chatId: "-100inv-PKW", chatType: "supergroup", title: "Inv PKW",
-        role: "inventory", registeredAt: Date.now(), lastSeenAt: Date.now(),
+        chatId: "-100mgr-PKW", chatType: "supergroup", title: "Mgr PKW",
+        role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
         outlet_id: outletA,
       });
       await ctx.db.insert("telegramChats", {
-        chatId: "-100inv-BLK", chatType: "supergroup", title: "Inv BLK",
-        role: "inventory", registeredAt: Date.now(), lastSeenAt: Date.now(),
+        chatId: "-100mgr-BLK", chatType: "supergroup", title: "Mgr BLK",
+        role: "managers", registeredAt: Date.now(), lastSeenAt: Date.now(),
         outlet_id: outletB,
       });
 
@@ -452,8 +452,8 @@ test("(e) drift cron sends per-outlet alerts — two outlets, two distinct chat_
 
     // Both outlet chats must have received a message — TWO distinct chat_ids.
     const sentChatIds = capturedBodies.map((b) => b.chat_id);
-    expect(sentChatIds).toContain("-100inv-PKW");
-    expect(sentChatIds).toContain("-100inv-BLK");
+    expect(sentChatIds).toContain("-100mgr-PKW");
+    expect(sentChatIds).toContain("-100mgr-BLK");
     // Distinct: each outlet gets its OWN alert (not both to the same chat).
     expect(new Set(sentChatIds).size).toBe(2);
   } finally {

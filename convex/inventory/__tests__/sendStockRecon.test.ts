@@ -129,7 +129,7 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
         outlet_id: outletId,
       } as never),
     );
-    // No telegramChats binding for "inventory" role.
+    // No telegramChats binding for the "managers" role (drift now routes there — v1.4.11).
 
     const r = await t.action(
       internal.inventory.cronActions.sendStockReconResilient,
@@ -176,8 +176,8 @@ describe("inventory.cronActions.sendStockReconResilient", () => {
       ctx.db.insert("telegramChats", {
         chatId: "-1002",
         chatType: "group",
-        title: "Inv",
-        role: "inventory",
+        title: "Mgr",
+        role: "managers",
         registeredAt: Date.now(),
         lastSeenAt: Date.now(),
       } as never),
