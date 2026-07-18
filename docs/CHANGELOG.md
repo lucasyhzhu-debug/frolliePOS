@@ -4,6 +4,45 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-18 — v1.4.10: QRIS paid-callback forwarder (POS → Recipe Master)
+
+- **Problem solved:** the shared Xendit account delivers every QR-paid event to THIS POS's
+  account-level webhook, so Recipe Master (Frollie Pro) QR orders never auto-reconciled (per-QR
+  `callback_url` proven ignored by Xendit v2 — order `0716-001`). The POS now durably re-POSTs
+  genuine RM QR-payment callbacks to RM's endpoint.
+- **Mechanism (T1–T5 + ship-review hardening):** `parseXenditWebhook` gains a pure `kind`
+  annotation (+ `paymentId` — the per-payment `data.id`); `xenditWebhook` enqueues into a new
+  `pos_qris_forward_outbox` table (kill-switch `FROLLIE_FORWARD_ENABLED`) and a V8 delivery action
+  re-POSTs the byte-identical raw body with `x-callback-token` + `x-frollie-forward-secret`
+  headers; exponential backoff (60→480s, 5 tries), 401 terminal, terminal failures alert ops with
+  the exact qr id. POS's own paid path is untouched (always-200 contract preserved).
+- **Ship-review fixes (8-angle review on top of the earlier triple-review):**
+  1. **Dedup is the `(qr_id, payment_id)` pair, not qr_id alone** — one QR can receive multiple
+     genuine payments; qr-only dedup silently dropped payment #2 on a money path. Xendit
+     redelivery still dedups (same pair).
+  2. **POS-owned qr_ids are never enqueued** — booth sales are already confirmed locally; RM has
+     no matching order. Also prevents an RM outage from storming ops with alerts about POS sales.
+  3. **Stale-pending re-drive:** Xendit redelivery revives a dead delivery chain (pending row >10
+     min past `next_attempt_at`) — the cheap half of the deferred recovery sweeper.
+  4. **Missing `FROLLIE_FORWARD_SECRET`/`XENDIT_CALLBACK_TOKEN` no longer POSTs an empty header**
+     (which drew a TERMINAL 401 on attempt 1) — it takes the retry ladder with a config-naming
+     error, so setting the env var self-heals in-flight rows.
+  5. **`_requeueFailed_internal` break-glass** — resets terminal-`failed` rows after an operator
+     fixes the secret (`npx convex run payments/forwarder:_requeueFailed_internal --prod '{}'`).
+  6. **`FROLLIE_FORWARD_URL` env override** (hardcoded RM-prod default) so the dev POS can smoke
+     against an RM dev deployment instead of injecting test callbacks into RM prod.
+  7. **`forward-outbox-housekeeping` cron** (02:20 WIB) purges delivered rows >30 days —
+     the outbox is no longer the only append-forever operational table. `failed` rows kept as
+     reconciliation forensics.
+- Docs: `SCHEMA.md` (+`pos_qris_forward_outbox`), `API_REFERENCE.md` (+`payments/forwarder.ts`),
+  `docs/xendit-reference/README.md` (+payment-id-vs-qr-id fact + refund-envelope LIVE-UNVERIFIED
+  caveat). Residual durability follow-up (sweeper cron + lease, fetch timeout) tracked in ROADMAP
+  backlog. **Go-live steps (owner):** set `FROLLIE_FORWARD_SECRET` (matching RM) on prod, set
+  `FROLLIE_FORWARD_ENABLED=true`, live smoke a QR payment, reconcile order `0716-001`.
+- Tests: 88 payments-suite tests green (pair dedup, second-payment forward, POS-owned skip, stale
+  re-drive, live-chain non-re-drive, config fail-fast, URL override, requeue, purge). Full gate
+  green. `package.json` → `1.4.10`.
+
 ## 2026-07-18 — v1.4.9: remove the self-handover block entirely — handover-then-relogin just starts the shift
 
 - **Owner decision (reverses the v1.4.4 #157 guard):** a staffer who hands the booth over and logs back

@@ -25,4 +25,29 @@ export const paymentsTables = {
     .index("by_transaction", ["transaction_id"])
     .index("by_xendit_invoice_id", ["xendit_invoice_id"])  // webhook dedup (GLOBAL_UNIQUE — keep)
     .index("by_outlet_transaction", ["outlet_id", "transaction_id"]),
+
+  // Transactional outbox for forwarding genuine QRIS paid-callbacks from this
+  // shared-Xendit-account POS webhook to Recipe Master (Frollie Pro). The single
+  // account-level Xendit webhook lands here; RM QR payments no-op on the POS, so
+  // we durably re-POST them to RM. NOT outlet-scoped (these rows carry no
+  // session/outlet — a forwarded event is RM's, not a POS outlet's), so the
+  // frollie-internal/index-leads-with-outlet_id lint (OUTLET_SCOPED-only) does
+  // not apply. INVARIANT: forwarding is strictly POS → RM — RM must never
+  // forward, and this outbox must never be pointed anywhere but RM (SSRF-safe:
+  // the target is a hardcoded const in forwarder.ts, never payload-derived).
+  // The forward secret is NEVER stored here (Convex data is dashboard-visible) —
+  // it is re-read from env at send time.
+  pos_qris_forward_outbox: defineTable({
+    raw_payload: v.string(),                                // exact raw body to re-POST
+    xendit_qr_id: v.string(),                               // audit + dedup component (from matchKey)
+    xendit_payment_id: v.optional(v.string()),              // per-payment id (data.id) — one qr_id can receive MULTIPLE payments; dedup is (qr_id, payment_id)
+    status: v.union(v.literal("pending"), v.literal("delivered"), v.literal("failed")),
+    attempts: v.number(),                                   // incremented per delivery try
+    last_error: v.optional(v.string()),                     // truncated
+    created_at: v.number(),
+    next_attempt_at: v.number(),                            // backoff schedule (also the stale-chain detector — see enqueue re-drive)
+    delivered_at: v.optional(v.number()),
+  })
+    .index("by_qr_payment", ["xendit_qr_id", "xendit_payment_id"]) // dedup read (OCC-race-safe) — pair, NOT qr alone: a 2nd payment on the same QR must forward
+    .index("by_status_next", ["status", "next_attempt_at"]), // requeue break-glass + delivered-purge + optional future sweeper
 };

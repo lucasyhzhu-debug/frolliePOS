@@ -49,7 +49,7 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
   // so a report failure can never break the return-200 Xendit contract.
   try {
     const raw = await request.text();
-    const { paid, matchKey, amount, receiptId, paymentSource } = parseXenditWebhook(raw);
+    const { paid, matchKey, amount, receiptId, paymentSource, kind, paymentId } = parseXenditWebhook(raw);
 
     if (paid && matchKey) {
       try {
@@ -64,6 +64,27 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
         // error level: a paid webhook that couldn't commit is an alertable event.
         console.error("[xendit] webhook mutation error:", err);
         // v1.0.1: best-effort ops report — kind: "backend", never mask original behavior
+        await reportWebhookError(ctx, err);
+      }
+    }
+
+    // POS -> RM forward (additive — the POS paid path above is UNCHANGED).
+    // INVARIANT (LOW-7): forwarding is strictly POS -> RM; this webhook must
+    // never be pointed back and RM must never forward. Gated on a genuine QR
+    // payment WITH a match key (mirrors the paid && matchKey guard so a
+    // SUCCEEDED-QR envelope missing its id can't create a null-keyed row) AND
+    // the FROLLIE_FORWARD_ENABLED kill-switch. Wrapped so a transient enqueue
+    // throw is reported + swallowed — never breaks the return-200 contract.
+    if (kind === "qr_payment" && matchKey && process.env.FROLLIE_FORWARD_ENABLED === "true") {
+      try {
+        await ctx.runMutation(internal.payments.forwarder._enqueueForward_internal, {
+          raw_payload: raw,
+          xendit_qr_id: matchKey,
+          // (qr_id, payment_id) pair dedup — one QR can receive multiple payments.
+          ...(paymentId !== undefined ? { xendit_payment_id: paymentId } : {}),
+        });
+      } catch (err) {
+        console.error("[xendit] webhook forward enqueue error:", err);
         await reportWebhookError(ctx, err);
       }
     }

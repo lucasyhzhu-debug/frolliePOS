@@ -410,6 +410,24 @@ History of all Xendit invoices created for a transaction, including cancelled on
 
 Indexes: `by_transaction` on `transaction_id`, `by_xendit_invoice_id` on `xendit_invoice_id` (webhook dedup).
 
+### `pos_qris_forward_outbox` *(v1.4.10 — owned by `payments/`)*
+Transactional outbox for forwarding genuine QRIS paid-callbacks from this shared-Xendit-account POS webhook to Recipe Master (Frollie Pro). The single account-level Xendit webhook lands here; RM QR payments no-op on the POS, so they are durably re-POSTed to RM (`payments/forwarder.ts`). NOT outlet-scoped (a forwarded event is RM's, not a POS outlet's — the `index-leads-with-outlet_id` fence's `OUTLET_SCOPED` list does not include it). POS-owned qr_ids (rows in `pos_xendit_invoices`) are never enqueued. The forward secret is NEVER stored here (Convex data is dashboard-visible) — re-read from env at send time.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | `Id<"pos_qris_forward_outbox">` | |
+| `raw_payload` | `string` | Exact raw webhook body to re-POST (byte-identical relay — RM re-parses) |
+| `xendit_qr_id` | `string` | QR id (`data.qr_id`) — audit + dedup component |
+| `xendit_payment_id` | `string?` | Per-payment id (`data.id`) — one QR can receive MULTIPLE payments, so dedup is the `(qr_id, payment_id)` pair |
+| `status` | `"pending" \| "delivered" \| "failed"` | `failed` is terminal (401 or max attempts); recover via `_requeueFailed_internal` |
+| `attempts` | `number` | Delivery tries made (terminal try counted) |
+| `last_error` | `string?` | Truncated to the ops-pipe `MESSAGE_MAX` |
+| `created_at` | `number` | |
+| `next_attempt_at` | `number` | Backoff schedule; also the stale-chain detector (enqueue re-drives a pending row >10 min past due on Xendit redelivery) |
+| `delivered_at` | `number?` | |
+
+Indexes: `by_qr_payment` on `(xendit_qr_id, xendit_payment_id)` (dedup pair read), `by_status_next` on `(status, next_attempt_at)` (requeue break-glass + nightly delivered-purge + future sweeper). Retention: `forward-outbox-housekeeping` cron purges `delivered` rows after 30 days; `failed` rows are kept as reconciliation forensics.
+
 ### `pos_refunds` — v0.5.1 PR B shipped *(owned by `refunds/`)*
 Refund ledger ([ADR-008](./ADR/008-refunds-as-new-rows.md)). One row per refund event; multiple refunds against the same txn compose. Per-line subset embedded inline (no separate `pos_refund_lines` table — that was a pre-v0.5.1 design that didn't ship). Per-line `refund_amount` is computed via the ADR-040 single-floor helper `computeRefundAmount` at commit time and frozen on the row.
 

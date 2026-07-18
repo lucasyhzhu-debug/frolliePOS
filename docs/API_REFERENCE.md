@@ -121,6 +121,18 @@ In-app product admin (`/mgr/products`). Same PIN-vs-session tiering as staff adm
 | q | `getPayment` | `{ paymentId }` | `Payment` | |
 | q | `getActivePayment` | `{ txId }` | `Payment \| null` | Latest non-expired/non-cancelled |
 
+## `payments/forwarder.ts` *(v1.4.10 — QRIS POS→RM paid-callback forwarder)*
+
+Transactional outbox that re-POSTs genuine RM QR-payment callbacks to Recipe Master. All functions are internal (no `public.ts` surface — the `idempotency-required` fence does not apply). Kill-switch: `FROLLIE_FORWARD_ENABLED`; target: `FROLLIE_FORWARD_URL` env override, hardcoded RM prod default; auth: `x-callback-token` + `x-frollie-forward-secret` headers re-read from env at send time.
+
+| Type | Name | Args | Returns | Notes |
+|---|---|---|---|---|
+| internal m | `_enqueueForward_internal` | `{ raw_payload, xendit_qr_id, xendit_payment_id? }` | `void` | Skips POS-owned qr_ids (row in `pos_xendit_invoices`); dedups on the `(qr_id, payment_id)` pair; re-drives a stale (>10 min past due) pending row on Xendit redelivery; else inserts pending + schedules `_deliverForward` |
+| internal a | `_deliverForward` | `{ id }` | `void` | V8 action. POSTs `raw_payload` to RM. 2xx → delivered; 401 → terminal failed (secret misconfig); missing env secrets → retry ladder WITHOUT posting; 5xx/connection → exponential backoff retry (60/120/240/480s, max 5 tries) then terminal + ops alert naming the qr |
+| internal m | `_markDelivered_internal` / `_markRetry_internal` / `_markFailed_internal` | — | `void` | Row-state writers used by the delivery chain (see forwarder.ts invariants — single in-flight chain per row) |
+| internal m | `_requeueFailed_internal` | `{ limit? }` | `{ requeued }` | Break-glass: resets `failed` rows → pending (attempts 0) + re-schedules delivery. Run after fixing `FROLLIE_FORWARD_SECRET`/`XENDIT_CALLBACK_TOKEN`: `npx convex run payments/forwarder:_requeueFailed_internal --prod '{}'` |
+| internal m | `_purgeDeliveredForwards_internal` | `{}` | `{ purged }` | Nightly `forward-outbox-housekeeping` cron (02:20 WIB): deletes `delivered` rows >30 days old (≤500/night); `failed` rows kept as forensics |
+
 ## `refunds/` *(v0.5.1 PR B — shipped surface)*
 
 Refund ledger + settlement surface. Both authorisation paths (booth-PIN inline, Telegram-PIN off-booth) funnel through the single internal writer `_commitRefund_internal` (v0.5.0 cross-path-parity). The `approveRefund` action lives in `convex/approvals/actions.ts` (not `refunds/`) because it is dispatched from the `/approve/:token` flow — listed here for completeness.

@@ -254,3 +254,22 @@ payout of collected funds to your bank) — researched for v0.5.3c. The one fact
 internalise: **there is no settlement webhook.** Settlement is per-transaction
 (`settlement_status` + `settlement_date`), readable only via the List Transactions API or
 the Balance/Transactions reports. Read it before touching anything that reconciles payouts.
+
+## qr.payment envelope: payment id vs QR id, and the refund-label caveat (v1.4.10)
+
+Two facts captured while building the POS→RM paid-callback forwarder:
+
+- **`data.id` is the per-PAYMENT id; `data.qr_id` is the QR object id — and one
+  `qr_id` can receive MULTIPLE payments** (each `qr.payment` callback carries its
+  own `data.id`). Any dedup keyed on `qr_id` alone silently drops a second genuine
+  payment to the same QR. The forwarder (and anything else deduping QR callbacks)
+  must key on the `(qr_id, payment_id)` pair. Xendit *redelivery* of the same
+  callback repeats the same pair, so pair-dedup still absorbs retries.
+- **Refund envelope field names are LIVE-UNVERIFIED.** `parseXenditWebhook`'s
+  refund label matches `"refund"` as a substring of `event` / `data.type` / `type`
+  — asserted from Xendit docs, never confirmed against a real refund callback.
+  The label only gates the POS→RM forward (never `paid`). Mislabels cut both
+  ways: a refund labeled payment gets forwarded (RM's refund gate absorbs it);
+  a payment labeled refund is silently NOT forwarded — the costly direction.
+  Before trusting the label as authoritative, capture a real refund callback and
+  record the actual field names here.
