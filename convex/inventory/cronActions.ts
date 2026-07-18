@@ -106,7 +106,9 @@ export const sendStockRecon = internalAction({
       // An unbound outlet → audited skip for THAT outlet only; never abort.
       let resolvedChatId: string;
       try {
-        resolvedChatId = await resolveOutletChatId(ctx, "inventory", outlet._id);
+        // v1.4.11: drift alerts repointed inventory → managers (the inventory
+        // role has no bound chat — see the low-stock dispatch note in internal.ts).
+        resolvedChatId = await resolveOutletChatId(ctx, "managers", outlet._id);
       } catch (err) {
         if (isRoleUnboundError(err)) {
           await ctx.runMutation(
@@ -128,7 +130,7 @@ export const sendStockRecon = internalAction({
       // collision lesson — use outlet.code to scope).
       try {
         await ctx.runAction(api.telegram.send.sendTemplate, {
-          role: "inventory",
+          role: "managers",
           kind: "stock_drift_alert",
           payload: {
             drifted: result.drifted,

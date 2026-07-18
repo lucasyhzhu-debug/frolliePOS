@@ -4,6 +4,28 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-18 — v1.4.11: repoint inventory alerts (low-stock + drift) to the managers chat
+
+> Built + gated 2026-07-13 (as a pending WIP labeled v1.4.8), shipped 2026-07-18 renumbered — the
+> v1.4.8/v1.4.9 slots were consumed by the self-handover hotfixes.
+
+- **Problem fixed (PROD):** `low_stock_alert` (a SKU dropping below its threshold) and
+  `stock_drift_alert` (the nightly stock-recon mismatch) both routed to the Telegram **`inventory`**
+  role — which has **no chat bound** on prod. Every such alert was `resolveOutletChatId`-unbound →
+  audited as a skip → **delivered nowhere**. The owner was getting *no* low-stock warnings at all,
+  and never knew: the sends silently no-op'd rather than erroring.
+- **Fix:** repointed both dispatches `inventory → managers` (FrolliePOS_Approvals — the single
+  operational chat the booth actually watches, already bound per-outlet). Three callsites:
+  `inventory/internal.ts` low-stock `dispatchRoleAlert`, and the drift cron's
+  `resolveOutletChatId` + `sendTemplate` in `inventory/cronActions.ts`. Both roles are
+  `ROLE_SCOPE = "outlet"`, so **per-outlet routing is preserved**; `sendTemplate` selects the
+  renderer by `kind` (not `role`), so the **message shape is unchanged** — only the destination moves.
+- **`inventory` role is now vestigial** — still defined in `KNOWN_TELEGRAM_ROLES` and bindable via
+  `/mgr/telegram-chats`, but no sender targets it. Left in place (harmless); full removal (UI + role
+  list + backfill) deferred to a later cleanup.
+- Tests: `sendStockRecon` drift-bound case and `perOutletRouting` (c) low-stock + (e) drift-cron now
+  seed + assert **managers** chats. Full gate green. `package.json` → `1.4.11`.
+
 ## 2026-07-18 — v1.4.10: QRIS paid-callback forwarder (POS → Recipe Master)
 
 - **Problem solved:** the shared Xendit account delivers every QR-paid event to THIS POS's
