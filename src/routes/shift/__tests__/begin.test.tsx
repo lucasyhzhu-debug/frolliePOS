@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter } from "react-router";
+import { ConvexError } from "convex/values";
 
 // ---------------------------------------------------------------------------
 // Mocks — defined before any imports of the module under test
@@ -97,6 +98,8 @@ describe("ShiftBegin route (/shift/begin)", () => {
     mockStartShift.mockReset();
     mockStartShift.mockResolvedValue({ ok: true });
     mockNavigate.mockReset();
+    mockClearSession.mockReset();
+    mockToastError.mockReset();
     mockLoginCtx = { outletOpen: true, holderStaffId: null, holderName: null };
   });
 
@@ -173,7 +176,7 @@ describe("ShiftBegin route (/shift/begin)", () => {
   }
 
   it("self-handover rejection: shows the Resume/Logout prompt — does NOT auto-logout or navigate home", async () => {
-    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
+    mockStartShift.mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"));
     renderRoute();
     await submitWizard();
 
@@ -187,7 +190,7 @@ describe("ShiftBegin route (/shift/begin)", () => {
 
   it("self-handover → Resume: re-submits startShift with allowSelfResume + navigates home", async () => {
     mockStartShift
-      .mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"))
+      .mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"))
       .mockResolvedValueOnce({ ok: true });
     renderRoute();
     await submitWizard();
@@ -209,8 +212,24 @@ describe("ShiftBegin route (/shift/begin)", () => {
     expect(mockClearSession).not.toHaveBeenCalled();
   });
 
+  it("unknown startShift error (e.g. prod-redacted 'Server Error') surfaces a toast — never a silent dead button (PROD 2026-07-18)", async () => {
+    // Prod redacts non-ConvexError messages to "Server Error", so the FE can't
+    // pattern-match them. The tap must still produce VISIBLE feedback.
+    mockStartShift.mockRejectedValueOnce(new Error("Server Error"));
+    renderRoute();
+    await submitWizard();
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+    });
+    // No resume prompt (not a self-handover), no navigation, no logout.
+    expect(screen.queryByRole("dialog", { name: /resume/i })).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockClearSession).not.toHaveBeenCalled();
+  });
+
   it("self-handover → Logout: ends the session and returns to /login (no home nav)", async () => {
-    mockStartShift.mockRejectedValueOnce(new Error("SELF_HANDOVER_NOT_ALLOWED"));
+    mockStartShift.mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"));
     renderRoute();
     await submitWizard();
 

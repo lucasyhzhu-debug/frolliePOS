@@ -4,6 +4,30 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-18 — v1.4.8: fix the dead "Mulai shift" button — prod redacts plain server errors, so the resume prompt never fired
+
+- **Problem fixed (PROD, booth-down):** Sisca (solo, post-handover) tapped **"Mulai shift"** on
+  `/shift/begin` ~30 times over 18 minutes — nothing happened, no error, no prompt. Server logs show
+  `startShift` rejecting every tap with `SELF_HANDOVER_NOT_ALLOWED`. The v1.4.7 Resume/Log-out prompt
+  is keyed on matching that string client-side — but **Convex production deployments redact plain
+  `Error` messages to a generic "Server Error"** (only `ConvexError.data` reaches the client), so the
+  match never fired, the catch **rethrew into a handler with no catch**, and the tap died as a silent
+  unhandled rejection. The v1.4.7 prompt therefore **never worked on prod** — it was only ever seen in
+  dev, where messages pass through unredacted.
+- **Root-cause fix (BE):** `startShift`'s self-handover rejection and `_managerOverrideCommit_internal`'s
+  stale-snapshot `SHIFT_CHANGED` (the two FE-pattern-matched throws in the shifts module) are now
+  `ConvexError`s, so their codes survive prod redaction and reach `errorMessage()` intact.
+- **Defense-in-depth (FE, `/shift/begin`):** `onComplete`/`onResume` never rethrow silently — any
+  unmatched `startShift` error now surfaces a toast, so a future unconverted error degrades to a
+  visible generic message instead of a dead button.
+- **Known follow-up (systemic):** every other FE-matched plain `Error` (`INVALID_PIN`, `TOKEN_EXPIRED`,
+  approval-flow guards, …) silently falls back to generic copy on prod for the same reason — functional
+  but degraded. Sweep to `ConvexError` tracked in ROADMAP.
+- Tests: BE asserts both rejections are `ConvexError`s with the code in `.data` (would have caught this —
+  the old mocks encoded the dev-only plain-Error shape); FE self-handover mocks now reject with
+  `ConvexError`; new FE test: prod-redacted "Server Error" → toast, no navigation, no silence. Full gate
+  green — 1627 tests, typecheck, lint. `package.json` → `1.4.8`.
+
 ## 2026-07-05 — v1.4.7: solo-operator self-handover resume (unblock the stranded-open-booth deadlock)
 
 - **Problem fixed (PROD, Block M):** a staffer (Sasi) opened the booth via SOP, worked a full shift,

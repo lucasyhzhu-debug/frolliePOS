@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalQuery, internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { stepValidator } from "./schema";
@@ -187,7 +187,9 @@ export const _managerOverrideCommit_internal = internalMutation({
       // is present, acting on live state) and is unaffected.
       if (args.expectedShiftId !== undefined) {
         if (!holder || (holder._id as unknown as string) !== args.expectedShiftId) {
-          throw new Error("SHIFT_CHANGED");
+          // ConvexError so the code survives prod redaction and the /approve UI
+          // can show its stale-shift message (plain Error → "Server Error").
+          throw new ConvexError("SHIFT_CHANGED");
         }
       }
 

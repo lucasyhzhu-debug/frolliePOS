@@ -9,6 +9,7 @@
  */
 
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { expect, test, beforeEach, afterEach } from "vitest";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
@@ -443,16 +444,21 @@ test("C1: _managerOverrideCommit with stale expectedShiftId throws SHIFT_CHANGED
   expect(liveShiftId).not.toBe(staleShiftId);
 
   // Stale request (expectedShiftId = H_A's id) with closeOutlet:true → SHIFT_CHANGED.
-  await expect(
-    t.mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
+  // Must be a ConvexError: prod redacts plain Errors to "Server Error", so the
+  // /approve UI could never show its stale-shift message (PROD 2026-07-18 class).
+  const staleErr = await t
+    .mutation(internal.shifts.shiftsInternal._managerOverrideCommit_internal, {
       idempotencyKey: "c1-stale",
       deviceId,
       managerStaffId: managerId,
       closeOutlet: true,
       source: "telegram_approval",
       expectedShiftId: staleShiftId as unknown as string,
-    }),
-  ).rejects.toThrow(/SHIFT_CHANGED/);
+    })
+    .then(() => null, (e: unknown) => e);
+  expect(staleErr).toBeInstanceOf(ConvexError);
+  // toContain: convex-test JSON-quotes data; .includes is how the FE matches.
+  expect((staleErr as ConvexError<string>).data).toContain("SHIFT_CHANGED");
 
   // The throw rolled everything back: outlet still open, H_B's hold still active.
   const status = await t.query(internal.outlets.status._getOutletStatus_internal, { outletId });
