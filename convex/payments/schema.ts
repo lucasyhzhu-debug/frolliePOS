@@ -39,14 +39,15 @@ export const paymentsTables = {
   // it is re-read from env at send time.
   pos_qris_forward_outbox: defineTable({
     raw_payload: v.string(),                                // exact raw body to re-POST
-    xendit_qr_id: v.string(),                               // dedup + audit (from matchKey)
+    xendit_qr_id: v.string(),                               // audit + dedup component (from matchKey)
+    xendit_payment_id: v.optional(v.string()),              // per-payment id (data.id) — one qr_id can receive MULTIPLE payments; dedup is (qr_id, payment_id)
     status: v.union(v.literal("pending"), v.literal("delivered"), v.literal("failed")),
     attempts: v.number(),                                   // incremented per delivery try
     last_error: v.optional(v.string()),                     // truncated
     created_at: v.number(),
-    next_attempt_at: v.number(),                            // backoff schedule
+    next_attempt_at: v.number(),                            // backoff schedule (also the stale-chain detector — see enqueue re-drive)
     delivered_at: v.optional(v.number()),
   })
-    .index("by_xendit_qr_id", ["xendit_qr_id"])             // dedup read (OCC-race-safe) — without it enqueue degrades to a .collect() scan
-    .index("by_status_next", ["status", "next_attempt_at"]), // optional future sweeper for due pending rows
+    .index("by_qr_payment", ["xendit_qr_id", "xendit_payment_id"]) // dedup read (OCC-race-safe) — pair, NOT qr alone: a 2nd payment on the same QR must forward
+    .index("by_status_next", ["status", "next_attempt_at"]), // requeue break-glass + delivered-purge + optional future sweeper
 };

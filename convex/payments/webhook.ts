@@ -49,7 +49,7 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
   // so a report failure can never break the return-200 Xendit contract.
   try {
     const raw = await request.text();
-    const { paid, matchKey, amount, receiptId, paymentSource, kind } = parseXenditWebhook(raw);
+    const { paid, matchKey, amount, receiptId, paymentSource, kind, paymentId } = parseXenditWebhook(raw);
 
     if (paid && matchKey) {
       try {
@@ -80,6 +80,8 @@ export const xenditWebhook = httpAction(async (ctx, request) => {
         await ctx.runMutation(internal.payments.forwarder._enqueueForward_internal, {
           raw_payload: raw,
           xendit_qr_id: matchKey,
+          // (qr_id, payment_id) pair dedup — one QR can receive multiple payments.
+          ...(paymentId !== undefined ? { xendit_payment_id: paymentId } : {}),
         });
       } catch (err) {
         console.error("[xendit] webhook forward enqueue error:", err);

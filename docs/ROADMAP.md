@@ -23,29 +23,6 @@ All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outle
 
 ---
 
-## v1.4.10 — QRIS paid-callback forwarder (POS → Recipe Master) — **PLAN**
-
-> Renumbered from v1.4.9 (taken by the 2026-07-18 self-handover unblock hotfix — version set at ship time).
-
-> Patch bump — integration/hardening slice within payments. Version set at ship.
-
-The shared Xendit account delivers every QR-paid event to THIS POS's account-level webhook; Recipe Master (Frollie Pro) QR orders therefore never auto-reconcile (per-QR `callback_url` proven ignored by Xendit v2, order `0716-001`). This slice adds a durable transactional-outbox forwarder in `payments/webhook.ts` that relays genuine QR-payment callbacks to the RM endpoint — refund-gated, `kind`-annotated (POS paid path byte-identical), dedup + retry/backoff, 401-terminal, second-secret authed, kill-switch. Two staffreview gates passed; RM side already shipped (`product_master` Phase 1).
-
-- **Spec:** [`superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/specs/2026-07-16-qris-pos-rm-forwarder.md)
-- **Plan:** [`superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md`](./superpowers/plans/2026-07-16-qris-pos-rm-forwarder.md)
-- **Handoff:** `.claude/handoff/execute_2026-07-16-qris-pos-rm-forwarder.md`
-- **Code:** implemented + triple-reviewed + simplified on `feature/qris-pos-rm-forwarder` (T1–T5, 1077 tests green). Pending live-env go-live steps (env vars on both deployments, POS deploy, live smoke, reconcile `0716-001`).
-
-### Deferred follow-up — outbox durability & recovery hardening (NOT built in v1.4.9)
-
-The v1.4.9 outbox is at-least-once via a single self-rescheduling delivery chain. Triple-review surfaced three recovery gaps in the **same durability class the spec deliberately deferred** (§4.2 Impr#5 / §6 scheduler-loss). Track as a follow-up hardening slice:
-
-- **Recovery sweeper** over `pos_qris_forward_outbox.by_status_next` (index already shipped for this): a cron re-drives rows stuck `pending` (a delivery action that died before any terminal mutation — transient `no available workers` on the initial read, worker eviction, deploy mid-action). MUST add a lease/claim (`claimed_at`) so it never double-drives a row with a live in-flight delivery (double POST + double increment — see the `handleRetryable` note in `forwarder.ts`).
-- **`fetch` timeout / AbortController** in `_deliverForward` so a hung RM connection hits the catch→retry path deterministically instead of being platform-killed (which strands the row until the sweeper). Verify `AbortSignal.timeout` in the Convex V8 action runtime before relying on it.
-- **Requeue path for `failed` rows** (401 terminal): after an operator corrects a mismatched `FROLLIE_FORWARD_SECRET`/`XENDIT_CALLBACK_TOKEN`, every forward during the bad window is terminal-`failed` with no automated recovery — an admin "requeue failed forwards" mutation (or make 401 retryable-with-cap) recovers them.
-
----
-
 ## v1.3.2 — full-route empty / loading / error sweep (post-launch hardening) — **SPEC**
 
 > Version named ahead; set at ship. Hardening pass within v1.3.x, so a patch bump.
@@ -117,6 +94,7 @@ Launch hardening built the happy path. Several operational routes have no define
 
 ## Backlog (unscheduled)
 
+- **Forwarder outbox — residual durability follow-up (from v1.4.10)** — shipped at ship time: `(qr_id, payment_id)` pair dedup, stale-pending re-drive on Xendit redelivery, `_requeueFailed_internal` break-glass, missing-secret fail-fast, `FROLLIE_FORWARD_URL` override, delivered-purge cron. Remaining (same durability class the spec deferred): a proactive recovery **sweeper cron** over `by_status_next` with a lease/claim field (the enqueue re-drive only fires when Xendit happens to redeliver), and a **`fetch` timeout / AbortController** in `_deliverForward` (verify `AbortSignal.timeout` in the Convex V8 action runtime) so a hung RM connection hits the retry path deterministically.
 - **ConvexError sweep (systemic, from the v1.4.8 P0)** — Convex **prod** redacts plain `throw new Error("CODE")` to a generic "Server Error"; only `ConvexError.data` reaches clients. Every FE `errorMessage(err).includes("CODE")` match against a plain-Error throw has therefore been silently falling back to generic copy on prod since day one (`INVALID_PIN`, `LOCKED_OUT`, `TOKEN_EXPIRED`/`TOKEN_INVALID`/`REQUEST_RESOLVED` in the approve flow, `NOT_MANAGER`, activation codes, …). v1.4.8 converted only the two dead-button/wrong-message cases in `shifts/` (`SELF_HANDOVER_NOT_ALLOWED`, `SHIFT_CHANGED`). Sweep: convert every FE-matched throw to `ConvexError`, update the mocks that encode the dev-only plain-Error shape (that's what masked this), and add a lint fence or convention note so new FE-matched codes are born as `ConvexError`.
 - **Owner cockpit polish** — outlet-list/skeleton motion-safe pulse; `listOutlets` returns active-only (add `_listAllOutlets_internal` so the outlet-list inactive badge + wizard dup-code pre-warn cover deactivated outlets once a deactivation flow exists); wire or drop the `provision_managers_chat` toggle (deferred cockpit Minors). **From persona-UAT (dev + prod read-only, 2026-06-26 — 0 blocker / 0 bug; the actionable correctness/UX cluster already shipped in PR #146):** translate or drop the "Cockpit" eyebrow word under both locales (ID currently shows "PEMILIK · COCKPIT"); replace the free-text timezone field with an IANA-zone dropdown (inline validation already prevents bad data); staff-access selector affordance clarity (it's a square multi-select checkbox — add "(choose one or more)" + a selected-count on Review); desktop dashboard max-width container + responsive outlet-card grid; PKW code-badge contrast on the amber card; EN/ID toggle shape consistency; switcher dropdown overlapping "Sign out"; step-1 selected-mode checkmark; "Net = Gross when no refunds" hint. **Needs a dev run:** cockpit offline + loading/skeleton states (C10) and live cross-plane `NOT_BOOTH_SESSION` rejection (cockpit↔booth — covered by convex-tests, not exercised live).
 - **Outlet deactivation/archive flow** — there is currently NO delete- or deactivate-outlet path, so a mistaken/test outlet created via the cockpit wizard is permanent (blocks safe clone-create UAT on prod). Add an owner-gated `deactivateOutlet` (sets `active: false`, excluded from active feeds/switcher/owners-cron) + the `_listAllOutlets_internal` above for the inactive badge.

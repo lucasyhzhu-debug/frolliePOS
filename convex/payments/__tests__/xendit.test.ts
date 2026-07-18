@@ -63,6 +63,9 @@ describe("parseXenditWebhook", () => {
       receiptId: "RRN-1",
       paymentSource: "DANA",
       kind: "qr_payment",
+      // Per-payment id (data.id) exposed for the forwarder's (qr_id, payment_id)
+      // dedup — one QR can receive multiple payments.
+      paymentId: "qr_inner",
     });
   });
 

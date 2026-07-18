@@ -67,6 +67,17 @@ crons.daily(
   {},
 );
 
+// 02:20 WIB forward-outbox housekeeping = 19:20 UTC (slotted after
+// api-housekeeping 19:00, before telegram-log-purge 20:05). Purges DELIVERED
+// pos_qris_forward_outbox rows older than 30 days (raw payloads are dead weight
+// once forwarded); `failed` rows are kept as reconciliation forensics.
+crons.daily(
+  "forward-outbox-housekeeping",
+  { hourUTC: 19, minuteUTC: 20 },
+  internal.payments.forwarder._purgeDeliveredForwards_internal,
+  {},
+);
+
 // 03:10 WIB owner-auth housekeeping = 20:10 UTC. Pre-dawn, slotted between
 // telegram-log-purge (20:05) and settlement-sync (20:30) — no collision.
 // Deletes expired/consumed owner_auth_otp rows and expired/redeemed
