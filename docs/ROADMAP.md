@@ -23,7 +23,9 @@ All four Specs (data plane, owner auth, cockpit UI + queries, Telegram per-outle
 
 ---
 
-## v1.4.9 — QRIS paid-callback forwarder (POS → Recipe Master) — **PLAN**
+## v1.4.10 — QRIS paid-callback forwarder (POS → Recipe Master) — **PLAN**
+
+> Renumbered from v1.4.9 (taken by the 2026-07-18 self-handover unblock hotfix — version set at ship time).
 
 > Patch bump — integration/hardening slice within payments. Version set at ship.
 

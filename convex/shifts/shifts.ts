@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -122,9 +122,9 @@ export const startShift = mutation({
     sessionId: v.id("staff_sessions"),
     steps: v.array(stepValidator),
     openCount: v.optional(v.number()),
-    // Solo-resume opt-in (issue #158). Absent/false on the normal auto-path so a
-    // self-handover is still refused; the FE sets it true ONLY on the operator's
-    // explicit "Resume shift" tap in /shift/begin. See the self-handover block below.
+    // Vestigial (v1.4.9): the self-handover guard is removed — a self-handover
+    // start is now always allowed. Kept + tolerated so a cached pre-1.4.9 FE
+    // whose "Resume shift" prompt still sends it doesn't hit a validator error.
     allowSelfResume: v.optional(v.boolean()),
   },
   handler: withIdempotency<StartShiftArgs, OpenBoothResult>(
@@ -140,26 +140,16 @@ export const startShift = mutation({
 
       const prev = await ctx.runQuery(internal.shifts.shiftsInternal._lastEndedShift_internal, { outletId });
 
-      // SELF-handover: the staffer who just handed the booth over is trying to re-claim
-      // it. Handover is person-to-person (ADR-053), and a silent self-reclaim mints a
-      // holder that then STRANDS the booth on the next lock (holder with no live session,
-      // recoverable only by a manager). So the AUTO path still refuses it — keeping the
-      // booth open + holderless lets the ACTUAL next (different) person log in freely.
-      //
-      // BUT when the handover-er is the ONLY staffer present (solo booth), that hard
-      // refusal strands HER on an open booth with no in-app escape (PROD 2026-07-05,
-      // Block M — recovery needed an ops DB write). `allowSelfResume` is her EXPLICIT
-      // opt-in from the /shift/begin "Resume shift" prompt — she consciously re-claims
-      // the shift she just handed over. It's her own shift + she's PIN-authenticated,
-      // so no manager gate (mirrors lock/resume, ADR-053). issue #158.
+      // Self-handover is ALLOWED (v1.4.9, owner decision — reverses the v1.4.4
+      // #157 guard). A staffer who hands over and logs back in (solo booth, or
+      // the replacement never showed) just starts her shift again — no prompt,
+      // no error. She is PIN-authenticated on her own prior shift; blocking her
+      // repeatedly took the booth down in prod (2026-07-05, 2026-07-18). The
+      // residual footgun the guard targeted — she re-claims, LOCKS, leaves, and
+      // the holder row blocks the next person — is closed by the v1.5.0 peer
+      // takeover slice (#161); until then a manager override recovers it.
+      // Audited via metadata.self_resume so managers keep visibility.
       const isSelfHandover = !!(prev && prev.ended_via === "handover" && prev.staff_id === staffId);
-      if (isSelfHandover && args.allowSelfResume !== true) {
-        // ConvexError, NOT plain Error: prod redacts plain Error messages to
-        // "Server Error", so the FE's SELF_HANDOVER match never fired and the
-        // /shift/begin resume prompt was unreachable — every "Mulai shift" tap
-        // died silently (PROD 2026-07-18). Only ConvexError.data reaches clients.
-        throw new ConvexError("SELF_HANDOVER_NOT_ALLOWED");
-      }
       const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
         internal.shifts.shiftsInternal._startShift_internal,
         {
