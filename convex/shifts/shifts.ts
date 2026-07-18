@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -154,7 +154,11 @@ export const startShift = mutation({
       // so no manager gate (mirrors lock/resume, ADR-053). issue #158.
       const isSelfHandover = !!(prev && prev.ended_via === "handover" && prev.staff_id === staffId);
       if (isSelfHandover && args.allowSelfResume !== true) {
-        throw new Error("SELF_HANDOVER_NOT_ALLOWED");
+        // ConvexError, NOT plain Error: prod redacts plain Error messages to
+        // "Server Error", so the FE's SELF_HANDOVER match never fired and the
+        // /shift/begin resume prompt was unreachable — every "Mulai shift" tap
+        // died silently (PROD 2026-07-18). Only ConvexError.data reaches clients.
+        throw new ConvexError("SELF_HANDOVER_NOT_ALLOWED");
       }
       const shiftId: Id<"pos_shifts"> = await ctx.runMutation(
         internal.shifts.shiftsInternal._startShift_internal,

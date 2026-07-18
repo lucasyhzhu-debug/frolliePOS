@@ -9,6 +9,7 @@ import ShiftWizard, { type WizardStep, type ConfirmedStep } from "@/components/p
 import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 import { errorMessage } from "@/lib/errors";
+import { toast } from "sonner";
 
 /**
  * /shift/begin — session-FULL incoming-shift count → startShift.
@@ -107,7 +108,11 @@ export default function ShiftBegin() {
         setResumePrompt({ confirmed, countChanged });
         return;
       }
-      throw err;
+      // Anything else must be VISIBLE — a rethrow here dies as an unhandled
+      // rejection and the terminal button reads as dead (PROD 2026-07-18: prod
+      // redacts plain server Errors to "Server Error", which is unmatched by
+      // design). Toast + stay on the wizard so the operator can retry.
+      toast.error(errorMessage(err));
     }
   }
 
@@ -116,6 +121,9 @@ export default function ShiftBegin() {
     setResumePending(true);
     try {
       await runStart(resumePrompt.confirmed, resumePrompt.countChanged, true);
+    } catch (err) {
+      // Same visibility rule as onComplete: never die silently.
+      toast.error(errorMessage(err));
     } finally {
       setResumePending(false);
     }

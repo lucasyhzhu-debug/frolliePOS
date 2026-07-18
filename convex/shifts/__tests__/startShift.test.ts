@@ -1,4 +1,5 @@
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { expect, test } from "vitest";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
@@ -67,6 +68,30 @@ test("startShift rejects a self-handover: the outgoing staffer cannot immediatel
   // person can log in and take over cleanly.
   const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
   expect(holder).toBeNull();
+  await drainScheduled(t);
+});
+
+test("self-handover rejection is a ConvexError — prod redacts plain Errors to 'Server Error', which made the FE resume prompt unreachable (dead 'Mulai shift' button, PROD 2026-07-18)", async () => {
+  const t = convexTest(schema);
+  const { staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
+  await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
+
+  const siscaSession2 = await t.run(async (ctx: any) => {
+    const dev = await ctx.db.query("registered_devices")
+      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
+    return ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
+  });
+
+  const err = await t
+    .mutation(api.shifts.shifts.startShift, { idempotencyKey: "s-self-ce", sessionId: siscaSession2, steps: [], openCount: 8 })
+    .then(() => null, (e: unknown) => e);
+
+  // Must be a ConvexError so the CODE survives prod redaction and reaches the
+  // client via .data — a plain Error's message is replaced by "Server Error".
+  // toContain (not toBe): convex-test JSON-quotes data across its syscall
+  // boundary, and .includes is exactly how the FE matches (begin.tsx).
+  expect(err).toBeInstanceOf(ConvexError);
+  expect((err as ConvexError<string>).data).toContain("SELF_HANDOVER_NOT_ALLOWED");
   await drainScheduled(t);
 });
 
