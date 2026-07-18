@@ -1,7 +1,7 @@
 {
   "name": "frollie-pos",
   "private": true,
-  "version": "1.4.8",
+  "version": "1.4.9",
   "type": "module",
   "description": "Frollie POS — internal point-of-sale for the Frollie stall. PWA on Android. Same Convex project as product_master.",
   "scripts": {

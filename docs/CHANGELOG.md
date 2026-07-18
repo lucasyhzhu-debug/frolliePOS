@@ -4,6 +4,27 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-07-18 — v1.4.9: remove the self-handover block entirely — handover-then-relogin just starts the shift
+
+- **Owner decision (reverses the v1.4.4 #157 guard):** a staffer who hands the booth over and logs back
+  in (solo booth, or the replacement never showed) **should not be blocked at all**. The guard caused
+  two booth-down incidents (2026-07-05, 2026-07-18); the v1.4.7/v1.4.8 Resume prompt was a patch on a
+  block that shouldn't exist.
+- **BE:** `startShift` no longer throws `SELF_HANDOVER_NOT_ALLOWED` — a self-handover start succeeds
+  unconditionally and is audited with `self_resume: true` (manager visibility preserved). The
+  `allowSelfResume` arg is kept as a tolerated no-op so a cached pre-1.4.9 FE that still sends it
+  doesn't hit a validator error.
+- **FE (`/shift/begin`):** Resume/Log-out prompt machinery deleted (~80 lines) — the route is a plain
+  one-step count wizard again; the any-error toast (v1.4.8) stays. Dead dictionary keys
+  (`shiftBegin.selfHandoverBlocked`, `shiftBegin.resume*`) removed from both locales.
+- **Accepted residual risk (on record):** the #157 guard prevented "re-claim → lock → leave", where the
+  holder row blocks the *next* person until `managerOverride`. That scenario is properly closed by the
+  planned **v1.5.0 peer takeover of a locked booth** (#161); until then a manager override recovers it.
+- Tests: self-handover start now asserts success + `self_resume` audit; legacy-arg tolerance covered;
+  FE prompt tests replaced by no-flag + visible-error invariants. Full gate green — 1624 tests,
+  typecheck, lint. `package.json` → `1.4.9`. *(The QRIS→RM forwarder slice, previously pencilled as
+  v1.4.9 in ROADMAP, ships as v1.4.10 — version is set at ship time.)*
+
 ## 2026-07-18 — v1.4.8: fix the dead "Mulai shift" button — prod redacts plain server errors, so the resume prompt never fired
 
 - **Problem fixed (PROD, booth-down):** Sisca (solo, post-handover) tapped **"Mulai shift"** on

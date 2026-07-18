@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderWithLocale as render, screen, fireEvent, waitFor } from "@/test-utils";
 import { MemoryRouter } from "react-router";
-import { ConvexError } from "convex/values";
 
 // ---------------------------------------------------------------------------
 // Mocks — defined before any imports of the module under test
@@ -175,44 +174,21 @@ describe("ShiftBegin route (/shift/begin)", () => {
     fireEvent.click(screen.getByRole("button", { name: /start shift/i }));
   }
 
-  it("self-handover rejection: shows the Resume/Logout prompt — does NOT auto-logout or navigate home", async () => {
-    mockStartShift.mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"));
-    renderRoute();
-    await submitWizard();
+  // Self-handover is no longer special-cased on the FE (v1.4.9): the BE allows
+  // it, so it's just the happy path above. The tests below pin the two invariants
+  // that remain: no legacy resume flag is sent, and no failure is ever silent.
 
-    // The resume prompt appears; no automatic logout / navigation.
-    await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
-    });
-    expect(mockClearSession).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
-  it("self-handover → Resume: re-submits startShift with allowSelfResume + navigates home", async () => {
-    mockStartShift
-      .mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"))
-      .mockResolvedValueOnce({ ok: true });
+  it("startShift is called WITHOUT the legacy allowSelfResume flag (v1.4.9 — BE allows self-handover unconditionally)", async () => {
     renderRoute();
     await submitWizard();
 
     await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
+      expect(mockStartShift).toHaveBeenCalledTimes(1);
     });
-    fireEvent.click(screen.getByRole("button", { name: /resume shift/i }));
-
-    await waitFor(() => {
-      expect(mockStartShift).toHaveBeenCalledTimes(2);
-    });
-    // The retry carries the opt-in flag; the first attempt did not.
     expect(mockStartShift.mock.calls[0][0].allowSelfResume).toBeUndefined();
-    expect(mockStartShift.mock.calls[1][0].allowSelfResume).toBe(true);
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
-    });
-    expect(mockClearSession).not.toHaveBeenCalled();
   });
 
-  it("unknown startShift error (e.g. prod-redacted 'Server Error') surfaces a toast — never a silent dead button (PROD 2026-07-18)", async () => {
+  it("any startShift error (e.g. prod-redacted 'Server Error') surfaces a toast — never a silent dead button (PROD 2026-07-18)", async () => {
     // Prod redacts non-ConvexError messages to "Server Error", so the FE can't
     // pattern-match them. The tap must still produce VISIBLE feedback.
     mockStartShift.mockRejectedValueOnce(new Error("Server Error"));
@@ -222,26 +198,8 @@ describe("ShiftBegin route (/shift/begin)", () => {
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledTimes(1);
     });
-    // No resume prompt (not a self-handover), no navigation, no logout.
-    expect(screen.queryByRole("dialog", { name: /resume/i })).toBeNull();
+    // No navigation, no logout — the operator stays on the wizard to retry.
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockClearSession).not.toHaveBeenCalled();
-  });
-
-  it("self-handover → Logout: ends the session and returns to /login (no home nav)", async () => {
-    mockStartShift.mockRejectedValueOnce(new ConvexError("SELF_HANDOVER_NOT_ALLOWED"));
-    renderRoute();
-    await submitWizard();
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: /resume/i })).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /log out for the next person/i }));
-
-    await waitFor(() => {
-      expect(mockClearSession).toHaveBeenCalledTimes(1);
-    });
-    expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
-    expect(mockNavigate).not.toHaveBeenCalledWith("/", { replace: true });
   });
 });

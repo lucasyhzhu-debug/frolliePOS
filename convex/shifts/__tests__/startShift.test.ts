@@ -1,5 +1,4 @@
 import { convexTest } from "convex-test";
-import { ConvexError } from "convex/values";
 import { expect, test } from "vitest";
 import schema from "../../schema";
 import { api, internal } from "../../_generated/api";
@@ -46,63 +45,43 @@ test("startShift begins a new shift after handover; prev_shift_id links", async 
   await drainScheduled(t);
 });
 
-test("startShift rejects a self-handover: the outgoing staffer cannot immediately re-claim the booth", async () => {
+test("startShift ALLOWS a self-handover: the outgoing staffer just starts again — no block, audited self_resume (v1.4.9, reverses #157)", async () => {
   const t = convexTest(schema);
   const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
   await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
 
   // Sisca (the SAME staff who just handed over) logs back in on the now-holderless
-  // open outlet. This is the prod footgun: re-claiming mints a holder that strands
-  // on the next lock. startShift must refuse it.
+  // open outlet — solo booth, or the replacement never showed. Blocking her here
+  // took the booth down twice in prod (2026-07-05, 2026-07-18). She starts freely.
   const siscaSession2 = await t.run(async (ctx: any) => {
     const dev = await ctx.db.query("registered_devices")
       .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
     return ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
   });
 
-  await expect(
-    t.mutation(api.shifts.shifts.startShift, { idempotencyKey: "s-self", sessionId: siscaSession2, steps: [], openCount: 8 }),
-  ).rejects.toThrow(/SELF_HANDOVER_NOT_ALLOWED/);
-
-  // No holder was created — the booth stays open + holderless so the ACTUAL next
-  // person can log in and take over cleanly.
-  const holder = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
-  expect(holder).toBeNull();
-  await drainScheduled(t);
-});
-
-test("self-handover rejection is a ConvexError — prod redacts plain Errors to 'Server Error', which made the FE resume prompt unreachable (dead 'Mulai shift' button, PROD 2026-07-18)", async () => {
-  const t = convexTest(schema);
-  const { staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
-  await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
-
-  const siscaSession2 = await t.run(async (ctx: any) => {
-    const dev = await ctx.db.query("registered_devices")
-      .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
-    return ctx.db.insert("staff_sessions", { staff_id: staffId, device_id: "d1", started_at: Date.now(), ended_at: null, end_reason: null, outlet_id: dev.outlet_id });
+  const res = await t.mutation(api.shifts.shifts.startShift, {
+    idempotencyKey: "s-self", sessionId: siscaSession2, steps: [], openCount: 8,
   });
+  expect(res.ok).toBe(true);
 
-  const err = await t
-    .mutation(api.shifts.shifts.startShift, { idempotencyKey: "s-self-ce", sessionId: siscaSession2, steps: [], openCount: 8 })
-    .then(() => null, (e: unknown) => e);
+  const held = await t.query(internal.shifts.shiftsInternal._getActiveShift_internal, { outletId });
+  expect(held?.staff_id).toBe(staffId);
+  expect(held?.started_via).toBe("handover");
 
-  // Must be a ConvexError so the CODE survives prod redaction and reaches the
-  // client via .data — a plain Error's message is replaced by "Server Error".
-  // toContain (not toBe): convex-test JSON-quotes data across its syscall
-  // boundary, and .includes is exactly how the FE matches (begin.tsx).
-  expect(err).toBeInstanceOf(ConvexError);
-  expect((err as ConvexError<string>).data).toContain("SELF_HANDOVER_NOT_ALLOWED");
+  // Managers keep visibility: the self re-claim is audited with self_resume:true.
+  const audit = await t.run(async (ctx: any) =>
+    ctx.db.query("audit_log").order("desc").take(20),
+  );
+  const startRow = audit.find((r: any) => r.action === "shift.start");
+  expect(JSON.parse(startRow.metadata).self_resume).toBe(true);
   await drainScheduled(t);
 });
 
-test("startShift with allowSelfResume:true lets the self-handover staffer re-claim the booth (solo-resume, issue #158)", async () => {
+test("startShift tolerates the legacy allowSelfResume arg from a cached pre-1.4.9 FE (no validator error)", async () => {
   const t = convexTest(schema);
   const { outletId, staffId, sessionId } = await seedOpen(t); // holder = Sisca (staffId)
   await t.mutation(api.shifts.shifts.handover, { idempotencyKey: "h1", sessionId, steps: [] });
 
-  // Sisca (the SAME staff who just handed over) logs back in — but she's the only
-  // person present, so she explicitly opts to RESUME. allowSelfResume bypasses the
-  // SELF_HANDOVER_NOT_ALLOWED guard and mints her holder so she can operate again.
   const siscaSession2 = await t.run(async (ctx: any) => {
     const dev = await ctx.db.query("registered_devices")
       .withIndex("by_device_id", (q: any) => q.eq("device_id", "d1")).first();
