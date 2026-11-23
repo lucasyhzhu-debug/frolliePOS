@@ -334,6 +334,12 @@ This calls the same logic as the 22:00 WIB cron but skips the resilient retry wr
 
 ## Environment variable reference
 
+> **v1.4.12 (decommission):** outbound templated sends are **off unless `TELEGRAM_SENDS_ENABLED`
+> is exactly `"true"`** on the deployment. With it unset, `sendTemplate` throws
+> `TELEGRAM_SENDS_DISABLED` before doing anything. Re-enable without a deploy:
+> `npx convex env set TELEGRAM_SENDS_ENABLED true --prod`. See
+> [`RUNBOOK-decommission.md`](./RUNBOOK-decommission.md).
+
 Set on **both** dev (`npx convex env set KEY VALUE`) and prod (`npx convex env set KEY VALUE --prod`). PowerShell mangles negative chat IDs — see [LESSON 8](#lesson-8--powershell-mangles-negative-chat-ids).
 
 | Variable | Required | Notes |

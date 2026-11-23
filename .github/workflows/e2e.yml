@@ -1,20 +1,11 @@
 name: e2e
 
+# DECOMMISSION (v1.4.12, 2026-11-22): automatic triggers removed — Frollie POS
+# is being shut down, and every run redeploys + reseeds the shared dev Convex
+# deployment. Manual runs only (Actions tab → e2e → Run workflow). To restore
+# the push / pull_request triggers, recover them from git history (v1.4.11).
 on:
-  push:
-    branches: [main]
-    # Docs/planning-only changes can't affect e2e behaviour — skip the run to
-    # save CI minutes (and avoid needlessly queueing on the shared-dev lock below).
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".claude/**"
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".claude/**"
+  workflow_dispatch:
 
 # Serialize ALL e2e runs onto one global lock — every run reseeds the SHARED dev
 # Convex deployment (fixture `seed:reset`), so two overlapping runs (e.g. a PR run

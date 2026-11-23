@@ -147,3 +147,27 @@ it("throws OUTLET_REQUIRED_FOR_ROLE when outletId missing for outlet-scoped role
     }),
   ).rejects.toThrow(/OUTLET_REQUIRED_FOR_ROLE:managers/);
 });
+
+it("throws TELEGRAM_SENDS_DISABLED and never calls Telegram when the switch is not \"true\"", async () => {
+  vi.stubEnv("TELEGRAM_SENDS_ENABLED", "");
+  const t = convexTest(schema);
+  await expect(
+    t.action(api.telegram.send.sendTemplate, {
+      role: "owners",
+      kind: "manual_payment_override",
+      payload: {
+        amount_idr: 50000,
+        reason: "BCA",
+        requester_name: "L",
+        approve_url: "https://x/approve/tok",
+      },
+      idempotencyKey: "send-disabled-1",
+      chatIdOverride: "-100any",
+    }),
+  ).rejects.toThrow("TELEGRAM_SENDS_DISABLED");
+  expect(fetch).not.toHaveBeenCalled();
+  // The guard runs before any write: no outbound debug-trail row.
+  const logRows = await t.run((ctx) => ctx.db.query("telegram_log").collect());
+  expect(logRows).toHaveLength(0);
+  vi.unstubAllEnvs();
+});

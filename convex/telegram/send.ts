@@ -226,6 +226,17 @@ export const sendTemplate = action({
     outletId: v.optional(v.id("outlets")),
   },
   handler: async (ctx, args): Promise<{ message_id: number; ok: true }> => {
+    // Step 0: decommission off switch (v1.4.12). Outbound sends are OFF unless
+    // TELEGRAM_SENDS_ENABLED is exactly "true" on the deployment. Checked before
+    // any read so a disabled send touches nothing (no chat resolve, no cache
+    // write, no telegram_log row). Throws rather than returning a fake success:
+    // interactive callers (approval requests, owner OTP) must see a failure and
+    // take their existing send-failed path, not wait for a message that was
+    // never sent. Not audited — one row per paid sale (txn_ticker) is noise.
+    if (process.env.TELEGRAM_SENDS_ENABLED !== "true") {
+      throw new Error("TELEGRAM_SENDS_DISABLED");
+    }
+
     // Step 1: action-level idempotency pre-check
     const cached = await ctx.runQuery(internal.idempotency.internal._lookup_internal, {
       key: args.idempotencyKey,

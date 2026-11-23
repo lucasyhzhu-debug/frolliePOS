@@ -41,6 +41,10 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // Outbound Telegram is OFF by default since the v1.4.12 decommission switch
+    // (convex/telegram/send.ts). Tests exercise the send path, so enable it here;
+    // the disabled branch is covered explicitly in telegram/__tests__/send.test.ts.
+    env: { TELEGRAM_SENDS_ENABLED: "true" },
     include: [
       "src/**/*.{test,spec}.{ts,tsx}",
       "convex/**/*.test.ts",

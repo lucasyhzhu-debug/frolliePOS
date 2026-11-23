@@ -4,6 +4,44 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
+## 2026-11-23 — v1.4.12: decommission step 1 — Telegram sends off, crons removed, e2e CI manual-only
+
+> Frollie POS is being shut down. This is the repo-side first step; the infrastructure steps
+> (Xendit callback repoint, data export, Convex pause/delete, Vercel) are in
+> [`RUNBOOK-decommission.md`](./RUNBOOK-decommission.md). **Takes effect on the production deploy
+> that follows the merge to `main`** — nothing changes on prod before that.
+
+- **Outbound Telegram is OFF by default.** `telegram.send.sendTemplate` — the single funnel for
+  every templated message (approvals, owners/managers daily summaries, sales ticker, low-stock,
+  drift, recount, shift signoff, `system_error`, `owner_otp`) — now throws
+  `TELEGRAM_SENDS_DISABLED` as its first statement unless the deployment env var
+  **`TELEGRAM_SENDS_ENABLED` is exactly `"true"`**. The guard runs before the idempotency lookup,
+  the chat resolve and every write, so a disabled send leaves no `telegram_log` or cache row.
+  **Reversal needs no deploy:** `npx convex env set TELEGRAM_SENDS_ENABLED true --prod`.
+  - It **throws** rather than returning a fake success, so interactive callers take their existing
+    send-failed path instead of waiting for a message that was never sent.
+  - **Consequences while off:** off-booth approval requests (manual payment, refund, PIN reset,
+    spoilage, shift override) fail at the send step — the booth manager-PIN path is unaffected;
+    **owner-cockpit OTP login cannot deliver its code**.
+  - **Not covered:** replies to commands typed at the bot (`/activatepos`, `/register`,
+    `/start <token>`) go through `sendTelegramHtml`, not `sendTemplate`, and still answer until the
+    bot webhook is removed (runbook step 7).
+- **7 of 8 crons removed** from `convex/crons.ts`: `owners-shift-summary`, `stock-recon`,
+  `telegram-updates-purge`, `telegram-log-purge`, `api-housekeeping`,
+  `forward-outbox-housekeeping`, `owner-auth-housekeeping`. The retention purges go too so nothing
+  deletes rows ahead of the final export.
+- **`settlement-sync` is deliberately KEPT** until the deployment is paused: it sends no Telegram
+  message, and payouts for the final trading days land after the last sale — removing it early
+  would leave those days unreconciled in the exported data.
+- **`e2e` GitHub workflow is manual-only** (`workflow_dispatch`); the `push`/`pull_request`
+  triggers are gone, so CI no longer redeploys and reseeds the shared dev Convex deployment.
+- **Unchanged on purpose:** the Xendit payment webhook and the QRIS POS → Recipe Master forwarder.
+  Recipe Master depends on that forwarder until the Xendit callback URL is repointed (runbook
+  step 2), so this release does not touch it.
+- Tests: new `send.test.ts` case (disabled → throws, no `fetch`, no `telegram_log` row);
+  `vitest.config.ts` sets `TELEGRAM_SENDS_ENABLED=true` for the suite. 1653/1653 green.
+  `package.json` → `1.4.12`.
+
 ## 2026-07-18 — v1.4.11: repoint inventory alerts (low-stock + drift) to the managers chat
 
 > Built + gated 2026-07-13 (as a pending WIP labeled v1.4.8), shipped 2026-07-18 renumbered — the
