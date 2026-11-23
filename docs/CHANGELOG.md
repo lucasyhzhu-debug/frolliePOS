@@ -4,7 +4,7 @@ All notable changes to Frollie POS. Format follows Frollie Pro's conventions. Th
 
 **Versioning** — entries set the version: a **major feature bumps the minor** (`x.1 → x.2`); a **sub-feature or fix bumps the patch** (`x.x.1 → x.x.2`). The **latest entry's version must equal `package.json.version`** — enforced by `tools/version-sync.test.mjs` (CI fails on drift), so the in-app version label can never go stale again.
 
-## 2026-11-22 — v1.4.12: decommission step 1 — Telegram sends off, crons removed, e2e CI manual-only
+## 2026-11-23 — v1.4.12: decommission step 1 — Telegram sends off, crons removed, e2e CI manual-only
 
 > Frollie POS is being shut down. This is the repo-side first step; the infrastructure steps
 > (Xendit callback repoint, data export, Convex pause/delete, Vercel) are in
